@@ -138,7 +138,7 @@ class Writer:
 
 def cache_version(lab, store, provider, version):
     """The version as Lab in `lab` would have cached it from History."""
-    target = lab / "market-cache" / provider
+    target = lab / "history-cache" / provider
     parts = {}
     for key, part in version.manifest["partitions"].items():
         relative = f"files/{part['sha256']}.parquet"

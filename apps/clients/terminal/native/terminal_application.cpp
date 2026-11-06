@@ -123,7 +123,7 @@ Application::Impl::invoke(const std::string& method, const json& params)
         // Selection must remain bound to the same market operation while preparation
         // suspends. Read-only queries do not acquire this gate.
         std::optional<ResetFlag> market_admission;
-        if (method == "market.open" || method == "market.close") {
+        if (method == "quotes.open" || method == "quotes.close") {
             if (market_busy)
                 throw Error(
                     ErrorCode::conflict,
@@ -147,7 +147,7 @@ Application::Impl::Impl()
         co_return snapshot();
     });
     register_connection_commands();
-    register_market_commands();
+    register_data_commands();
     register_lab_commands();
     log::info("terminal started");
     // The one client certificate Market, Lab and Trading hosts register.
@@ -235,7 +235,8 @@ json Application::Impl::Publication::render() const
     result["lab"] = lab;
     result["trading_connections"] = settings->trading;
     result["client_fingerprint"] = settings->client_fingerprint;
-    result["market_endpoint"] = settings->market_endpoint;
+    result["quotes_endpoint"] = settings->quotes_endpoint;
+    result["history_endpoint"] = settings->history_endpoint;
     result["revision"] = revision;
     result["refreshed_at_ms"] = refreshed_at_ms;
     return result;

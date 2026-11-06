@@ -1,4 +1,4 @@
-import { CatalogState } from "../../src/generated/asterion/history_pb";
+import { CatalogState } from "../../src/generated/asterion/quotes_pb";
 import { useState } from "react";
 import { useMarket } from "../../src/host/market";
 import { decimal, decimalText } from "../../src/bridge/decimal";

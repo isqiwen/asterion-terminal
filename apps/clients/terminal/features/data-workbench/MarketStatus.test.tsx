@@ -1,13 +1,13 @@
 import { act, render, screen } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { marketData } from "../../src/bridge/market-data";
+import { quotesData } from "../../src/bridge/quotes-data";
 import {
   BoardSchema,
   FeedState,
   StatusSchema,
   type Status,
-} from "../../src/generated/asterion/history_pb";
+} from "../../src/generated/asterion/quotes_pb";
 import { registerTerminalFeatures } from "../../src/host/feature-registry";
 import { useMarket, type MarketView } from "../../src/host/market";
 import { readySnapshot } from "../../src/testing/core";
@@ -15,7 +15,7 @@ import type { TerminalContext } from "../contract";
 import { MarketStatus } from "./MarketStatus";
 import { feature } from "./feature";
 
-vi.mock("../../src/bridge/market-data", () => ({ marketData: vi.fn() }));
+vi.mock("../../src/bridge/quotes-data", () => ({ quotesData: vi.fn() }));
 vi.mock("../../src/host/market", () => ({ useMarket: vi.fn() }));
 registerTerminalFeatures([feature]);
 afterEach(() => vi.useRealTimers());
@@ -37,8 +37,8 @@ const reply = (failedSubscriptions = 0) =>
 let replies: ((status: Status) => void)[] = [];
 beforeEach(() => {
   replies = [];
-  vi.mocked(marketData).mockReset();
-  vi.mocked(marketData).mockImplementation(
+  vi.mocked(quotesData).mockReset();
+  vi.mocked(quotesData).mockImplementation(
     () => new Promise(resolve => replies.push(resolve as (status: Status) => void)),
   );
 });
@@ -63,7 +63,7 @@ function mount(view: MarketView | null) {
 test("status reads do not overlap, and reconnecting or closing a Market discards pending replies", async () => {
   vi.useFakeTimers();
   const select = mount(market());
-  expect(marketData).toHaveBeenCalledWith({ case: "getStatus", value: {} });
+  expect(quotesData).toHaveBeenCalledWith({ case: "getStatus", value: {} });
   await act(async () => vi.advanceTimersByTime(9000));
   expect(replies).toHaveLength(1);
   select(market(false));

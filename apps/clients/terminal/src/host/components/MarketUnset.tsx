@@ -1,15 +1,27 @@
 import { translate, useLocale } from "../../i18n";
 
-// What a page that reads Market shows before one is set, and the way to set it.
-export function MarketUnset({ openSettings }: { openSettings: (page: "market") => void }) {
+// What a page that reads a service shows before one is set, and the way to set it.
+export function MarketUnset({
+  openSettings,
+  page = "market",
+}: {
+  openSettings: (page: "market" | "history") => void;
+  page?: "market" | "history";
+}) {
   useLocale();
   const t = (key: string) => translate("host", key);
   return (
     <div className="workspace-empty">
-      <strong>{t("尚未设置行情服务")}</strong>
-      <p>{t("在设置里填写行情服务的地址和证书指纹后即可使用。")}</p>
-      <button className="primary" onClick={() => openSettings("market")}>
-        {t("添加行情连接")}
+      <strong>{t(page === "market" ? "尚未设置行情服务" : "尚未设置历史数据服务")}</strong>
+      <p>
+        {t(
+          page === "market"
+            ? "在设置里填写行情服务的地址和证书指纹后即可使用。"
+            : "在设置里填写历史数据服务的地址和证书指纹后即可使用。",
+        )}
+      </p>
+      <button className="primary" onClick={() => openSettings(page)}>
+        {t(page === "market" ? "添加行情连接" : "添加历史数据连接")}
       </button>
     </div>
   );

@@ -6,12 +6,12 @@ import subprocess
 import sys
 import tempfile
 sys.path.insert(0,str(Path(__file__).parents[1]/'support'))
-from history_installation import history_host
+from history_installation import quotes_host
 import history_tls
 build=Path(sys.argv[1]).resolve()
 script=Path(__file__).parents[1]/'acceptance/ctp_market.py'
 with tempfile.TemporaryDirectory(prefix='ast-market-acceptance-test-') as folder:
-    with history_host(build,Path(folder)/'market') as port:
+    with quotes_host(build,Path(folder)/'market') as port:
         tls = Path(folder) / 'market/config/tls'
         history_tls.install_client(tls, Path(folder) / 'client')
         for symbol, success in [('rb2610',True),('rb2999',False)]:

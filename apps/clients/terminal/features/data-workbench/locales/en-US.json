@@ -149,5 +149,5 @@
   "连接行情服务后查看状态。": "Connect to Market to see its status.",
   "行情服务失联，状态未知。": "Market is unreachable; status unknown.",
   "{days} 天": "{days} days",
-  "行情服务以 Tushare 为准，缺的部分从公开来源补齐；关闭此页面不会停止采集。": "Market takes Tushare as authoritative and fills gaps from public sources; closing this page does not stop acquisition."
+  "历史数据服务以 Tushare 为准，缺的部分从公开来源补齐；关闭此页面不会停止采集。": "History takes Tushare as authoritative and fills gaps from public sources; closing this page does not stop acquisition."
 }

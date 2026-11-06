@@ -2,7 +2,7 @@
 #include "acquisition/manager.hpp"
 #include "acquisition/snapshot_intake.hpp"
 #include "warehouse/research.hpp"
-#include <asterion/history.pb.h>
+#include <asterion/quotes.pb.h>
 #include <asterion/system/process/child.hpp>
 #include <gtest/gtest.h>
 #include <fstream>
@@ -28,7 +28,7 @@ protected:
 
     void snapshot(const std::string& day, const std::string& contract, const std::string& tick)
     {
-        ::history::Catalog catalog;
+        ::quotes::Catalog catalog;
         auto* item = catalog.add_contracts();
         item->set_contract(contract);
         item->mutable_price_tick()->set_text(tick);

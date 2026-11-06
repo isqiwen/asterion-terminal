@@ -6,7 +6,7 @@ import en from "./locales/en-US.json";
 import "./data.css";
 import type { TerminalContext, TerminalFeature } from "../contract";
 import { Coverage } from "./Coverage";
-// The data page reads the remote Market warehouse, acquisitions and recording status.
+// The data page reads the remote History warehouse, acquisitions and recording status.
 export const feature: TerminalFeature = {
   id: "asterion.terminal.data-workbench",
   languageResources: { "zh-CN": zh, "en-US": en },

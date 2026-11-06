@@ -20,7 +20,7 @@ async function startUp() {
   const status = await request("runtime.snapshot");
   await Promise.allSettled([
     request("lab.endpoint"),
-    status.market_endpoint && "host" in status.market_endpoint ? request("market.open") : null,
+    status.quotes_endpoint && "host" in status.quotes_endpoint ? request("quotes.open") : null,
   ]);
 }
 

@@ -15,8 +15,8 @@ python3 scripts/prepare_ctp.py
 # Build against this glibc so cpptrace enables signal-safe _dl_find_object.
 conan install . -s build_type=Release -s compiler.cppstd=20 -o with_tests=False -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing '--build=cpptrace/*'
 cmake --preset conan-release
-# The recording and trading hosts' own releases, one self-extracting script each.
-CMAKE_BUILD_PARALLEL_LEVEL=4 cmake --build build/Release --target asterion_history_setup asterion_trading_setup
+# The service hosts' own releases, one self-extracting script each.
+CMAKE_BUILD_PARALLEL_LEVEL=4 cmake --build build/Release --target asterion_quotes_setup asterion_history_setup asterion_trading_setup
 mkdir -p /output
 version=$(cat VERSION)
-cp "build/Release/Asterion-History-${version}-linux-x86_64.sh" "build/Release/Asterion-Trading-${version}-linux-x86_64.sh" /output/
+cp "build/Release/Asterion-Quotes-${version}-linux-x86_64.sh" "build/Release/Asterion-History-${version}-linux-x86_64.sh" "build/Release/Asterion-Trading-${version}-linux-x86_64.sh" /output/

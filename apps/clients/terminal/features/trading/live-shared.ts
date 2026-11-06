@@ -3,7 +3,7 @@ import { decimal } from "../../src/bridge/decimal";
 import type { TradingCall } from "../../src/bridge/trading";
 import { Offset } from "../../src/generated/asterion/common_pb";
 import type { RiskLimitsSchema } from "../../src/generated/asterion/common_pb";
-import type { CatalogContract } from "../../src/generated/asterion/history_pb";
+import type { CatalogContract } from "../../src/generated/asterion/quotes_pb";
 import {
   BrokerState,
   Environment,

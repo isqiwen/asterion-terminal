@@ -3,7 +3,7 @@ configure_file(config/logging.json ${CMAKE_BINARY_DIR}/config/logging.json COPYO
 # Saved Market and Trading connections and the strategy repository setting.
 add_library(asterion_terminal_settings STATIC
   native/trading_connections.cpp
-  native/market_endpoint.cpp
+  native/saved_endpoint.cpp
 )
 target_include_directories(asterion_terminal_settings PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/native)
 target_link_libraries(asterion_terminal_settings PUBLIC asterion_system)
@@ -11,10 +11,11 @@ asterion_target_defaults(asterion_terminal_settings)
 
 add_library(asterion_terminal_application STATIC
   native/python_runtime.cpp
-  native/market_client.cpp
+  native/quotes_client.cpp
+  native/history_client.cpp
   native/terminal_application.cpp
   native/commands_connections.cpp
-  native/commands_market.cpp
+  native/commands_data.cpp
   native/commands_lab.cpp
   native/trading_client.cpp
   native/lab_supervisor.cpp

@@ -1,6 +1,6 @@
-#include "market_client.hpp"
+#include "quotes_client.hpp"
 #include <asterion/system/ipc/tcp_channel.hpp>
-#include <asterion/protocol/history.hpp>
+#include <asterion/protocol/quotes.hpp>
 #include <chrono>
 #include <iostream>
 #include <thread>
@@ -18,13 +18,13 @@ int main(int argc, char** argv)
         };
         asterion::terminal::ServiceEndpoint endpoint{
             "127.0.0.1",
-            "market-data",
+            "Quotes",
             static_cast<std::uint16_t>(std::stoi(argv[1])),
             {},
             identity
         };
         asterion::terminal::ServiceIo io;
-        auto watch = asterion::terminal::MarketWatch::open(io, endpoint).get();
+        auto watch = asterion::terminal::QuotesWatch::open(io, endpoint).get();
         const auto take = [&] {
             return io
                 .submit<asterion::Json>(
@@ -51,14 +51,14 @@ int main(int argc, char** argv)
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
         const auto call = [&](asterion::Json request) {
-            return asterion::terminal::call_market(io, endpoint, std::move(request)).get();
+            return asterion::terminal::call_quotes(io, endpoint, std::move(request)).get();
         };
         const auto status = call({{"getStatus", asterion::Json::object()}}).at("getStatus");
         if (status.at("feed").at("state") != "FEED_STATE_CONNECTED" || status.at("subscribed") != 1
             || std::stoi(status.at("outOfOrderQuotes").get<std::string>()) < 1)
             return 11;
         watch.reset();
-        auto again = asterion::terminal::MarketWatch::open(io, endpoint).get();
+        auto again = asterion::terminal::QuotesWatch::open(io, endpoint).get();
         return call({{"getStatus", asterion::Json::object()}}).contains("getStatus") ? 0 : 5;
     } catch (const std::exception& e) {
         std::cerr << e.what();

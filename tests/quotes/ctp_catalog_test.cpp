@@ -1,10 +1,10 @@
-#include "support/history_host.hpp"
+#include "support/quotes_host.hpp"
 #include "ctp_catalog.hpp"
 #include "ctp_support.hpp"
 #include <asterion/base/error.hpp>
 #include <asterion/system/process/child.hpp>
 #include <asterion/system/ipc/local_channel.hpp>
-#include <asterion/protocol/history.hpp>
+#include <asterion/protocol/quotes.hpp>
 #include <gtest/gtest.h>
 #include <thread>
 using namespace asterion;
@@ -155,9 +155,9 @@ TEST(CtpCatalogService, EmptyWatchlistLoadsMarketAndQueriesRemainResponsive)
         }
     } cleanup{directory};
 
-    testing_support::MarketHost host(directory, "catalog-slow");
+    testing_support::QuotesHost host(directory, "catalog-slow");
     host.start();
-    namespace wire = ::history;
+    namespace wire = ::quotes;
     auto call = [&](wire::Request request) {
         request.set_id(1);
         auto channel = host.open();

@@ -1,5 +1,5 @@
 #include "sina.hpp"
-#include <asterion/history.pb.h>
+#include <asterion/quotes.pb.h>
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <fstream>
@@ -120,7 +120,7 @@ Rows Sina::daily(const std::string& exchange, const std::string& day)
     if (!std::filesystem::exists(file))
         return {};
     std::ifstream input(file, std::ios::binary);
-    ::history::Catalog catalog;
+    ::quotes::Catalog catalog;
     if (!catalog.ParseFromIstream(&input))
         throw SourceError("invalid_data", "damaged contract snapshot: " + file.string());
     Rows rows;

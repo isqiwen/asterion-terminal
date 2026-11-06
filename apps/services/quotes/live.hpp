@@ -2,10 +2,10 @@
 #include "catalog.hpp"
 #include "settings.hpp"
 #include <asterion/futures/intraday_bars.hpp>
-#include <asterion/history.pb.h>
+#include <asterion/quotes.pb.h>
 #include <chrono>
 
-namespace asterion::history {
+namespace asterion::quotes {
 
 // What one quote stream has already been sent.
 struct Sent
@@ -39,17 +39,17 @@ public:
         return minutes_;
     }
 
-    void status(::history::Status& out) const;
-    ::history::Minutes minutes(const ::common::Instrument& instrument) const;
+    void status(::quotes::Status& out) const;
+    ::quotes::Minutes minutes(const ::common::Instrument& instrument) const;
     // The selected rows (all when empty): a full board on a stream's first
     // frame or after the subscriptions changed, otherwise only what changed
     // since `sent`.
-    ::history::QuoteFrame frame(const ::history::StreamQuotes& selection, Sent& sent) const;
+    ::quotes::QuoteFrame frame(const ::quotes::StreamQuotes& selection, Sent& sent) const;
 
 private:
     void login();
     void subscribe();
-    ::history::Feed feed_state() const;
+    ::quotes::Feed feed_state() const;
 
     const Settings& settings_;
     const std::int64_t started_ms_;
@@ -69,4 +69,4 @@ private:
     Clock::time_point next_login_{}, next_refresh_{}, next_retry_{};
 };
 
-} // namespace asterion::history
+} // namespace asterion::quotes

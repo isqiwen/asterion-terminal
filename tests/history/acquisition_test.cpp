@@ -591,7 +591,7 @@ TEST_F(Acquisition, ADamagedTaskFileCostsOnlyThatTask)
 
 TEST_F(Acquisition, MarketRestartMarksUnfinishedTasksAndServesIndependentReadOnlyClients)
 {
-    testing_support::MarketHost host(root);
+    testing_support::HistoryHost host(root);
     create_directories_durably(root / "data/acquisition");
     ac::wire::AcquisitionTask pending;
     *pending.mutable_request() = request("interrupted");
@@ -599,7 +599,7 @@ TEST_F(Acquisition, MarketRestartMarksUnfinishedTasksAndServesIndependentReadOnl
     pending.set_started_ms(1);
     replace_file_durably(root / "data/acquisition/interrupted.pb", pending.SerializeAsString());
     host.start();
-    const auto call = [&](testing_support::MarketChannel& channel, ::history::Request request) {
+    const auto call = [&](testing_support::HistoryChannel& channel, ::history::Request request) {
         request.set_id(1);
         channel.send(request.SerializeAsString(), 5s);
         ::history::Response result;
@@ -759,7 +759,7 @@ TEST_F(Acquisition, InvalidMinuteLabelsVolumesAndContractIdentityAreRejected)
 
 TEST_F(Acquisition, RemoteManagementRequiresItsVerifiedCertificateAndSurvivesDisconnect)
 {
-    testing_support::MarketHost host(root);
+    testing_support::HistoryHost host(root);
     std::ifstream input(root / "config/history.json");
     auto config = Json::parse(input);
     config["acquisition"]["tushare"] = {{"requests_per_minute", 1U}};
@@ -813,7 +813,7 @@ TEST_F(Acquisition, RemoteManagementRequiresItsVerifiedCertificateAndSurvivesDis
     EXPECT_THROW(call("stranger", query), std::exception);
     auto tls = host.tls();
     tls.peers = {std::string(64, 'a')};
-    testing_support::MarketChannel wrong_pin(host.port, tls);
+    testing_support::HistoryChannel wrong_pin(host.port, tls);
     query.set_id(1);
     wrong_pin.send(query.SerializeAsString(), 2s);
     EXPECT_THROW(wrong_pin.receive(2s), std::exception);
@@ -826,7 +826,7 @@ TEST_F(Acquisition, RemotePublicTaskPublishesAfterItsAdministratorDisconnects)
     const auto* day = std::getenv("ASTERION_EXCHANGE_ACCEPTANCE_DAY");
     if (!venue || !day)
         GTEST_SKIP() << "Opt-in public exchange acceptance requires a source and day";
-    testing_support::MarketHost host(root);
+    testing_support::HistoryHost host(root);
     std::ifstream input(root / "config/history.json");
     auto config = Json::parse(input);
     config["acquisition"]["exchanges"] = {venue};

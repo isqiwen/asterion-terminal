@@ -6,9 +6,9 @@
 
 namespace asterion::history {
 
-// The History service: the market thread that owns the live market; intake that
-// takes each day's contract snapshot from disk; the composer that keeps the
-// dataset current; and the reader pool that serves datasets and acquisition tasks.
+// The History service: intake that takes each day's contract snapshot from disk,
+// the composer that keeps the dataset current, and the readers that serve it
+// and its acquisition tasks.
 class HistoryService
 {
 public:
@@ -20,8 +20,6 @@ public:
     // One request frame from a client; `can_manage` is absent for an unknown
     // certificate. Every call is answered where its route says.
     Reply serve(std::string frame, std::optional<bool> can_manage);
-    // Open quote streams end with their next frame.
-    void drain();
     void stop();
     std::shared_future<void> stopped() const;
 

@@ -4,11 +4,12 @@
 #include "terminal_application.hpp"
 #include <asterion/futures/account.hpp>
 #include <asterion/futures/history_identity.hpp>
-#include "market_client.hpp"
+#include "history_client.hpp"
+#include "quotes_client.hpp"
 #include "lab_supervisor.hpp"
 #include "program_paths.hpp"
 #include "trading_connections.hpp"
-#include "market_endpoint.hpp"
+#include "saved_endpoint.hpp"
 #include "python_runtime.hpp"
 #include "application_environment.hpp"
 #include <asterion/system/environment.hpp>
@@ -70,12 +71,13 @@ struct Application::Impl
     bool refresh_failed = false, settings_failed = false;
     void record_refresh_failure(ErrorCode code) noexcept;
     TradingConnections trading_connections{program_directory("terminal") / "data"};
-    MarketEndpoint market_endpoint{program_directory("terminal") / "data" / "market.json"};
-    // The saved recorder address for display, or a mark that it is unreadable.
-    json market_settings() const;
-    // The open Market watch the market pages read.
-    std::shared_ptr<MarketWatch> market;
-    PolledTask<ServiceEndpoint> market_address();
+    SavedEndpoint quotes_endpoint{program_directory("terminal") / "data" / "quotes.json"};
+    SavedEndpoint history_endpoint{program_directory("terminal") / "data" / "history.json"};
+    // A saved address for display, or a mark that it is unreadable.
+    json endpoint_settings(const SavedEndpoint&) const;
+    // The open quotes watch the market pages read.
+    std::shared_ptr<QuotesWatch> watch;
+    PolledTask<ServiceEndpoint> address_of(const SavedEndpoint&, const char* name);
 
     struct ResetFlag
     {
@@ -141,7 +143,8 @@ struct Application::Impl
     {
         json trading = json::array();
         std::string client_fingerprint;
-        json market_endpoint = nullptr;
+        json quotes_endpoint = nullptr;
+        json history_endpoint = nullptr;
         bool operator==(const SettingsView&) const = default;
     };
 
@@ -200,7 +203,7 @@ struct Application::Impl
     PolledTask<Response> dispatch(const json& request);
     // Commands are registered once during construction, before dispatch is possible.
     void register_connection_commands();
-    void register_market_commands();
+    void register_data_commands();
     void register_lab_commands();
     std::stop_source lifetime;
     std::shared_future<void> initialization;

@@ -7,7 +7,8 @@ Terminal、History、Lab 和 Trading 已实现行情、数据管理、研究与�
 | 应用 | 使用者可以做什么 |
 | --- | --- |
 | [Terminal](terminal/README.md) | 在 macOS Apple Silicon 或 Linux x86_64 上查看行情、编辑策略与因子、运行研究、管理数据和交易账户；支持中文和英文 |
-| [History](history/README.md) | 接收 CTP 行情；以 Tushare 为准采集历史数据，公开来源补缺；查看覆盖；发布可固定读取的数据版本 |
+| [Quotes](quotes/README.md) | 接收 CTP 行情，向 Terminal 分发 |
+| [History](history/README.md) | 以 Tushare 为准采集历史数据，公开来源补缺；查看覆盖；发布可固定读取的数据版本 |
 | [Lab](lab/README.md) | 对固定的数据与源码运行日线或分钟回测、参数扫描、滚动验证和日线因子评价；查看、比较和复现研究记录 |
 | [Trading](trading/README.md) | 发布策略包、启动和恢复实例、现场预热、授权交易、手动委托、暂停新增及平仓；独立于 Terminal、History 和 Lab 运行 |
 

@@ -4,7 +4,7 @@
 
 import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
-import type { Decimal, Empty, Error, Instrument } from "./common_pb";
+import type { Empty, Error } from "./common_pb";
 import { file_asterion_common } from "./common_pb";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file asterion/history.proto.
  */
 export const file_asterion_history: GenFile = /*@__PURE__*/
-  fileDesc("ChZhc3Rlcmlvbi9oaXN0b3J5LnByb3RvEgdoaXN0b3J5ItwGCgdSZXF1ZXN0EgoKAmlkGAEgASgEEiMKCmdldF9zdGF0dXMYCiABKAsyDS5jb21tb24uRW1wdHlIABIuCg1zdHJlYW1fcXVvdGVzGAsgASgLMhUuaGlzdG9yeS5TdHJlYW1RdW90ZXNIABIpCgtnZXRfbWludXRlcxgMIAEoCzISLmNvbW1vbi5JbnN0cnVtZW50SAASIgoJZ2V0X2JvYXJkGA0gASgLMg0uY29tbW9uLkVtcHR5SAASOQoTZ2V0X2RhdGFzZXRfdmVyc2lvbhgVIAEoCzIaLmhpc3RvcnkuR2V0RGF0YXNldFZlcnNpb25IABI1ChFyZWFkX2RhdGFzZXRfZmlsZRgWIAEoCzIYLmhpc3RvcnkuUmVhZERhdGFzZXRGaWxlSAASMgoTZ2V0X2RhdGFzZXRfc3VtbWFyeRgXIAEoCzITLmhpc3RvcnkuRGF0YXNldFJlZkgAEjMKFGdldF9kYXRhc2V0X2NvdmVyYWdlGBggASgLMhMuaGlzdG9yeS5EYXRhc2V0UmVmSAASPQoVbGlzdF9kYXRhc2V0X3ZlcnNpb25zGBsgASgLMhwuaGlzdG9yeS5MaXN0RGF0YXNldFZlcnNpb25zSAASQwoYY29tcGFyZV9kYXRhc2V0X3ZlcnNpb25zGBwgASgLMh8uaGlzdG9yeS5Db21wYXJlRGF0YXNldFZlcnNpb25zSAASLwoOZ2V0X3RhYmxlX3Jvd3MYHSABKAsyFS5oaXN0b3J5LkdldFRhYmxlUm93c0gAEjAKF2dldF9hY3F1aXNpdGlvbl9vcHRpb25zGB4gASgLMg0uY29tbW9uLkVtcHR5SAASNgoRc3RhcnRfYWNxdWlzaXRpb24YHyABKAsyGS5oaXN0b3J5LlN0YXJ0QWNxdWlzaXRpb25IABIvChRnZXRfYWNxdWlzaXRpb25fdGFzaxggIAEoCzIPLmhpc3RvcnkuVGFza0lkSAASPwoWbGlzdF9hY3F1aXNpdGlvbl90YXNrcxghIAEoCzIdLmhpc3RvcnkuTGlzdEFjcXVpc2l0aW9uVGFza3NIABItChJjYW5jZWxfYWNxdWlzaXRpb24YIiABKAsyDy5oaXN0b3J5LlRhc2tJZEgAQgYKBGNhbGwiiwcKCFJlc3BvbnNlEgoKAmlkGAEgASgEEh4KBWVycm9yGAIgASgLMg0uY29tbW9uLkVycm9ySAASJQoKZ2V0X3N0YXR1cxgKIAEoCzIPLmhpc3RvcnkuU3RhdHVzSAASLAoNc3RyZWFtX3F1b3RlcxgLIAEoCzITLmhpc3RvcnkuUXVvdGVGcmFtZUgAEicKC2dldF9taW51dGVzGAwgASgLMhAuaGlzdG9yeS5NaW51dGVzSAASIwoJZ2V0X2JvYXJkGA0gASgLMg4uaGlzdG9yeS5Cb2FyZEgAEjYKE2dldF9kYXRhc2V0X3ZlcnNpb24YFSABKAsyFy5oaXN0b3J5LkRhdGFzZXRWZXJzaW9uSAASMQoRcmVhZF9kYXRhc2V0X2ZpbGUYFiABKAsyFC5oaXN0b3J5LkRhdGFzZXRGaWxlSAASNgoTZ2V0X2RhdGFzZXRfc3VtbWFyeRgXIAEoCzIXLmhpc3RvcnkuRGF0YXNldFN1bW1hcnlIABI4ChRnZXRfZGF0YXNldF9jb3ZlcmFnZRgYIAEoCzIYLmhpc3RvcnkuRGF0YXNldENvdmVyYWdlSAASOQoVbGlzdF9kYXRhc2V0X3ZlcnNpb25zGBsgASgLMhguaGlzdG9yeS5EYXRhc2V0VmVyc2lvbnNIABI6Chhjb21wYXJlX2RhdGFzZXRfdmVyc2lvbnMYHCABKAsyFi5oaXN0b3J5LkRhdGFzZXRDaGFuZ2VIABIsCg5nZXRfdGFibGVfcm93cxgdIAEoCzISLmhpc3RvcnkuVGFibGVSb3dzSAASPgoXZ2V0X2FjcXVpc2l0aW9uX29wdGlvbnMYHiABKAsyGy5oaXN0b3J5LkFjcXVpc2l0aW9uT3B0aW9uc0gAEjUKEXN0YXJ0X2FjcXVpc2l0aW9uGB8gASgLMhguaGlzdG9yeS5BY3F1aXNpdGlvblRhc2tIABI4ChRnZXRfYWNxdWlzaXRpb25fdGFzaxggIAEoCzIYLmhpc3RvcnkuQWNxdWlzaXRpb25UYXNrSAASOwoWbGlzdF9hY3F1aXNpdGlvbl90YXNrcxghIAEoCzIZLmhpc3RvcnkuQWNxdWlzaXRpb25UYXNrc0gAEjYKEmNhbmNlbF9hY3F1aXNpdGlvbhgiIAEoCzIYLmhpc3RvcnkuQWNxdWlzaXRpb25UYXNrSABCCAoGcmVzdWx0IokCCgZTdGF0dXMSDwoHdmVyc2lvbhgBIAEoCRISCgpzdGFydGVkX21zGAIgASgDEhsKBGZlZWQYAyABKAsyDS5oaXN0b3J5LkZlZWQSJwoHY2F0YWxvZxgEIAEoCzIWLmhpc3RvcnkuQ2F0YWxvZ1N0YXR1cxISCgpzdWJzY3JpYmVkGAUgASgNEhoKDWxhc3RfcXVvdGVfbXMYBiABKANIAIgBARIbChNvdXRfb2Zfb3JkZXJfcXVvdGVzGAcgASgEEhcKD2Rpc2tfZnJlZV9ieXRlcxgIIAEoBBIcChRmYWlsZWRfc3Vic2NyaXB0aW9ucxgJIAEoDUIQCg5fbGFzdF9xdW90ZV9tcyI8CgRGZWVkEiEKBXN0YXRlGAEgASgOMhIuaGlzdG9yeS5GZWVkU3RhdGUSEQoJY3RwX2Vycm9yGAIgASgFIlkKDUNhdGFsb2dTdGF0dXMSJAoFc3RhdGUYASABKA4yFS5oaXN0b3J5LkNhdGFsb2dTdGF0ZRITCgt0cmFkaW5nX2RheRgCIAEoCRINCgVlcnJvchgDIAEoCSI3CgxTdHJlYW1RdW90ZXMSJwoLaW5zdHJ1bWVudHMYASADKAsyEi5jb21tb24uSW5zdHJ1bWVudCJYCgpRdW90ZUZyYW1lEh4KBGZ1bGwYASABKAsyDi5oaXN0b3J5LkJvYXJkSAASIQoHY2hhbmdlZBgCIAEoCzIOLmhpc3RvcnkuQm9hcmRIAEIHCgVmcmFtZSJoCgVCb2FyZBIbCgRmZWVkGAEgASgLMg0uaGlzdG9yeS5GZWVkEh8KBHJvd3MYAiADKAsyES5oaXN0b3J5LlF1b3RlUm93EiEKB2NhdGFsb2cYAyABKAsyEC5oaXN0b3J5LkNhdGFsb2civQEKCFF1b3RlUm93EiYKCmluc3RydW1lbnQYASABKAsyEi5jb21tb24uSW5zdHJ1bWVudBIrCgxzdWJzY3JpcHRpb24YAiABKA4yFS5oaXN0b3J5LlN1YnNjcmlwdGlvbhIRCgljdHBfZXJyb3IYAyABKAUSHQoFcXVvdGUYBCABKAsyDi5oaXN0b3J5LlF1b3RlEioKEWNoYW5nZV8xbV9wZXJjZW50GAUgASgLMg8uY29tbW9uLkRlY2ltYWwixAQKBVF1b3RlEh0KBGxhc3QYASABKAsyDy5jb21tb24uRGVjaW1hbBIdCgRvcGVuGAIgASgLMg8uY29tbW9uLkRlY2ltYWwSHQoEaGlnaBgDIAEoCzIPLmNvbW1vbi5EZWNpbWFsEhwKA2xvdxgEIAEoCzIPLmNvbW1vbi5EZWNpbWFsEiYKDWF2ZXJhZ2VfcHJpY2UYBSABKAsyDy5jb21tb24uRGVjaW1hbBInCg5wcmV2aW91c19jbG9zZRgGIAEoCzIPLmNvbW1vbi5EZWNpbWFsEiwKE3ByZXZpb3VzX3NldHRsZW1lbnQYByABKAsyDy5jb21tb24uRGVjaW1hbBIkCgt1cHBlcl9saW1pdBgIIAEoCzIPLmNvbW1vbi5EZWNpbWFsEiQKC2xvd2VyX2xpbWl0GAkgASgLMg8uY29tbW9uLkRlY2ltYWwSDgoGdm9sdW1lGAogASgDEiYKDW9wZW5faW50ZXJlc3QYCyABKAsyDy5jb21tb24uRGVjaW1hbBItChRvcGVuX2ludGVyZXN0X2NoYW5nZRgMIAEoCzIPLmNvbW1vbi5EZWNpbWFsEhwKBGJpZHMYDSADKAsyDi5oaXN0b3J5LkxldmVsEhwKBGFza3MYDiADKAsyDi5oaXN0b3J5LkxldmVsEhMKC3RyYWRpbmdfZGF5GA8gASgJEhgKC2V4Y2hhbmdlX21zGBAgASgDSACIAQESEwoLcmVjZWl2ZWRfbXMYESABKANCDgoMX2V4Y2hhbmdlX21zIkMKBUxldmVsEh4KBXByaWNlGAEgASgLMg8uY29tbW9uLkRlY2ltYWwSEQoEbG90cxgCIAEoA0gAiAEBQgcKBV9sb3RzIl4KB0NhdGFsb2cSJgoGc3RhdHVzGAEgASgLMhYuaGlzdG9yeS5DYXRhbG9nU3RhdHVzEisKCWNvbnRyYWN0cxgCIAMoCzIYLmhpc3RvcnkuQ2F0YWxvZ0NvbnRyYWN0IrcBCg9DYXRhbG9nQ29udHJhY3QSJgoKaW5zdHJ1bWVudBgBIAEoCzISLmNvbW1vbi5JbnN0cnVtZW50EhAKCGNvbnRyYWN0GAIgASgJEg8KB3Byb2R1Y3QYAyABKAkSDAoEbmFtZRgEIAEoCRISCgpleHBpcnlfZGF5GAUgASgJEhIKCm11bHRpcGxpZXIYBiABKAUSIwoKcHJpY2VfdGljaxgHIAEoCzIPLmNvbW1vbi5EZWNpbWFsIt8BCgdNaW51dGVzEiYKCmluc3RydW1lbnQYASABKAsyEi5jb21tb24uSW5zdHJ1bWVudBITCgt0cmFkaW5nX2RheRgCIAEoCRIsChNwcmV2aW91c19zZXR0bGVtZW50GAMgASgLMg8uY29tbW9uLkRlY2ltYWwSHQoQb2JzZXJ2ZWRfZnJvbV9tcxgEIAEoA0gAiAEBEhMKC2ludGVycnVwdGVkGAUgASgIEiAKBGJhcnMYBiADKAsyEi5oaXN0b3J5Lk1pbnV0ZUJhckITChFfb2JzZXJ2ZWRfZnJvbV9tcyKKAgoJTWludXRlQmFyEhAKCHN0YXJ0X21zGAEgASgDEh0KBG9wZW4YAiABKAsyDy5jb21tb24uRGVjaW1hbBIdCgRoaWdoGAMgASgLMg8uY29tbW9uLkRlY2ltYWwSHAoDbG93GAQgASgLMg8uY29tbW9uLkRlY2ltYWwSHgoFY2xvc2UYBSABKAsyDy5jb21tb24uRGVjaW1hbBIOCgZ2b2x1bWUYBiABKAMSJgoNYXZlcmFnZV9wcmljZRgHIAEoCzIPLmNvbW1vbi5EZWNpbWFsEiYKDW9wZW5faW50ZXJlc3QYCCABKAsyDy5jb21tb24uRGVjaW1hbBIPCgdwYXJ0aWFsGAkgASgIIh0KCkRhdGFzZXRSZWYSDwoHdmVyc2lvbhgBIAEoCSIuCgdEYXRhc2V0Eg8KB3ZlcnNpb24YASABKAkSEgoKY3JlYXRlZF9tcxgCIAEoAyJ9ChFHZXREYXRhc2V0VmVyc2lvbhIkCgdkYXRhc2V0GAEgASgLMhMuaGlzdG9yeS5EYXRhc2V0UmVmEh0KBXRhYmxlGAIgASgOMg4uaGlzdG9yeS5UYWJsZRIQCghleGNoYW5nZRgDIAEoCRIRCglhZnRlcl9rZXkYBCABKAkifQoORGF0YXNldFZlcnNpb24SIQoHZGF0YXNldBgBIAEoCzIQLmhpc3RvcnkuRGF0YXNldBIOCgZwYXJlbnQYAiABKAkSJgoKcGFydGl0aW9ucxgDIAMoCzISLmhpc3RvcnkuUGFydGl0aW9uEhAKCG5leHRfa2V5GAQgASgJIncKCVBhcnRpdGlvbhILCgNrZXkYASABKAkSHQoFdGFibGUYAiABKA4yDi5oaXN0b3J5LlRhYmxlEg4KBnNoYTI1NhgDIAEoCRIMCgRyb3dzGAQgASgEEgwKBGRheXMYBSADKAkSEgoKdGFrZW5fZnJvbRgGIAEoCSJUCg9SZWFkRGF0YXNldEZpbGUSJAoHZGF0YXNldBgBIAEoCzITLmhpc3RvcnkuRGF0YXNldFJlZhILCgNrZXkYAiABKAkSDgoGb2Zmc2V0GAMgASgEIkkKC0RhdGFzZXRGaWxlEg4KBnNoYTI1NhgBIAEoCRIMCgRzaXplGAIgASgEEg4KBm9mZnNldBgDIAEoBBIMCgRkYXRhGAQgASgMIloKDkRhdGFzZXRTdW1tYXJ5EiEKB2RhdGFzZXQYASABKAsyEC5oaXN0b3J5LkRhdGFzZXQSJQoGdGFibGVzGAIgAygLMhUuaGlzdG9yeS5UYWJsZVN1bW1hcnkidAoMVGFibGVTdW1tYXJ5Eh0KBXRhYmxlGAEgASgOMg4uaGlzdG9yeS5UYWJsZRISCgpwYXJ0aXRpb25zGAIgASgEEgwKBHJvd3MYAyABKAQSEQoJZmlyc3RfZGF5GAQgASgJEhAKCGxhc3RfZGF5GAUgASgJIiwKE0xpc3REYXRhc2V0VmVyc2lvbnMSFQoNYWZ0ZXJfdmVyc2lvbhgBIAEoCSJRCg9EYXRhc2V0VmVyc2lvbnMSKAoIdmVyc2lvbnMYASADKAsyFi5oaXN0b3J5LkRhdGFzZXRDaGFuZ2USFAoMbmV4dF92ZXJzaW9uGAIgASgJIjcKFkNvbXBhcmVEYXRhc2V0VmVyc2lvbnMSDwoHdmVyc2lvbhgBIAEoCRIMCgRiYXNlGAIgASgJInIKDURhdGFzZXRDaGFuZ2USIQoHZGF0YXNldBgBIAEoCzIQLmhpc3RvcnkuRGF0YXNldBIMCgRiYXNlGAIgASgJEg0KBWFkZGVkGAMgASgNEhAKCHJlcGxhY2VkGAQgASgNEg8KB3JlbW92ZWQYBSABKA0imgEKDEdldFRhYmxlUm93cxIkCgdkYXRhc2V0GAEgASgLMhMuaGlzdG9yeS5EYXRhc2V0UmVmEh0KBXRhYmxlGAIgASgOMg4uaGlzdG9yeS5UYWJsZRIQCghleGNoYW5nZRgDIAEoCRIRCglmaXJzdF9kYXkYBCABKAkSEAoIbGFzdF9kYXkYBSABKAkSDgoGb2Zmc2V0GAYgASgNIkwKCVRhYmxlUm93cxIPCgdjb2x1bW5zGAEgAygJEh8KBHJvd3MYAiADKAsyES5oaXN0b3J5LlRhYmxlUm93Eg0KBXRvdGFsGAMgASgNIhoKCFRhYmxlUm93Eg4KBnZhbHVlcxgBIAMoCSJrCg9EYXRhc2V0Q292ZXJhZ2USKgoIcHJvZHVjdHMYASADKAsyGC5oaXN0b3J5LlByb2R1Y3RDb3ZlcmFnZRIsCgljb250cmFjdHMYAiADKAsyGS5oaXN0b3J5LkNvbnRyYWN0Q292ZXJhZ2UiSgoPUHJvZHVjdENvdmVyYWdlEg8KB3Byb2R1Y3QYASABKAkSJgoGbW9udGhzGAIgAygLMhYuaGlzdG9yeS5Nb250aENvdmVyYWdlIj8KDU1vbnRoQ292ZXJhZ2USDQoFbW9udGgYASABKAkSDAoEZGF5cxgCIAEoDRIRCglvcGVuX2RheXMYAyABKA0iSgoQQ29udHJhY3RDb3ZlcmFnZRIQCghjb250cmFjdBgBIAEoCRIkCgZtb250aHMYAiADKAsyFC5oaXN0b3J5Lk1pbnV0ZU1vbnRoIioKC01pbnV0ZU1vbnRoEg0KBW1vbnRoGAEgASgJEgwKBGRheXMYAiABKA0iWwoSQWNxdWlzaXRpb25PcHRpb25zEhIKCmNhbl9tYW5hZ2UYASABKAgSHgoGdGFibGVzGAIgAygOMg4uaGlzdG9yeS5UYWJsZRIRCglleGNoYW5nZXMYAyADKAkimQEKEFN0YXJ0QWNxdWlzaXRpb24SCgoCaWQYASABKAkSHQoFdGFibGUYAiABKA4yDi5oaXN0b3J5LlRhYmxlEhEKCWZpcnN0X2RheRgDIAEoCRIQCghsYXN0X2RheRgEIAEoCRIRCglleGNoYW5nZXMYBSADKAkSEQoJY29udHJhY3RzGAYgAygJEg8KB3JlZmV0Y2gYByABKAgiFAoGVGFza0lkEgoKAmlkGAEgASgJIosCCg9BY3F1aXNpdGlvblRhc2sSKgoHcmVxdWVzdBgBIAEoCzIZLmhpc3RvcnkuU3RhcnRBY3F1aXNpdGlvbhIhCgVzdGF0ZRgCIAEoDjISLmhpc3RvcnkuVGFza1N0YXRlEg0KBWl0ZW1zGAMgASgEEhIKCml0ZW1zX2RvbmUYBCABKAQSEwoLaXRlbXNfZW1wdHkYBSABKAQSFQoNcmVxdWVzdHNfc2VudBgGIAEoBBIcCgVlcnJvchgHIAEoCzINLmNvbW1vbi5FcnJvchISCgpzdGFydGVkX21zGAggASgDEhgKC2ZpbmlzaGVkX21zGAkgASgDSACIAQFCDgoMX2ZpbmlzaGVkX21zIigKFExpc3RBY3F1aXNpdGlvblRhc2tzEhAKCGFmdGVyX2lkGAEgASgJIkwKEEFjcXVpc2l0aW9uVGFza3MSJwoFdGFza3MYASADKAsyGC5oaXN0b3J5LkFjcXVpc2l0aW9uVGFzaxIPCgduZXh0X2lkGAIgASgJKt8BCglGZWVkU3RhdGUSGgoWRkVFRF9TVEFURV9VTlNQRUNJRklFRBAAEhUKEUZFRURfU1RBVEVfTk9fU0RLEAESGwoXRkVFRF9TVEFURV9ESVNDT05ORUNURUQQAhIZChVGRUVEX1NUQVRFX0NPTk5FQ1RJTkcQAxIZChVGRUVEX1NUQVRFX0xPR0dJTkdfSU4QBBIYChRGRUVEX1NUQVRFX0NPTk5FQ1RFRBAFEhsKF0ZFRURfU1RBVEVfUkVDT05ORUNUSU5HEAYSFQoRRkVFRF9TVEFURV9GQUlMRUQQByqtAQoMQ2F0YWxvZ1N0YXRlEh0KGUNBVEFMT0dfU1RBVEVfVU5TUEVDSUZJRUQQABIWChJDQVRBTE9HX1NUQVRFX05PTkUQARIZChVDQVRBTE9HX1NUQVRFX0xPQURJTkcQAhIYChRDQVRBTE9HX1NUQVRFX0NBQ0hFRBADEhcKE0NBVEFMT0dfU1RBVEVfUkVBRFkQBBIYChRDQVRBTE9HX1NUQVRFX0ZBSUxFRBAFKngKDFN1YnNjcmlwdGlvbhIcChhTVUJTQ1JJUFRJT05fVU5TUEVDSUZJRUQQABIYChRTVUJTQ1JJUFRJT05fUEVORElORxABEhcKE1NVQlNDUklQVElPTl9BQ1RJVkUQAhIXChNTVUJTQ1JJUFRJT05fRkFJTEVEEAMqmAEKBVRhYmxlEhUKEVRBQkxFX1VOU1BFQ0lGSUVEEAASEgoOVEFCTEVfQ0FMRU5EQVIQARITCg9UQUJMRV9DT05UUkFDVFMQAhIPCgtUQUJMRV9EQUlMWRADEhEKDVRBQkxFX01JTlVURVMQBBIUChBUQUJMRV9TRVRUTEVNRU5UEAUSFQoRVEFCTEVfUFJJQ0VfVElDS1MQBiq9AQoJVGFza1N0YXRlEhoKFlRBU0tfU1RBVEVfVU5TUEVDSUZJRUQQABIVChFUQVNLX1NUQVRFX1FVRVVFRBABEhYKElRBU0tfU1RBVEVfUlVOTklORxACEhgKFFRBU0tfU1RBVEVfU1VDQ0VFREVEEAMSFQoRVEFTS19TVEFURV9GQUlMRUQQBBIYChRUQVNLX1NUQVRFX0NBTkNFTExFRBAFEhoKFlRBU0tfU1RBVEVfSU5URVJSVVBURUQQBmIGcHJvdG8z", [file_asterion_common]);
+  fileDesc("ChZhc3Rlcmlvbi9oaXN0b3J5LnByb3RvEgdoaXN0b3J5It0FCgdSZXF1ZXN0EgoKAmlkGAEgASgEEiMKCmdldF9zdGF0dXMYCiABKAsyDS5jb21tb24uRW1wdHlIABI5ChNnZXRfZGF0YXNldF92ZXJzaW9uGBUgASgLMhouaGlzdG9yeS5HZXREYXRhc2V0VmVyc2lvbkgAEjUKEXJlYWRfZGF0YXNldF9maWxlGBYgASgLMhguaGlzdG9yeS5SZWFkRGF0YXNldEZpbGVIABIyChNnZXRfZGF0YXNldF9zdW1tYXJ5GBcgASgLMhMuaGlzdG9yeS5EYXRhc2V0UmVmSAASMwoUZ2V0X2RhdGFzZXRfY292ZXJhZ2UYGCABKAsyEy5oaXN0b3J5LkRhdGFzZXRSZWZIABI9ChVsaXN0X2RhdGFzZXRfdmVyc2lvbnMYGyABKAsyHC5oaXN0b3J5Lkxpc3REYXRhc2V0VmVyc2lvbnNIABJDChhjb21wYXJlX2RhdGFzZXRfdmVyc2lvbnMYHCABKAsyHy5oaXN0b3J5LkNvbXBhcmVEYXRhc2V0VmVyc2lvbnNIABIvCg5nZXRfdGFibGVfcm93cxgdIAEoCzIVLmhpc3RvcnkuR2V0VGFibGVSb3dzSAASMAoXZ2V0X2FjcXVpc2l0aW9uX29wdGlvbnMYHiABKAsyDS5jb21tb24uRW1wdHlIABI2ChFzdGFydF9hY3F1aXNpdGlvbhgfIAEoCzIZLmhpc3RvcnkuU3RhcnRBY3F1aXNpdGlvbkgAEi8KFGdldF9hY3F1aXNpdGlvbl90YXNrGCAgASgLMg8uaGlzdG9yeS5UYXNrSWRIABI/ChZsaXN0X2FjcXVpc2l0aW9uX3Rhc2tzGCEgASgLMh0uaGlzdG9yeS5MaXN0QWNxdWlzaXRpb25UYXNrc0gAEi0KEmNhbmNlbF9hY3F1aXNpdGlvbhgiIAEoCzIPLmhpc3RvcnkuVGFza0lkSABCBgoEY2FsbCKPBgoIUmVzcG9uc2USCgoCaWQYASABKAQSHgoFZXJyb3IYAiABKAsyDS5jb21tb24uRXJyb3JIABIlCgpnZXRfc3RhdHVzGAogASgLMg8uaGlzdG9yeS5TdGF0dXNIABI2ChNnZXRfZGF0YXNldF92ZXJzaW9uGBUgASgLMhcuaGlzdG9yeS5EYXRhc2V0VmVyc2lvbkgAEjEKEXJlYWRfZGF0YXNldF9maWxlGBYgASgLMhQuaGlzdG9yeS5EYXRhc2V0RmlsZUgAEjYKE2dldF9kYXRhc2V0X3N1bW1hcnkYFyABKAsyFy5oaXN0b3J5LkRhdGFzZXRTdW1tYXJ5SAASOAoUZ2V0X2RhdGFzZXRfY292ZXJhZ2UYGCABKAsyGC5oaXN0b3J5LkRhdGFzZXRDb3ZlcmFnZUgAEjkKFWxpc3RfZGF0YXNldF92ZXJzaW9ucxgbIAEoCzIYLmhpc3RvcnkuRGF0YXNldFZlcnNpb25zSAASOgoYY29tcGFyZV9kYXRhc2V0X3ZlcnNpb25zGBwgASgLMhYuaGlzdG9yeS5EYXRhc2V0Q2hhbmdlSAASLAoOZ2V0X3RhYmxlX3Jvd3MYHSABKAsyEi5oaXN0b3J5LlRhYmxlUm93c0gAEj4KF2dldF9hY3F1aXNpdGlvbl9vcHRpb25zGB4gASgLMhsuaGlzdG9yeS5BY3F1aXNpdGlvbk9wdGlvbnNIABI1ChFzdGFydF9hY3F1aXNpdGlvbhgfIAEoCzIYLmhpc3RvcnkuQWNxdWlzaXRpb25UYXNrSAASOAoUZ2V0X2FjcXVpc2l0aW9uX3Rhc2sYICABKAsyGC5oaXN0b3J5LkFjcXVpc2l0aW9uVGFza0gAEjsKFmxpc3RfYWNxdWlzaXRpb25fdGFza3MYISABKAsyGS5oaXN0b3J5LkFjcXVpc2l0aW9uVGFza3NIABI2ChJjYW5jZWxfYWNxdWlzaXRpb24YIiABKAsyGC5oaXN0b3J5LkFjcXVpc2l0aW9uVGFza0gAQggKBnJlc3VsdCJGCgZTdGF0dXMSDwoHdmVyc2lvbhgBIAEoCRISCgpzdGFydGVkX21zGAIgASgDEhcKD2Rpc2tfZnJlZV9ieXRlcxgDIAEoBCIdCgpEYXRhc2V0UmVmEg8KB3ZlcnNpb24YASABKAkiLgoHRGF0YXNldBIPCgd2ZXJzaW9uGAEgASgJEhIKCmNyZWF0ZWRfbXMYAiABKAMifQoRR2V0RGF0YXNldFZlcnNpb24SJAoHZGF0YXNldBgBIAEoCzITLmhpc3RvcnkuRGF0YXNldFJlZhIdCgV0YWJsZRgCIAEoDjIOLmhpc3RvcnkuVGFibGUSEAoIZXhjaGFuZ2UYAyABKAkSEQoJYWZ0ZXJfa2V5GAQgASgJIn0KDkRhdGFzZXRWZXJzaW9uEiEKB2RhdGFzZXQYASABKAsyEC5oaXN0b3J5LkRhdGFzZXQSDgoGcGFyZW50GAIgASgJEiYKCnBhcnRpdGlvbnMYAyADKAsyEi5oaXN0b3J5LlBhcnRpdGlvbhIQCghuZXh0X2tleRgEIAEoCSJ3CglQYXJ0aXRpb24SCwoDa2V5GAEgASgJEh0KBXRhYmxlGAIgASgOMg4uaGlzdG9yeS5UYWJsZRIOCgZzaGEyNTYYAyABKAkSDAoEcm93cxgEIAEoBBIMCgRkYXlzGAUgAygJEhIKCnRha2VuX2Zyb20YBiABKAkiVAoPUmVhZERhdGFzZXRGaWxlEiQKB2RhdGFzZXQYASABKAsyEy5oaXN0b3J5LkRhdGFzZXRSZWYSCwoDa2V5GAIgASgJEg4KBm9mZnNldBgDIAEoBCJJCgtEYXRhc2V0RmlsZRIOCgZzaGEyNTYYASABKAkSDAoEc2l6ZRgCIAEoBBIOCgZvZmZzZXQYAyABKAQSDAoEZGF0YRgEIAEoDCJaCg5EYXRhc2V0U3VtbWFyeRIhCgdkYXRhc2V0GAEgASgLMhAuaGlzdG9yeS5EYXRhc2V0EiUKBnRhYmxlcxgCIAMoCzIVLmhpc3RvcnkuVGFibGVTdW1tYXJ5InQKDFRhYmxlU3VtbWFyeRIdCgV0YWJsZRgBIAEoDjIOLmhpc3RvcnkuVGFibGUSEgoKcGFydGl0aW9ucxgCIAEoBBIMCgRyb3dzGAMgASgEEhEKCWZpcnN0X2RheRgEIAEoCRIQCghsYXN0X2RheRgFIAEoCSIsChNMaXN0RGF0YXNldFZlcnNpb25zEhUKDWFmdGVyX3ZlcnNpb24YASABKAkiUQoPRGF0YXNldFZlcnNpb25zEigKCHZlcnNpb25zGAEgAygLMhYuaGlzdG9yeS5EYXRhc2V0Q2hhbmdlEhQKDG5leHRfdmVyc2lvbhgCIAEoCSI3ChZDb21wYXJlRGF0YXNldFZlcnNpb25zEg8KB3ZlcnNpb24YASABKAkSDAoEYmFzZRgCIAEoCSJyCg1EYXRhc2V0Q2hhbmdlEiEKB2RhdGFzZXQYASABKAsyEC5oaXN0b3J5LkRhdGFzZXQSDAoEYmFzZRgCIAEoCRINCgVhZGRlZBgDIAEoDRIQCghyZXBsYWNlZBgEIAEoDRIPCgdyZW1vdmVkGAUgASgNIpoBCgxHZXRUYWJsZVJvd3MSJAoHZGF0YXNldBgBIAEoCzITLmhpc3RvcnkuRGF0YXNldFJlZhIdCgV0YWJsZRgCIAEoDjIOLmhpc3RvcnkuVGFibGUSEAoIZXhjaGFuZ2UYAyABKAkSEQoJZmlyc3RfZGF5GAQgASgJEhAKCGxhc3RfZGF5GAUgASgJEg4KBm9mZnNldBgGIAEoDSJMCglUYWJsZVJvd3MSDwoHY29sdW1ucxgBIAMoCRIfCgRyb3dzGAIgAygLMhEuaGlzdG9yeS5UYWJsZVJvdxINCgV0b3RhbBgDIAEoDSIaCghUYWJsZVJvdxIOCgZ2YWx1ZXMYASADKAkiawoPRGF0YXNldENvdmVyYWdlEioKCHByb2R1Y3RzGAEgAygLMhguaGlzdG9yeS5Qcm9kdWN0Q292ZXJhZ2USLAoJY29udHJhY3RzGAIgAygLMhkuaGlzdG9yeS5Db250cmFjdENvdmVyYWdlIkoKD1Byb2R1Y3RDb3ZlcmFnZRIPCgdwcm9kdWN0GAEgASgJEiYKBm1vbnRocxgCIAMoCzIWLmhpc3RvcnkuTW9udGhDb3ZlcmFnZSI/Cg1Nb250aENvdmVyYWdlEg0KBW1vbnRoGAEgASgJEgwKBGRheXMYAiABKA0SEQoJb3Blbl9kYXlzGAMgASgNIkoKEENvbnRyYWN0Q292ZXJhZ2USEAoIY29udHJhY3QYASABKAkSJAoGbW9udGhzGAIgAygLMhQuaGlzdG9yeS5NaW51dGVNb250aCIqCgtNaW51dGVNb250aBINCgVtb250aBgBIAEoCRIMCgRkYXlzGAIgASgNIlsKEkFjcXVpc2l0aW9uT3B0aW9ucxISCgpjYW5fbWFuYWdlGAEgASgIEh4KBnRhYmxlcxgCIAMoDjIOLmhpc3RvcnkuVGFibGUSEQoJZXhjaGFuZ2VzGAMgAygJIpkBChBTdGFydEFjcXVpc2l0aW9uEgoKAmlkGAEgASgJEh0KBXRhYmxlGAIgASgOMg4uaGlzdG9yeS5UYWJsZRIRCglmaXJzdF9kYXkYAyABKAkSEAoIbGFzdF9kYXkYBCABKAkSEQoJZXhjaGFuZ2VzGAUgAygJEhEKCWNvbnRyYWN0cxgGIAMoCRIPCgdyZWZldGNoGAcgASgIIhQKBlRhc2tJZBIKCgJpZBgBIAEoCSKLAgoPQWNxdWlzaXRpb25UYXNrEioKB3JlcXVlc3QYASABKAsyGS5oaXN0b3J5LlN0YXJ0QWNxdWlzaXRpb24SIQoFc3RhdGUYAiABKA4yEi5oaXN0b3J5LlRhc2tTdGF0ZRINCgVpdGVtcxgDIAEoBBISCgppdGVtc19kb25lGAQgASgEEhMKC2l0ZW1zX2VtcHR5GAUgASgEEhUKDXJlcXVlc3RzX3NlbnQYBiABKAQSHAoFZXJyb3IYByABKAsyDS5jb21tb24uRXJyb3ISEgoKc3RhcnRlZF9tcxgIIAEoAxIYCgtmaW5pc2hlZF9tcxgJIAEoA0gAiAEBQg4KDF9maW5pc2hlZF9tcyIoChRMaXN0QWNxdWlzaXRpb25UYXNrcxIQCghhZnRlcl9pZBgBIAEoCSJMChBBY3F1aXNpdGlvblRhc2tzEicKBXRhc2tzGAEgAygLMhguaGlzdG9yeS5BY3F1aXNpdGlvblRhc2sSDwoHbmV4dF9pZBgCIAEoCSqYAQoFVGFibGUSFQoRVEFCTEVfVU5TUEVDSUZJRUQQABISCg5UQUJMRV9DQUxFTkRBUhABEhMKD1RBQkxFX0NPTlRSQUNUUxACEg8KC1RBQkxFX0RBSUxZEAMSEQoNVEFCTEVfTUlOVVRFUxAEEhQKEFRBQkxFX1NFVFRMRU1FTlQQBRIVChFUQUJMRV9QUklDRV9USUNLUxAGKr0BCglUYXNrU3RhdGUSGgoWVEFTS19TVEFURV9VTlNQRUNJRklFRBAAEhUKEVRBU0tfU1RBVEVfUVVFVUVEEAESFgoSVEFTS19TVEFURV9SVU5OSU5HEAISGAoUVEFTS19TVEFURV9TVUNDRUVERUQQAxIVChFUQVNLX1NUQVRFX0ZBSUxFRBAEEhgKFFRBU0tfU1RBVEVfQ0FOQ0VMTEVEEAUSGgoWVEFTS19TVEFURV9JTlRFUlJVUFRFRBAGYgZwcm90bzM", [file_asterion_common]);
 
 /**
  * @generated from message history.Request
@@ -32,24 +32,6 @@ export type Request = Message<"history.Request"> & {
      */
     value: Empty;
     case: "getStatus";
-  } | {
-    /**
-     * @generated from field: history.StreamQuotes stream_quotes = 11;
-     */
-    value: StreamQuotes;
-    case: "streamQuotes";
-  } | {
-    /**
-     * @generated from field: common.Instrument get_minutes = 12;
-     */
-    value: Instrument;
-    case: "getMinutes";
-  } | {
-    /**
-     * @generated from field: common.Empty get_board = 13;
-     */
-    value: Empty;
-    case: "getBoard";
   } | {
     /**
      * @generated from field: history.GetDatasetVersion get_dataset_version = 21;
@@ -158,24 +140,6 @@ export type Response = Message<"history.Response"> & {
     case: "getStatus";
   } | {
     /**
-     * @generated from field: history.QuoteFrame stream_quotes = 11;
-     */
-    value: QuoteFrame;
-    case: "streamQuotes";
-  } | {
-    /**
-     * @generated from field: history.Minutes get_minutes = 12;
-     */
-    value: Minutes;
-    case: "getMinutes";
-  } | {
-    /**
-     * @generated from field: history.Board get_board = 13;
-     */
-    value: Board;
-    case: "getBoard";
-  } | {
-    /**
      * @generated from field: history.DatasetVersion get_dataset_version = 21;
      */
     value: DatasetVersion;
@@ -271,41 +235,9 @@ export type Status = Message<"history.Status"> & {
   startedMs: bigint;
 
   /**
-   * @generated from field: history.Feed feed = 3;
-   */
-  feed?: Feed | undefined;
-
-  /**
-   * @generated from field: history.CatalogStatus catalog = 4;
-   */
-  catalog?: CatalogStatus | undefined;
-
-  /**
-   * @generated from field: uint32 subscribed = 5;
-   */
-  subscribed: number;
-
-  /**
-   * @generated from field: optional int64 last_quote_ms = 6;
-   */
-  lastQuoteMs?: bigint | undefined;
-
-  /**
-   * @generated from field: uint64 out_of_order_quotes = 7;
-   */
-  outOfOrderQuotes: bigint;
-
-  /**
-   * @generated from field: uint64 disk_free_bytes = 8;
+   * @generated from field: uint64 disk_free_bytes = 3;
    */
   diskFreeBytes: bigint;
-
-  /**
-   * Listed contracts the provider refused to subscribe; retried every few minutes.
-   *
-   * @generated from field: uint32 failed_subscriptions = 9;
-   */
-  failedSubscriptions: number;
 };
 
 /**
@@ -314,461 +246,6 @@ export type Status = Message<"history.Status"> & {
  */
 export const StatusSchema: GenMessage<Status> = /*@__PURE__*/
   messageDesc(file_asterion_history, 2);
-
-/**
- * @generated from message history.Feed
- */
-export type Feed = Message<"history.Feed"> & {
-  /**
-   * @generated from field: history.FeedState state = 1;
-   */
-  state: FeedState;
-
-  /**
-   * @generated from field: int32 ctp_error = 2;
-   */
-  ctpError: number;
-};
-
-/**
- * Describes the message history.Feed.
- * Use `create(FeedSchema)` to create a new message.
- */
-export const FeedSchema: GenMessage<Feed> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 3);
-
-/**
- * @generated from message history.CatalogStatus
- */
-export type CatalogStatus = Message<"history.CatalogStatus"> & {
-  /**
-   * @generated from field: history.CatalogState state = 1;
-   */
-  state: CatalogState;
-
-  /**
-   * @generated from field: string trading_day = 2;
-   */
-  tradingDay: string;
-
-  /**
-   * @generated from field: string error = 3;
-   */
-  error: string;
-};
-
-/**
- * Describes the message history.CatalogStatus.
- * Use `create(CatalogStatusSchema)` to create a new message.
- */
-export const CatalogStatusSchema: GenMessage<CatalogStatus> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 4);
-
-/**
- * No instruments streams every contract.
- *
- * @generated from message history.StreamQuotes
- */
-export type StreamQuotes = Message<"history.StreamQuotes"> & {
-  /**
-   * @generated from field: repeated common.Instrument instruments = 1;
-   */
-  instruments: Instrument[];
-};
-
-/**
- * Describes the message history.StreamQuotes.
- * Use `create(StreamQuotesSchema)` to create a new message.
- */
-export const StreamQuotesSchema: GenMessage<StreamQuotes> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 5);
-
-/**
- * The first frame is full; a later frame is full again or holds changes.
- *
- * @generated from message history.QuoteFrame
- */
-export type QuoteFrame = Message<"history.QuoteFrame"> & {
-  /**
-   * @generated from oneof history.QuoteFrame.frame
-   */
-  frame: {
-    /**
-     * @generated from field: history.Board full = 1;
-     */
-    value: Board;
-    case: "full";
-  } | {
-    /**
-     * @generated from field: history.Board changed = 2;
-     */
-    value: Board;
-    case: "changed";
-  } | { case: undefined; value?: undefined };
-};
-
-/**
- * Describes the message history.QuoteFrame.
- * Use `create(QuoteFrameSchema)` to create a new message.
- */
-export const QuoteFrameSchema: GenMessage<QuoteFrame> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 6);
-
-/**
- * In a changed frame, rows replace the rows of the same instrument and a
- * catalog, when present, replaces the catalog.
- *
- * @generated from message history.Board
- */
-export type Board = Message<"history.Board"> & {
-  /**
-   * @generated from field: history.Feed feed = 1;
-   */
-  feed?: Feed | undefined;
-
-  /**
-   * @generated from field: repeated history.QuoteRow rows = 2;
-   */
-  rows: QuoteRow[];
-
-  /**
-   * @generated from field: history.Catalog catalog = 3;
-   */
-  catalog?: Catalog | undefined;
-};
-
-/**
- * Describes the message history.Board.
- * Use `create(BoardSchema)` to create a new message.
- */
-export const BoardSchema: GenMessage<Board> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 7);
-
-/**
- * @generated from message history.QuoteRow
- */
-export type QuoteRow = Message<"history.QuoteRow"> & {
-  /**
-   * @generated from field: common.Instrument instrument = 1;
-   */
-  instrument?: Instrument | undefined;
-
-  /**
-   * @generated from field: history.Subscription subscription = 2;
-   */
-  subscription: Subscription;
-
-  /**
-   * @generated from field: int32 ctp_error = 3;
-   */
-  ctpError: number;
-
-  /**
-   * @generated from field: history.Quote quote = 4;
-   */
-  quote?: Quote | undefined;
-
-  /**
-   * @generated from field: common.Decimal change_1m_percent = 5;
-   */
-  change1mPercent?: Decimal | undefined;
-};
-
-/**
- * Describes the message history.QuoteRow.
- * Use `create(QuoteRowSchema)` to create a new message.
- */
-export const QuoteRowSchema: GenMessage<QuoteRow> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 8);
-
-/**
- * @generated from message history.Quote
- */
-export type Quote = Message<"history.Quote"> & {
-  /**
-   * @generated from field: common.Decimal last = 1;
-   */
-  last?: Decimal | undefined;
-
-  /**
-   * @generated from field: common.Decimal open = 2;
-   */
-  open?: Decimal | undefined;
-
-  /**
-   * @generated from field: common.Decimal high = 3;
-   */
-  high?: Decimal | undefined;
-
-  /**
-   * @generated from field: common.Decimal low = 4;
-   */
-  low?: Decimal | undefined;
-
-  /**
-   * @generated from field: common.Decimal average_price = 5;
-   */
-  averagePrice?: Decimal | undefined;
-
-  /**
-   * @generated from field: common.Decimal previous_close = 6;
-   */
-  previousClose?: Decimal | undefined;
-
-  /**
-   * @generated from field: common.Decimal previous_settlement = 7;
-   */
-  previousSettlement?: Decimal | undefined;
-
-  /**
-   * @generated from field: common.Decimal upper_limit = 8;
-   */
-  upperLimit?: Decimal | undefined;
-
-  /**
-   * @generated from field: common.Decimal lower_limit = 9;
-   */
-  lowerLimit?: Decimal | undefined;
-
-  /**
-   * @generated from field: int64 volume = 10;
-   */
-  volume: bigint;
-
-  /**
-   * @generated from field: common.Decimal open_interest = 11;
-   */
-  openInterest?: Decimal | undefined;
-
-  /**
-   * @generated from field: common.Decimal open_interest_change = 12;
-   */
-  openInterestChange?: Decimal | undefined;
-
-  /**
-   * Five levels, best first; a level nobody quotes has no price.
-   *
-   * @generated from field: repeated history.Level bids = 13;
-   */
-  bids: Level[];
-
-  /**
-   * @generated from field: repeated history.Level asks = 14;
-   */
-  asks: Level[];
-
-  /**
-   * @generated from field: string trading_day = 15;
-   */
-  tradingDay: string;
-
-  /**
-   * @generated from field: optional int64 exchange_ms = 16;
-   */
-  exchangeMs?: bigint | undefined;
-
-  /**
-   * @generated from field: int64 received_ms = 17;
-   */
-  receivedMs: bigint;
-};
-
-/**
- * Describes the message history.Quote.
- * Use `create(QuoteSchema)` to create a new message.
- */
-export const QuoteSchema: GenMessage<Quote> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 9);
-
-/**
- * @generated from message history.Level
- */
-export type Level = Message<"history.Level"> & {
-  /**
-   * @generated from field: common.Decimal price = 1;
-   */
-  price?: Decimal | undefined;
-
-  /**
-   * @generated from field: optional int64 lots = 2;
-   */
-  lots?: bigint | undefined;
-};
-
-/**
- * Describes the message history.Level.
- * Use `create(LevelSchema)` to create a new message.
- */
-export const LevelSchema: GenMessage<Level> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 10);
-
-/**
- * @generated from message history.Catalog
- */
-export type Catalog = Message<"history.Catalog"> & {
-  /**
-   * @generated from field: history.CatalogStatus status = 1;
-   */
-  status?: CatalogStatus | undefined;
-
-  /**
-   * @generated from field: repeated history.CatalogContract contracts = 2;
-   */
-  contracts: CatalogContract[];
-};
-
-/**
- * Describes the message history.Catalog.
- * Use `create(CatalogSchema)` to create a new message.
- */
-export const CatalogSchema: GenMessage<Catalog> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 11);
-
-/**
- * @generated from message history.CatalogContract
- */
-export type CatalogContract = Message<"history.CatalogContract"> & {
-  /**
-   * @generated from field: common.Instrument instrument = 1;
-   */
-  instrument?: Instrument | undefined;
-
-  /**
-   * @generated from field: string contract = 2;
-   */
-  contract: string;
-
-  /**
-   * @generated from field: string product = 3;
-   */
-  product: string;
-
-  /**
-   * @generated from field: string name = 4;
-   */
-  name: string;
-
-  /**
-   * @generated from field: string expiry_day = 5;
-   */
-  expiryDay: string;
-
-  /**
-   * @generated from field: int32 multiplier = 6;
-   */
-  multiplier: number;
-
-  /**
-   * @generated from field: common.Decimal price_tick = 7;
-   */
-  priceTick?: Decimal | undefined;
-};
-
-/**
- * Describes the message history.CatalogContract.
- * Use `create(CatalogContractSchema)` to create a new message.
- */
-export const CatalogContractSchema: GenMessage<CatalogContract> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 12);
-
-/**
- * @generated from message history.Minutes
- */
-export type Minutes = Message<"history.Minutes"> & {
-  /**
-   * @generated from field: common.Instrument instrument = 1;
-   */
-  instrument?: Instrument | undefined;
-
-  /**
-   * @generated from field: string trading_day = 2;
-   */
-  tradingDay: string;
-
-  /**
-   * @generated from field: common.Decimal previous_settlement = 3;
-   */
-  previousSettlement?: Decimal | undefined;
-
-  /**
-   * @generated from field: optional int64 observed_from_ms = 4;
-   */
-  observedFromMs?: bigint | undefined;
-
-  /**
-   * @generated from field: bool interrupted = 5;
-   */
-  interrupted: boolean;
-
-  /**
-   * @generated from field: repeated history.MinuteBar bars = 6;
-   */
-  bars: MinuteBar[];
-};
-
-/**
- * Describes the message history.Minutes.
- * Use `create(MinutesSchema)` to create a new message.
- */
-export const MinutesSchema: GenMessage<Minutes> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 13);
-
-/**
- * @generated from message history.MinuteBar
- */
-export type MinuteBar = Message<"history.MinuteBar"> & {
-  /**
-   * @generated from field: int64 start_ms = 1;
-   */
-  startMs: bigint;
-
-  /**
-   * @generated from field: common.Decimal open = 2;
-   */
-  open?: Decimal | undefined;
-
-  /**
-   * @generated from field: common.Decimal high = 3;
-   */
-  high?: Decimal | undefined;
-
-  /**
-   * @generated from field: common.Decimal low = 4;
-   */
-  low?: Decimal | undefined;
-
-  /**
-   * @generated from field: common.Decimal close = 5;
-   */
-  close?: Decimal | undefined;
-
-  /**
-   * @generated from field: int64 volume = 6;
-   */
-  volume: bigint;
-
-  /**
-   * @generated from field: common.Decimal average_price = 7;
-   */
-  averagePrice?: Decimal | undefined;
-
-  /**
-   * @generated from field: common.Decimal open_interest = 8;
-   */
-  openInterest?: Decimal | undefined;
-
-  /**
-   * @generated from field: bool partial = 9;
-   */
-  partial: boolean;
-};
-
-/**
- * Describes the message history.MinuteBar.
- * Use `create(MinuteBarSchema)` to create a new message.
- */
-export const MinuteBarSchema: GenMessage<MinuteBar> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 14);
 
 /**
  * An empty version names the current one.
@@ -787,7 +264,7 @@ export type DatasetRef = Message<"history.DatasetRef"> & {
  * Use `create(DatasetRefSchema)` to create a new message.
  */
 export const DatasetRefSchema: GenMessage<DatasetRef> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 15);
+  messageDesc(file_asterion_history, 3);
 
 /**
  * @generated from message history.Dataset
@@ -809,7 +286,7 @@ export type Dataset = Message<"history.Dataset"> & {
  * Use `create(DatasetSchema)` to create a new message.
  */
 export const DatasetSchema: GenMessage<Dataset> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 16);
+  messageDesc(file_asterion_history, 4);
 
 /**
  * @generated from message history.GetDatasetVersion
@@ -841,7 +318,7 @@ export type GetDatasetVersion = Message<"history.GetDatasetVersion"> & {
  * Use `create(GetDatasetVersionSchema)` to create a new message.
  */
 export const GetDatasetVersionSchema: GenMessage<GetDatasetVersion> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 17);
+  messageDesc(file_asterion_history, 5);
 
 /**
  * @generated from message history.DatasetVersion
@@ -873,7 +350,7 @@ export type DatasetVersion = Message<"history.DatasetVersion"> & {
  * Use `create(DatasetVersionSchema)` to create a new message.
  */
 export const DatasetVersionSchema: GenMessage<DatasetVersion> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 18);
+  messageDesc(file_asterion_history, 6);
 
 /**
  * @generated from message history.Partition
@@ -917,7 +394,7 @@ export type Partition = Message<"history.Partition"> & {
  * Use `create(PartitionSchema)` to create a new message.
  */
 export const PartitionSchema: GenMessage<Partition> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 19);
+  messageDesc(file_asterion_history, 7);
 
 /**
  * @generated from message history.ReadDatasetFile
@@ -944,7 +421,7 @@ export type ReadDatasetFile = Message<"history.ReadDatasetFile"> & {
  * Use `create(ReadDatasetFileSchema)` to create a new message.
  */
 export const ReadDatasetFileSchema: GenMessage<ReadDatasetFile> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 20);
+  messageDesc(file_asterion_history, 8);
 
 /**
  * @generated from message history.DatasetFile
@@ -976,7 +453,7 @@ export type DatasetFile = Message<"history.DatasetFile"> & {
  * Use `create(DatasetFileSchema)` to create a new message.
  */
 export const DatasetFileSchema: GenMessage<DatasetFile> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 21);
+  messageDesc(file_asterion_history, 9);
 
 /**
  * @generated from message history.DatasetSummary
@@ -998,7 +475,7 @@ export type DatasetSummary = Message<"history.DatasetSummary"> & {
  * Use `create(DatasetSummarySchema)` to create a new message.
  */
 export const DatasetSummarySchema: GenMessage<DatasetSummary> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 22);
+  messageDesc(file_asterion_history, 10);
 
 /**
  * @generated from message history.TableSummary
@@ -1035,7 +512,7 @@ export type TableSummary = Message<"history.TableSummary"> & {
  * Use `create(TableSummarySchema)` to create a new message.
  */
 export const TableSummarySchema: GenMessage<TableSummary> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 23);
+  messageDesc(file_asterion_history, 11);
 
 /**
  * Versions, newest first: from the current one, or after `after_version` when paging.
@@ -1054,7 +531,7 @@ export type ListDatasetVersions = Message<"history.ListDatasetVersions"> & {
  * Use `create(ListDatasetVersionsSchema)` to create a new message.
  */
 export const ListDatasetVersionsSchema: GenMessage<ListDatasetVersions> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 24);
+  messageDesc(file_asterion_history, 12);
 
 /**
  * @generated from message history.DatasetVersions
@@ -1080,7 +557,7 @@ export type DatasetVersions = Message<"history.DatasetVersions"> & {
  * Use `create(DatasetVersionsSchema)` to create a new message.
  */
 export const DatasetVersionsSchema: GenMessage<DatasetVersions> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 25);
+  messageDesc(file_asterion_history, 13);
 
 /**
  * @generated from message history.CompareDatasetVersions
@@ -1102,7 +579,7 @@ export type CompareDatasetVersions = Message<"history.CompareDatasetVersions"> &
  * Use `create(CompareDatasetVersionsSchema)` to create a new message.
  */
 export const CompareDatasetVersionsSchema: GenMessage<CompareDatasetVersions> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 26);
+  messageDesc(file_asterion_history, 14);
 
 /**
  * The partitions `dataset` adds to `base`, replaces in it and removes from it.
@@ -1143,7 +620,7 @@ export type DatasetChange = Message<"history.DatasetChange"> & {
  * Use `create(DatasetChangeSchema)` to create a new message.
  */
 export const DatasetChangeSchema: GenMessage<DatasetChange> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 27);
+  messageDesc(file_asterion_history, 15);
 
 /**
  * A page of a reference table of one exchange, limited to the days given;
@@ -1188,7 +665,7 @@ export type GetTableRows = Message<"history.GetTableRows"> & {
  * Use `create(GetTableRowsSchema)` to create a new message.
  */
 export const GetTableRowsSchema: GenMessage<GetTableRows> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 28);
+  messageDesc(file_asterion_history, 16);
 
 /**
  * @generated from message history.TableRows
@@ -1217,7 +694,7 @@ export type TableRows = Message<"history.TableRows"> & {
  * Use `create(TableRowsSchema)` to create a new message.
  */
 export const TableRowsSchema: GenMessage<TableRows> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 29);
+  messageDesc(file_asterion_history, 17);
 
 /**
  * @generated from message history.TableRow
@@ -1234,7 +711,7 @@ export type TableRow = Message<"history.TableRow"> & {
  * Use `create(TableRowSchema)` to create a new message.
  */
 export const TableRowSchema: GenMessage<TableRow> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 30);
+  messageDesc(file_asterion_history, 18);
 
 /**
  * @generated from message history.DatasetCoverage
@@ -1260,7 +737,7 @@ export type DatasetCoverage = Message<"history.DatasetCoverage"> & {
  * Use `create(DatasetCoverageSchema)` to create a new message.
  */
 export const DatasetCoverageSchema: GenMessage<DatasetCoverage> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 31);
+  messageDesc(file_asterion_history, 19);
 
 /**
  * @generated from message history.ProductCoverage
@@ -1282,7 +759,7 @@ export type ProductCoverage = Message<"history.ProductCoverage"> & {
  * Use `create(ProductCoverageSchema)` to create a new message.
  */
 export const ProductCoverageSchema: GenMessage<ProductCoverage> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 32);
+  messageDesc(file_asterion_history, 20);
 
 /**
  * @generated from message history.MonthCoverage
@@ -1309,7 +786,7 @@ export type MonthCoverage = Message<"history.MonthCoverage"> & {
  * Use `create(MonthCoverageSchema)` to create a new message.
  */
 export const MonthCoverageSchema: GenMessage<MonthCoverage> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 33);
+  messageDesc(file_asterion_history, 21);
 
 /**
  * @generated from message history.ContractCoverage
@@ -1333,7 +810,7 @@ export type ContractCoverage = Message<"history.ContractCoverage"> & {
  * Use `create(ContractCoverageSchema)` to create a new message.
  */
 export const ContractCoverageSchema: GenMessage<ContractCoverage> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 34);
+  messageDesc(file_asterion_history, 22);
 
 /**
  * Trading days with minutes in one month.
@@ -1357,10 +834,10 @@ export type MinuteMonth = Message<"history.MinuteMonth"> & {
  * Use `create(MinuteMonthSchema)` to create a new message.
  */
 export const MinuteMonthSchema: GenMessage<MinuteMonth> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 35);
+  messageDesc(file_asterion_history, 23);
 
 /**
- * What this client may ask Market to acquire.
+ * What this client may ask History to acquire.
  *
  * @generated from message history.AcquisitionOptions
  */
@@ -1386,10 +863,10 @@ export type AcquisitionOptions = Message<"history.AcquisitionOptions"> & {
  * Use `create(AcquisitionOptionsSchema)` to create a new message.
  */
 export const AcquisitionOptionsSchema: GenMessage<AcquisitionOptions> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 36);
+  messageDesc(file_asterion_history, 24);
 
 /**
- * The client chooses the id. Market takes what it lacks from its sources in order
+ * The client chooses the id. History takes what it lacks from its sources in order
  * of priority. No exchanges means all of them. Minutes name their contracts.
  *
  * @generated from message history.StartAcquisition
@@ -1438,7 +915,7 @@ export type StartAcquisition = Message<"history.StartAcquisition"> & {
  * Use `create(StartAcquisitionSchema)` to create a new message.
  */
 export const StartAcquisitionSchema: GenMessage<StartAcquisition> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 37);
+  messageDesc(file_asterion_history, 25);
 
 /**
  * @generated from message history.TaskId
@@ -1455,7 +932,7 @@ export type TaskId = Message<"history.TaskId"> & {
  * Use `create(TaskIdSchema)` to create a new message.
  */
 export const TaskIdSchema: GenMessage<TaskId> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 38);
+  messageDesc(file_asterion_history, 26);
 
 /**
  * Items are exchange-days, or contract-days for minutes.
@@ -1514,7 +991,7 @@ export type AcquisitionTask = Message<"history.AcquisitionTask"> & {
  * Use `create(AcquisitionTaskSchema)` to create a new message.
  */
 export const AcquisitionTaskSchema: GenMessage<AcquisitionTask> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 39);
+  messageDesc(file_asterion_history, 27);
 
 /**
  * Newest first; 20 a page.
@@ -1533,7 +1010,7 @@ export type ListAcquisitionTasks = Message<"history.ListAcquisitionTasks"> & {
  * Use `create(ListAcquisitionTasksSchema)` to create a new message.
  */
 export const ListAcquisitionTasksSchema: GenMessage<ListAcquisitionTasks> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 40);
+  messageDesc(file_asterion_history, 28);
 
 /**
  * @generated from message history.AcquisitionTasks
@@ -1557,130 +1034,7 @@ export type AcquisitionTasks = Message<"history.AcquisitionTasks"> & {
  * Use `create(AcquisitionTasksSchema)` to create a new message.
  */
 export const AcquisitionTasksSchema: GenMessage<AcquisitionTasks> = /*@__PURE__*/
-  messageDesc(file_asterion_history, 41);
-
-/**
- * @generated from enum history.FeedState
- */
-export enum FeedState {
-  /**
-   * @generated from enum value: FEED_STATE_UNSPECIFIED = 0;
-   */
-  UNSPECIFIED = 0,
-
-  /**
-   * @generated from enum value: FEED_STATE_NO_SDK = 1;
-   */
-  NO_SDK = 1,
-
-  /**
-   * @generated from enum value: FEED_STATE_DISCONNECTED = 2;
-   */
-  DISCONNECTED = 2,
-
-  /**
-   * @generated from enum value: FEED_STATE_CONNECTING = 3;
-   */
-  CONNECTING = 3,
-
-  /**
-   * @generated from enum value: FEED_STATE_LOGGING_IN = 4;
-   */
-  LOGGING_IN = 4,
-
-  /**
-   * @generated from enum value: FEED_STATE_CONNECTED = 5;
-   */
-  CONNECTED = 5,
-
-  /**
-   * @generated from enum value: FEED_STATE_RECONNECTING = 6;
-   */
-  RECONNECTING = 6,
-
-  /**
-   * @generated from enum value: FEED_STATE_FAILED = 7;
-   */
-  FAILED = 7,
-}
-
-/**
- * Describes the enum history.FeedState.
- */
-export const FeedStateSchema: GenEnum<FeedState> = /*@__PURE__*/
-  enumDesc(file_asterion_history, 0);
-
-/**
- * @generated from enum history.CatalogState
- */
-export enum CatalogState {
-  /**
-   * @generated from enum value: CATALOG_STATE_UNSPECIFIED = 0;
-   */
-  UNSPECIFIED = 0,
-
-  /**
-   * @generated from enum value: CATALOG_STATE_NONE = 1;
-   */
-  NONE = 1,
-
-  /**
-   * @generated from enum value: CATALOG_STATE_LOADING = 2;
-   */
-  LOADING = 2,
-
-  /**
-   * @generated from enum value: CATALOG_STATE_CACHED = 3;
-   */
-  CACHED = 3,
-
-  /**
-   * @generated from enum value: CATALOG_STATE_READY = 4;
-   */
-  READY = 4,
-
-  /**
-   * @generated from enum value: CATALOG_STATE_FAILED = 5;
-   */
-  FAILED = 5,
-}
-
-/**
- * Describes the enum history.CatalogState.
- */
-export const CatalogStateSchema: GenEnum<CatalogState> = /*@__PURE__*/
-  enumDesc(file_asterion_history, 1);
-
-/**
- * @generated from enum history.Subscription
- */
-export enum Subscription {
-  /**
-   * @generated from enum value: SUBSCRIPTION_UNSPECIFIED = 0;
-   */
-  UNSPECIFIED = 0,
-
-  /**
-   * @generated from enum value: SUBSCRIPTION_PENDING = 1;
-   */
-  PENDING = 1,
-
-  /**
-   * @generated from enum value: SUBSCRIPTION_ACTIVE = 2;
-   */
-  ACTIVE = 2,
-
-  /**
-   * @generated from enum value: SUBSCRIPTION_FAILED = 3;
-   */
-  FAILED = 3,
-}
-
-/**
- * Describes the enum history.Subscription.
- */
-export const SubscriptionSchema: GenEnum<Subscription> = /*@__PURE__*/
-  enumDesc(file_asterion_history, 2);
+  messageDesc(file_asterion_history, 29);
 
 /**
  * @generated from enum history.Table
@@ -1726,7 +1080,7 @@ export enum Table {
  * Describes the enum history.Table.
  */
 export const TableSchema: GenEnum<Table> = /*@__PURE__*/
-  enumDesc(file_asterion_history, 3);
+  enumDesc(file_asterion_history, 0);
 
 /**
  * @generated from enum history.TaskState
@@ -1772,5 +1126,5 @@ export enum TaskState {
  * Describes the enum history.TaskState.
  */
 export const TaskStateSchema: GenEnum<TaskState> = /*@__PURE__*/
-  enumDesc(file_asterion_history, 4);
+  enumDesc(file_asterion_history, 1);
 

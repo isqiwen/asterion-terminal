@@ -8,7 +8,7 @@ import { Coverage } from "./Coverage";
 const request = vi.hoisted(() => vi.fn());
 vi.mock("../contract", async importOriginal => ({
   ...(await importOriginal<typeof import("../contract")>()),
-  marketData: request,
+  historyData: request,
   translate: (_namespace: string, key: string, values?: Record<string, unknown>) =>
     key.replace(/\{(\w+)\}/g, (_, name: string) => String(values?.[name])),
 }));
@@ -25,7 +25,7 @@ const context = () =>
     trade: vi.fn(),
     query: vi.fn(),
     snapshot: {
-      market_endpoint: { host: "market", port: 7450, fingerprint: "f", instruments: [] },
+      history_endpoint: { host: "market", port: 7450, fingerprint: "f", instruments: [] },
     },
   }) as unknown as TerminalContext;
 const task = (id: string) =>

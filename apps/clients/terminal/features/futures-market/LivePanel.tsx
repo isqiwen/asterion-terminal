@@ -1,6 +1,6 @@
 import { MarketBoard } from "./MarketBoard";
 import { MarketUnavailable } from "./MarketUnavailable";
-import { CatalogState, FeedState } from "../../src/generated/asterion/history_pb";
+import { CatalogState, FeedState } from "../../src/generated/asterion/quotes_pb";
 import { useMarket } from "../../src/host/market";
 import { useState } from "react";
 import {
@@ -19,7 +19,7 @@ export function LivePanel({ context }: { context: TerminalContext }) {
   const [exchange, setExchange] = useState("SHFE"),
     [symbol, setSymbol] = useState("");
   const market = useMarket();
-  const saved = context.snapshot?.market_endpoint;
+  const saved = context.snapshot?.quotes_endpoint;
   const endpoint = saved && "host" in saved ? saved : null;
   const watched = endpoint?.instruments ?? [];
   const feed = market?.board.feed;
@@ -44,7 +44,7 @@ export function LivePanel({ context }: { context: TerminalContext }) {
       new Set(instruments.map(i => `${i.exchange}.${i.symbol}`)).size !== instruments.length
     )
       throw Error(t("请输入不重复的实际月份合约，最多 50 个。"));
-    await context.trade("market.watchlist", { instruments });
+    await context.trade("quotes.watchlist", { instruments });
     setSymbol("");
   }
   const toolbar = (
@@ -58,7 +58,7 @@ export function LivePanel({ context }: { context: TerminalContext }) {
           <button
             disabled={context.busy}
             title={t("关闭此连接不影响服务录制或其他客户端。")}
-            onClick={() => void attempt(() => context.trade("market.close"))}
+            onClick={() => void attempt(() => context.trade("quotes.close"))}
           >
             {t("关闭行情连接")}
           </button>

@@ -22,7 +22,7 @@ def ready(process):
     """The open watch's latest frame once its row has a quote."""
     deadline=time.monotonic()+8
     while time.monotonic()<deadline:
-        watch=call(process,'market.watch',dict(restart=False))['market_watch']
+        watch=call(process,'quotes.watch',dict(restart=False))['quotes_watch']
         for frame in reversed(watch['frames']):
             frame = frame.get('full', frame.get('changed', {}))
             rows=frame.get('rows',[])
@@ -31,14 +31,14 @@ def ready(process):
         time.sleep(.1)
     raise AssertionError(watch)
 def status(process):
-    return call(process,'market.call',dict(request=dict(getStatus={})))['market']['getStatus']
+    return call(process,'quotes.call',dict(request=dict(getStatus={})))['quotes']['getStatus']
 def close(process):
     process.stdin.close();process.wait(timeout=8)
     assert process.returncode == 0, process.stderr.read()
 process=terminal()
 try:
-    call(process,'market.endpoint.save',dict(host='127.0.0.1',port=port,fingerprint=history_tls.fingerprint(tls)))
-    call(process,'market.open')
+    call(process,'quotes.endpoint.save',dict(host='127.0.0.1',port=port,fingerprint=history_tls.fingerprint(tls)))
+    call(process,'quotes.open')
     frame=ready(process)
     started=status(process)
     assert started['feed']['state']=='FEED_STATE_CONNECTED',started
@@ -47,21 +47,21 @@ try:
     state=call(process,'runtime.snapshot')
     assert 'market' not in state
     selected=[dict(exchange='SHFE',symbol='rb2610')]
-    state=call(process,'market.watchlist',dict(instruments=selected))
-    assert state['market_endpoint']['instruments']==selected
-    call(process,'market.close')
-    assert call(process,'market.watch',dict(restart=False))['market_watch'] is None
-    call(process,'market.open')
+    state=call(process,'quotes.watchlist',dict(instruments=selected))
+    assert state['quotes_endpoint']['instruments']==selected
+    call(process,'quotes.close')
+    assert call(process,'quotes.watch',dict(restart=False))['quotes_watch'] is None
+    call(process,'quotes.open')
     assert ready(process)['rows'][0]['quote']['last']['text']=='3510'
     close(process)
     process=terminal()
-    call(process,'market.open')
+    call(process,'quotes.open')
     frame=ready(process)
     assert status(process)['startedMs']==started['startedMs']
-    assert call(process,'runtime.snapshot')['market_endpoint']['instruments']==selected
+    assert call(process,'runtime.snapshot')['quotes_endpoint']['instruments']==selected
     assert 'fixture-only-secret' not in json.dumps(frame)
-    call(process,'market.endpoint.clear')
-    assert call(process,'market.watch',dict(restart=False))['market_watch'] is None
+    call(process,'quotes.endpoint.clear')
+    assert call(process,'quotes.watch',dict(restart=False))['quotes_watch'] is None
 finally:
     if process.poll() is None:
         close(process)

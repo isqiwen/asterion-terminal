@@ -493,7 +493,7 @@ TEST_F(Warehouse, ProductCoverageStaysOnOneVersionAndMissingCalendarStaysUnknown
     EXPECT_THROW(reader.coverage(query), Error);
 }
 
-::history::Response call(testing_support::MarketChannel& channel, ::history::Request request)
+::history::Response call(testing_support::HistoryChannel& channel, ::history::Request request)
 {
     request.set_id(1);
     channel.send(request.SerializeAsString(), 5s);
@@ -505,7 +505,7 @@ TEST_F(Warehouse, ProductCoverageStaysOnOneVersionAndMissingCalendarStaysUnknown
 
 TEST_F(Warehouse, RemoteClientsKeepIndependentVersionsAndReconnect)
 {
-    testing_support::MarketHost host(root);
+    testing_support::HistoryHost host(root);
     wh::Store store(wh::source_directory(root / "data", "research"), "research");
     const auto old = publish(store, "daily/SHFE/202610");
     host.start();

@@ -6,7 +6,7 @@ import { ReferenceTables } from "./ReferenceTables";
 const request = vi.hoisted(() => vi.fn());
 vi.mock("../contract", async importOriginal => ({
   ...(await importOriginal<typeof import("../contract")>()),
-  marketData: request,
+  historyData: request,
   translate: (_namespace: string, key: string, values?: Record<string, unknown>) =>
     key.replace(/\{(\w+)\}/g, (_, name: string) => String(values?.[name])),
 }));

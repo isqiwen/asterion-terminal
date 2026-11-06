@@ -4,7 +4,7 @@ Rules for anyone, human or AI, who changes this repository. Keep this file short
 
 ## Product and plan
 
-- One product: a futures quant Terminal for one person, on macOS (Apple Silicon) and Linux x86_64. Market and Trading are Linux services that serve it. No web, mobile, notebook, standalone CLI or Windows clients.
+- One product: a futures quant Terminal for one person, on macOS (Apple Silicon) and Linux x86_64. Quotes, History and Trading are Linux services that serve it. No web, mobile, notebook, standalone CLI or Windows clients.
 - What the product is: [docs/product.md](docs/product.md). What to build, in what order, and when it is done: [docs/plan.md](docs/plan.md).
 - Trading rules: [docs/safety.md](docs/safety.md). Read them before changing anything that can send or cancel an order. Never remove code that enforces one of them.
 - A phase is done only when it has worked for real, on real data or the CTP simulation counter. Passing fixture tests is necessary, not sufficient.
@@ -13,12 +13,13 @@ Rules for anyone, human or AI, who changes this repository. Keep this file short
 ## Architecture
 
 - C++ owns market data and execution; Python owns strategies, factors and research. Strategies return target lots or weights; the C++ account turns them into orders.
-- **Market** (`apps/services/history/`): one C++ process on a Linux host for real-time feeds, historical acquisition and the versioned warehouse, behind one fixed interface. All clients share one dataset; one client's subscriptions or disconnects never affect another.
-- **Lab** (`apps/services/lab/`): the local Python research service that Terminal starts and restarts. It reads fixed Market versions into a disposable cache; `engine/` exposes core's replay to Python.
-- **Trading** (`apps/services/trading/`): one C++ process per account on a Linux host, plus one Python child process per strategy instance. It runs without Terminal, Lab or Market. Closing Terminal never stops trading; a Trading restart never restores authorization. Strategy instances use only market data Trading itself received.
+- **Quotes** (`apps/services/quotes/`): one C++ process on a Linux host for real-time feeds, on a CTP account of its own; it has no order code. One client's subscriptions or disconnects never affect another.
+- **History** (`apps/services/history/`): one C++ process on a Linux host for historical acquisition and the versioned warehouse, behind one fixed interface; it does not connect to a counter. All clients share one dataset, and source selection stays inside it.
+- **Lab** (`apps/services/lab/`): the local Python research service that Terminal starts and restarts. It reads fixed History versions into a disposable cache; `engine/` exposes core's replay to Python.
+- **Trading** (`apps/services/trading/`): one C++ process per account on a Linux host, plus one Python child process per strategy instance. It runs without Terminal, Lab, Quotes or History. Closing Terminal never stops trading; a Trading restart never restores authorization. Strategy instances use only market data Trading itself received.
 - **Terminal** (`apps/clients/terminal/`): Electron + React UI (`src/`, `features/`) with a C++ native layer (`native/`). It starts only Lab. Pages build and read the generated Protobuf types; the native layer only holds the TLS connections and relays them.
 - `core/`: `asterion_base` → `asterion_system` → `asterion_futures`; dependencies point down. Shared service code lives in `apps/services/common/`; the strategy API is `apps/services/common/python/asterion_strategy.py`.
-- IPC is Protobuf from `protocol/proto/`: Unix sockets locally, mutual TLS with pinned certificates to Market and Trading.
+- IPC is Protobuf from `protocol/proto/`: Unix sockets locally, mutual TLS with pinned certificates to Quotes, History and Trading.
 - Services only read configuration; missing or invalid configuration fails with its path. Defaults live in each subproject's `config/`. Settings generated during deployment have `*.example.json` files there; examples are not installed. UI-managed data stays out of configuration directories and examples. Credentials live only in systemd encrypted credentials on the service host.
 
 Details: [docs/architecture.md](docs/architecture.md).

@@ -17,7 +17,7 @@ source, build = Path(sys.argv.pop(1)), Path(sys.argv.pop(1))
 sys.path[:0] = [str(source / 'apps/services/lab'), str(build / 'generated-python'),
                str(build / 'engine-python'), str(source / 'tests/support'), str(Path(__file__).parent)]
 from asterion.lab_pb2 import Request
-from asterion import common_pb2 as common, history_pb2 as market
+from asterion import common_pb2 as common, history_pb2 as market, quotes_pb2
 from asterion.common_pb2 import Period
 from asterion.history_pb2 import Request as MarketRequest, Response as MarketResponse
 from asterion_lab.backtest import COSTS
@@ -64,7 +64,7 @@ class RemoteResearch(unittest.TestCase):
         self.lab = self.node / 'lab'
         self.lab.mkdir()
         history_tls.install_client(self.tls, self.node)
-        self.settings = self.node / 'terminal/data/market.json'
+        self.settings = self.node / 'terminal/data/history.json'
         self.settings.write_text(json.dumps(dict(host='127.0.0.1', port=self.port,
             fingerprint=history_tls.fingerprint(self.tls), instruments=[])))
         self.history = History(self.settings.parent)
@@ -88,7 +88,7 @@ class RemoteResearch(unittest.TestCase):
         snapshots = self.data / 'catalog'
         snapshots.mkdir(parents=True, exist_ok=True)
         def snapshot(day, tick):
-            catalog = market.Catalog()
+            catalog = quotes_pb2.Catalog()
             item = catalog.contracts.add()
             item.contract = 'SHFE/rb/2027-01'
             item.price_tick.text = tick

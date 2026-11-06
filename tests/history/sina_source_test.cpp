@@ -1,7 +1,7 @@
 #include "acquisition/manager.hpp"
 #include "acquisition/sina.hpp"
 #include "warehouse/research.hpp"
-#include <asterion/history.pb.h>
+#include <asterion/quotes.pb.h>
 #include <asterion/system/process/child.hpp>
 #include <gtest/gtest.h>
 #include <cstdlib>
@@ -30,7 +30,7 @@ protected:
 
     void snapshot(const std::string& day, const std::vector<std::string>& contracts)
     {
-        ::history::Catalog catalog;
+        ::quotes::Catalog catalog;
         for (const auto& contract : contracts)
             catalog.add_contracts()->set_contract(contract);
         fs::create_directories(root);

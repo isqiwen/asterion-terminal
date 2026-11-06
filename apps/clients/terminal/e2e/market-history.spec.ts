@@ -14,7 +14,7 @@ test(
       "-B",
       join(source, "tests/lab/warehouse_fixture.py"),
       join(source, "apps/services/lab"),
-      join(process.env.ASTERION_TEST_MARKET_TLS!, "../../data"),
+      join(process.env.ASTERION_TEST_HISTORY_TLS!, "../../data"),
     ]);
     await page.goto("/");
     await page

@@ -44,19 +44,19 @@ const { createInterface } = require("node:readline");
       [
         "tests/support/history_installation.py",
         path.resolve(process.env.ASTERION_CPP_BUILD || "build/Release"),
-        path.join(temp, "market"),
+        path.join(temp, "services"),
       ],
       { stdio: ["pipe", "pipe", "inherit"] },
     );
     const lines = createInterface({ input: market.stdout });
-    const port = await Promise.race([
-      once(lines, "line").then(([line]) => Number(line)),
+    const [historyPort, port] = await Promise.race([
+      once(lines, "line").then(([line]) => line.split(" ").map(Number)),
       once(market, "exit").then(([code]) => {
         throw new Error(`Market fixture exited: ${code}`);
       }),
     ]);
     assert.ok(port > 0 && port <= 65535);
-    const tls = path.join(temp, "market/config/tls");
+    const tls = path.join(temp, "services/history/config/tls");
     const clientTls = path.join(temp, "node/terminal/data/tls");
     await fs.mkdir(clientTls, { recursive: true });
     for (const extension of ["crt", "key"])
@@ -66,6 +66,11 @@ const { createInterface } = require("node:readline");
       );
     const fingerprint = new (require("node:crypto").X509Certificate)(
       await fs.readFile(path.join(tls, "server.crt")),
+    ).fingerprint256
+      .replaceAll(":", "")
+      .toLowerCase();
+    const quotesFingerprint = new (require("node:crypto").X509Certificate)(
+      await fs.readFile(path.join(temp, "services/quotes/config/tls/server.crt")),
     ).fingerprint256
       .replaceAll(":", "")
       .toLowerCase();
@@ -134,10 +139,15 @@ const { createInterface } = require("node:readline");
       assert.equal(response.error, undefined, JSON.stringify(response.error));
       return response.result;
     };
-    await call("market.endpoint.save", { host: "127.0.0.1", port, fingerprint });
-    await call("market.open");
+    await call("history.endpoint.save", { host: "127.0.0.1", port: historyPort, fingerprint });
+    await call("quotes.endpoint.save", {
+      host: "127.0.0.1",
+      port,
+      fingerprint: quotesFingerprint,
+    });
+    await call("quotes.open");
     const snapshot = async () =>
-      (await call("market.call", { request: { getBoard: {} } })).market.getBoard;
+      (await call("quotes.call", { request: { getBoard: {} } })).quotes.getBoard;
     await expect
       .poll(
         async () => {
@@ -154,7 +164,7 @@ const { createInterface } = require("node:readline");
     const full = await snapshot();
     assert.equal(full.catalog.status.state, "CATALOG_STATE_READY");
     assert.equal(full.catalog.contracts[0].name, "螺纹钢");
-    assert.equal((await call("runtime.snapshot")).market_endpoint.instruments.length, 0);
+    assert.equal((await call("runtime.snapshot")).quotes_endpoint.instruments.length, 0);
     await openView(page, "market");
     await page.getByRole("tab", { name: "实时行情", exact: true }).click();
     await expect(page.getByRole("button", { name: "期货全景", exact: true })).toBeVisible();
@@ -164,7 +174,7 @@ const { createInterface } = require("node:readline");
     await page.screenshot({ path: path.resolve("build/native-depth-check/full-market.png") });
     await openMarketSection(page, "自选");
     await expect(page.locator(".market-quote-table table tbody tr")).toHaveCount(0);
-    await call("market.watchlist", { instruments: [{ exchange: "SHFE", symbol: "rb2610" }] });
+    await call("quotes.watchlist", { instruments: [{ exchange: "SHFE", symbol: "rb2610" }] });
     const quote = full.rows[0].quote;
     assert.equal(quote.open.text, "3490.25");
     assert.equal(quote.openInterestChange.text, "-25.25");
@@ -203,7 +213,7 @@ const { createInterface } = require("node:readline");
     await expect(depth).not.toContainText("当前报价未提供更多档位");
     await fs.mkdir(path.resolve("build/native-depth-check"), { recursive: true });
     await page.screenshot({ path: path.resolve("build/native-depth-check/native-depth.png") });
-    await call("market.close");
+    await call("quotes.close");
     console.log(
       "Electron market: production host, isolated SDK, real market service and Node-API, full catalog with empty watchlist, Chinese names, exact depth, session prices and previous close passed",
     );

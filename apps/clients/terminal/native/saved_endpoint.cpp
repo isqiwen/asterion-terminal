@@ -1,4 +1,4 @@
-#include "market_endpoint.hpp"
+#include "saved_endpoint.hpp"
 #include <asterion/system/ipc/tcp_channel.hpp>
 #include <asterion/base/error.hpp>
 #include <asterion/system/durable_file.hpp>
@@ -19,9 +19,9 @@ void validate(const std::string& host, unsigned port)
         || std::any_of(host.begin(), host.end(), [](unsigned char c) {
                return std::isspace(c) || std::iscntrl(c);
            }))
-        throw std::invalid_argument("invalid market host");
+        throw std::invalid_argument("invalid service host");
     if (port < 1 || port > 65535)
-        throw std::invalid_argument("invalid market port");
+        throw std::invalid_argument("invalid service port");
 }
 
 void validate_watchlist(const Json& value)
@@ -43,7 +43,7 @@ void validate_watchlist(const Json& value)
 
 } // namespace
 
-Json MarketEndpoint::get() const
+Json SavedEndpoint::get() const
 {
     if (!fs::exists(file_))
         return nullptr;
@@ -55,22 +55,22 @@ Json MarketEndpoint::get() const
             parse_json(std::string{std::istreambuf_iterator<char>(input), {}}, 16384);
         require_fields(value, {"host", "port", "fingerprint", "instruments"});
         if (!value.at("port").is_number_unsigned() || value.at("port").get<std::uint64_t>() > 65535)
-            throw std::invalid_argument("invalid market port");
+            throw std::invalid_argument("invalid service port");
         const auto host = value.at("host").get<std::string>();
         const auto port = value.at("port").get<unsigned>();
         validate(host, port);
         if (ipc::normalize_fingerprint(value.at("fingerprint"))
             != value.at("fingerprint").get<std::string>())
-            throw std::invalid_argument("invalid Market certificate fingerprint");
+            throw std::invalid_argument("invalid service certificate fingerprint");
         validate_watchlist(value.at("instruments"));
         return value;
     } catch (const std::exception& error) {
         throw std::invalid_argument(
-            "invalid market settings " + file_.string() + ": " + error.what());
+            "invalid service settings " + file_.string() + ": " + error.what());
     }
 }
 
-void MarketEndpoint::save(
+void SavedEndpoint::save(
     const std::string& host,
     unsigned port,
     const std::string& fingerprint) const
@@ -90,17 +90,17 @@ void MarketEndpoint::save(
         }.dump());
 }
 
-void MarketEndpoint::select(const Json& instruments) const
+void SavedEndpoint::select(const Json& instruments) const
 {
     validate_watchlist(instruments);
     auto value = get();
     if (value.is_null())
-        throw std::invalid_argument("configure the market address first");
+        throw std::invalid_argument("configure the service address first");
     value["instruments"] = instruments;
     replace_file_durably(file_, value.dump());
 }
 
-void MarketEndpoint::clear() const
+void SavedEndpoint::clear() const
 {
     if (fs::exists(file_)) {
         fs::remove(file_);

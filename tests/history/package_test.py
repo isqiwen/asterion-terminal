@@ -22,7 +22,7 @@ import polars as pl
 sys.path.insert(0, str(Path(__file__).parents[1] / 'support'))
 import history_tls
 from history_wire import rpc
-from asterion import history_pb2 as market
+from asterion import history_pb2 as market, quotes_pb2
 
 
 def unpack(bundle, root):
@@ -30,7 +30,6 @@ def unpack(bundle, root):
     with tarfile.open(fileobj=io.BytesIO(payload), mode='r:gz') as archive:
         files = {item.name for item in archive if item.isfile()}
         assert files == {'asterion-history/bin/asterion_history', 'asterion-history/bin/asterion_crash_reporter', 'asterion-history/bin/setup.sh',
-                         'asterion-history/lib/ctp-md.so', 'asterion-history/lib/ctp-trader.so',
                          'asterion-history/config/logging.json'}, files
         archive.extractall(root, filter='data')
     root = root / 'asterion-history'
@@ -41,16 +40,17 @@ def unpack(bundle, root):
 
 def snapshot(root):
     (root / 'data/catalog').mkdir(parents=True)
-    catalog = market.Catalog()
+    catalog = quotes_pb2.Catalog()
     item = catalog.contracts.add()
     item.contract = 'SHFE/rb/2027-01'
     item.price_tick.text = '1'
     (root / 'data/catalog/20261028.pb').write_bytes(catalog.SerializeToString())
 
 
+@contextmanager
 def running(root, port):
     name = 'asterion-history-package-' + root.parent.name
-    command = ['docker', 'run', '--rm', '--name', name, '--network', 'host', '--read-only',
+    command = ['docker', 'run', '--rm', '--platform', 'linux/amd64', '--name', name, '--network', 'host', '--read-only',
                '--tmpfs', '/tmp', '--user', f'{os.getuid()}:{os.getgid()}',
                '-v', f'{root}:/market', '-e', 'CREDENTIALS_DIRECTORY=/market/credentials',
                'ubuntu:24.04', 'sh', '-ec',
@@ -72,7 +72,8 @@ def running(root, port):
             yield
             assert process.poll() is None, (root / 'container.log').read_text()
             processes = subprocess.check_output(['docker', 'top', name, '-eo', 'pid,comm'], text=True)
-            assert [line.split()[1] for line in processes.splitlines()[1:]] == ['asterion_history'], processes
+            # The kernel keeps 15 characters of a process name.
+            assert [line.split()[1] for line in processes.splitlines()[1:]] == ['asterion_histor'], processes
         finally:
             subprocess.run(['docker', 'stop', '-t', '30', name], stdout=subprocess.DEVNULL,
                            stderr=subprocess.DEVNULL, check=False)
@@ -84,18 +85,14 @@ def main():
         root = unpack(sys.argv[1], Path(folder))
         for name in ('credentials', 'logs'):
             (root / name).mkdir()
-        record(root)
+        snapshot(root)
         tls = history_tls.prepare(root)
         with socket.socket() as probe:
             probe.bind(('127.0.0.1', 0))
             port = probe.getsockname()[1]
         # The container mounts the installation at /market.
         (root / 'config/history.json').write_text(json.dumps(dict(bind='127.0.0.1', port=port,
-            data='/market/data', clients=history_tls.clients(tls), acquisition=dict(exchanges=[], tushare=None),
-            counter=dict(market_front='tcp://127.0.0.1:1', trade_front='tcp://127.0.0.1:1',
-                         broker='fixture', user='fixture', app_id='fixture'))))
-        for name in ('password', 'auth_code'):
-            (root / 'credentials' / ('asterion.ctp.' + name)).write_text('fixture-only')
+            data='/market/data', snapshots='/market/data/catalog', clients=history_tls.clients(tls), acquisition=dict(exchanges=[], tushare=None))))
         with running(root, port):
             dataset = dict()
             deadline = time.monotonic() + 30

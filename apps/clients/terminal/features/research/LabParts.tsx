@@ -43,7 +43,7 @@ export function LabHeader({
   modules: LabStrategies | null;
   refresh: () => void;
 }) {
-  const endpoint = context.snapshot?.market_endpoint;
+  const endpoint = context.snapshot?.history_endpoint;
   const address =
     endpoint && "host" in endpoint
       ? `${endpoint.host}:${endpoint.port}/${endpoint.fingerprint}`
@@ -52,7 +52,7 @@ export function LabHeader({
   useEffect(() => {
     let active = true;
     setSummary(null);
-    // Without a Market there is no research data to read; the chip says so.
+    // Without a History service there is no research data to read; the chip says so.
     if (!address) return;
     void lab({ case: "getDatasetSummary", value: {} })
       .then(value => active && setSummary(value))
@@ -65,10 +65,7 @@ export function LabHeader({
     <header className="lab-header">
       {modules?.commit && <code className="lab-chip">{modules.commit.slice(0, 8)}</code>}
       {modules?.changes && <span className="lab-chip warn">{t("有未提交改动")}</span>}
-      <button
-        className="lab-chip"
-        onClick={() => context.navigate("workspace.coverage", { params: { provider: "research" } })}
-      >
+      <button className="lab-chip" onClick={() => context.navigate("workspace.coverage", {})}>
         {t("研究数据")} ·{" "}
         {address ? (
           <code>{summary?.dataset?.version.slice(0, 8) || t("无数据")}</code>

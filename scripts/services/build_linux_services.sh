@@ -28,9 +28,9 @@ git ls-files -co --exclude-standard -z | grep -zv '^build/\|node_modules\|/dist/
     if [ -e "$file" ]; then printf '%s\0' "$file"; fi
   done |
   COPYFILE_DISABLE=1 xargs -0 tar "${METADATA[@]}" -cf "$WORK/input/service-source.tar"
-docker run --rm --platform linux/amd64 \
+docker run --rm --platform linux/amd64 -e ASTERION_COMMIT="$(git -C "$ROOT" rev-parse --short=12 HEAD)" \
   -v "$WORK/input:/input:ro" -v "$WORK/output:/output" \
   -v "$ROOT/scripts/services/linux-services-container.sh:/build.sh:ro" "$IMAGE" bash /build.sh
 version=$(cat "$ROOT/VERSION")
-cp "$WORK/output/Asterion-History-${version}-linux-x86_64.sh" "$WORK/output/Asterion-Trading-${version}-linux-x86_64.sh" "$BUNDLES/"
+cp "$WORK/output/Asterion-Quotes-${version}-linux-x86_64.sh" "$WORK/output/Asterion-History-${version}-linux-x86_64.sh" "$WORK/output/Asterion-Trading-${version}-linux-x86_64.sh" "$BUNDLES/"
 echo "Linux setup scripts updated in $BUNDLES"

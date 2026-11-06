@@ -40,7 +40,7 @@ test("indicators show research first, then market and each trading connection", 
 
 test("an unset Market opens its settings; no trading connection says so", () => {
   const snapshot = readySnapshot();
-  snapshot.market_endpoint = null;
+  snapshot.quotes_endpoint = null;
   const openMarketSettings = vi.fn();
   render(show(snapshot, openMarketSettings));
   fireEvent.click(screen.getByRole("button", { name: "● 行情 未设置" }));

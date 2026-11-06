@@ -8,7 +8,7 @@ import tempfile
 import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "support"))
 from trading_installation import install, Programs
-from history_installation import history_host
+from history_installation import quotes_host
 from trading_requests import account_policy, market_catalog, submit
 import history_tls
 
@@ -49,7 +49,7 @@ def wait(condition):
     raise AssertionError("condition not reached")
 
 
-with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["ASTERION_ROOT"], ignore_cleanup_errors=True) as folder, history_host(build, Path(folder) / "market") as market_port:
+with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["ASTERION_ROOT"], ignore_cleanup_errors=True) as folder, quotes_host(build, Path(folder) / "market") as market_port:
     root = Path(folder)
     host = install(root / "trading-host", Programs(str(build / "asterion_trading"),
         str(build / "asterion_test_certificates"), str(build / "libasterion_test_ctp_trader.so")))
@@ -69,8 +69,8 @@ with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["AS
         tls = root / "market/config/tls"
         history_tls.install_client(tls, local)
         terminal = launch()
-        call(terminal, "market.endpoint.save", dict(host="127.0.0.1", port=market_port, fingerprint=history_tls.fingerprint(tls)))
-        call(terminal, "market.open")
+        call(terminal, "quotes.endpoint.save", dict(host="127.0.0.1", port=market_port, fingerprint=history_tls.fingerprint(tls)))
+        call(terminal, "quotes.open")
         fingerprint = call(terminal, "runtime.snapshot")["client_fingerprint"]
         for name in ("real", "simulation"):
             port = host.account(name, terminals=[fingerprint], environment=name, user="000001" if name == "real" else "000002")

@@ -39,15 +39,12 @@ def release(folder, version):
     __ARCHIVE__, then the installation as a tar.gz. Its market only answers
     --version."""
     top = Path(folder) / f'stage-{version}' / 'asterion-history'
-    for part in ('bin', 'lib'):
-        (top / part).mkdir(parents=True)
+    (top / 'bin').mkdir(parents=True)
     (top / 'bin/asterion_history').write_text(f'#!/bin/sh\necho "Asterion History {version}"\n')
     (top / 'bin/asterion_history').chmod(0o755)
     shutil.copy2(setup, top / 'bin/setup.sh')
     (top / 'bin/asterion_crash_reporter').write_text('#!/bin/sh\nexit 0\n')
     (top / 'bin/asterion_crash_reporter').chmod(0o755)
-    for library in ('ctp-md.so', 'ctp-trader.so'):
-        (top / 'lib' / library).write_text(version)
     (top / 'config').mkdir()
     shutil.copy2(setup.parent.parent / 'config/logging.json', top / 'config/logging.json')
     payload = io.BytesIO()
@@ -95,40 +92,37 @@ class Host:
 
 
 client_pin = 'a' * 64
-shipped = {'clients': [dict(fingerprint=client_pin, role='manage')],
-           'acquisition': {'exchanges': ['SHFE', 'INE', 'CZCE', 'DCE', 'CFFEX', 'GFEX'], 'tushare': {'requests_per_minute': 100}}, 'bind': '0.0.0.0', 'port': 7450, 'counter': {
-    'market_front': 'tcp://182.254.243.31:40011', 'trade_front': 'tcp://182.254.243.31:40001',
-    'broker': '9999', 'user': '', 'app_id': 'simnow_client_test'}}
+shipped = {'bind': '0.0.0.0', 'port': 7450, 'snapshots': '/opt/asterion/quotes/data/catalog',
+           'clients': [dict(fingerprint=client_pin, role='manage')],
+           'acquisition': {'exchanges': ['SHFE', 'INE', 'CZCE', 'DCE', 'CFFEX', 'GFEX'], 'tushare': {'requests_per_minute': 100}}}
 with tempfile.TemporaryDirectory() as folder:
     host = Host(folder)
 
     # Install: the layout, the unit, then the settings (Enter keeps a default,
     # a bad port is asked again), then the first start.
     calls, result = host.run(release(folder, '1'),
-                             ['', 'abc', '7451', '', '', '', '', '273005', '', client_pin + '=manage', '', '100', 'fixture-token', 'fixture-password', 'fixture-auth'])
+                             ['', 'abc', '7451', '', '', client_pin + '=manage', '', '100', 'fixture-token'])
     assert 'Invalid value' in result.stderr, result.stderr
-    assert sorted(p.name for p in host.root.iterdir()) == ['bin', 'config', 'data', 'lib', 'logs']
+    assert sorted(p.name for p in host.root.iterdir()) == ['bin', 'config', 'data', 'logs']
     assert (host.root / 'bin/asterion_history').read_text().endswith('1"\n')
     assert (host.root / 'bin/setup.sh').read_bytes() == setup.read_bytes()
     assert (host.root / 'config/logging.json').read_bytes() == (setup.parent.parent / 'config/logging.json').read_bytes()
     assert host.settings() == {**shipped, 'port': 7451, 'data': str(host.root / 'data'),
-                               'counter': {**shipped['counter'], 'user': '273005'}}
+                               }
     text = (host.root / 'config/history.json').read_text()
-    assert 'fixture-password' not in text and 'fixture-auth' not in text and 'fixture-token' not in text
+    assert 'fixture-token' not in text
     assert oct((host.root / 'config/history.json').stat().st_mode & 0o777) == '0o600'
     assert host.secrets.read_text().splitlines() == [
-        '--name=asterion.ctp.password=fixture-password', '--name=asterion.ctp.auth_code=fixture-auth', '--name=asterion.history.tushare.token=fixture-token']
+        '--name=asterion.history.tushare.token=fixture-token']
     unit = (host.units / 'asterion-history.service').read_text()
     for line in ('User=tester', 'Restart=always', 'StartLimitIntervalSec=0',
-                 'ImportCredential=asterion.ctp.*', f'ExecStart={host.root}/bin/asterion_history',
+                 'ImportCredential=asterion.history.*', f'ExecStart={host.root}/bin/asterion_history',
                  f'ReadWritePaths={host.root}/logs {host.root}/data'):
         assert line + '\n' in unit, line
     assert any(call.startswith('chown tester: ') for call in calls), calls
     assert 'systemctl enable asterion-history.service' in calls, calls
     assert calls[-1] == 'systemctl restart asterion-history.service', calls
-    assert 'fixture-password' not in result.stdout + result.stderr
     assert 'fixture-token' not in result.stdout + result.stderr
-    assert 'ImportCredential=asterion.history.*' in unit
     assert (host.root / 'config/tls/server.key').stat().st_mode & 0o777 == 0o600
 
     # Upgrade: new programs, settings untouched when not asked to change them.
@@ -137,9 +131,8 @@ with tempfile.TemporaryDirectory() as folder:
     before = (host.root / 'config/history.json').read_text()
     # Service-owned records and TLS identities survive upgrades byte for byte.
     preserved = {
-        'data/sources/recorder/warehouse/current': b'published-version',
-        'data/sources/recorder/warehouse/versions/published-version.json': b'fixture-manifest',
-        'data/recordings/minutes/trading_day=20261028/fixture.parquet': b'fixture-minutes',
+        'data/sources/sina/warehouse/current': b'published-version',
+        'data/sources/sina/warehouse/versions/published-version.json': b'fixture-manifest',
         'data/acquisition/published.pb': b'fixture-task',
         'logs/market.log': b'fixture-log',
     }
@@ -152,33 +145,18 @@ with tempfile.TemporaryDirectory() as folder:
     second = release(folder, '2')
     calls, result = host.run(second, ['n'])
     assert (host.root / 'bin/asterion_history').read_text().endswith('2"\n')
-    assert (host.root / 'lib/ctp-md.so').read_text() == '2'
     assert (host.root / 'config/history.json').read_text() == before
     assert json.loads((host.root / 'config/logging.json').read_text())['level'] == 'debug'
     assert not host.secrets.exists()
     assert calls[-1] == 'systemctl restart asterion-history.service', calls
     assert all((host.root / name).read_bytes() == content for name, content in preserved.items())
 
-    # Recording during trading hours: the upgrade is placed, the restart waits.
-    for now, at in (('4 1000', '2026-10-29 15:30'), ('4 2200', '2026-10-30 02:45'),
-                    ('5 0100', '2026-10-29 02:45')):
-        calls, result = host.run(second, ['n'], active=True, now=now)
-        assert 'systemctl restart asterion-history.service' not in calls, (now, calls)
-        assert calls[-1] == ('systemd-run --quiet --unit=asterion-history-restart '
-                             f'--on-calendar={at}:00 Asia/Shanghai systemctl restart '
-                             'asterion-history.service'), (now, calls)
-        assert at in result.stdout, result.stdout
-    # Outside trading hours, and at a weekend, it restarts at once.
-    for now in ('4 1530', '4 0245', '6 1000', '1 0100'):
-        calls, _ = host.run(second, ['n'], active=True, now=now)
-        assert calls[-1] == 'systemctl restart asterion-history.service', (now, calls)
-
     # The installed copy only changes the settings. Another data directory is
     # made for the market and becomes writable; the old data is not moved.
     disk = host.folder / 'disk/market-data'
     calls, result = host.run(host.root / 'bin/setup.sh',
-                             ['', '', str(disk), '', '', '', '', '-', '', '', '0', 'fixture-password'])
-    assert host.settings()['port'] == 7999 and host.settings()['counter']['app_id'] == ''
+                             ['', '', str(disk), '', '', '', '0'])
+    assert host.settings()['port'] == 7999
     assert host.settings()['data'] == str(disk)
     assert disk.is_dir() and any(call.startswith('chown ') and call.endswith(f': {disk}')
                                  for call in calls), calls
@@ -186,7 +164,7 @@ with tempfile.TemporaryDirectory() as folder:
     assert f'ReadWritePaths={host.root}/logs {disk}\n' in unit, unit
     assert f'The existing data stays in {host.root}/data' in result.stdout, result.stdout
     assert (host.root / 'data/acquisition/published.pb').read_bytes() == b'fixture-task'
-    assert host.secrets.read_text().splitlines() == ['--name=asterion.ctp.password=fixture-password']
+    assert not host.secrets.exists()
     assert 'systemctl enable asterion-history.service' not in calls, calls
     assert calls[-1] == 'systemctl restart asterion-history.service', calls
 
@@ -197,14 +175,14 @@ with tempfile.TemporaryDirectory() as folder:
     assert staged_files() == [], staged_files()
     (host.units / 'asterion-history.service').write_text('[Service]\n')
     calls, _ = host.run(second, ['n'])
-    assert 'ImportCredential=asterion.ctp.*' in (host.units / 'asterion-history.service').read_text()
+    assert 'ImportCredential=asterion.history.*' in (host.units / 'asterion-history.service').read_text()
     assert 'systemctl daemon-reload' in calls, calls
-    # Input that ends before the password writes no settings.
+    # Input that ends early writes no settings.
     before = (host.root / 'config/history.json').read_bytes()
     result = subprocess.run(
         namespace + ['bash', '-c', 'source "$5"; SELF=$1; ROOT=$2; UNITS=$3; CREDENTIALS=$4; main',
          'setup', str(host.root / 'bin/setup.sh'), str(host.root), str(host.units), str(host.credentials),
-         str(setup)], input='\n' * 7, capture_output=True, text=True, env=dict(host.env, ACTIVE='3', NOW='4 1700'),
+         str(setup)], input='\n' * 4, capture_output=True, text=True, env=dict(host.env, ACTIVE='3', NOW='4 1700'),
         timeout=60)
     assert result.returncode != 0, result.stdout + result.stderr
     assert (host.root / 'config/history.json').read_bytes() == before
@@ -214,4 +192,4 @@ with tempfile.TemporaryDirectory() as folder:
     result = subprocess.run(namespace + ['bash', '-c', 'source "$1"; SELF=$1; ROOT=$2; main', 'setup',
                              str(setup), str(host.root)], capture_output=True, text=True, env=host.env, timeout=60)
     assert result.returncode != 0 and 'Asterion-History-VERSION-linux-x86_64.sh' in result.stderr, result.stderr
-print('installed, upgraded, deferred and configured from a self-extracting script')
+print('installed, upgraded and configured from a self-extracting script')

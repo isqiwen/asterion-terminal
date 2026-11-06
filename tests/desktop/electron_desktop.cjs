@@ -30,7 +30,7 @@ async function closeDesktop(application) {
   await fs.mkdir(identity, { recursive: true });
   for (const extension of ["crt", "key"])
     await fs.copyFile(
-      path.join(process.env.ASTERION_TEST_MARKET_TLS, `reader.${extension}`),
+      path.join(process.env.ASTERION_TEST_HISTORY_TLS, `reader.${extension}`),
       path.join(identity, `client.${extension}`),
     );
   let application;
@@ -135,12 +135,17 @@ async function closeDesktop(application) {
       assert.equal(reply.error, undefined, JSON.stringify(reply.error));
       return reply.result;
     };
-    await call("market.endpoint.save", {
+    await call("history.endpoint.save", {
       host: "127.0.0.1",
-      port: Number(process.env.ASTERION_TEST_MARKET_PORT),
-      fingerprint: process.env.ASTERION_TEST_MARKET_FINGERPRINT,
+      port: Number(process.env.ASTERION_TEST_HISTORY_PORT),
+      fingerprint: process.env.ASTERION_TEST_HISTORY_FINGERPRINT,
     });
-    await call("market.open");
+    await call("quotes.endpoint.save", {
+      host: "127.0.0.1",
+      port: Number(process.env.ASTERION_TEST_QUOTES_PORT),
+      fingerprint: process.env.ASTERION_TEST_QUOTES_FINGERPRINT,
+    });
+    await call("quotes.open");
     for (const [name, selector] of [
       ["contract", ".contract-workspace"],
       ["market", ".market-workspace"],
@@ -149,7 +154,7 @@ async function closeDesktop(application) {
       await expect(page.locator(selector)).toBeVisible();
     }
 
-    await call("market.watchlist", { instruments: [{ exchange: "SHFE", symbol: "rb2610" }] });
+    await call("quotes.watchlist", { instruments: [{ exchange: "SHFE", symbol: "rb2610" }] });
     await openMarketSection(page, "自选");
     const priceHeading = page
       .locator(".market-quote-table table th")

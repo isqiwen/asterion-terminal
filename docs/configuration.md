@@ -7,6 +7,8 @@
 | Terminal | [logging.json](../apps/clients/terminal/config/logging.json) | 桌面打包，首次启动写入 `terminal/config/logging.json` |
 | Terminal | [futures-sessions.json](../apps/clients/terminal/config/futures-sessions.json) | 界面构建时导入，用于分时图横轴 |
 | Lab | [logging.json](../apps/services/lab/config/logging.json) | 桌面携带为 `config/lab-logging.json`，首次启动写入 `lab/config/logging.json` |
+| Quotes | [quotes.example.json](../apps/services/quotes/config/quotes.example.json) | 展示安装脚本生成的 `config/quotes.json` |
+| Quotes | [logging.json](../apps/services/quotes/config/logging.json) | 随服务安装包发布，首次安装复制为 `config/logging.json`，升级保留已有配置 |
 | History | [history.example.json](../apps/services/history/config/history.example.json) | 展示安装脚本生成的 `config/history.json` |
 | History | [logging.json](../apps/services/history/config/logging.json) | 随服务安装包发布，首次安装复制为 `config/logging.json`，升级保留已有配置 |
 | Trading | [account.example.json](../apps/services/trading/config/accounts/account.example.json) | 展示安装脚本生成的 `config/accounts/<账户>.json` |

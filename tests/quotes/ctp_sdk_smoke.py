@@ -21,9 +21,9 @@ version = getattr(sdk, name);version.restype = ctypes.c_char_p
 assert b'6.7.7' in version(), version()
 print('Packaged CTP vendor SDK loaded, version:', version().decode())
 sys.path.insert(0, str(Path(__file__).parents[1] / "support"))
-from history_installation import history_host
+from history_installation import quotes_host
 with tempfile.TemporaryDirectory(prefix="asterion-vendor-market-") as folder:
-    with history_host(build, Path(folder), vendor=True):
+    with quotes_host(build, Path(folder), vendor=True):
         time.sleep(.5)
 subprocess.run([str(build / 'asterion_ctp_trader_tests'),
                 '--gtest_filter=CtpVendor.TraderLoopbackLifecycleUsesThePackagedAbi'],

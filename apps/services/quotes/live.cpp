@@ -1,14 +1,14 @@
 #include <asterion/version.hpp>
 #include "live.hpp"
 #include <asterion/protocol/common.hpp>
-#include <asterion/protocol/history.hpp>
+#include <asterion/protocol/quotes.hpp>
 #include <algorithm>
 #include <set>
 
-namespace asterion::history {
+namespace asterion::quotes {
 
 using namespace std::chrono_literals;
-namespace wire = ::history;
+namespace wire = ::quotes;
 
 namespace {
 
@@ -134,7 +134,6 @@ void Live::status(wire::Status& out) const
     *out.mutable_catalog() = catalog_.state().status();
     out.set_subscribed(subscribed_);
     out.set_failed_subscriptions(feed_.failed_subscriptions());
-    out.set_disk_free_bytes(std::filesystem::space(settings_.directory).available);
     if (last_quote_ms_)
         out.set_last_quote_ms(last_quote_ms_);
     out.set_out_of_order_quotes(out_of_order_);
@@ -187,4 +186,4 @@ wire::QuoteFrame Live::frame(const wire::StreamQuotes& selection, Sent& sent) co
     return frame;
 }
 
-} // namespace asterion::history
+} // namespace asterion::quotes

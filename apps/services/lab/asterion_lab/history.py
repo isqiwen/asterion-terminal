@@ -102,7 +102,7 @@ class History:
         self.directory = terminal_data
 
     def selected(self):
-        path = self.directory / "market.json"
+        path = self.directory / "history.json"
         if not path.exists():
             raise HistoryError("unavailable", "no History is configured")
         try:
@@ -133,7 +133,7 @@ class Dataset(ParquetTables):
     provider = "research"
 
     def __init__(self, directory: Path, history=None, origin=None):
-        self.root = directory / "market-cache" / self.provider
+        self.root = directory / "history-cache" / self.provider
         self.history, self.origin = history, origin
 
     def current(self):

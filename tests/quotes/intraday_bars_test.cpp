@@ -1,5 +1,5 @@
 #include <asterion/futures/intraday_bars.hpp>
-#include <asterion/protocol/history.hpp>
+#include <asterion/protocol/quotes.hpp>
 #include <gtest/gtest.h>
 using namespace asterion;
 

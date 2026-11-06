@@ -6,21 +6,21 @@
 
 namespace asterion::terminal {
 
-// One generated market.proto Request, as ProtoJSON, on its own pinned TLS
+// One generated quotes.proto Request, as ProtoJSON, on its own pinned TLS
 // connection; returns the Response as ProtoJSON. Errors are thrown.
-[[nodiscard]] std::future<Json> call_market(ServiceIo&, ServiceEndpoint, Json);
+[[nodiscard]] std::future<Json> call_quotes(ServiceIo&, ServiceEndpoint, Json);
 
-// The selected Market's watch stream, held for the page. Frames (LiveQuotes
+// The selected Quotes service's watch stream, held for the page. Frames (LiveQuotes
 // messages as ProtoJSON) wait in order until the page takes them; a page that
 // stops taking them gets a new stream, whose first frame is complete.
-class MarketWatch
+class QuotesWatch
 {
 public:
-    [[nodiscard]] static std::future<std::shared_ptr<MarketWatch>>
+    [[nodiscard]] static std::future<std::shared_ptr<QuotesWatch>>
     open(ServiceIo&, ServiceEndpoint);
-    ~MarketWatch();
-    MarketWatch(const MarketWatch&) = delete;
-    MarketWatch& operator=(const MarketWatch&) = delete;
+    ~QuotesWatch();
+    QuotesWatch(const QuotesWatch&) = delete;
+    QuotesWatch& operator=(const QuotesWatch&) = delete;
     // {frames, online}; called on the I/O owner. restart starts a new stream at
     // once, for a page that has no complete frame to apply deltas to.
     Json take(bool restart);
@@ -28,7 +28,7 @@ public:
 
 private:
     struct Impl;
-    explicit MarketWatch(std::shared_ptr<Impl>);
+    explicit QuotesWatch(std::shared_ptr<Impl>);
     std::shared_ptr<Impl> impl_;
 };
 

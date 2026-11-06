@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { openView } from "./navigation-helper";
 import { rpc } from "./rpc-fixture";
@@ -12,12 +12,8 @@ test(
   { tag: "@journey" },
   async ({ page }) => {
     const source = resolve(__dirname, "../../../..");
-    const host = resolve(process.env.ASTERION_TEST_MARKET_TLS!, "../..");
+    const host = resolve(process.env.ASTERION_TEST_HISTORY_TLS!, "../..");
     const data = join(host, "data");
-    // Market takes its first contract snapshot in by itself; let that settle first.
-    await expect
-      .poll(() => existsSync(join(data, "sources/research/warehouse/current")), { timeout: 30000 })
-      .toBe(true);
     execFileSync(join(source, "build/electron-resources/python/bin/python3"), [
       "-I",
       "-B",
@@ -29,7 +25,7 @@ test(
       const version = readFileSync(join(data, "sources/research/warehouse/current"), "utf8").trim();
       await page.goto("/");
       await openView(page, "coverage");
-      await rpc(page.request, "market.close");
+      await rpc(page.request, "quotes.close");
       await expect(
         page.getByText("当前连接只有读取权限，不能启动或取消采集。", { exact: true }),
       ).toBeVisible();
@@ -39,7 +35,7 @@ test(
       ).toBeVisible();
       await expect(page.getByRole("rowheader", { name: "SHFE/rb", exact: true })).toBeVisible();
       await expect(page.getByRole("columnheader", { name: "2026-01", exact: true })).toBeVisible();
-      expect((await rpc(page.request, "market.watch", { restart: false })).market_watch).toBeNull();
+      expect((await rpc(page.request, "quotes.watch", { restart: false })).quotes_watch).toBeNull();
     } finally {
       rmSync(join(data, "sources/research"), { recursive: true, force: true });
     }

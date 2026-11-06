@@ -1,5 +1,5 @@
 #!/bin/bash
-# Installs, upgrades and configures the market on a service host.
+# Installs, upgrades and configures the historical data service on a host.
 #
 #   sudo bash Asterion-History-VERSION-linux-x86_64.sh       install, or upgrade an installation
 #   sudo /opt/asterion/history/bin/setup.sh   change the settings
@@ -10,19 +10,16 @@
 # directory. The installed copy, bin/setup.sh, carries nothing and only
 # changes the settings.
 #
-# The installation is /opt/asterion/history: bin/ lib/ config/ logs/, and
+# The installation is /opt/asterion/history: bin/ config/ logs/, and
 # data/ unless the settings name another data directory.
 # A first install asks for the settings; an upgrade replaces only bin/ and
-# lib/ and leaves config/ (history.json, logging.json) as it is
+# leaves config/ (history.json, logging.json) as it is
 # (it offers to change the settings).
-# Settings questions offer the current values as defaults; the password and
-# the authentication code have none and are encrypted with systemd-creds,
-# never written to a file in the clear. The market runs as the system
+# Settings questions offer the current values as defaults; the Tushare token
+# has none and is encrypted with systemd-creds,
+# never written to a file in the clear. History runs as the system
 # service asterion-history under the account that ran the install with sudo.
 #
-# While the market records during trading hours (Beijing weekdays
-# 08:45-15:30 and 20:45-02:45, holidays included), it is not restarted: the
-# change is saved now and a timer restarts it when the trading window ends.
 set -euo pipefail
 
 ROOT=/opt/asterion/history
@@ -30,10 +27,10 @@ UNITS=/etc/systemd/system
 CREDENTIALS=/etc/credstore.encrypted
 UNIT=asterion-history.service
 RESTART=asterion-history-restart
-# The account the market runs as: the sudo user at install, the owner of
+# The account History runs as: the sudo user at install, the owner of
 # config/ afterwards.
 ACCOUNT=
-PROGRAMS=(bin/asterion_history bin/asterion_crash_reporter bin/setup.sh lib/ctp-md.so lib/ctp-trader.so)
+PROGRAMS=(bin/asterion_history bin/asterion_crash_reporter bin/setup.sh)
 # This script: the release with its archive, or the installed bin/setup.sh.
 SELF=$(readlink -f "${BASH_SOURCE[0]}")
 
@@ -41,14 +38,10 @@ SELF=$(readlink -f "${BASH_SOURCE[0]}")
 declare -Ar DEFAULTS=(
     [bind]='0.0.0.0'
     [port]='7450'
+    [snapshots]='/opt/asterion/quotes/data/catalog'
     [clients]=''
     [acquisition.exchanges]='SHFE INE CZCE DCE CFFEX GFEX'
     [acquisition.tushare]='0'
-    [counter.market_front]='tcp://182.254.243.31:40011'
-    [counter.trade_front]='tcp://182.254.243.31:40001'
-    [counter.broker]='9999'
-    [counter.user]=''
-    [counter.app_id]='simnow_client_test'
 )
 
 fail() {
@@ -75,50 +68,9 @@ stage() {
     printf -v "$1" '%s' "$file"
 }
 
-# restart_time_at WEEKDAY HHMM: the end of the trading window at that Beijing
-# time (1 is Monday), "+1 02:45" for tomorrow's, or "now" outside one.
-restart_time_at() {
-    local weekday=$1 minute=$((10#${2:0:2} * 60 + 10#${2:2:2}))
-    if ((weekday <= 5 && minute >= 525 && minute < 930)); then
-        echo "15:30"
-    elif ((weekday <= 5 && minute >= 1245)); then
-        echo "+1 02:45"
-    elif ((weekday >= 2 && weekday <= 6 && minute < 165)); then
-        echo "02:45"
-    else
-        echo now
-    fi
-}
-
-# When the market may restart: "now" (it is not running, or it is outside
-# trading hours), else the Beijing date and time the trading window ends.
-restart_time() {
-    systemctl is-active --quiet "$UNIT" || {
-        echo now
-        return
-    }
-    local at
-    # shellcheck disable=SC2046
-    at=$(restart_time_at $(TZ=Asia/Shanghai date +'%u %H%M'))
-    case $at in
-        now) echo now ;;
-        "+1 "*) echo "$(TZ=Asia/Shanghai date -d tomorrow +%F) ${at#+1 }" ;;
-        *) echo "$(TZ=Asia/Shanghai date +%F) $at" ;;
-    esac
-}
-
 restart() {
-    local at
-    at=$(restart_time)
-    # A restart an earlier run scheduled is replaced.
-    systemctl stop "$RESTART.timer" 2>/dev/null || true
-    if [[ $at == now ]]; then
-        systemctl restart "$UNIT"
-        echo "The market has (re)started. Status: systemctl status $UNIT; logs in $ROOT/logs"
-    else
-        systemd-run --quiet --unit="$RESTART" --on-calendar="$at:00 Asia/Shanghai" systemctl restart "$UNIT"
-        echo "The market is serving during trading hours. The change is saved and takes effect when it restarts automatically at $at Beijing time. To cancel: systemctl stop $RESTART.timer"
-    fi
+    systemctl restart "$UNIT"
+    echo "History has (re)started. Status: systemctl status $UNIT; logs in $ROOT/logs"
 }
 
 # The default of a key; the data directory is beside the programs.
@@ -126,7 +78,7 @@ default() {
     if [[ $1 == data ]]; then printf '%s' "$ROOT/data"; else printf '%s' "${DEFAULTS[$1]}"; fi
 }
 
-# The current value of a key ("port", "counter.broker") in the settings, or
+# The current value of a key ("port", "acquisition.tushare") in the settings, or
 # its default where the settings have none.
 current() {
     if [[ ! -f $ROOT/config/history.json ]]; then
@@ -178,21 +130,14 @@ secret() {
 }
 
 configure() {
-    local front='^tcp://[A-Za-z0-9.-]+:[0-9]{1,5}$' bind port data previous tick_days
-    local market_front trade_front broker user app_id
-    local password auth_code='' settings encrypted_password encrypted_auth_code=''
+    local bind port data previous snapshots settings
     local clients exchanges budget token='' encrypted_token=''
     bind=$(ask bind "Listen address" '^[0-9A-Fa-f.:]+$')
     port=$(ask port "Listen port" '^[0-9]{1,5}$')
     ((port >= 1 && port <= 65535)) || fail "The port must be between 1 and 65535"
     previous=$(current data)
     data=$(ask data "Data directory (warehouse)" '^/[^[:space:]]*$')
-    market_front=$(ask counter.market_front "History data front" "$front")
-    trade_front=$(ask counter.trade_front "Trading front" "$front")
-    broker=$(ask counter.broker "Broker ID" '^[A-Za-z0-9]+$')
-    user=$(ask counter.user "Investor ID" '^[A-Za-z0-9]+$')
-    app_id=$(ask counter.app_id "AppID (- for none)" '^[A-Za-z0-9_-]*$')
-    [[ $app_id == - ]] && app_id=
+    snapshots=$(ask snapshots "Contract snapshots Quotes leaves" '^/[^[:space:]]*$')
     echo "Register Terminal fingerprints as <fingerprint>=read or <fingerprint>=manage (space separated)."
     clients=$(ask clients "Permitted clients" '^[0-9A-Fa-f:=[:space:]readmng]+$')
     exchanges=$(ask acquisition.exchanges "Public exchanges (- for none)" '^[A-Z[:space:]-]+$')
@@ -202,14 +147,12 @@ configure() {
         token=$(secret "Tushare token (not shown)")
         [[ ${#token} -le 256 && ! $token =~ [[:space:]] ]] || fail "Tushare token must be at most 256 characters without whitespace"
     fi
-    password=$(secret "Password (not shown)")
-    [[ -n $app_id ]] && auth_code=$(secret "Authentication code (not shown)")
 
-    # Replaced whole, every file staged first; only the market's account may read it.
+    # Replaced whole, every file staged first; only the service's account may read it.
     stage settings "$ROOT/config/history.json"
     python3 -I -c '
 import json, sys
-bind, port, data, market, trade, broker, user, app_id, clients, exchanges, budget = sys.argv[2:]
+bind, port, data, snapshots, clients, exchanges, budget = sys.argv[2:]
 import re
 peers = []
 for item in clients.split():
@@ -223,32 +166,20 @@ if not 1 <= len(peers) <= 64:
 exchanges = [] if exchanges == "-" else exchanges.split()
 if len(set(exchanges)) != len(exchanges) or set(exchanges) - {"SHFE", "INE", "CZCE", "DCE", "CFFEX", "GFEX"}:
     raise SystemExit("Invalid or duplicate acquisition exchanges")
-settings = {"bind": bind, "port": int(port), "data": data,
-    "clients": peers,
-    "acquisition": {"exchanges": exchanges, "tushare": {"requests_per_minute": int(budget)} if int(budget) else None}, "counter": {
-    "market_front": market, "trade_front": trade, "broker": broker, "user": user, "app_id": app_id}}
+settings = {"bind": bind, "port": int(port), "data": data, "snapshots": snapshots, "clients": peers,
+    "acquisition": {"exchanges": exchanges, "tushare": {"requests_per_minute": int(budget)} if int(budget) else None}}
 with open(sys.argv[1], "w") as output:
     json.dump(settings, output, ensure_ascii=False, indent=2)
-    output.write("\n")' "$settings" "$bind" "$port" "$data" "$market_front" "$trade_front" \
-        "$broker" "$user" "$app_id" "$clients" "$exchanges" "$budget"
+    output.write("\n")' "$settings" "$bind" "$port" "$data" "$snapshots" \
+        "$clients" "$exchanges" "$budget"
     chown "$ACCOUNT:" "$settings"
     chmod 0600 "$settings"
-    stage encrypted_password "$CREDENTIALS/asterion.ctp.password"
-    printf '%s' "$password" |
-        systemd-creds encrypt --name=asterion.ctp.password - "$encrypted_password" >/dev/null
-    if [[ -n $auth_code ]]; then
-        stage encrypted_auth_code "$CREDENTIALS/asterion.ctp.auth_code"
-        printf '%s' "$auth_code" |
-            systemd-creds encrypt --name=asterion.ctp.auth_code - "$encrypted_auth_code" >/dev/null
-    fi
     if [[ -n $token ]]; then
         stage encrypted_token "$CREDENTIALS/asterion.history.tushare.token"
         printf '%s' "$token" | systemd-creds encrypt --name=asterion.history.tushare.token - "$encrypted_token" >/dev/null
     fi
-    password='' auth_code='' token=''
+    token=''
     [[ -z $encrypted_token ]] || mv -f "$encrypted_token" "$CREDENTIALS/asterion.history.tushare.token"
-    mv -f "$encrypted_password" "$CREDENTIALS/asterion.ctp.password"
-    [[ -z $encrypted_auth_code ]] || mv -f "$encrypted_auth_code" "$CREDENTIALS/asterion.ctp.auth_code"
     mkdir -p "$data"
     chmod 0700 "$data"
     chown "$ACCOUNT:" "$data"
@@ -257,27 +188,26 @@ with open(sys.argv[1], "w") as output:
     # The service may write only its logs and its data directory.
     write_unit
     if [[ $data != "$previous" && -d $previous && -n $(ls -A "$previous") ]]; then
-        echo "The existing data stays in $previous; it is not moved. To keep using it, stop the market and move its contents to $data."
+        echo "The existing data stays in $previous; it is not moved. To keep using it, stop History and move its contents to $data."
     fi
 }
 
 unit_text() {
     cat <<EOF
 [Unit]
-Description=Asterion market market
+Description=Asterion historical data
 Wants=network-online.target
 After=network-online.target
-# Never give up restarting: a market that stays down loses the market.
+# Never give up restarting: a service that stays down serves nothing.
 StartLimitIntervalSec=0
 
 [Service]
 User=$ACCOUNT
 UMask=0077
-# It finds config/, lib/ and logs/ beside its bin/; config/history.json names its data.
+# It finds config/ and logs/ beside its bin/; config/history.json names its data.
 ExecStart=$ROOT/bin/asterion_history
 ReadWritePaths=$ROOT/logs $(current data)
-# The counter password and authentication code, decrypted at start.
-ImportCredential=asterion.ctp.*
+# The Tushare token, decrypted at start.
 ImportCredential=asterion.history.*
 Restart=always
 RestartSec=5
@@ -312,7 +242,7 @@ prepare_identity() {
 }
 
 install_once() {
-    mkdir -p "$ROOT"/{bin,lib,config/tls,logs} "$CREDENTIALS"
+    mkdir -p "$ROOT"/{bin,config/tls,logs} "$CREDENTIALS"
     chmod 0700 "$ROOT/config" "$ROOT/logs" "$CREDENTIALS"
     chown "$ACCOUNT:" "$ROOT/config" "$ROOT/logs"
     if [[ ! -f $ROOT/config/logging.json ]]; then
@@ -337,11 +267,11 @@ write_unit() {
     systemctl daemon-reload
 }
 
-# Replaces the programs in bin/ and lib/, one rename each: a running
-# market keeps the files it started with until it restarts.
+# Replaces the programs in bin/, one rename each: a running
+# service keeps the files it started with until it restarts.
 place() {
     local name next
-    "$1/bin/asterion_history" --version >/dev/null 2>&1 || fail "The market in this release does not run on this host"
+    "$1/bin/asterion_history" --version >/dev/null 2>&1 || fail "History in this release does not run on this host"
     for name in "${PROGRAMS[@]}"; do
         stage next "$ROOT/$name"
         install -m 0755 "$1/$name" "$next"
@@ -367,7 +297,7 @@ main() {
         ACCOUNT=$(stat -c %U "$ROOT/config")
     else
         ACCOUNT=${SUDO_USER:-}
-        [[ -n $ACCOUNT && $ACCOUNT != root ]] || fail "Run it with sudo from your own account: the market will run as that account"
+        [[ -n $ACCOUNT && $ACCOUNT != root ]] || fail "Run it with sudo from your own account: History will run as that account"
     fi
     if [[ $source == "$ROOT" ]]; then
         configure
@@ -381,10 +311,10 @@ main() {
     else
         install_once "$source"
         place "$source"
-        echo "Installed in $ROOT; the market runs as $ACCOUNT. Settings:"
+        echo "Installed in $ROOT; History runs as $ACCOUNT. Settings:"
         configure
         port=$(current port)
-        echo "The market requires pinned mutual TLS on TCP $port; register its fingerprint in each Terminal."
+        echo "History requires pinned mutual TLS on TCP $port; register its fingerprint in each Terminal."
     fi
     openssl x509 -noout -fingerprint -sha256 -in "$ROOT/config/tls/server.crt"
     echo "Client roles and providers take effect after restart. Provider credentials stay on this host."

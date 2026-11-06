@@ -27,7 +27,13 @@ export function readySnapshot(): Snapshot {
   return {
     revision: 1,
     refreshed_at_ms: Date.now(),
-    market_endpoint: { host: "research", port: 7450, fingerprint: "a".repeat(64), instruments: [] },
+    history_endpoint: {
+      host: "research",
+      port: 7450,
+      fingerprint: "a".repeat(64),
+      instruments: [],
+    },
+    quotes_endpoint: { host: "research", port: 7451, fingerprint: "a".repeat(64), instruments: [] },
     lab: { state: "ready", pid: 1, restarts: 0, error: "" },
     protocol: 1,
     product: "Asterion Terminal",

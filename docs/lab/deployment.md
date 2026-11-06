@@ -20,13 +20,13 @@ Lab 使用 `python3 -I -B -m asterion_lab` 启动。`LabSupervisor` 提供拥有
 ├── terminal/
 │   ├── runtime/                    # 安装版准备的研究运行时
 │   └── data/
-│       ├── market.json             # 共享的 History 地址与服务指纹
+│       ├── history.json            # 共享的 History 地址与服务指纹
 │       └── tls/                    # 本机客户端身份
 └── lab/
     ├── config/logging.json
     ├── logs/
     └── data/lab/
-        ├── market-cache/research/  # 固定版本清单与分区缓存
+        ├── history-cache/research/  # 固定版本清单与分区缓存
         ├── sources/                # 研究接纳时复制的源码
         ├── runs.sqlite             # 运行状态和指标索引
         └── runs/<运行ID>/

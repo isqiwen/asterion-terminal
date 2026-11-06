@@ -50,12 +50,17 @@ export const test = base.extend<{
           if (body.error) throw new Error(`${method} after reset: ${body.error.message}`);
           return body.result;
         };
-        await call("market.endpoint.save", {
+        await call("history.endpoint.save", {
           host: "127.0.0.1",
-          port: Number(process.env.ASTERION_TEST_MARKET_PORT),
-          fingerprint: process.env.ASTERION_TEST_MARKET_FINGERPRINT!,
+          port: Number(process.env.ASTERION_TEST_HISTORY_PORT),
+          fingerprint: process.env.ASTERION_TEST_HISTORY_FINGERPRINT!,
         });
-        await call("market.open");
+        await call("quotes.endpoint.save", {
+          host: "127.0.0.1",
+          port: Number(process.env.ASTERION_TEST_QUOTES_PORT),
+          fingerprint: process.env.ASTERION_TEST_QUOTES_FINGERPRINT!,
+        });
+        await call("quotes.open");
         for (const deadline = Date.now() + 60000; ;) {
           const { lab } = await call("runtime.snapshot");
           if (!lab || lab.state === "ready") break;

@@ -1,10 +1,10 @@
-#include "support/history_host.hpp"
+#include "support/quotes_host.hpp"
 #include "ctp_feed.hpp"
 #include "support/timing.hpp"
 #include <asterion/system/durable_file.hpp>
 #include <asterion/system/ipc/local_channel.hpp>
 #include <asterion/system/process/child.hpp>
-#include <asterion/protocol/history.hpp>
+#include <asterion/protocol/quotes.hpp>
 #include <gtest/gtest.h>
 #include <csignal>
 #include <unistd.h>
@@ -479,9 +479,9 @@ TEST(CtpPublication, CatalogIsSentOnlyInTheFirstFrameOfAStream)
 {
     using namespace asterion;
     using namespace std::chrono_literals;
-    namespace wire = ::history;
+    namespace wire = ::quotes;
     CtpDirectory directory;
-    testing_support::MarketHost host(directory.path, "catalog-large");
+    testing_support::QuotesHost host(directory.path, "catalog-large");
     host.start();
     constexpr int count = 20000;
     const auto deadline = std::chrono::steady_clock::now() + testing_support::bound(40s);
@@ -504,7 +504,7 @@ TEST(CtpPublication, CatalogIsSentOnlyInTheFirstFrameOfAStream)
     auto* filter = watch.mutable_stream_quotes()->add_instruments();
     filter->set_exchange("SHFE");
     filter->set_symbol("rb9999");
-    const auto receive = [&](testing_support::MarketChannel& channel) {
+    const auto receive = [&](testing_support::HistoryChannel& channel) {
         wire::Response response;
         if (!response.ParseFromString(channel.receive(testing_support::bound(10s)))
             || !response.has_stream_quotes())
@@ -615,12 +615,12 @@ TEST(CtpPublication, StreamSendsChangedRowsAfterAFullFrameAndStartsOverOnReconne
 {
     using namespace asterion;
     using namespace std::chrono_literals;
-    namespace wire = ::history;
+    namespace wire = ::quotes;
     CtpDirectory directory;
-    testing_support::MarketHost host(directory.path, "publication");
+    testing_support::QuotesHost host(directory.path, "publication");
     host.start();
     std::uint64_t ids = 0;
-    auto receive = [](testing_support::MarketChannel& channel) {
+    auto receive = [](testing_support::HistoryChannel& channel) {
         wire::Response response;
         if (!response.ParseFromString(channel.receive(testing_support::bound(2s))))
             throw std::runtime_error("invalid market response");
@@ -703,7 +703,7 @@ TEST(CtpPublication, StreamSendsChangedRowsAfterAFullFrameAndStartsOverOnReconne
     // More simultaneous streams than the former request worker pool. Each
     // retains its own full baseline; neither queries nor stop wait for a
     // stream to release a worker.
-    std::vector<testing_support::MarketChannel> observers;
+    std::vector<testing_support::HistoryChannel> observers;
     for (int i = 0; i < 30; ++i) {
         auto observer = host.open();
         observer.send(watch.SerializeAsString(), testing_support::bound(2s));

@@ -146,14 +146,14 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
 
     def market():
         """Market's quotes and catalog through the Terminal relay, as ProtoJSON."""
-        return call("market.call", {"request": {"getBoard": {}}})["market"]["getBoard"]
+        return call("quotes.call", {"request": {"getBoard": {}}})["quotes"]["getBoard"]
 
     def quote():
         return next((row.get("quote") for row in market().get("rows", [])
                      if row["instrument"] == {"exchange": venue, "symbol": symbol}), None)
 
     try:
-        call("market.endpoint.save", {"host": args.history_host, "port": args.market_port, "fingerprint": args.market_fingerprint})
+        call("quotes.endpoint.save", {"host": args.history_host, "port": args.market_port, "fingerprint": args.market_fingerprint})
         step("remote Market connection", bool(market().get("feed")))
         deadline = time.monotonic() + args.timeout
         while not (quote() or {}).get("last") and time.monotonic() < deadline:

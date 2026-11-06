@@ -17,7 +17,7 @@ sys.path[:0] = [str(source / 'tests/support'), str(source / 'tests/lab'),
                str(source / 'apps/services/lab'), str(build / 'generated-python')]
 import history_tls
 from asterion import history_pb2 as market
-from history_installation import history_host, running_market
+from history_installation import history_host, running
 from history_wire import rpc, send, receive
 from warehouse_writer import Warehouse
 from warehouse_fixture import daily
@@ -51,61 +51,46 @@ def history(root):
 def main():
     with tempfile.TemporaryDirectory(prefix='ast-market-concurrency-') as folder:
         root = Path(folder) / 'market'
-        with history_host(build, root, user='concurrency') as port:
+        with history_host(build, root) as port:
             tls = root / 'config/tls'
             fixed = history(root)
             def call(operation, **values):
                 return rpc(tls, port, operation, **values)
-            initial = until(lambda: call('get_status'),
-                            lambda s: s.feed.state == market.FEED_STATE_CONNECTED and s.last_quote_ms)
-            with history_tls.connect(tls, port) as first:
-                send(first, 'stream_quotes')
-                selected = receive(first).stream_quotes.full.rows[0].instrument
+            initial = call('get_status')
             file_query = dict(dataset=dict(version=fixed), key='daily/SHFE/2026-10')
             baseline = call('read_dataset_file', **file_query)
-            with history_tls.connect(tls, port) as slow, history_tls.connect(tls, port) as watch:
+            # The day's contract snapshot is taken in while a slow client stalls and others read.
+            from asterion import quotes_pb2
+            catalog = quotes_pb2.Catalog()
+            item = catalog.contracts.add()
+            item.contract = 'SHFE/rb/2027-01'
+            item.price_tick.text = '1'
+            (root / 'data/catalog').mkdir(parents=True, exist_ok=True)
+            (root / 'data/catalog/20261028.pb').write_bytes(catalog.SerializeToString())
+            with history_tls.connect(tls, port) as slow:
                 slow.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024)
                 # Pipelined one-MiB replies exceed the sender's socket buffer.
                 # This client reads nothing while the healthy clients keep working.
                 for _ in range(16):
                     send(slow, 'read_dataset_file', **file_query)
-                send(watch, 'stream_quotes', instruments=[selected])
-                assert receive(watch).stream_quotes.HasField('full')
-                with ThreadPoolExecutor(max_workers=1) as readers:
-                    def read_history():
-                        for _ in range(12):
-                            reply = call('read_dataset_file', **file_query)
-                            assert reply == baseline
-                    reading = readers.submit(read_history)
-                    advancing = 0
-                    deadline = time.monotonic() + 4
-                    while time.monotonic() < deadline:
-                        frame = receive(watch).stream_quotes
-                        assert frame.HasField('changed')
-                        advancing += len(frame.changed.rows) > 0
-                    reading.result()
-                    assert advancing >= 5, 'live watch stopped behind a slow/history reader'
-            before = call('get_status').last_quote_ms
-            # No clients remain connected; provider intake and the writer keep running.
-            time.sleep(.4)
-            assert call('get_status').last_quote_ms > before
-            # The day's contract snapshot is taken in while readers and the watch proceed.
-            publication = until(lambda: call('get_dataset_version', table=market.TABLE_PRICE_TICKS, dataset={}),
-                                lambda v: v.partitions, timeout=30)
+                for _ in range(12):
+                    assert call('read_dataset_file', **file_query) == baseline
+                publication = until(lambda: call('get_dataset_version', table=market.TABLE_PRICE_TICKS, dataset={}),
+                                    lambda v: v.partitions, timeout=30)
             recorder = dict(version=publication.dataset.version)
             assert call('read_dataset_file', **file_query) == baseline
         # Reopen it, then kill a running task.
-        with running_market(root, port) as process:
+        with running(root, port) as process:
             assert call('get_status').started_ms != initial.started_ms
             call('start_acquisition', role='manager', id='interrupted',
-                 table=market.TABLE_PRICE_TICKS, first_day='1990-01-01', last_day='2026-10-28')
+                 table=market.TABLE_PRICE_TICKS, first_day='1990-01-01', last_day='2026-10-27')
             progress = until(lambda: call('get_acquisition_task', id='interrupted'),
                              lambda t: t.state == market.TASK_STATE_RUNNING and t.items_done > 0)
             # The submitting client has gone; collection and task work continue.
             assert progress.items_done < progress.items
             process.kill()
             process.wait(timeout=10)
-        with running_market(root, port):
+        with running(root, port):
             recovered = call('get_acquisition_task', id='interrupted')
             assert recovered.state == market.TASK_STATE_INTERRUPTED, recovered
             assert call('get_dataset_version', table=market.TABLE_PRICE_TICKS, dataset=recorder) == publication
@@ -113,7 +98,6 @@ def main():
             stable = recovered.SerializeToString()
             time.sleep(.2)
             assert call('get_acquisition_task', id='interrupted').SerializeToString() == stable
-            until(lambda: call('get_status'), lambda s: s.last_quote_ms > 0)
         print('Live intake, slow/history clients, autonomous publication and crash recovery passed')
 
 

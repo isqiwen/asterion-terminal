@@ -6,21 +6,41 @@ import { SettingsSection } from "./Section";
 import { ActionError, useActionError } from "../host/action-error";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 const t = (key: string) => translate("host", key);
-export function MarketSource({
+const words = {
+  quotes: {
+    edit: "编辑行情连接",
+    add: "添加行情连接",
+    unreadable: "行情服务设置文件无法读取，已保留原文件供检查。",
+    fingerprint: "行情服务证书指纹",
+    port: 7451,
+  },
+  history: {
+    edit: "编辑历史数据连接",
+    add: "添加历史数据连接",
+    unreadable: "历史数据服务设置文件无法读取，已保留原文件供检查。",
+    fingerprint: "历史数据服务证书指纹",
+    port: 7450,
+  },
+};
+
+export function ServiceConnection({
+  service,
   snapshot,
   busy,
   trade,
 }: {
+  service: "quotes" | "history";
   snapshot: Snapshot | null;
   busy: boolean;
   trade: CommandHandler;
 }) {
-  const saved = snapshot?.market_endpoint;
+  const word = words[service];
+  const saved = service === "quotes" ? snapshot?.quotes_endpoint : snapshot?.history_endpoint;
   const endpoint = saved && "host" in saved ? saved : null;
   const [editing, setEditing] = useState(false);
   const [host, setHost] = useState("");
   const [fingerprint, setFingerprint] = useState("");
-  const [port, setPort] = useState("7450");
+  const [port, setPort] = useState(String(word.port));
   const [clearing, setClearing] = useState(false);
   // What the form's input was refused for, shown above its buttons.
   const [refused, setRefused] = useState<DisplayError>("");
@@ -28,7 +48,7 @@ export function MarketSource({
   const run = (...args: CommandCall) => attempt(() => trade(...args));
   const edit = () => {
     setHost(endpoint?.host ?? "");
-    setPort(String(endpoint?.port ?? 7450));
+    setPort(String(endpoint?.port ?? word.port));
     setFingerprint(endpoint?.fingerprint ?? "");
     setClearing(false);
     setRefused("");
@@ -49,22 +69,20 @@ export function MarketSource({
                     setClearing(true);
                     return;
                   }
-                  if (await run("market.endpoint.clear", {})) setClearing(false);
+                  if (await run(`${service}.endpoint.clear`, {})) setClearing(false);
                 }}
               >
                 {t(clearing ? "确认清除" : "清除")}
               </button>
             )}
             <button className="primary" disabled={busy} onClick={edit}>
-              {t(endpoint ? "编辑行情连接" : "添加行情连接")}
+              {t(endpoint ? word.edit : word.add)}
             </button>
           </>
         )
       }
     >
-      {saved && "error" in saved && (
-        <p role="alert">{t("行情服务设置文件无法读取，已保留原文件供检查。")}</p>
-      )}
+      {saved && "error" in saved && <p role="alert">{t(word.unreadable)}</p>}
       {!editing && endpoint && (
         <>
           <p className="settings-hint">
@@ -78,7 +96,7 @@ export function MarketSource({
           onSubmit={async event => {
             event.preventDefault();
             try {
-              await trade("market.endpoint.save", {
+              await trade(`${service}.endpoint.save`, {
                 host: host.trim(),
                 port: Number(port),
                 fingerprint: fingerprint.trim(),
@@ -115,9 +133,9 @@ export function MarketSource({
                 />
               </label>
               <label className="settings-field">
-                {t("行情服务证书指纹")}
+                {t(word.fingerprint)}
                 <input
-                  aria-label={t("行情服务证书指纹")}
+                  aria-label={t(word.fingerprint)}
                   required
                   maxLength={95}
                   value={fingerprint}

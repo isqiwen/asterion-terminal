@@ -13,14 +13,14 @@ namespace asterion::testing_support {
 
 // Test-only installation. Provider fixtures and credentials stay on its host;
 // clients use precisely the same pinned TLS entry point as Terminal.
-struct MarketHost
+struct HistoryHost
 {
     std::filesystem::path root;
     std::uint16_t port;
     std::string server_pin, reader_pin, manager_pin;
     std::unique_ptr<ChildProcess> process;
 
-    explicit MarketHost(std::filesystem::path directory, std::string user = "fixture")
+    explicit HistoryHost(std::filesystem::path directory)
         : root(std::move(directory))
     {
         const int probe = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -38,9 +38,7 @@ struct MarketHost
         port = ntohs(address.sin_port);
         for (const auto* name : {"bin", "config", "data", "lib", "credentials"})
             std::filesystem::create_directories(root / name);
-        std::filesystem::create_symlink(ASTERION_MARKET_PATH, root / "bin/asterion_history");
-        std::filesystem::create_symlink(ASTERION_TEST_CTP, root / "lib/ctp-md.so");
-        std::filesystem::create_symlink(ASTERION_TEST_CTP_TRADER, root / "lib/ctp-trader.so");
+        std::filesystem::create_symlink(ASTERION_HISTORY_PATH, root / "bin/asterion_history");
         std::filesystem::create_directories(root / "config/tls");
         server_pin = ipc::create_identity(
             root / "config/tls/server.crt",
@@ -56,16 +54,10 @@ struct MarketHost
             {"clients",
                 {{{"fingerprint", reader_pin}, {"role", "read"}},
                     {{"fingerprint", manager_pin}, {"role", "manage"}}}},
-            {"acquisition", {{"exchanges", nlohmann::json::array()}, {"tushare", nullptr}}},
-            {"counter",
-                {{"market_front", "tcp://127.0.0.1:1"},
-                    {"trade_front", "tcp://127.0.0.1:1"},
-                    {"broker", "fixture"},
-                    {"user", user},
-                    {"app_id", ""}}}
+            {"snapshots", (root / "data/catalog").string()},
+            {"acquisition", {{"exchanges", nlohmann::json::array()}, {"tushare", nullptr}}}
         };
         replace_file_durably(root / "config/history.json", config.dump());
-        replace_file_durably(root / "credentials/asterion.ctp.password", "private-fixture-key");
     }
 
     void start()
@@ -84,14 +76,14 @@ struct MarketHost
         return {(root / (name + ".crt")).string(), (root / (name + ".key")).string(), {server_pin}};
     }
 
-    MarketChannel open(const std::string& name = "reader")
+    HistoryChannel open(const std::string& name = "reader")
     {
         using namespace std::chrono_literals;
         const auto deadline = std::chrono::steady_clock::now() + 5s;
         for (;;) {
             try {
                 auto probe = ipc::TcpChannel::connect("127.0.0.1", port, 100ms);
-                return MarketChannel(port, tls(name));
+                return HistoryChannel(port, tls(name));
             } catch (const std::exception&) {
                 if (process->exited() || std::chrono::steady_clock::now() >= deadline)
                     throw;

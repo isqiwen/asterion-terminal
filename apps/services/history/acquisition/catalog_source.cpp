@@ -1,5 +1,5 @@
 #include "catalog_source.hpp"
-#include <asterion/history.pb.h>
+#include <asterion/quotes.pb.h>
 #include <algorithm>
 #include <fstream>
 
@@ -28,7 +28,7 @@ Rows CatalogSource::price_ticks(const std::string& exchange, const std::string& 
         return {};
     ++requests_;
     std::ifstream input(file, std::ios::binary);
-    ::history::Catalog catalog;
+    ::quotes::Catalog catalog;
     if (!catalog.ParseFromIstream(&input))
         throw SourceError("invalid_data", "damaged contract snapshot: " + file.string());
     Rows rows;

@@ -47,8 +47,8 @@ test(
         revision = polled.revision;
         await page.waitForTimeout(2500);
       }
-      check("market connected", await call(page.request, "market.open"));
-      check("client closed", await call(page.request, "market.close"));
+      check("market connected", await call(page.request, "quotes.open"));
+      check("client closed", await call(page.request, "quotes.close"));
     } finally {
       await removeFolder(folder);
     }

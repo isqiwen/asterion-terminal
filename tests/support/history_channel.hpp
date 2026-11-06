@@ -5,7 +5,7 @@
 namespace asterion::testing_support {
 
 // Synchronous test view over the production TLS client, including watch frames.
-class MarketChannel
+class HistoryChannel
 {
     struct State
     {
@@ -21,7 +21,7 @@ class MarketChannel
     std::unique_ptr<State> state_;
 
 public:
-    MarketChannel(std::uint16_t port, ipc::TlsIdentity tls)
+    HistoryChannel(std::uint16_t port, ipc::TlsIdentity tls)
         : state_(std::make_unique<State>(port, std::move(tls)))
     {}
 

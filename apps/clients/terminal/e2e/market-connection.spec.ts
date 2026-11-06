@@ -5,6 +5,6 @@ test("Market address replaces desktop counter credentials", async ({ page }) => 
   await page.goto("/?settings=sources");
   // The command contract accepts a service address and never a broker password.
   const state = await rpc(page.request, "runtime.snapshot");
-  expect(state.market_endpoint.host).toBe("127.0.0.1");
+  expect(state.quotes_endpoint.host).toBe("127.0.0.1");
   expect(state.ctp_connections).toBeUndefined();
 });

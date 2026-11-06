@@ -4,11 +4,11 @@
 
 namespace asterion::terminal {
 
-// The remote Market address and this Terminal's watchlist. No broker credentials.
-class MarketEndpoint
+// A service's saved address and, for Quotes, this Terminal's watchlist. No broker credentials.
+class SavedEndpoint
 {
 public:
-    explicit MarketEndpoint(std::filesystem::path file)
+    explicit SavedEndpoint(std::filesystem::path file)
         : file_(std::move(file))
     {}
 

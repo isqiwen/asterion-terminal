@@ -6,7 +6,7 @@ import {
   type Board,
   type QuoteFrame,
   type QuoteRow,
-} from "../generated/asterion/history_pb";
+} from "../generated/asterion/quotes_pb";
 import { notify } from "./notifications";
 
 // One recent quote for the Tick chart. volume is the contracts traded since
@@ -117,8 +117,8 @@ export function MarketProvider({ active, children }: { active: boolean; children
       if (reading) return;
       reading = true;
       try {
-        const { market_watch: watch } = (await call("market.watch", { restart })) as {
-          market_watch: null | { frames: JsonValue[]; online: boolean };
+        const { quotes_watch: watch } = (await call("quotes.watch", { restart })) as {
+          quotes_watch: null | { frames: JsonValue[]; online: boolean };
         };
         if (stopped) return;
         restart = false;

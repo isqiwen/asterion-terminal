@@ -3,15 +3,16 @@ import type { CommandHandler } from "../src/bridge/commands";
 export { useWorkspaceDraft } from "../src/host/workspace/drafts";
 export { save } from "../src/bridge/desktop";
 export { lab } from "../src/bridge/lab";
-export { marketData } from "../src/bridge/market-data";
+export { historyData } from "../src/bridge/history-data";
+export { quotesData } from "../src/bridge/quotes-data";
 export type {
   AcquisitionOptions,
   AcquisitionTask as MarketTask,
   DatasetSummary as MarketSummary,
   DatasetCoverage as MarketCoverage,
   DatasetChange as MarketChange,
-  MinuteBar,
 } from "../src/generated/asterion/history_pb";
+export type { MinuteBar } from "../src/generated/asterion/quotes_pb";
 export { explicitCloseBuckets } from "../src/ui/closePolicy";
 export { protocolPeriod, type ChartPeriod } from "../src/ui/periods";
 export type { DatasetSummary as LabSummary } from "../src/generated/asterion/history_pb";
@@ -49,7 +50,7 @@ export type TerminalContext = {
     id: string,
     options?: { marketMode?: "live" | "history"; page?: string; params?: Record<string, string> },
   ) => void;
-  openSettings: (page?: "preferences" | "market" | "trading") => void;
+  openSettings: (page?: "preferences" | "market" | "history" | "trading") => void;
   trade: CommandHandler;
 };
 // Built-in application features share the typed application context.

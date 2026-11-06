@@ -79,59 +79,60 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT ASTERION_SANITIZERS)
   set_tests_properties(crash_diagnostics PROPERTIES TIMEOUT 45)
 endif()
 
-# market: CTP feed and catalog, the market service, the market SDK double
+# quotes: CTP feed and catalog, the quotes service, the market SDK double
 asterion_unit_tests(asterion_strategy_bars_tests trading/strategy_bars_test.cpp asterion_trading_session)
-add_library(asterion_test_ctp SHARED history/ctp_fake_sdk.cpp)
+add_library(asterion_test_ctp SHARED quotes/ctp_fake_sdk.cpp)
 target_include_directories(asterion_test_ctp PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(asterion_test_ctp PRIVATE ctp::ctp Threads::Threads)
 target_compile_features(asterion_test_ctp PRIVATE cxx_std_20)
-add_executable(asterion_test_history_remote history/history_remote_client.cpp)
-target_include_directories(asterion_test_history_remote PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_include_directories(asterion_test_history_remote PRIVATE ${CMAKE_SOURCE_DIR}/apps/clients/terminal/native)
-target_link_libraries(asterion_test_history_remote PRIVATE asterion_terminal_application)
+add_executable(asterion_test_quotes_remote quotes/quotes_remote_client.cpp)
+target_include_directories(asterion_test_quotes_remote PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_include_directories(asterion_test_quotes_remote PRIVATE ${CMAKE_SOURCE_DIR}/apps/clients/terminal/native)
+target_link_libraries(asterion_test_quotes_remote PRIVATE asterion_terminal_application)
+add_test(NAME quotes_startup COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/quotes/startup_test.py $<TARGET_FILE:asterion_quotes>)
+set_tests_properties(quotes_startup PROPERTIES TIMEOUT 45)
+add_test(NAME remote_quotes COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/quotes/remote_quotes.py ${CMAKE_BINARY_DIR})
+set_tests_properties(remote_quotes PROPERTIES TIMEOUT 30)
+add_test(NAME quotes_live_process COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/quotes/live_process.py $<TARGET_FILE:asterion_quotes> $<TARGET_FILE:asterion_test_ctp> $<TARGET_FILE:asterion_test_ctp_trader>)
+set_tests_properties(quotes_live_process PROPERTIES TIMEOUT 90)
+asterion_unit_tests(asterion_ctp_tests quotes/ctp_test.cpp asterion_ctp)
+target_link_libraries(asterion_ctp_tests PRIVATE asterion_protocol)
+target_compile_definitions(asterion_ctp_tests PRIVATE ASTERION_TEST_CTP_TRADER="$<TARGET_FILE:asterion_test_ctp_trader>" ASTERION_TEST_CTP="$<TARGET_FILE:asterion_test_ctp>" ASTERION_QUOTES_PATH="$<TARGET_FILE:asterion_quotes>")
+add_dependencies(asterion_ctp_tests asterion_test_ctp asterion_test_ctp_trader asterion_quotes)
+asterion_unit_tests(asterion_ctp_catalog_tests quotes/ctp_catalog_test.cpp asterion_ctp)
+target_compile_definitions(asterion_ctp_catalog_tests PRIVATE ASTERION_TEST_CTP_TRADER="$<TARGET_FILE:asterion_test_ctp_trader>")
+target_compile_definitions(asterion_ctp_catalog_tests PRIVATE ASTERION_TEST_CTP="$<TARGET_FILE:asterion_test_ctp>" ASTERION_QUOTES_PATH="$<TARGET_FILE:asterion_quotes>")
+target_link_libraries(asterion_ctp_catalog_tests PRIVATE asterion_protocol)
+add_dependencies(asterion_ctp_catalog_tests asterion_test_ctp_trader asterion_test_ctp asterion_quotes)
+add_test(NAME quotes_process COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/quotes/live_process.py $<TARGET_FILE:asterion_quotes> $<TARGET_FILE:asterion_test_ctp> $<TARGET_FILE:asterion_test_ctp_trader> --terminal ${CMAKE_BINARY_DIR})
+set_tests_properties(quotes_process PROPERTIES TIMEOUT 60)
+add_test(NAME ctp_sdk_smoke COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/quotes/ctp_sdk_smoke.py ${CMAKE_BINARY_DIR})
+set_tests_properties(ctp_sdk_smoke PROPERTIES TIMEOUT 30)
+asterion_unit_tests(asterion_intraday_tests quotes/intraday_bars_test.cpp asterion_protocol)
+asterion_unit_tests(asterion_quotes_settings_tests quotes/settings_test.cpp asterion_quotes_settings)
+target_include_directories(asterion_quotes_settings_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/services/quotes)
+
+# history: the warehouse, acquisition and the history service
 add_test(NAME history_startup COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/history/startup_test.py $<TARGET_FILE:asterion_history>)
 set_tests_properties(history_startup PROPERTIES TIMEOUT 45)
-
-add_test(NAME remote_history COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/history/remote_history.py ${CMAKE_BINARY_DIR})
-set_tests_properties(remote_history PROPERTIES TIMEOUT 30)
-add_test(NAME history_live_process COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/history/live_process.py $<TARGET_FILE:asterion_history> $<TARGET_FILE:asterion_test_ctp> $<TARGET_FILE:asterion_test_ctp_trader>)
-set_tests_properties(history_live_process PROPERTIES TIMEOUT 90)
-asterion_unit_tests(asterion_ctp_tests history/ctp_test.cpp asterion_ctp)
 asterion_unit_tests(asterion_warehouse_tests history/warehouse_test.cpp asterion_history_warehouse)
 target_link_libraries(asterion_warehouse_tests PRIVATE asterion_bar_parquet duckdb::duckdb)
-target_compile_definitions(asterion_warehouse_tests PRIVATE
-  ASTERION_TEST_CTP="$<TARGET_FILE:asterion_test_ctp>"
-  ASTERION_TEST_CTP_TRADER="$<TARGET_FILE:asterion_test_ctp_trader>"
-  ASTERION_MARKET_PATH="$<TARGET_FILE:asterion_history>")
-add_dependencies(asterion_warehouse_tests asterion_test_ctp asterion_test_ctp_trader asterion_history)
+target_compile_definitions(asterion_warehouse_tests PRIVATE ASTERION_HISTORY_PATH="$<TARGET_FILE:asterion_history>")
+add_dependencies(asterion_warehouse_tests asterion_history)
 asterion_unit_tests(asterion_acquisition_tests history/acquisition_test.cpp asterion_history_acquisition)
 target_sources(asterion_acquisition_tests PRIVATE history/exchange_source_test.cpp history/guotai_source_test.cpp history/catalog_source_test.cpp history/sina_source_test.cpp)
 target_compile_definitions(asterion_acquisition_tests PRIVATE ASTERION_EXCHANGE_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/history/fixtures")
-target_compile_definitions(asterion_acquisition_tests PRIVATE
-  ASTERION_TEST_CTP="$<TARGET_FILE:asterion_test_ctp>"
-  ASTERION_TEST_CTP_TRADER="$<TARGET_FILE:asterion_test_ctp_trader>"
-  ASTERION_MARKET_PATH="$<TARGET_FILE:asterion_history>")
-add_dependencies(asterion_acquisition_tests asterion_test_ctp asterion_test_ctp_trader asterion_history)
+target_compile_definitions(asterion_acquisition_tests PRIVATE ASTERION_HISTORY_PATH="$<TARGET_FILE:asterion_history>")
+add_dependencies(asterion_acquisition_tests asterion_history)
 asterion_unit_tests(asterion_history_settings_tests history/settings_test.cpp asterion_history_settings)
 target_include_directories(asterion_history_settings_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/services/history)
-# Market installs and runs on Linux hosts only; so do its setup tests.
+# The services install and run on Linux hosts only; so do their setup tests.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_test(NAME history_setup COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/history/setup_test.py ${CMAKE_SOURCE_DIR}/apps/services/history/scripts/setup.sh)
   set_tests_properties(history_setup PROPERTIES SKIP_RETURN_CODE 77)
+  add_test(NAME quotes_setup COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/quotes/setup_test.py ${CMAKE_SOURCE_DIR}/apps/services/quotes/scripts/setup.sh)
+  set_tests_properties(quotes_setup PROPERTIES SKIP_RETURN_CODE 77)
 endif()
-asterion_unit_tests(asterion_ctp_catalog_tests history/ctp_catalog_test.cpp asterion_ctp)
-target_compile_definitions(asterion_ctp_catalog_tests PRIVATE ASTERION_TEST_CTP_TRADER="$<TARGET_FILE:asterion_test_ctp_trader>")
-target_compile_definitions(asterion_ctp_catalog_tests PRIVATE ASTERION_TEST_CTP="$<TARGET_FILE:asterion_test_ctp>" ASTERION_MARKET_PATH="$<TARGET_FILE:asterion_history>")
-target_link_libraries(asterion_ctp_catalog_tests PRIVATE asterion_protocol)
-add_dependencies(asterion_ctp_catalog_tests asterion_test_ctp_trader asterion_test_ctp asterion_history)
-target_link_libraries(asterion_ctp_tests PRIVATE asterion_protocol)
-target_compile_definitions(asterion_ctp_tests PRIVATE ASTERION_TEST_CTP_TRADER="$<TARGET_FILE:asterion_test_ctp_trader>" ASTERION_TEST_CTP="$<TARGET_FILE:asterion_test_ctp>" ASTERION_MARKET_PATH="$<TARGET_FILE:asterion_history>")
-add_dependencies(asterion_ctp_tests asterion_test_ctp asterion_test_ctp_trader asterion_history)
-add_test(NAME history_process COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/history/live_process.py $<TARGET_FILE:asterion_history> $<TARGET_FILE:asterion_test_ctp> $<TARGET_FILE:asterion_test_ctp_trader> --terminal ${CMAKE_BINARY_DIR})
-set_tests_properties(history_process PROPERTIES TIMEOUT 60)
-add_test(NAME ctp_sdk_smoke COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/history/ctp_sdk_smoke.py ${CMAKE_BINARY_DIR})
-set_tests_properties(ctp_sdk_smoke PROPERTIES TIMEOUT 30)
-asterion_unit_tests(asterion_intraday_tests history/intraday_bars_test.cpp asterion_protocol)
 
 # trading: live sessions, the CTP trader, risk limits, the trading service, the trader SDK double
 add_test(NAME acceptance_dry_run COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/trading/acceptance_dry_run.py ${CMAKE_BINARY_DIR} $<TARGET_FILE:asterion_test_ctp>)
@@ -210,8 +211,9 @@ asterion_unit_tests(asterion_terminal_application_tests terminal/terminal_applic
 target_compile_definitions(asterion_terminal_application_tests PRIVATE
   ASTERION_TEST_CTP="$<TARGET_FILE:asterion_test_ctp>"
   ASTERION_TEST_CTP_TRADER="$<TARGET_FILE:asterion_test_ctp_trader>"
-  ASTERION_MARKET_PATH="$<TARGET_FILE:asterion_history>")
-add_dependencies(asterion_terminal_application_tests asterion_history asterion_test_ctp asterion_test_ctp_trader)
+  ASTERION_HISTORY_PATH="$<TARGET_FILE:asterion_history>"
+  ASTERION_QUOTES_PATH="$<TARGET_FILE:asterion_quotes>")
+add_dependencies(asterion_terminal_application_tests asterion_history asterion_quotes asterion_test_ctp asterion_test_ctp_trader)
 target_link_libraries(asterion_terminal_application_tests PRIVATE asio::asio spdlog::spdlog_header_only)
 # desktop: the Electron host
 add_test(NAME desktop_python_startup COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/desktop/python_runtime.py)

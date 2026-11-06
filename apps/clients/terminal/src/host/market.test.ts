@@ -1,6 +1,6 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { expect, test } from "vitest";
-import { CatalogState, QuoteFrameSchema, Subscription } from "../generated/asterion/history_pb";
+import { CatalogState, QuoteFrameSchema, Subscription } from "../generated/asterion/quotes_pb";
 import { applyFrames } from "./market";
 
 const row = (symbol: string, last: string, exchangeMs: bigint) => ({

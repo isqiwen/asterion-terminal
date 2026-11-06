@@ -16,6 +16,7 @@
 
 | 应用 | 阅读入口 |
 | --- | --- |
+| Quotes | [功能与使用](quotes/README.md) → [部署](quotes/deployment.md) |
 | History | [功能与使用](history/README.md) → [架构与通信图解](history/architecture.md) → [部署](history/deployment.md) |
 | Trading | [交易与风控](trading/README.md) → [架构与通信图解](trading/architecture.md) → [部署与运行](trading/deployment.md) |
 | Lab | [策略、因子与回测](lab/README.md) → [架构与通信图解](lab/architecture.md) → [部署与运行](lab/deployment.md) |

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FeedState, type Status } from "../../src/generated/asterion/history_pb";
+import { FeedState, type Status } from "../../src/generated/asterion/quotes_pb";
 import { useMarket } from "../../src/host/market";
 import {
   ActionError,
@@ -7,7 +7,7 @@ import {
   useActionError,
   asDisplayError,
   getLocale,
-  marketData,
+  quotesData,
   translate,
   type DisplayError,
   type TerminalContext,
@@ -30,15 +30,13 @@ const clock = (value: bigint | undefined) =>
         timeZone: "Asia/Shanghai",
         hour12: false,
       });
-const size = (bytes: bigint) =>
-  `${(Number(bytes / 1024n) / 1024).toLocaleString(getLocale(), { maximumFractionDigits: 1 })} MiB`;
 
 // Only this client's status reads are polled. Changing or closing its Market
 // connection discards pending replies without changing the recorder's lifetime.
 export function MarketStatus({ context }: { context: TerminalContext }) {
   const market = useMarket();
   const online = market?.online;
-  const saved = context.snapshot?.market_endpoint;
+  const saved = context.snapshot?.quotes_endpoint;
   const address = saved && "host" in saved ? `${saved.host}:${saved.port}` : "";
   const [status, setStatus] = useState<Status | null>(null);
   const [error, setError] = useState<DisplayError>("");
@@ -53,7 +51,7 @@ export function MarketStatus({ context }: { context: TerminalContext }) {
       if (pending) return;
       pending = true;
       try {
-        const next = await marketData({ case: "getStatus", value: {} });
+        const next = await quotesData({ case: "getStatus", value: {} });
         if (!active) return;
         setStatus(next);
         setError("");
@@ -90,7 +88,7 @@ export function MarketStatus({ context }: { context: TerminalContext }) {
         <div className="data-actions">
           <button
             disabled={context.busy}
-            onClick={() => void attempt(() => context.trade("market.open"))}
+            onClick={() => void attempt(() => context.trade("quotes.open"))}
           >
             {t("连接行情服务")}
           </button>
@@ -109,10 +107,6 @@ export function MarketStatus({ context }: { context: TerminalContext }) {
             <div>
               <dt>{t("订阅合约")}</dt>
               <dd>{status.subscribed.toLocaleString(getLocale())}</dd>
-            </div>
-            <div>
-              <dt>{t("磁盘可用空间")}</dt>
-              <dd>{size(status.diskFreeBytes)}</dd>
             </div>
             <div>
               <dt>{t("最后收到行情（北京时间）")}</dt>

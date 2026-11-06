@@ -1,5 +1,4 @@
 #include "service.hpp"
-#include "live.hpp"
 #include "acquisition/exchanges.hpp"
 #include "acquisition/guotai.hpp"
 #include "acquisition/catalog_source.hpp"
@@ -9,9 +8,10 @@
 #include "warehouse/composer.hpp"
 #include "warehouse/reader.hpp"
 #include "warehouse/research.hpp"
-#include <asterion/base/bounded_queue.hpp>
+#include <asterion/version.hpp>
 #include <asterion/protocol/common.hpp>
 #include <asterion/protocol/rpc_diagnostics.hpp>
+#include <asterion/protocol/trading.hpp>
 #include <asterion/system/log.hpp>
 #include <thread>
 
@@ -28,11 +28,7 @@ namespace {
 // Where a call is answered and whether it needs the `manage` permission.
 enum class Lane
 {
-    // From the live market, on the market thread.
-    market,
-    // A frame every 250 ms from the market thread until the connection closes.
-    stream,
-    // Quick lookups and file chunks, on the reader thread.
+    // Quick lookups and file chunks.
     reader,
     // Scans that can take long, on their own thread so lookups never wait for them.
     analysis
@@ -47,12 +43,6 @@ struct Route
 Route route(const wire::Request& request)
 {
     switch (request.call_case()) {
-        case wire::Request::kGetStatus:
-        case wire::Request::kGetBoard:
-        case wire::Request::kGetMinutes:
-            return {Lane::market};
-        case wire::Request::kStreamQuotes:
-            return {Lane::stream};
         case wire::Request::kStartAcquisition:
         case wire::Request::kCancelAcquisition:
             return {Lane::reader, true};
@@ -88,7 +78,7 @@ wire::Response respond(const wire::Request& request, Fill&& fill)
     } catch (const std::exception& error) {
         fail(response, error);
     }
-    protocol::log_rpc_result("market", request, response, !route(request).manage);
+    protocol::log_rpc_result("history", request, response, !route(request).manage);
     return response;
 }
 
@@ -122,49 +112,10 @@ Reply waiting(std::future<Message> result, std::uint64_t id)
     };
 }
 
-// An open stream_quotes reply: the market thread leaves each frame here and
-// the connection takes it.
-struct QuoteStream
-{
-    explicit QuoteStream(wire::Request request)
-        : request(std::move(request))
-    {}
-
-    const wire::Request request;
-    // History thread only.
-    Sent sent;
-    Clock::time_point due{};
-
-    bool waiting() const
-    {
-        std::lock_guard lock(mutex);
-        return frame.has_value();
-    }
-
-    void put(std::string payload, bool more)
-    {
-        std::lock_guard lock(mutex);
-        frame.emplace(std::move(payload), more);
-    }
-
-    std::optional<Message> take(bool last)
-    {
-        std::lock_guard lock(mutex);
-        auto taken = std::exchange(frame, std::nullopt);
-        if (taken && last)
-            taken->more = false;
-        return taken;
-    }
-
-private:
-    mutable std::mutex mutex;
-    std::optional<Message> frame;
-};
-
 std::map<std::string, acquisition::Factory> sources(const Settings& settings)
 {
     std::map<std::string, acquisition::Factory> result;
-    result["ctp"] = [root = settings.directory / "catalog"](std::stop_token stop) {
+    result["ctp"] = [root = settings.snapshots](std::stop_token stop) {
         return std::make_unique<acquisition::CatalogSource>(root, stop);
     };
     std::vector<std::string> reference_exchanges;
@@ -182,9 +133,8 @@ std::map<std::string, acquisition::Factory> sources(const Settings& settings)
     if (!settings.exchanges.empty()) {
         // Sina answers by contract and is known to block heavy use.
         auto budget = std::make_shared<acquisition::Budget>(60);
-        result["sina"] = [exchanges = settings.exchanges,
-                             root = settings.directory / "catalog",
-                             budget](std::stop_token stop) {
+        result["sina"] = [exchanges = settings.exchanges, root = settings.snapshots, budget](
+                             std::stop_token stop) {
             return std::make_unique<acquisition::Sina>(exchanges, root, budget, stop);
         };
     }
@@ -201,34 +151,23 @@ std::map<std::string, acquisition::Factory> sources(const Settings& settings)
     return result;
 }
 
-void answer_live(const wire::Request& request, wire::Response& response, const Live& live)
-{
-    switch (request.call_case()) {
-        case wire::Request::kGetStatus:
-            live.status(*response.mutable_get_status());
-            break;
-        case wire::Request::kGetBoard: {
-            Sent nothing;
-            *response.mutable_get_board() = std::move(*live.frame({}, nothing).mutable_full());
-            break;
-        }
-        case wire::Request::kGetMinutes:
-            *response.mutable_get_minutes() = live.minutes(request.get_minutes());
-            break;
-        default:
-            break;
-    }
-}
-
 void answer_reader(
     const wire::Request& request,
     wire::Response& response,
     const std::filesystem::path& directory,
     acquisition::Manager& tasks,
+    std::int64_t started_ms,
     bool can_manage)
 {
     const warehouse::Reader datasets(directory);
     switch (request.call_case()) {
+        case wire::Request::kGetStatus: {
+            auto* status = response.mutable_get_status();
+            status->set_version(asterion::build::description);
+            status->set_started_ms(started_ms);
+            status->set_disk_free_bytes(std::filesystem::space(directory).available);
+            break;
+        }
         case wire::Request::kGetDatasetVersion:
             *response.mutable_get_dataset_version() =
                 datasets.version(request.get_dataset_version());
@@ -283,20 +222,17 @@ void answer_reader(
 
 struct HistoryService::Running
 {
-    using Call = std::packaged_task<Message(const Live&)>;
-
     const Settings settings;
+    const std::int64_t started_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch())
+                                        .count();
     warehouse::Composer composer;
     acquisition::Manager acquisitions;
     acquisition::SnapshotIntake intake;
     ThreadPool readers{1, 8}, analysis{1, 8};
-    BoundedQueue<Call> calls{64};
-    std::mutex streams_mutex;
-    std::vector<std::weak_ptr<QuoteStream>> streams;
-    std::atomic<bool> draining = false;
     std::promise<void> completion;
     std::shared_future<void> stopped = completion.get_future().share();
-    std::jthread thread;
+    std::jthread closing;
 
     explicit Running(Settings settings)
         : settings(std::move(settings)),
@@ -307,120 +243,23 @@ struct HistoryService::Running
               [this] {
                   composer.request();
               }),
-          intake(this->settings.directory / "catalog", this->settings.directory, acquisitions)
-    {
-        thread = std::jthread([this](std::stop_token stop) {
-            try {
-                run(stop);
-                // The live market closed with run(); only now may history take its time.
-                intake.stop();
-                acquisitions.stop();
-                composer.stop();
-                completion.set_value();
-            } catch (...) {
-                completion.set_exception(std::current_exception());
-            }
-            calls.close();
-        });
-    }
+          intake(this->settings.snapshots, this->settings.directory, acquisitions)
+    {}
 
-    void run(std::stop_token stop)
-    {
-        Live live(settings);
-        while (!stop.stop_requested()) {
-            const auto now = Clock::now();
-            live.maintain(now);
-            const auto update = live.poll();
-            for (const auto& event : update.events)
-                live.apply(event);
-            // A feed that lost callbacks never recovers in place: exit, and
-            // systemd starts a complete stream again.
-            if (update.failed)
-                throw std::runtime_error("market feed lost provider events");
-            bool answered = false;
-            while (auto call = calls.try_pop()) {
-                (*call)(live);
-                answered = true;
-            }
-            if (publish(live, now) || answered)
-                service::wake_io_owner();
-            std::this_thread::sleep_for(10ms);
-        }
-    }
-
-    // Leaves the next frame for each stream that has taken its last one and is due.
-    bool publish(const Live& live, Clock::time_point now)
-    {
-        std::vector<std::shared_ptr<QuoteStream>> open;
-        {
-            std::lock_guard lock(streams_mutex);
-            std::erase_if(streams, [](const auto& stream) {
-                return stream.expired();
-            });
-            for (const auto& weak : streams)
-                if (auto stream = weak.lock())
-                    open.push_back(std::move(stream));
-        }
-        bool published = false;
-        for (const auto& stream : open) {
-            if (stream->waiting() || (now < stream->due && !draining))
-                continue;
-            auto response = respond(stream->request, [&](wire::Response& out) {
-                *out.mutable_stream_quotes() =
-                    live.frame(stream->request.stream_quotes(), stream->sent);
-            });
-            stream->put(response.SerializeAsString(), response.has_stream_quotes());
-            stream->due = now + 250ms;
-            published = true;
-        }
-        return published;
-    }
-
-    Reply open_stream(wire::Request request)
-    {
-        std::vector<InstrumentId> ids;
-        for (const auto& id : request.stream_quotes().instruments())
-            ids.push_back(protocol::instrument(id));
-        if (ids.size() > 50)
-            throw std::invalid_argument("at most 50 watch contracts");
-        ctp::validate_instruments(ids);
-        auto stream = std::make_shared<QuoteStream>(std::move(request));
-        {
-            std::lock_guard lock(streams_mutex);
-            std::erase_if(streams, [](const auto& stream) {
-                return stream.expired();
-            });
-            if (streams.size() == 32)
-                throw Error(ErrorCode::resource_exhausted, "market watch capacity is full");
-            streams.push_back(stream);
-        }
-        return [this, stream] {
-            return stream->take(draining);
-        };
-    }
-
-    Reply ask_market_thread(wire::Request request)
-    {
-        const auto id = request.id();
-        Call call([request = std::move(request)](const Live& live) {
-            return reply(respond(request, [&](wire::Response& out) {
-                answer_live(request, out, live);
-            }));
-        });
-        auto result = call.get_future();
-        if (!calls.try_push(std::move(call)))
-            throw Error(ErrorCode::resource_exhausted, "market request queue is full or stopped");
-        return waiting(std::move(result), id);
-    }
-
-    Reply ask_readers(ThreadPool& pool, wire::Request request, bool can_manage)
+    Reply ask(ThreadPool& pool, wire::Request request, bool can_manage)
     {
         const auto id = request.id();
         auto promise = std::make_shared<std::promise<Message>>();
         auto result = promise->get_future();
         pool.submit([this, request = std::move(request), promise, can_manage](std::stop_token) {
             promise->set_value(reply(respond(request, [&](wire::Response& out) {
-                answer_reader(request, out, settings.directory, acquisitions, can_manage);
+                answer_reader(
+                    request,
+                    out,
+                    settings.directory,
+                    acquisitions,
+                    started_ms,
+                    can_manage);
             })));
             service::wake_io_owner();
         });
@@ -450,35 +289,30 @@ HistoryService::Reply HistoryService::serve(std::string frame, std::optional<boo
             throw Error(
                 ErrorCode::permission_denied,
                 "History acquisition management permission is required");
-        switch (lane) {
-            case Lane::market:
-                return running_->ask_market_thread(std::move(request));
-            case Lane::stream:
-                return running_->open_stream(std::move(request));
-            case Lane::reader:
-                return running_->ask_readers(running_->readers, std::move(request), *can_manage);
-            case Lane::analysis:
-                return running_->ask_readers(running_->analysis, std::move(request), *can_manage);
-        }
+        return running_->ask(
+            lane == Lane::analysis ? running_->analysis : running_->readers,
+            std::move(request),
+            *can_manage);
     } catch (const std::exception& error) {
         wire::Response response;
         response.set_id(request.id());
         fail(response, error);
-        protocol::log_rpc_result("market", request, response);
+        protocol::log_rpc_result("history", request, response);
         return ready(reply(response));
     }
-    return {};
-}
-
-void HistoryService::drain()
-{
-    running_->draining = true;
 }
 
 void HistoryService::stop()
 {
-    running_->calls.close();
-    running_->thread.request_stop();
+    if (running_->closing.joinable())
+        return;
+    // Tasks may take a while to notice; the I/O owner keeps serving meanwhile.
+    running_->closing = std::jthread([running = running_.get()] {
+        running->intake.stop();
+        running->acquisitions.stop();
+        running->composer.stop();
+        running->completion.set_value();
+    });
 }
 
 std::shared_future<void> HistoryService::stopped() const

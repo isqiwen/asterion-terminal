@@ -92,16 +92,40 @@ message Response {
 - **分页**：请求带 `after_*`，第一页为空；回复带 `next_*`，为空表示最后一页。每页大小由服务决定。版本分区、版本历史和采集任务使用游标分页；`get_table_rows` 使用 `offset` 和回复中的 `total` 读取参考表。
 - **流**：只有 `stream_quotes` 连续回复，同一个 `id` 返回多帧，直到连接关闭。第一帧是 `full`，之后是 `changed` 或新的 `full`。断线后重新开流，首帧又是 `full`。理由：TCP 保证顺序不丢帧，所以帧上不需要序号。
 
-## 7. History
+## 7. Quotes
 
-定义在 [market.proto](../protocol/proto/asterion/history.proto)。行为说明见 [History](history/README.md)。除标明 `manage` 的操作外，只需要 `read` 权限。
+定义在 [quotes.proto](../protocol/proto/asterion/quotes.proto)。行为说明见 [Quotes](quotes/README.md)。登记的客户端都能调用。
 
 | 操作 | 参数 | 结果 |
 | --- | --- | --- |
-| `get_status` | — | 服务版本、启动时间、行情连接、目录、订阅数、最后报价时间、乱序报价数、订阅失败数、磁盘余量 |
+| `get_status` | — | 服务版本、启动时间、行情连接、目录、订阅数、最后报价时间、乱序报价数、订阅失败数 |
 | `get_board` | — | 当前全部合约行与完整目录，与报价流首帧相同 |
 | `stream_quotes` | 要看的合约，不填表示全部，最多 50 个 | 连续的 `QuoteFrame` |
 | `get_minutes` | `Instrument` | 本进程观测到的当前交易日分钟线 |
+
+### 报价流
+
+```mermaid
+sequenceDiagram
+    participant Client as 客户端
+    participant Quotes
+    Client->>Quotes: stream_quotes(instruments)
+    Quotes-->>Client: QuoteFrame.full：连接状态、全部所选行、完整目录
+    loop 连接保持期间
+        Quotes-->>Client: QuoteFrame.changed：连接状态、变化的行、变化时的目录
+    end
+    Note over Client,Quotes: 断线或重开 → 新的 full
+```
+
+客户端收到 `full` 时替换全部内容；收到 `changed` 时按 `Instrument` 替换整行，带目录时替换目录。合约集合变化时 Quotes 发送新的 `full`。
+
+## 8. History
+
+定义在 [history.proto](../protocol/proto/asterion/history.proto)。行为说明见 [History](history/README.md)。除标明 `manage` 的操作外，只需要 `read` 权限。
+
+| 操作 | 参数 | 结果 |
+| --- | --- | --- |
+| `get_status` | — | 服务版本、启动时间、磁盘余量 |
 | `get_dataset_version` | 版本（不填为当前）、表、交易所、分页游标 | 版本信息与一页分区 |
 | `read_dataset_file` | 版本、分区、偏移 | 一块原始 Parquet 字节、整个文件的大小和 SHA-256 |
 | `get_dataset_summary` | 版本（不填为当前） | 各表的分区数、行数和日期范围 |
@@ -116,22 +140,6 @@ message Response {
 | `cancel_acquisition` | 任务 ID（`manage`） | 取消请求发出时的任务现状 |
 
 版本参数 `DatasetRef` 的 `version` 为空时表示当前版本；回复带回实际版本，后续分页和下载都使用这个版本。
-
-### 报价流
-
-```mermaid
-sequenceDiagram
-    participant Client as 客户端
-    participant History
-    Client->>History: stream_quotes(instruments)
-    History-->>Client: QuoteFrame.full：连接状态、全部所选行、完整目录
-    loop 连接保持期间
-        History-->>Client: QuoteFrame.changed：连接状态、变化的行、变化时的目录
-    end
-    Note over Client,History: 断线或重开 → 新的 full
-```
-
-客户端收到 `full` 时替换全部内容；收到 `changed` 时按 `Instrument` 替换整行，带目录时替换目录。合约集合变化时 History 发送新的 `full`。
 
 ## 8. Lab
 

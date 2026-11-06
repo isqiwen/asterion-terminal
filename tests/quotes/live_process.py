@@ -2,7 +2,7 @@
 the test-only CTP libraries; clients read its status and files over pinned TLS. A second
 instance continues the recording and reports the first one's segment.
 
-    recording_process.py <asterion_history> <test ctp md library> <test ctp trader library>
+    recording_process.py <asterion_quotes> <test ctp md library> <test ctp trader library>
 """
 from contextlib import contextmanager
 import json
@@ -21,7 +21,7 @@ from history_installation import install_program
 import history_tls
 
 market, md, trader = sys.argv[1:4]
-executable = "asterion_history"
+executable = "asterion_quotes"
 
 
 def varint(value):
@@ -94,7 +94,7 @@ def ask(port, number, body=b"", magic=b"ASTR", rejected=False, role="reader"):
     return decode(response[number][0])
 
 
-# Field numbers of market.proto.
+# Field numbers of quotes.proto.
 ERROR, GET_STATUS, STREAM_QUOTES, GET_MINUTES = 2, 10, 11, 12
 GET_DATASET_VERSION, START_ACQUISITION, GET_ACQUISITION_TASK = 21, 31, 32
 FEED_CONNECTED, CATALOG_LOADING, CATALOG_READY, CATALOG_FAILED = 5, 2, 4, 5
@@ -195,10 +195,9 @@ def install(root):
 
 def start(root, port, user="fixture"):
     """Everything comes from the installation directory and its configuration file."""
-    (root / "config" / "history.json").write_text(json.dumps({
+    (root / "config" / "quotes.json").write_text(json.dumps({
         "bind": "127.0.0.1", "port": port, "data": str(root / "data"),
-        "clients": history_tls.clients(tls),
-        "acquisition": {"exchanges": [], "tushare": None},
+        "clients": [dict(fingerprint=c["fingerprint"]) for c in history_tls.clients(tls)],
         "counter": {"market_front": "tcp://127.0.0.1:1", "trade_front": "tcp://127.0.0.1:1",
                     "broker": "test", "user": user, "app_id": "app"}}))
     command = [str(root / "bin" / executable)]
@@ -249,7 +248,7 @@ with tempfile.TemporaryDirectory(prefix="ast-market-") as folder:
         # A second process cannot write the same installation, even on another port.
         duplicate = start(root, free_port())
         _, rejection = duplicate.communicate(timeout=15)
-        assert duplicate.returncode != 0 and "history.lock" in rejection, rejection
+        assert duplicate.returncode != 0 and "quotes.lock" in rejection, rejection
         assert "held by another process" in rejection, rejection
         assert number(ask(first_endpoint, GET_STATUS), 2) == started
         with watch_stream(first_endpoint, []) as viewer:  # one frame, then the viewer closes
@@ -264,7 +263,7 @@ with tempfile.TemporaryDirectory(prefix="ast-market-") as folder:
         check_client_isolation(first_endpoint)
         if len(sys.argv) > 4:
             if sys.argv[4] == "--terminal":
-                subprocess.run([sys.executable, str(Path(__file__).parents[1] / "history/history_process.py"),
+                subprocess.run([sys.executable, str(Path(__file__).parents[1] / "quotes/quotes_process.py"),
                                 sys.argv[5], str(first_endpoint), str(tls)], check=True, timeout=30)
             else:
                 subprocess.run([sys.argv[4], str(first_endpoint), str(tls)], check=True, timeout=20)
@@ -321,7 +320,7 @@ with tempfile.TemporaryDirectory(prefix="ast-market-") as folder:
     assert flooded.returncode != 0, flooded.returncode
 
     logs = "".join(path.read_text() for path in (root / "logs").rglob("*.log"))
-    assert "[error] [asterion_history] [" in logs, logs  # one text line per record
+    assert "[error] [asterion_quotes] [" in logs, logs  # one text line per record
     assert not logs.lstrip().startswith("{"), logs
     for secret in ("fixture-only-secret", "fixture-auth"):
         assert secret not in logs and secret not in continuing.stderr.read()

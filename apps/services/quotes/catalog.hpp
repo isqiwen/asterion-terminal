@@ -4,19 +4,19 @@
 #include <asterion/system/log.hpp>
 #include <asterion/system/thread_pool.hpp>
 #include <asterion/protocol/common.hpp>
-#include <asterion/protocol/history.hpp>
+#include <asterion/protocol/quotes.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <filesystem>
 #include <fstream>
 
-namespace asterion::history {
+namespace asterion::quotes {
 
 // The CTP contract catalog: the cached copy at start, then each refresh's
 // result. Queries run on the SDK executor, one at a time; the market owner
 // polls for their results.
 class Catalog
 {
-    using State = ::history::Catalog;
+    using State = ::quotes::Catalog;
 
     struct Operation
     {
@@ -37,7 +37,7 @@ class Catalog
                 if (!catalog)
                     return;
                 State ready;
-                ready.mutable_status()->set_state(::history::CATALOG_STATE_READY);
+                ready.mutable_status()->set_state(::quotes::CATALOG_STATE_READY);
                 ready.mutable_status()->set_trading_day(protocol::iso_day(catalog->trading_day));
                 for (const auto& entry : catalog->contracts) {
                     auto* item = ready.add_contracts();
@@ -64,11 +64,11 @@ class Catalog
                 result = std::move(ready);
             } catch (const Error& error) {
                 result.emplace();
-                result->mutable_status()->set_state(::history::CATALOG_STATE_FAILED);
+                result->mutable_status()->set_state(::quotes::CATALOG_STATE_FAILED);
                 result->mutable_status()->set_error(error.what());
             } catch (const std::exception&) {
                 result.emplace();
-                result->mutable_status()->set_state(::history::CATALOG_STATE_FAILED);
+                result->mutable_status()->set_state(::quotes::CATALOG_STATE_FAILED);
                 result->mutable_status()->set_error("CTP catalog query failed");
             }
             if (result)
@@ -92,14 +92,14 @@ public:
         if (std::filesystem::is_regular_file(file_)
             && std::filesystem::file_size(file_) <= 64 * 1024 * 1024
             && cached.ParseFromIstream(&input)
-            && cached.status().state() == ::history::CATALOG_STATE_READY
+            && cached.status().state() == ::quotes::CATALOG_STATE_READY
             && cached.contracts_size() <= 20000) {
-            cached.mutable_status()->set_state(::history::CATALOG_STATE_CACHED);
+            cached.mutable_status()->set_state(::quotes::CATALOG_STATE_CACHED);
             cached_ = cached;
             publish(std::move(cached));
         } else {
             State failed;
-            failed.mutable_status()->set_state(::history::CATALOG_STATE_FAILED);
+            failed.mutable_status()->set_state(::quotes::CATALOG_STATE_FAILED);
             failed.mutable_status()->set_error("invalid cached CTP catalog");
             publish(std::move(failed));
         }
@@ -131,7 +131,7 @@ public:
         operation_->config = std::move(config);
         schedule();
         State loading = cached_;
-        loading.mutable_status()->set_state(::history::CATALOG_STATE_LOADING);
+        loading.mutable_status()->set_state(::quotes::CATALOG_STATE_LOADING);
         publish(std::move(loading));
     }
 
@@ -149,10 +149,10 @@ public:
         auto result = std::move(*operation_->result);
         operation_.reset(); // Its SDK resource was released before completing the step.
         const auto state = result.status().state();
-        if (state == ::history::CATALOG_STATE_READY || state == ::history::CATALOG_STATE_CACHED) {
+        if (state == ::quotes::CATALOG_STATE_READY || state == ::quotes::CATALOG_STATE_CACHED) {
             cached_ = result;
-            cached_.mutable_status()->set_state(::history::CATALOG_STATE_CACHED);
-        } else if (state == ::history::CATALOG_STATE_FAILED) {
+            cached_.mutable_status()->set_state(::quotes::CATALOG_STATE_CACHED);
+        } else if (state == ::quotes::CATALOG_STATE_FAILED) {
             // A failed refresh reports its error while retaining known contracts.
             *result.mutable_contracts() = cached_.contracts();
             result.mutable_status()->set_trading_day(cached_.status().trading_day());
@@ -193,7 +193,7 @@ private:
     ThreadPool& sdk_owner_;
     State state_ = [] {
         State state;
-        state.mutable_status()->set_state(::history::CATALOG_STATE_NONE);
+        state.mutable_status()->set_state(::quotes::CATALOG_STATE_NONE);
         return state;
     }();
     std::filesystem::path file_, snapshots_;
@@ -203,4 +203,4 @@ private:
     std::future<void> pending_;
 };
 
-} // namespace asterion::history
+} // namespace asterion::quotes

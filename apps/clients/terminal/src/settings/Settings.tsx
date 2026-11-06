@@ -10,12 +10,13 @@ const t = (key: string, values?: MessageValues) => translate("host", key, values
 import { useState, useEffect } from "react";
 import { savePreferences, usePreferences } from "../ui/preferences";
 import { TradingConnections } from "./TradingConnections";
-import { MarketSource } from "./MarketSource";
+import { ServiceConnection } from "./ServiceConnection";
 import type { Snapshot } from "@asterion/desktop-bridge/client";
 // The pages in sidebar order, with the title each shows.
 const pages: [SettingsPage, string, IconName][] = [
   ["preferences", "偏好设置", "sliders"],
   ["market", "行情服务", "data"],
+  ["history", "历史数据服务", "data"],
   ["trading", "交易服务", "trading"],
   ["about", "关于", "info"],
 ];
@@ -143,7 +144,12 @@ export function Settings({
           </SettingsSection>
         )}
         {page === "trading" && <TradingConnections snapshot={snapshot} busy={busy} trade={trade} />}
-        {page === "market" && <MarketSource snapshot={snapshot} busy={busy} trade={trade} />}
+        {page === "market" && (
+          <ServiceConnection service="quotes" snapshot={snapshot} busy={busy} trade={trade} />
+        )}
+        {page === "history" && (
+          <ServiceConnection service="history" snapshot={snapshot} busy={busy} trade={trade} />
+        )}
         {page === "about" && (
           <SettingsSection title="Asterion Terminal">
             <dl className="settings-facts">
@@ -152,7 +158,9 @@ export function Settings({
                 {version.trim()}
                 {snapshot && ` (${snapshot.diagnostics.commit})`}
               </dd>
-              <dt title={t("在行情服务和交易主机登记这个指纹")}>{t("本机证书指纹")}</dt>
+              <dt title={t("在行情服务、历史数据服务和交易主机登记这个指纹")}>
+                {t("本机证书指纹")}
+              </dt>
               <dd>
                 <code className="client-fingerprint">{snapshot?.client_fingerprint}</code>
               </dd>

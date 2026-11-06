@@ -9,7 +9,8 @@ import { ReferenceTables, referenceTables } from "./ReferenceTables";
 import {
   ErrorNotice,
   asDisplayError,
-  marketData,
+  getLocale,
+  historyData,
   translate,
   type DisplayError,
   type MarketChange,
@@ -50,13 +51,15 @@ const tables: Partial<Record<Table, string>> = {
   [Table.SETTLEMENT]: "结算参数",
   [Table.PRICE_TICKS]: "历史报价单位",
 };
+const size = (bytes: bigint) =>
+  `${(Number(bytes / 1024n) / 1024).toLocaleString(getLocale(), { maximumFractionDigits: 1 })} MiB`;
 const tableName = (table: Table) => t(tables[table] ?? Table[table]);
 const exchanges = ["SHFE", "INE", "DCE", "CZCE", "CFFEX", "GFEX"];
 
-// Every read and acquisition goes to the saved remote Market. Browsing a
+// Every read and acquisition goes to the saved remote History service. Browsing a
 // source changes only this component, never the service's collection lifecycle.
 export function Coverage(context: TerminalContext) {
-  const saved = context.snapshot?.market_endpoint;
+  const saved = context.snapshot?.history_endpoint;
   const endpoint = saved && "host" in saved ? saved : null;
   return (
     <section className="data-page" aria-label={t("行情数据")}>
@@ -74,7 +77,7 @@ export function Coverage(context: TerminalContext) {
           context={context}
         />
       ) : (
-        <MarketUnset openSettings={context.openSettings} />
+        <MarketUnset openSettings={context.openSettings} page="history" />
       )}
     </section>
   );
@@ -88,7 +91,7 @@ function DataPage({ context }: { context: TerminalContext }) {
   const [retry, setRetry] = useState(0);
   useEffect(() => {
     let active = true;
-    marketData({ case: "getAcquisitionOptions", value: {} })
+    historyData({ case: "getAcquisitionOptions", value: {} })
       .then(next => {
         if (!active) return;
         setOptions(next);
@@ -135,6 +138,7 @@ function DataCoverage({ options, opened }: { options: AcquisitionOptions; opened
   const catalog = useMarket()?.board.catalog?.contracts;
   const [replace, setReplace] = useState(false);
   const [summary, setSummary] = useState<MarketSummary | null>(null);
+  const [diskFree, setDiskFree] = useState<bigint>();
   const [coverage, setCoverage] = useState<MarketCoverage>();
   const [tasks, setTasks] = useState<MarketTask[]>([]);
   const [error, setError] = useState<DisplayError>("");
@@ -154,20 +158,23 @@ function DataCoverage({ options, opened }: { options: AcquisitionOptions; opened
     if (pending.current) return;
     pending.current = true;
     try {
-      const current = await marketData({ case: "getDatasetSummary", value: {} });
+      const [current, status] = await Promise.all([
+        historyData({ case: "getDatasetSummary", value: {} }),
+        historyData({ case: "getStatus", value: {} }),
+      ]);
       const nextLatest = current.dataset?.version ?? "";
       const nextSummary = viewed
-        ? await marketData({ case: "getDatasetSummary", value: { version: viewed } })
+        ? await historyData({ case: "getDatasetSummary", value: { version: viewed } })
         : current;
       const version = nextSummary.dataset?.version;
       const nextCoverage = version
-        ? await marketData({ case: "getDatasetCoverage", value: { version } })
+        ? await historyData({ case: "getDatasetCoverage", value: { version } })
         : undefined;
-      // Market lists tasks newest first; read as many pages as shown.
+      // History lists tasks newest first; read as many pages as shown.
       const nextTasks: MarketTask[] = [];
       let afterId = "";
       do {
-        const page = await marketData({
+        const page = await historyData({
           case: "listAcquisitionTasks",
           value: { afterId },
         });
@@ -178,6 +185,7 @@ function DataCoverage({ options, opened }: { options: AcquisitionOptions; opened
       setOlder(afterId !== "");
       setLatest(nextLatest);
       setSummary(nextSummary);
+      setDiskFree(status.diskFreeBytes);
       setCoverage(nextCoverage);
       setTasks(nextTasks);
       setError("");
@@ -191,7 +199,7 @@ function DataCoverage({ options, opened }: { options: AcquisitionOptions; opened
     let active = true;
     setChange(undefined);
     if (viewed && latest && viewed !== latest)
-      void marketData({
+      void historyData({
         case: "compareDatasetVersions",
         value: { version: latest, base: viewed },
       })
@@ -217,7 +225,7 @@ function DataCoverage({ options, opened }: { options: AcquisitionOptions; opened
   const stored = referenceTables.filter(table =>
     summary?.tables.some(item => item.table === table && item.rows > 0n),
   );
-  // Contracts a minute task can choose from: those Market lists now and those
+  // Contracts a minute task can choose from: those Quotes lists now and those
   // the dataset already holds minutes of.
   const known = useMemo(
     () => [
@@ -250,7 +258,7 @@ function DataCoverage({ options, opened }: { options: AcquisitionOptions; opened
     const id = crypto.randomUUID();
     setSubmitted(id);
     await started.attempt(async () => {
-      await marketData({
+      await historyData({
         case: "startAcquisition",
         value: {
           id,
@@ -268,7 +276,7 @@ function DataCoverage({ options, opened }: { options: AcquisitionOptions; opened
         [Table.DAILY, Table.MINUTES, Table.SETTLEMENT].includes(table) &&
         options.tables.includes(Table.PRICE_TICKS)
       )
-        await marketData({
+        await historyData({
           case: "startAcquisition",
           value: {
             id: crypto.randomUUID(),
@@ -289,7 +297,7 @@ function DataCoverage({ options, opened }: { options: AcquisitionOptions; opened
   };
   const cancel = (id: string) =>
     cancelled.attempt(async () => {
-      await marketData({ case: "cancelAcquisition", value: { id } });
+      await historyData({ case: "cancelAcquisition", value: { id } });
       await refresh();
     });
   const daily = useMemo(() => coverage?.products ?? [], [coverage]);
@@ -304,6 +312,11 @@ function DataCoverage({ options, opened }: { options: AcquisitionOptions; opened
           <h3>{t("数据集版本")}</h3>
           {summary?.dataset?.version && (
             <code title={summary.dataset.version}>{summary.dataset.version.slice(0, 12)}</code>
+          )}
+          {diskFree !== undefined && (
+            <span className="subtle">
+              {t("磁盘可用空间")} {size(diskFree)}
+            </span>
           )}
         </header>
         <ErrorNotice error={error} />
@@ -349,7 +362,7 @@ function DataCoverage({ options, opened }: { options: AcquisitionOptions; opened
           </header>
           <p className="subtle">
             {t("采集按交易所保存，分钟线按合约保存；已入库分区跳过。")}{" "}
-            {t("行情服务以 Tushare 为准，缺的部分从公开来源补齐；关闭此页面不会停止采集。")}
+            {t("历史数据服务以 Tushare 为准，缺的部分从公开来源补齐；关闭此页面不会停止采集。")}
           </p>
           <div className="data-fields">
             <label>

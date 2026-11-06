@@ -1,4 +1,4 @@
-"""An isolated, independently supervised History with explicit test-only credentials."""
+"""Isolated, independently supervised services with explicit test-only credentials."""
 from contextlib import contextmanager
 import json
 import os
@@ -21,38 +21,58 @@ def install_program(binary, installed):
         shutil.copy2(binary, installed)
 
 @contextmanager
-def history_host(build, root, *, vendor=False, exchanges=(), user="steady"):
+def history_host(build, root, *, exchanges=()):
+    root = Path(root)
+    for name in ('bin','config','logs','data','credentials'):
+        (root / name).mkdir(parents=True)
+    install_program(build / 'asterion_history', root / 'bin/asterion_history')
+    if sys.platform == "linux":
+        install_program(build / "asterion_crash_reporter", root / "bin/asterion_crash_reporter")
+    shutil.copy2(Path(__file__).parents[2] / 'apps/services/history/config/logging.json', root/'config/logging.json')
+    with socket.socket() as probe:
+        probe.bind(('127.0.0.1',0));port=probe.getsockname()[1]
+    tls = history_tls.prepare(root)
+    (root/'config/history.json').write_text(json.dumps({'bind':'127.0.0.1','port':port, 'data':str(root/'data'),
+        'snapshots':str(root/'data/catalog'), 'clients':history_tls.clients(tls),
+        'acquisition':{'exchanges':list(exchanges),'tushare':None}}))
+    with running(root, port, 'asterion_history') as process:
+        yield port
+        assert process.poll() is None, "a client stopped the independent History"
+
+
+@contextmanager
+def quotes_host(build, root, *, vendor=False, user="steady", also_trust=None):
     root = Path(root)
     for name in ('bin','lib','config','logs','data','credentials'):
         (root / name).mkdir(parents=True)
-    binary = build / 'asterion_history'
-    installed = root / 'bin/asterion_history'
-    install_program(binary, installed)
+    install_program(build / 'asterion_quotes', root / 'bin/asterion_quotes')
     if sys.platform == "linux":
         install_program(build / "asterion_crash_reporter", root / "bin/asterion_crash_reporter")
     suffix = '.dylib' if sys.platform == 'darwin' else '.so'
     for installed, fixture, real in [('ctp-md', 'libasterion_test_ctp', 'ctp-md'),
                                      ('ctp-trader', 'libasterion_test_ctp_trader', 'ctp-trader')]:
         shutil.copy2(build / ((real if vendor else fixture) + suffix), root / 'lib' / (installed+'.so'))
-    shutil.copy2(Path(__file__).parents[2] / 'apps/services/history/config/logging.json', root/'config/logging.json')
+    shutil.copy2(Path(__file__).parents[2] / 'apps/services/quotes/config/logging.json', root/'config/logging.json')
     with socket.socket() as probe:
         probe.bind(('127.0.0.1',0));port=probe.getsockname()[1]
     tls = history_tls.prepare(root)
-    (root/'config/history.json').write_text(json.dumps({'bind':'127.0.0.1','port':port, 'data':str(root/'data'), 'clients':history_tls.clients(tls), 'acquisition':{'exchanges':list(exchanges), 'tushare':None},
+    (root/'config/quotes.json').write_text(json.dumps({'bind':'127.0.0.1','port':port, 'data':str(root/'data'),
+        'clients':[dict(fingerprint=c['fingerprint']) for c in history_tls.clients(tls)]
+                  + ([dict(fingerprint=c['fingerprint']) for c in history_tls.clients(also_trust)] if also_trust else []),
         'counter':{'market_front':'tcp://127.0.0.1:1','trade_front':'tcp://127.0.0.1:1',
                    'broker':'test','user':user,'app_id':'app'}}))
     (root/'credentials/asterion.ctp.password').write_text('fixture-only-secret')
     (root/'credentials/asterion.ctp.auth_code').write_text('fixture-auth')
-    with running_market(root, port) as process:
+    with running(root, port, 'asterion_quotes') as process:
         yield port
-        assert process.poll() is None, "a client stopped the independent History"
+        assert process.poll() is None, "a client stopped the independent Quotes"
 
 
 @contextmanager
-def running_market(root, port):
+def running(root, port, program='asterion_history'):
     """Restart an existing isolated installation; the caller may test abrupt exits."""
     log = (root/'stderr').open('a')
-    process = subprocess.Popen([root/'bin/asterion_history'],
+    process = subprocess.Popen([root/'bin'/program],
         env=dict(os.environ,CREDENTIALS_DIRECTORY=str(root/'credentials')),stdout=subprocess.DEVNULL,stderr=log)
     try:
         for _ in range(200):
@@ -61,7 +81,7 @@ def running_market(root, port):
             try:
                 with socket.create_connection(('127.0.0.1',port),timeout=.1):break
             except OSError:time.sleep(.05)
-        else:raise AssertionError('History did not listen')
+        else:raise AssertionError(program + ' did not listen')
         yield process
     finally:
         process.terminate()
@@ -72,7 +92,8 @@ def running_market(root, port):
 
 
 if __name__ == "__main__":
-    # A desktop test owns this host, independently of the Electron application.
-    with history_host(Path(sys.argv[1]), Path(sys.argv[2])) as port:
-        print(port, flush=True)
+    # A desktop test owns these hosts, independently of the Electron application.
+    root = Path(sys.argv[2])
+    with history_host(Path(sys.argv[1]), root / 'history') as history, quotes_host(Path(sys.argv[1]), root / 'quotes', also_trust=root / 'history/config/tls') as quotes:
+        print(history, quotes, flush=True)
         sys.stdin.read()

@@ -42,7 +42,7 @@ export function StatusIndicators({
             </span>
           );
         })()}
-      {!(snapshot.market_endpoint && "host" in snapshot.market_endpoint) ? (
+      {!(snapshot.quotes_endpoint && "host" in snapshot.quotes_endpoint) ? (
         <button className="status-item" onClick={openMarketSettings}>
           {label(t("行情"), "未设置")}
         </button>

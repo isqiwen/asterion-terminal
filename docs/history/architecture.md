@@ -4,82 +4,36 @@
 
 ## 服务边界与数据流
 
-History 是由 systemd 看护的 Linux C++ 进程，拥有共享行情、合约快照、采集任务和正式仓库。Terminal 与 Lab 是客户端；Trading 独立连接柜台，不经过 History 获取策略行情。理由：研究和看盘的生命周期不影响交易执行。
+History 是由 systemd 看护的 Linux C++ 进程，拥有采集任务和正式仓库。Terminal 与 Lab 是客户端；实时行情在 [Quotes](../quotes/README.md)，Trading 独立连接柜台。理由：三类服务各管一件事，一个的问题和升级不影响另外两个。
 
 ```mermaid
 flowchart LR
-    CTP[CTP 行情与合约目录] --> Live[实时行情]
-    Live --> Terminal[Terminal]
-    Live --> Snapshot[每日合约快照]
-    Snapshot --> Ingest[入库]
+    Snapshot[Quotes 留下的每日合约快照] --> Ingest[入库]
     Provider[Tushare / 交易所 / 期货公司 / 新浪财经] --> Ingest
     Ingest --> Sources[来源仓库]
     Sources --> Compose[合成]
-    Compose --> Research[research]
+    Compose --> Research[统一数据]
     Research --> Read[读取]
-    Sources --> Read
-    Read --> Terminal
+    Read --> Terminal[Terminal]
     Read --> Lab[Lab]
 ```
 
-箭头只往右走，后面的模块不调用前面的模块。History 不录制 Tick 和分钟线，理由见[产品说明](../product.md)。
+箭头只往右走，后面的模块不调用前面的模块。
 
 | 模块 | 代码 | 只回答 | 不管 |
 | --- | --- | --- | --- |
-| 实时行情 | `live`、`catalog.hpp` | 现在的报价和今天的分钟线是什么 | 历史数据 |
 | 入库 | `acquisition/` | 这个来源这一天的数据取回来了吗 | 研究该用哪份 |
 | 合成 | `warehouse/composer`、`warehouse/research` | 研究该用哪份 | 数据从哪取、怎么取 |
-| 读取 | `warehouse/reader`、`market.cpp` | 这个固定版本里有什么 | 数据缺了怎么办 |
+| 读取 | `warehouse/reader`、`service.cpp` | 这个固定版本里有什么 | 数据缺了怎么办 |
 
-- 实时行情的构建目标（`asterion_history_live`）不链接入库和仓库，违反时编译失败。
-- 每个来源只写自己的仓库，`research` 只由合成写入，Lab 只读 `research`。
-- 行情状态只由行情线程更新；SDK 回调只把事件放进队列，SDK 调用和释放交给其执行器，避免柜台调用拖住行情线程。
+- 每个来源只写自己的仓库，统一数据只由合成写入，客户端只读统一数据。
 
 ## 核心类关系
 
-RPC 接入负责收发帧；行情线程拥有 `Live`；`SnapshotIntake` 在自己的线程里把已结束交易日的合约快照入库；`Composer` 在自己的线程里更新 `research`。每个调用走哪条路径，只由 `market.cpp` 的 `route()` 决定。可能耗时的扫描单独排队，理由：Lab 下载和任务查询不等它们。
-
-```mermaid
-classDiagram
-    class RpcHost {
-        run()
-    }
-    class History {
-        serve()
-        drain()
-        stop()
-    }
-    class Live {
-        maintain()
-        poll()
-        apply()
-        frame()
-        status()
-    }
-    class Feed
-    class Catalog
-    class IntradayBars
-    class Manager
-    class SnapshotIntake
-    class Composer
-    class QuoteStream
-    RpcHost ..> History : 每个请求帧
-    History *-- Live : 行情线程
-    History *-- Manager
-    History *-- SnapshotIntake
-    History *-- Composer
-    History *-- QuoteStream : 每条报价流
-    Live *-- Feed
-    Live *-- Catalog
-    Live *-- IntradayBars
-    SnapshotIntake --> Manager
-    Manager ..> Composer : 提交后通知
-```
+RPC 接入负责收发帧；`SnapshotIntake` 在自己的线程里把已结束交易日的合约快照入库；`Composer` 在自己的线程里更新统一数据。每个调用走哪条路径，只由 `service.cpp` 的 `route()` 决定。可能耗时的扫描单独排队，理由：Lab 下载和任务查询不等它们。
 
 | 调用 | 路径 | 权限 |
 | --- | --- | --- |
-| `get_status`、`get_board`、`get_minutes` | 行情线程 | `read` |
-| `stream_quotes` | 行情线程持续生成报价帧 | `read` |
 | `start_acquisition`、`cancel_acquisition` | 读取线程 | `manage` |
 | 摘要、覆盖、参考表、版本历史与比较 | 分析线程 | `read` |
 | 其余调用 | 读取线程 | `read` |
@@ -123,33 +77,6 @@ classDiagram
     Writer --> Store : 锁定写入并发布
 ```
 
-## 实时通信时序
-
-服务启动时自行登录、读取目录缓存并刷新目录，随后订阅全市场；这些操作不依赖客户端打开页面。合约查询使用 CTP 交易接口，入口是 `CatalogQuery`；行情接收入口是 `Feed`。
-
-```mermaid
-sequenceDiagram
-    participant SDK as CTP SDK
-    participant Live
-    participant Stream as QuoteStream
-    participant RPC as RpcHost
-    participant Client as Terminal 原生层
-    SDK->>Live: 回调入队
-    Note over Live: 1. maintain()：登录重试、目录刷新、订阅、重试被拒的合约
-    Live->>Live: 2. poll() 与 apply()：更新报价和分钟线
-    Note over Live: 3. 回答排队的 get_status / get_board / get_minutes
-    Live->>Stream: 4. 到期的报价流放入下一帧
-    Client->>RPC: Request.stream_quotes
-    RPC-->>Client: Response.stream_quotes.full
-    loop 同一条连接
-        RPC->>Stream: 取走下一帧
-        RPC-->>Client: Response.stream_quotes.changed
-    end
-    Note over Client,Stream: 重开连接取得完整首帧；客户端筛选不改变全市场订阅
-```
-
-报价乱序不推进实时分钟聚合。页面通过原生层取走报价帧；原生层持有 TLS 连接，页面按生成的 Protobuf 类型合并报价。
-
 ## 采集、发布与固定版本读取
 
 ```mermaid
@@ -191,10 +118,9 @@ sequenceDiagram
 
 | 情况 | 行为与代码入口 |
 | --- | --- |
-| 客户端关闭 | 释放该连接与它的报价流；已接纳的采集继续，见 `market.cpp` |
-| 行情中断 | 中断分钟观测；重连后继续，见 `Live::apply()` |
-| SDK 事件队列溢出 | 终止本次服务运行，由 systemd 重启，见 `Feed::poll()` 与 `History` 的行情线程 |
-| 服务正常停止 | 报价流发出最后一帧、关闭行情、再结束后台任务，见 `main.cpp` 与 `market.cpp` |
+| 客户端关闭 | 释放该连接；已接纳的采集继续，见 `service.cpp` |
+| 来源失败 | 后面的来源照常补缺，任务最后标为失败，见 `Manager::work()` |
+| 服务正常停止 | 结束后台任务后退出，见 `main.cpp` 与 `service.cpp` |
 | 服务重新启动 | 旧采集任务标为中断，损坏的任务文件只影响它自己，见 `Manager` |
 
 ## 代码阅读路线
@@ -202,10 +128,9 @@ sequenceDiagram
 | 顺序 | 入口 | 阅读目标 |
 | --- | --- | --- |
 | 1 | [main.cpp](../../apps/services/history/main.cpp)、[settings.cpp](../../apps/services/history/settings.cpp) | 配置、数据目录锁、TLS 身份、权限和停止流程 |
-| 2 | [market.cpp](../../apps/services/history/market.cpp) | 调用路径表、行情线程的一轮、报价流 |
-| 3 | [live.cpp](../../apps/services/history/live.cpp)、[ctp_feed.cpp](../../apps/services/common/market/ctp/ctp_feed.cpp)、[catalog.hpp](../../apps/services/history/catalog.hpp) | 登录与目录刷新、全市场订阅、报价帧 |
-| 4 | [manager.cpp](../../apps/services/history/acquisition/manager.cpp)、[source.hpp](../../apps/services/history/acquisition/source.hpp)、[snapshot_intake.cpp](../../apps/services/history/acquisition/snapshot_intake.cpp) | 来源扩展、任务生命周期与批量提交 |
-| 5 | [store.cpp](../../apps/services/history/warehouse/store.cpp)、[research.cpp](../../apps/services/history/warehouse/research.cpp)、[composer.cpp](../../apps/services/history/warehouse/composer.cpp) | 不可变版本、月度分片、来源合成 |
-| 6 | [通信协议](../protocol.md)、[market.proto](../../protocol/proto/asterion/history.proto) | 客户端契约与固定版本读取 |
+| 2 | [service.cpp](../../apps/services/history/service.cpp) | 调用路径表 |
+| 3 | [manager.cpp](../../apps/services/history/acquisition/manager.cpp)、[source.hpp](../../apps/services/history/acquisition/source.hpp)、[snapshot_intake.cpp](../../apps/services/history/acquisition/snapshot_intake.cpp) | 来源扩展、任务生命周期与批量提交 |
+| 4 | [store.cpp](../../apps/services/history/warehouse/store.cpp)、[research.cpp](../../apps/services/history/warehouse/research.cpp)、[composer.cpp](../../apps/services/history/warehouse/composer.cpp) | 不可变版本、月度分片、来源合成 |
+| 5 | [通信协议](../protocol.md)、[history.proto](../../protocol/proto/asterion/history.proto) | 客户端契约与固定版本读取 |
 
-模块测试见 [tests/history](../../tests/history)；跨客户端与重启行为看 [concurrency_process.py](../../tests/history/concurrency_process.py)，真实行情验收入口是 [ctp_market.py](../../tests/acceptance/ctp_market.py)。
+模块测试见 [tests/history](../../tests/history)；跨客户端与重启行为看 [concurrency_process.py](../../tests/history/concurrency_process.py)。

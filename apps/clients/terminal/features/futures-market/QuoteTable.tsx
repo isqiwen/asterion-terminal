@@ -1,7 +1,7 @@
 import { quoteColumns, type QuoteColumn } from "./QuoteColumns";
 import "./quotes.css";
 import { getLocale, translate } from "../contract";
-import { FeedState, Subscription, type QuoteRow } from "../../src/generated/asterion/history_pb";
+import { FeedState, Subscription, type QuoteRow } from "../../src/generated/asterion/quotes_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 export function quoteStatus(market: MarketView, row: QuoteRow, now = Date.now()) {

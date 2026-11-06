@@ -7,15 +7,16 @@ Application::Impl::Settings Application::Impl::inspect_settings(const Settings& 
     SettingsView next{
         trading_connections.snapshot(),
         trading_connections.fingerprint(),
-        market_settings()
+        endpoint_settings(quotes_endpoint),
+        endpoint_settings(history_endpoint)
     };
     return next == *previous ? previous : std::make_shared<const SettingsView>(std::move(next));
 }
 
-json Application::Impl::market_settings() const
+json Application::Impl::endpoint_settings(const SavedEndpoint& saved) const
 {
     try {
-        return market_endpoint.get();
+        return saved.get();
     } catch (const std::exception&) {
         // The unreadable file stays untouched and is reported for inspection.
         return {{"error", "unreadable"}};
@@ -24,27 +25,39 @@ json Application::Impl::market_settings() const
 
 void Application::Impl::register_connection_commands()
 {
-    command("market.endpoint.save", [this](const json& p) -> PolledTask<Response> {
-        fields(p, {"host", "port", "fingerprint"});
-        if (!p.at("port").is_number_unsigned() || p.at("port").get<std::uint64_t>() > 65535)
-            throw std::invalid_argument("invalid market port");
-        co_await settings<void>([&] {
-            market_endpoint.save(
-                text(p, "host"),
-                p.at("port").get<unsigned>(),
-                text(p, "fingerprint"));
-        });
-        market.reset();
-        co_return snapshot();
-    });
-    command("market.endpoint.clear", [this](const json& p) -> PolledTask<Response> {
-        fields(p, {});
-        co_await settings<void>([&] {
-            market_endpoint.clear();
-        });
-        market.reset();
-        co_return snapshot();
-    });
+    const auto saved_commands =
+        [this](const std::string& name, SavedEndpoint& saved, const bool live) {
+            command(
+                name + ".endpoint.save",
+                [this, &saved, live](const json& p) -> PolledTask<Response> {
+                    fields(p, {"host", "port", "fingerprint"});
+                    if (!p.at("port").is_number_unsigned()
+                        || p.at("port").get<std::uint64_t>() > 65535)
+                        throw std::invalid_argument("invalid service port");
+                    co_await settings<void>([&] {
+                        saved.save(
+                            text(p, "host"),
+                            p.at("port").get<unsigned>(),
+                            text(p, "fingerprint"));
+                    });
+                    if (live)
+                        watch.reset();
+                    co_return snapshot();
+                });
+            command(
+                name + ".endpoint.clear",
+                [this, &saved, live](const json& p) -> PolledTask<Response> {
+                    fields(p, {});
+                    co_await settings<void>([&] {
+                        saved.clear();
+                    });
+                    if (live)
+                        watch.reset();
+                    co_return snapshot();
+                });
+        };
+    saved_commands("quotes", quotes_endpoint, true);
+    saved_commands("history", history_endpoint, false);
     // One trading.proto Request to the account's saved service, relayed unchanged.
     command("trading.call", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"account", "request"});
