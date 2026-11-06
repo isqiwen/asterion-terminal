@@ -44,6 +44,8 @@ def release(folder, version):
     (top / 'bin/asterion_market').write_text(f'#!/bin/sh\necho "Asterion Market {version}"\n')
     (top / 'bin/asterion_market').chmod(0o755)
     shutil.copy2(setup, top / 'bin/setup.sh')
+    (top / 'bin/asterion_crash_reporter').write_text('#!/bin/sh\nexit 0\n')
+    (top / 'bin/asterion_crash_reporter').chmod(0o755)
     for library in ('ctp-md.so', 'ctp-trader.so'):
         (top / 'lib' / library).write_text(version)
     (top / 'config').mkdir()

@@ -54,11 +54,12 @@ Terminal 发布包带有 Terminal 和 Lab 的程序：macOS 的 DMG 拖进“应
 
 ### 崩溃诊断
 
-- Linux Market、Trading 在安装目录的 `logs/<程序>-<pid>-crash.log` 记录致命信号、C++ 未捕获异常、调用栈、加载模块和产品版本/提交。崩溃后进程退出；Trading 仍需重新授权。Sanitizer 构建保留 Sanitizer 自己的错误报告。
+- Linux Market、Trading 崩溃后，由随包提供的独立解析器自动生成安装目录 `logs/*-crash.report.log`，包含版本、提交、信号、函数名和源码行号。若解析被系统关停打断，下次服务启动会补齐同次构建的待解析报告。Trading 仍需重新授权。
 - Lab 捕获的异常在日常日志中保留 Python traceback；解释器启动错误、线程未捕获异常和原生扩展崩溃写入 `lab/logs/python-*.log`。回测子进程的标准错误保留在 Lab 的失败记录中。
 - Trading 策略子进程的 traceback 和解释器崩溃信息写入服务的 `logs/strategy-*.log`，服务日志记录实例与文件的对应关系。
-- Terminal 的 JavaScript 异常堆栈及子进程退出原因写入 `terminal/logs/electron-*.log`；原生崩溃的 minidump 存在同目录下的 `crashes/`，只保存在本机，不上传。主进程未捕获异常后退出。
+- Terminal 的 JavaScript 异常堆栈及子进程退出原因写入 `terminal/logs/electron-*.log`；主进程未捕获异常后退出。
+- macOS 和 Linux 桌面的原生崩溃保存在 `terminal/logs/crashes/`。下次打开 Terminal 时自动生成 `*.dmp.report.log`：先使用随包符号输出全部可恢复栈帧，再后台从 Electron 官方符号服务器补充 Chromium 符号。解析不阻塞工作台，转储不上传。
 
-C++ 日志先写原始符号，避免在致命信号中分配内存或获取普通日志锁。用 `c++filt < crash.log` 读取函数名；需要源码行号时，用同次构建的程序与 `addr2line -f -C -e <程序> '<函数符号>+<偏移>'` 解析对应帧。Release 程序保留行号信息；macOS 桌面包在 `Contents/Resources/symbols/` 携带原生模块的 dSYM，供 minidump 符号化。前端包携带 source map，以便将 JavaScript 堆栈还原到 TypeScript。
+解析工具随安装包提供，无须手动安装调试器。桌面按模块标识缓存符号，升级后仍保留旧版本符号。网络不可用或闭源库缺少符号时，文本报告标明缺失模块，相关帧保留模块名和地址；下次启动继续尝试补全。Release 保留行号信息，前端携带 source map；原始现场和转储同时保留，排查完成后可删除。
 
-`SIGKILL`（包括系统强制杀进程）不能被进程捕获；这类退出从宿主进程或系统日志查看。崩溃日志和转储排查完成后可删除。
+崩溃现场只做安全采集，符号解析在独立进程或下次启动进行。Sanitizer 构建保留自身的错误报告。`SIGKILL`（包括系统强制杀进程）不能被进程捕获，这类退出从宿主进程或系统日志查看。

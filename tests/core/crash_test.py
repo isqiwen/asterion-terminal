@@ -16,4 +16,10 @@ for kind, expected, symbol in (("segfault", signal.SIGSEGV, "crash_site"),
         assert "Asterion " in text and "stack (address function+offset):" in text, text
         assert signal.Signals(expected).name in text and symbol in text, text
         assert files[0].stat().st_mode & 0o777 == 0o600
-        print(text)
+        report = files[0].with_name(files[0].stem + ".report.log")
+        rendered = report.read_text()
+        assert "crash_process.cpp:" in rendered and symbol in rendered, rendered
+        print(rendered.split("modules (/proc/self/maps):")[0])
+        report.unlink()
+        subprocess.run([sys.argv[1], directory, "recover"], check=True, capture_output=True, timeout=15)
+        assert report.read_text() == rendered

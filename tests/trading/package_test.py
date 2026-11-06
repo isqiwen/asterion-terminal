@@ -19,6 +19,7 @@ import time
 
 def probe(root):
     import importlib.metadata
+    assert (root / 'bin/asterion_crash_reporter').is_file()
     assert shutil.which('python3') is None, 'container must have no system Python'
     assert sys.version_info[:3] == (3, 12, 12)
     assert {p.metadata['Name'].lower() for p in importlib.metadata.distributions()} == {'numpy', 'protobuf'}

@@ -28,6 +28,8 @@ def market_host(build, root, *, vendor=False, exchanges=(), user="steady"):
     binary = build / 'asterion_market'
     installed = root / 'bin/asterion_market'
     install_program(binary, installed)
+    if sys.platform == "linux":
+        install_program(build / "asterion_crash_reporter", root / "bin/asterion_crash_reporter")
     suffix = '.dylib' if sys.platform == 'darwin' else '.so'
     for installed, fixture, real in [('ctp-md', 'libasterion_test_ctp', 'ctp-md'),
                                      ('ctp-trader', 'libasterion_test_ctp_trader', 'ctp-trader')]:

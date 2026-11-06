@@ -18,6 +18,8 @@ int main(int argc, char** argv)
     const rlimit no_core{0, 0};
     ::setrlimit(RLIMIT_CORE, &no_core);
     asterion::install_crash_logging(argv[1], "crash-test");
+    if (std::string_view(argv[2]) == "recover")
+        return 0;
     if (std::string_view(argv[2]) == "exception") {
         std::thread([] {
             throw std::runtime_error("fixture uncaught exception");

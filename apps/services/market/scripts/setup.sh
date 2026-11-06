@@ -33,7 +33,7 @@ RESTART=asterion-market-restart
 # The account the market runs as: the sudo user at install, the owner of
 # config/ afterwards.
 ACCOUNT=
-PROGRAMS=(bin/asterion_market bin/setup.sh lib/ctp-md.so lib/ctp-trader.so)
+PROGRAMS=(bin/asterion_market bin/asterion_crash_reporter bin/setup.sh lib/ctp-md.so lib/ctp-trader.so)
 # This script: the release with its archive, or the installed bin/setup.sh.
 SELF=$(readlink -f "${BASH_SOURCE[0]}")
 

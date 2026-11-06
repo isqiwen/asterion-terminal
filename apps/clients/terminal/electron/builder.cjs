@@ -41,6 +41,7 @@ module.exports = {
     { from: "../dist", to: "dist" },
   ],
   extraResources: [
+    { from: "build/electron-resources/crash", to: "crash" },
     ...(mac ? [{ from: "build/electron-resources/symbols", to: "symbols" }] : []),
     // The Python runtime is installed at the first launch from this manifest;
     // the application ships only its own Python code beside it.
@@ -68,7 +69,10 @@ module.exports = {
     type: "distribution",
     identity: distribution ? process.env.CSC_NAME : "-",
     notarize: distribution,
-    binaries: nativeFiles.map(name => "Contents/Resources/native/" + name),
+    binaries: [
+      ...nativeFiles.map(name => "Contents/Resources/native/" + name),
+      "Contents/Resources/crash/minidump-stackwalk",
+    ],
     hardenedRuntime: true,
     entitlements: path.join(__dirname, "entitlements.mac.plist"),
     entitlementsInherit: path.join(__dirname, "entitlements.mac.plist"),

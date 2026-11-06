@@ -28,6 +28,10 @@ const { createInterface } = require("node:readline");
       path.join(build, "product.json"),
     );
     const resources = path.join(temp, "build/electron-resources");
+    await fs.mkdir(resources, { recursive: true });
+    await fs.cp(path.resolve("build/electron-resources/crash"), path.join(resources, "crash"), {
+      recursive: true,
+    });
     const native = path.join(resources, "native");
     await fs.mkdir(native, { recursive: true });
     for (const item of await fs.readdir(path.resolve("build/electron-resources/native"))) {

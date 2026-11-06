@@ -14,7 +14,7 @@ const {
 const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
-const { diagnostics } = require("./diagnostics.cjs");
+const { diagnostics, processCrashReports } = require("./diagnostics.cjs");
 const { pathToFileURL } = require("node:url");
 const { labChannel } = require("./lab-channel.cjs");
 const root = path.resolve(__dirname, "../../../..");
@@ -75,12 +75,19 @@ crashReporter.start({
   uploadToServer: false,
   globalExtra: { version: product.version, commit: product.commit },
 });
+const crashParsing = new AbortController();
+app.once("will-quit", () => crashParsing.abort());
+void processCrashReports(dumps, resources, report, crashParsing.signal).catch(error =>
+  report("crash.report.failed", error),
+);
 process.on("uncaughtException", error => {
   report("uncaughtException", error);
+  crashParsing.abort();
   app.exit(1);
 });
 process.on("unhandledRejection", error => {
   report("unhandledRejection", error);
+  crashParsing.abort();
   app.exit(1);
 });
 app.on("child-process-gone", (_event, details) =>
@@ -394,5 +401,6 @@ app
   })
   .catch(error => {
     report("startup.failed", error);
+    crashParsing.abort();
     app.exit(1);
   });

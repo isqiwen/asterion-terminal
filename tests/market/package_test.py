@@ -29,7 +29,7 @@ def unpack(bundle, root):
     payload = Path(bundle).read_bytes().split(b'\n__ARCHIVE__\n', 1)[1]
     with tarfile.open(fileobj=io.BytesIO(payload), mode='r:gz') as archive:
         files = {item.name for item in archive if item.isfile()}
-        assert files == {'asterion-market/bin/asterion_market', 'asterion-market/bin/setup.sh',
+        assert files == {'asterion-market/bin/asterion_market', 'asterion-market/bin/asterion_crash_reporter', 'asterion-market/bin/setup.sh',
                          'asterion-market/lib/ctp-md.so', 'asterion-market/lib/ctp-trader.so',
                          'asterion-market/config/logging.json'}, files
         archive.extractall(root, filter='data')

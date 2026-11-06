@@ -15,6 +15,7 @@ from generated_resources import publish_tree
 import macos_release
 import python_runtime
 import runtime_manifest
+import crash_resources
 
 ROOT = Path(__file__).resolve().parents[2]
 env = os.environ.copy()
@@ -279,6 +280,9 @@ def main():
         symbols.mkdir(parents=True, exist_ok=True)
         run(["dsymutil", str(ROOT / "build" / configuration / "asterion_terminal.node"),
              "-o", str(symbols / "asterion_terminal.node.dSYM")])
+    crash_resources.prepare(ROOT / "build" / configuration)
+    if MACOS:
+        verify_macos_target(crash_resources.DESTINATION / "minidump-stackwalk", "13.0")
     if arguments.prepare_python:
         python_runtime.prepare(ROOT / "build" / configuration)
     else:

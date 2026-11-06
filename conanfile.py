@@ -15,6 +15,7 @@ class Asterion(ConanFile):
     def requirements(self):
         if self.settings.os == "Linux":
             self.requires("libunwind/1.8.3")
+            self.requires("cpptrace/1.0.4")
 
     def set_version(self):
         self.version = (Path(self.recipe_folder) / "VERSION").read_text().strip()

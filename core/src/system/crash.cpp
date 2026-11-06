@@ -1,4 +1,8 @@
 #include <asterion/system/crash.hpp>
+#include "crash_report.hpp"
+#include <asterion/system/log.hpp>
+#include <cpptrace/basic.hpp>
+#include <limits.h>
 #include <asterion/system/durable_file.hpp>
 #include <asterion/system/process/child.hpp>
 #include <asterion/version.hpp>
@@ -7,6 +11,7 @@
 #include <cerrno>
 #include <csignal>
 #include <cstring>
+#include <cstdlib>
 #include <exception>
 #include <fcntl.h>
 #include <stdexcept>
@@ -17,11 +22,15 @@ namespace asterion {
 namespace {
 
 int output = -1;
+int frames_output = -1;
+char reporter[PATH_MAX];
+char frames_path[PATH_MAX];
+char partial_frames_path[PATH_MAX];
 
-void write_text(const char* text, std::size_t length)
+void write_bytes(int descriptor, const char* text, std::size_t length)
 {
     while (length) {
-        const auto written = ::write(output, text, length);
+        const auto written = ::write(descriptor, text, length);
         if (written < 0 && errno == EINTR)
             continue;
         if (written <= 0)
@@ -29,6 +38,11 @@ void write_text(const char* text, std::size_t length)
         text += written;
         length -= written;
     }
+}
+
+void write_text(const char* text, std::size_t length)
+{
+    write_bytes(output, text, length);
 }
 
 void write_text(const char* text)
@@ -79,6 +93,9 @@ void fatal_signal(int signal, siginfo_t*, void* context)
             unw_word_t address = 0, offset = 0;
             if (unw_get_reg(&cursor, UNW_REG_IP, &address) < 0 || !address)
                 break;
+            cpptrace::safe_object_frame object{};
+            cpptrace::get_safe_object_frame(frame == 0 ? address : address - 1, &object);
+            write_bytes(frames_output, reinterpret_cast<const char*>(&object), sizeof(object));
             write_hex(address);
             char function[512]{};
             if (unw_get_proc_name(&cursor, function, sizeof(function), &offset) == 0) {
@@ -101,6 +118,11 @@ void fatal_signal(int signal, siginfo_t*, void* context)
         ::close(maps);
     }
     ::fsync(output);
+    ::fsync(frames_output);
+    if (::rename(partial_frames_path, frames_path) == 0 && ::_Fork() == 0) {
+        ::execl(reporter, reporter, frames_path, static_cast<char*>(nullptr));
+        ::_exit(127);
+    }
     // SA_RESETHAND restores the signal's fatal default; never resume trading.
     ::raise(signal);
 }
@@ -127,8 +149,24 @@ void terminate()
 void install_crash_logging(const std::filesystem::path& directory, std::string_view program)
 {
     create_directories_durably(directory);
-    const auto file =
-        directory / (std::string(program) + "-" + std::to_string(::getpid()) + "-crash.log");
+    for (const auto& entry : std::filesystem::directory_iterator(directory)) {
+        if (entry.path().extension() != ".frames")
+            continue;
+        try {
+            write_crash_report(entry.path());
+        } catch (const std::exception& error) {
+            log::warn("crash report pending: {}", error.what());
+        }
+    }
+    cpptrace::safe_object_frame warmup{};
+    cpptrace::get_safe_object_frame(
+        reinterpret_cast<cpptrace::frame_ptr>(&install_crash_logging),
+        &warmup);
+    if (!cpptrace::can_get_safe_object_frame())
+        throw std::runtime_error("signal-safe object lookup is unavailable");
+    const auto file = directory
+        / (std::string(program) + "-" + std::to_string(::getpid()) + "-" + unique_process_id()
+            + "-crash.log");
     write_file_durably(
         file,
         "Asterion " + std::string(build::description) + "\nprogram: " + std::string(program)
@@ -136,6 +174,25 @@ void install_crash_logging(const std::filesystem::path& directory, std::string_v
     output = ::open(file.c_str(), O_WRONLY | O_APPEND | O_CLOEXEC | O_NOFOLLOW);
     if (output < 0)
         throw std::runtime_error("cannot open crash log: " + file.string());
+    const auto helper = current_executable().parent_path() / "asterion_crash_reporter";
+    if (!std::filesystem::is_regular_file(helper))
+        throw std::runtime_error("crash reporter is missing: " + helper.string());
+    const auto copy_path = [](const std::filesystem::path& path, char (&destination)[PATH_MAX]) {
+        const auto text = path.string();
+        if (text.size() >= PATH_MAX)
+            throw std::runtime_error("crash diagnostic path is too long");
+        std::memcpy(destination, text.c_str(), text.size() + 1);
+    };
+    copy_path(helper, reporter);
+    copy_path(file.string() + ".frames", frames_path);
+    copy_path(file.string() + ".frames.tmp", partial_frames_path);
+    write_file_durably(partial_frames_path, "");
+    frames_output = ::open(partial_frames_path, O_WRONLY | O_APPEND | O_CLOEXEC | O_NOFOLLOW);
+    if (frames_output < 0)
+        throw std::runtime_error("cannot open crash frame file");
+    std::atexit([] {
+        ::unlink(partial_frames_path);
+    });
     struct sigaction action{};
     action.sa_sigaction = fatal_signal;
     action.sa_flags = SA_SIGINFO | SA_RESETHAND;

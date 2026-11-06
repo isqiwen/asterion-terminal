@@ -186,6 +186,8 @@ def install(root):
     for folder in ("bin", "lib", "config", "logs", "data"):
         (root / folder).mkdir()
     install_program(market, root / "bin" / executable)
+    if sys.platform == "linux":
+        install_program(Path(market).parent / "asterion_crash_reporter", root / "bin/asterion_crash_reporter")
     shutil.copy2(md, root / "lib/ctp-md.so")
     shutil.copy2(trader, root / "lib/ctp-trader.so")
     shutil.copy2(Path(__file__).parents[2] / "apps/services/market/config/logging.json", root / "config/logging.json")
