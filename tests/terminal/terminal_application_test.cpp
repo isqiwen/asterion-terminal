@@ -612,7 +612,9 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
     EXPECT_EQ(sources.at("sources")[1].at("tables"), Json::array({"TABLE_PRICE_TICKS"}));
     EXPECT_EQ(sources.at("sources")[1].at("exchanges"), Json::array({"GFEX", "SHFE"}));
     EXPECT_EQ(sources.at("sources")[2].at("provider"), "recorder");
-    EXPECT_EQ(sources.at("sources")[2].at("tables"), Json::array({"TABLE_MINUTES"}));
+    EXPECT_EQ(
+        sources.at("sources")[2].at("tables"),
+        Json::array({"TABLE_MINUTES", "TABLE_PRICE_TICKS"}));
     EXPECT_EQ(sources.at("sources")[3].at("provider"), "shfe");
     EXPECT_EQ(
         sources.at("sources")[3].at("tables"),
