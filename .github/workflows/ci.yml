@@ -140,18 +140,6 @@ jobs:
       - name: Exercise packaged macOS desktop
         timeout-minutes: 8
         run: python tests/desktop/electron_package.py build/desktop-test/*.dmg
-      - name: Upload packaged desktop evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: installed-desktop-macos
-          if-no-files-found: warn
-          path: build/installed-desktop/
-      - uses: actions/upload-artifact@v4
-        with:
-          name: terminal-test-macos
-          if-no-files-found: error
-          path: build/desktop-test/*.dmg
 
   # The whole browser suite runs on the macOS job. Only the @trading tests run
   # here, because the trading service runs on Linux only and they skip elsewhere.
@@ -198,18 +186,6 @@ jobs:
       - name: Exercise packaged Linux desktop
         timeout-minutes: 8
         run: xvfb-run -a python tests/desktop/electron_package.py build/desktop-test/*.deb
-      - name: Upload packaged desktop evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: installed-desktop-linux
-          if-no-files-found: warn
-          path: build/installed-desktop/
-      - uses: actions/upload-artifact@v4
-        with:
-          name: terminal-test-linux
-          if-no-files-found: error
-          path: build/desktop-test/*.deb
 
   core-sanitizers:
     strategy:
