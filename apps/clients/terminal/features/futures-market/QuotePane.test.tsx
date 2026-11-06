@@ -18,7 +18,7 @@ import { QuotePane } from "./QuotePane";
 import { feature } from "./feature";
 
 // The chart draws on a canvas; these tests read the note beneath it.
-vi.mock("@asterion/client-ui/IntradayChart", () => ({ IntradayChart: () => null }));
+vi.mock("@asterion/terminal/charts/IntradayChart", () => ({ IntradayChart: () => null }));
 vi.mock("../../src/bridge/market-data", () => ({ marketData: vi.fn() }));
 registerTerminalFeatures([feature]);
 

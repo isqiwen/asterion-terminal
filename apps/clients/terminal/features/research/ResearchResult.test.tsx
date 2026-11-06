@@ -17,7 +17,7 @@ vi.mock("../contract", async original => ({
   lab: vi.fn(),
   translate: (_namespace: string, key: string) => key,
 }));
-vi.mock("@asterion/client-ui/PriceChart", () => ({ PriceChart: () => null }));
+vi.mock("@asterion/terminal/charts/PriceChart", () => ({ PriceChart: () => null }));
 
 test("status refreshes preserve a pending comparison of the same two runs", async () => {
   let release!: () => void;

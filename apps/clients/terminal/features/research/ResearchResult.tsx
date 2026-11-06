@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { PriceChart, type Candle, type TradeMark } from "@asterion/client-ui/PriceChart";
+import { PriceChart, type Candle, type TradeMark } from "@asterion/terminal/charts/PriceChart";
 import {
   ErrorNotice,
   asDisplayError,

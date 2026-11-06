@@ -126,3 +126,5 @@ sequenceDiagram
 | 7 | [market.tsx](../../apps/clients/terminal/src/host/market.tsx)、[trading-accounts.tsx](../../apps/clients/terminal/src/host/trading-accounts.tsx)、[notifications.tsx](../../apps/clients/terminal/src/host/notifications.tsx) | 共享视图状态与通知 |
 
 组件测试放在对应源码旁，Electron 验证见 [tests/desktop](../../tests/desktop)。构建与隔离测试命令见[开发指南](../development.md)。
+
+图表组件位于 [src/charts](../../apps/clients/terminal/src/charts)，供行情和研究页面共用。输入保留精确小数字符串，浮点只用于绘制坐标；数据获取、校验、聚合和文案由调用方负责。

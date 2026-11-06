@@ -1,4 +1,4 @@
-import { PriceChart } from "@asterion/client-ui/PriceChart";
+import { PriceChart } from "@asterion/terminal/charts/PriceChart";
 import { timestamp } from "../../src/bridge/client";
 import { FeedState, type QuoteRow } from "../../src/generated/asterion/market_pb";
 import { rowKey, type MarketView } from "../../src/host/market";

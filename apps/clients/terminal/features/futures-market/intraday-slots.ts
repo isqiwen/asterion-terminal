@@ -1,4 +1,4 @@
-import type { IntradaySlot } from "@asterion/client-ui/IntradayChart";
+import type { IntradaySlot } from "@asterion/terminal/charts/IntradayChart";
 import type { MinuteBar, Minutes } from "../../src/generated/asterion/market_pb";
 import sessionFile from "../../config/futures-sessions.json";
 

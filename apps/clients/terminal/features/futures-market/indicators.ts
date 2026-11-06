@@ -1,4 +1,4 @@
-import type { Candle } from "@asterion/client-ui/PriceChart";
+import type { Candle } from "@asterion/terminal/charts/PriceChart";
 
 // Presentation indicators only. Task and execution do not consume these values.
 export const averagePeriods = [5, 10, 20, 30, 60] as const;

@@ -3,7 +3,7 @@ import { useMarket } from "../../src/host/market";
 import { chartTime } from "./chart-time";
 import { averagePeriods, movingAverage } from "./indicators";
 import { useEffect, useState } from "react";
-import { PriceChart } from "@asterion/client-ui/PriceChart";
+import { PriceChart } from "@asterion/terminal/charts/PriceChart";
 import { timestamp } from "../../src/bridge/client";
 import {
   protocolPeriod,

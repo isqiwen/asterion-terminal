@@ -15,7 +15,7 @@ export default tseslint.config(
     ],
   },
   {
-    files: ["apps/clients/**/*.{ts,tsx}", "packages/client-ui/**/*.{ts,tsx}"],
+    files: ["apps/clients/**/*.{ts,tsx}"],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     languageOptions: { globals: { ...globals.browser, ...globals.node } },
     plugins: { "react-hooks": reactHooks },

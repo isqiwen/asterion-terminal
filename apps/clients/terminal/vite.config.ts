@@ -243,7 +243,6 @@ export default defineConfig({
   plugins: [react(), ...(process.env.ASTERION_DESKTOP_DEV === "1" ? [] : [localCore()])],
   resolve: {
     alias: {
-      "@asterion/client-ui": resolve(root, "packages/client-ui/src"),
       "@asterion/workbench": resolve(root, "apps/clients/terminal/src/host"),
       "@asterion/desktop-bridge": resolve(root, "apps/clients/terminal/src/bridge"),
       "@asterion/terminal": resolve(root, "apps/clients/terminal/src"),

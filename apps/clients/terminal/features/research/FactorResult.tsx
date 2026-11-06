@@ -1,4 +1,4 @@
-import { PriceChart } from "@asterion/client-ui/PriceChart";
+import { PriceChart } from "@asterion/terminal/charts/PriceChart";
 import { translate, type LabFactorResult, type MessageValues } from "../contract";
 import { cumulativeIc } from "./research-lab";
 import { metric, signed } from "./ResearchResult";
