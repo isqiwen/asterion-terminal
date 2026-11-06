@@ -7,7 +7,7 @@
       "name": "Market: debug installation",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${input:serviceInstallation}/bin/asterion_market",
+      "program": "${input:serviceInstallation}/bin/asterion_history",
       "args": [],
       "cwd": "${input:serviceInstallation}",
       "linux": { "MIMode": "gdb" }

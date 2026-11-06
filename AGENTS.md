@@ -13,7 +13,7 @@ Rules for anyone, human or AI, who changes this repository. Keep this file short
 ## Architecture
 
 - C++ owns market data and execution; Python owns strategies, factors and research. Strategies return target lots or weights; the C++ account turns them into orders.
-- **Market** (`apps/services/market/`): one C++ process on a Linux host for real-time feeds, historical acquisition and the versioned warehouse, behind one fixed interface. All clients share one dataset; one client's subscriptions or disconnects never affect another.
+- **Market** (`apps/services/history/`): one C++ process on a Linux host for real-time feeds, historical acquisition and the versioned warehouse, behind one fixed interface. All clients share one dataset; one client's subscriptions or disconnects never affect another.
 - **Lab** (`apps/services/lab/`): the local Python research service that Terminal starts and restarts. It reads fixed Market versions into a disposable cache; `engine/` exposes core's replay to Python.
 - **Trading** (`apps/services/trading/`): one C++ process per account on a Linux host, plus one Python child process per strategy instance. It runs without Terminal, Lab or Market. Closing Terminal never stops trading; a Trading restart never restores authorization. Strategy instances use only market data Trading itself received.
 - **Terminal** (`apps/clients/terminal/`): Electron + React UI (`src/`, `features/`) with a C++ native layer (`native/`). It starts only Lab. Pages build and read the generated Protobuf types; the native layer only holds the TLS connections and relays them.

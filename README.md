@@ -52,7 +52,7 @@ pnpm desktop                       # 自动准备 Python 运行时、构建并�
 | --- | --- |
 | `core/` | 基础（Decimal、时间、错误）、内核（IPC、进程、日志、持久文件）、期货领域模型 |
 | `apps/services/` | 各服务拥有自己的实现；跨服务复用在 `common/`，共享 SQLite 和订单限额在 `core/` |
-| `apps/services/market/` | C++ 实时行情、录制、历史采集、正式仓库与固定版本读取 |
+| `apps/services/history/` | C++ 实时行情、录制、历史采集、正式仓库与固定版本读取 |
 | `apps/services/lab/` | Python 研究服务与 C++ 回测扩展 |
 | `apps/services/trading/` | 独立账户进程、内置风控与交易主机策略运行器 |
 | `protocol/` | Protobuf 契约与边界校验 |
