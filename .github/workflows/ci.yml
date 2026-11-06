@@ -82,9 +82,9 @@ jobs:
         timeout-minutes: 8
         run: python tests/desktop/electron_package.py build/desktop-test/*.dmg
       - name: Upload Terminal installer
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
-          name: terminal-macos-arm64
+          archive: false
           if-no-files-found: error
           path: build/desktop-test/*.dmg
 
@@ -143,15 +143,15 @@ jobs:
       - name: Market release without a Python runtime
         run: build/electron-resources/python/bin/python3 tests/market/package_test.py build/Release/asterion-market-setup.sh
       - name: Upload Trading installer
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
-          name: trading-linux-x86_64
+          archive: false
           if-no-files-found: error
           path: build/Release/asterion-trading-setup.sh
       - name: Upload Market installer
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
-          name: market-linux-x86_64
+          archive: false
           if-no-files-found: error
           path: build/Release/asterion-market-setup.sh
       - run: pnpm exec playwright install --with-deps chromium
@@ -165,9 +165,9 @@ jobs:
         timeout-minutes: 8
         run: xvfb-run -a python tests/desktop/electron_package.py build/desktop-test/*.deb
       - name: Upload Terminal installer
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
-          name: terminal-linux-x86_64
+          archive: false
           if-no-files-found: error
           path: build/desktop-test/*.deb
 
