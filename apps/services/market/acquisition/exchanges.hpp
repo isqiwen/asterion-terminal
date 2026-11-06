@@ -26,6 +26,7 @@ public:
     bool supports(std::string_view table, std::string_view exchange) const override;
     Rows daily(const std::string&, const std::string&) override;
     Rows settlement(const std::string&, const std::string&) override;
+    Rows price_ticks(const std::string&, const std::string&) override;
 
 private:
     Rows read(const std::string& table, const std::string& exchange, const std::string& day);

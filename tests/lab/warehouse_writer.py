@@ -9,15 +9,16 @@ from pathlib import Path
 import shutil
 import time
 import polars as pl
-from asterion_lab.warehouse import ParquetTables, Version, SCHEMAS, NUMBER, SCALE, canonical, write_durably
+from asterion_lab.warehouse import ParquetTables, Version, SCHEMAS, canonical, write_durably
 
-def exact(value, column: str):
+def exact(value, column: str, kind):
     """A decimal the warehouse holds exactly, refused rather than rounded."""
     if value is None:
         return None
     value = Decimal(value)
-    if value != value.quantize(SCALE) or abs(value) >= Decimal(10) ** 22:
-        raise ValueError(f"{column} {value} does not fit six decimal places")
+    scale = Decimal(10) ** -kind.scale
+    if value != value.quantize(scale) or abs(value) >= Decimal(10) ** (kind.precision - kind.scale):
+        raise ValueError(f"{column} {value} does not fit {kind.scale} decimal places")
     return value
 
 
@@ -26,8 +27,8 @@ def frame(table: str, rows: list) -> pl.DataFrame:
     columns = {}
     for name, kind in schema.items():
         values = [row[name] for row in rows]
-        if kind == NUMBER:
-            values = [exact(value, name) for value in values]
+        if isinstance(kind, pl.Decimal):
+            values = [exact(value, name, kind) for value in values]
         elif kind == pl.Date:
             values = [None if value is None else datetime.date.fromisoformat(value)
                       for value in values]

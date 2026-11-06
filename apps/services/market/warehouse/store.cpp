@@ -99,6 +99,15 @@ constexpr Column observations[] = {
     {"ticks", K::integer},
     {"end", K::text}
 };
+constexpr Column price_ticks[] = {
+    {"exchange", K::text},
+    {"product", K::text},
+    {"contract", K::text},
+    {"effective_from", K::date},
+    {"effective_until", K::date},
+    {"price_tick", K::price},
+    {"source_url", K::text}
+};
 
 duckdb::LogicalType logical(Kind kind)
 {
@@ -113,6 +122,8 @@ duckdb::LogicalType logical(Kind kind)
             return duckdb::LogicalType::BIGINT;
         case K::number:
             return duckdb::LogicalType::DECIMAL(28, 6);
+        case K::price:
+            return duckdb::LogicalType::DECIMAL(28, 8);
     }
     throw std::logic_error("unknown warehouse column kind");
 }
@@ -132,14 +143,16 @@ duckdb::Value value(const Column& column, const Cell& cell)
         std::string text;
         if (const auto* input = std::get_if<std::string>(&cell))
             text = *input;
-        else if (column.kind == K::number && std::holds_alternative<Decimal>(cell))
+        else if ((column.kind == K::number || column.kind == K::price)
+            && std::holds_alternative<Decimal>(cell))
             text = std::get<Decimal>(cell).str();
         else
             throw std::invalid_argument(
                 "warehouse cell type differs from " + std::string(column.name));
         if (column.kind == K::date)
             require_day(text);
-        if (column.kind == K::number) {
+        if (column.kind == K::number || column.kind == K::price) {
+            const std::size_t scale = column.kind == K::price ? 8 : 6;
             // DuckDB casts can round. Refuse lossy input before asking it to
             // store the exact 128-bit decimal; never pass through double.
             static const std::regex syntax(R"(-?[0-9]+(\.[0-9]+)?)");
@@ -151,15 +164,17 @@ duckdb::Value value(const Column& column, const Cell& cell)
                     text.pop_back();
                 if (text.back() == '.')
                     text.pop_back();
-                else if (text.size() - dot - 1 > 6)
-                    throw std::invalid_argument("warehouse number exceeds six decimal places");
+                else if (text.size() - dot - 1 > scale)
+                    throw std::invalid_argument(
+                        "warehouse number exceeds " + std::to_string(scale) + " decimal places");
             }
             const auto begin = text.front() == '-' ? 1u : 0u;
             const auto end = text.find('.');
             const auto first = text.find_first_not_of('0', begin);
             const auto whole = end == std::string::npos ? text.size() : end;
-            if (first != std::string::npos && first < whole && whole - first > 22)
-                throw std::invalid_argument("warehouse number exceeds DECIMAL(28,6)");
+            if (first != std::string::npos && first < whole && whole - first > 28 - scale)
+                throw std::invalid_argument(
+                    "warehouse number exceeds DECIMAL(28," + std::to_string(scale) + ")");
         }
         return duckdb::Value(text).DefaultCastAs(type, true);
     }
@@ -244,6 +259,8 @@ std::span<const Column> columns(std::string_view table)
         return settlement;
     if (table == "observations")
         return observations;
+    if (table == "price_ticks")
+        return price_ticks;
     throw std::invalid_argument("unknown warehouse table");
 }
 

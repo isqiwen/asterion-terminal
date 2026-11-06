@@ -19,6 +19,7 @@ public:
     wire::AcquisitionTask get(const std::string& id) const;
     wire::AcquisitionTasks list(const wire::ListAcquisitionTasks&) const;
     wire::Sources sources() const;
+    wire::Dataset import_price_ticks(const wire::ImportPriceTicks&);
     void stop();
 
 private:
@@ -37,6 +38,10 @@ private:
     std::filesystem::path directory_;
     std::map<std::string, Factory> sources_;
     std::map<std::string, std::unique_ptr<warehouse::Store>> stores_;
+    warehouse::Store rules_{
+        warehouse::source_directory(directory_.parent_path(), "rules"),
+        "rules"
+    };
     warehouse::Store research_;
     mutable std::mutex mutex_;
     std::map<std::string, std::unique_ptr<Active>> active_;

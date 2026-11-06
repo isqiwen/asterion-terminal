@@ -1,9 +1,12 @@
 #include "exchanges.hpp"
 #include "archive.hpp"
 #include "values.hpp"
+#include <asterion/base/decimal.hpp>
 #include <httplib.h>
 #include <iconv.h>
+#include <tinyxml2.h>
 #include <algorithm>
+#include <cctype>
 #include <set>
 
 namespace asterion::market_data::acquisition {
@@ -150,6 +153,58 @@ void unique(std::set<std::string>& seen, const std::string& contract)
 {
     if (!seen.insert(contract).second)
         throw std::invalid_argument("duplicate exchange contract");
+}
+
+Rows czce_price_ticks(const std::string& day, const std::string& raw, const std::string& url)
+{
+    tinyxml2::XMLDocument document;
+    if (document.Parse(raw.data(), raw.size()) != tinyxml2::XML_SUCCESS)
+        throw std::invalid_argument("invalid CZCE reference XML");
+    const auto* root = document.RootElement();
+    if (!root || std::string_view(root->Name()) != "Contracts" || root->NextSiblingElement())
+        throw std::invalid_argument("missing CZCE reference contracts");
+    const auto observation = day_of(day);
+    const auto until = day_text(observation + std::chrono::days(1));
+    constexpr std::string_view unit = "元/吨";
+    Rows result;
+    std::set<std::string> seen;
+    for (const auto* row = root->FirstChildElement(); row; row = row->NextSiblingElement()) {
+        if (std::string_view(row->Name()) != "Contract")
+            throw std::invalid_argument("unexpected CZCE reference element");
+        const auto field = [&](const char* name) {
+            const auto* element = row->FirstChildElement(name);
+            if (!element || !element->GetText() || element->NextSiblingElement(name)
+                || element->FirstChildElement())
+                throw std::invalid_argument("invalid CZCE reference field: " + std::string(name));
+            return trim(element->GetText());
+        };
+        if (field("PrdTp") != "期货")
+            continue;
+        if (field("ExchCd") != "XZCE" || field("TrdCcyCd") != "CNY" || field("MsrmntUnt") != "吨")
+            throw std::invalid_argument("unexpected CZCE reference exchange or price unit");
+        auto product = field("PrdCd");
+        std::transform(product.begin(), product.end(), product.begin(), [](unsigned char c) {
+            return std::tolower(c);
+        });
+        const auto identity = "CZCE/" + product + "/" + field("YrCd") + "-" + field("MnthCd");
+        require_contract(identity);
+        if (contract_of("CZCE", field("CtrCd"), day) != identity)
+            throw std::invalid_argument("inconsistent CZCE reference contract");
+        // The XML has no report date; the fixed URL dates this observation only.
+        if (day_of(field("FrstTrdDt")) > observation || day_of(field("LstTrdDt")) < observation)
+            throw std::invalid_argument("CZCE reference contract not listed on requested day");
+        const auto quoted = field("TckSz");
+        if (!quoted.ends_with(unit))
+            throw std::invalid_argument("invalid CZCE reference price tick or unit");
+        const auto tick = Decimal::parse(quoted.substr(0, quoted.size() - unit.size()));
+        if (tick <= Decimal{})
+            throw std::invalid_argument("CZCE reference price tick must be positive");
+        unique(seen, identity);
+        result.push_back({"CZCE", product, identity, day, until, tick.str(), url});
+    }
+    if (result.empty())
+        throw std::invalid_argument("CZCE reference contains no futures contracts");
+    return result;
 }
 
 Rows shanghai(
@@ -410,7 +465,7 @@ Exchange::Exchange(std::string exchange, std::stop_token stop, Fetch fetch)
 bool Exchange::supports(std::string_view table, std::string_view exchange) const
 {
     return exchange == exchange_
-        && (table == "daily"
+        && (table == "daily" || (table == "price_ticks" && exchange == "CZCE")
             || (table == "settlement"
                 && (exchange == "SHFE" || exchange == "INE" || exchange == "CZCE")));
 }
@@ -423,6 +478,11 @@ Rows Exchange::daily(const std::string& exchange, const std::string& day)
 Rows Exchange::settlement(const std::string& exchange, const std::string& day)
 {
     return read("settlement", exchange, day);
+}
+
+Rows Exchange::price_ticks(const std::string& exchange, const std::string& day)
+{
+    return read("price_ticks", exchange, day);
 }
 
 Rows Exchange::read(const std::string& table, const std::string& exchange, const std::string& day)
@@ -451,6 +511,9 @@ Rows Exchange::read(const std::string& table, const std::string& exchange, const
         request.origin = "https://www.czce.com.cn";
         if (archived)
             request.path = "/cn/exchange/datahistory" + day.substr(0, 4) + ".zip";
+        else if (table == "price_ticks")
+            request.path = "/cn/DFSStaticFiles/Future/" + day.substr(0, 4) + "/" + date
+                + "/FutureDataReferenceData.xml";
         else if (table == "daily" && day < "2015-11-12")
             request.path = "/cn/exchange/" + day.substr(0, 4) + "/datadaily/" + date + ".txt";
         else
@@ -505,6 +568,8 @@ Rows Exchange::read(const std::string& table, const std::string& exchange, const
     try {
         if (reply.body.size() > values::response_limit)
             throw std::invalid_argument("exchange file too large");
+        if (table == "price_ticks")
+            return czce_price_ticks(day, reply.body, request.origin + request.path);
         if (exchange == "SHFE" || exchange == "INE")
             return shanghai(exchange, day, table, reply.body);
         if (archived) {

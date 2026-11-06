@@ -41,3 +41,30 @@ test("the contract table shows the chosen exchange's contracts", async () => {
   );
   expect(screen.getByText("第 1–1 行，共 1 行")).toBeTruthy();
 });
+
+test("historical price ticks are browsed in the chosen fixed version and date range", async () => {
+  render(
+    <ReferenceTables
+      provider="rules"
+      version="historical-version"
+      tables={[Table.PRICE_TICKS]}
+      exchanges={["SHFE"]}
+    />,
+  );
+  await screen.findByRole("table", { name: "历史报价单位" });
+  fireEvent.change(screen.getByLabelText("开始日期"), { target: { value: "2014-01-01" } });
+  fireEvent.change(screen.getByLabelText("结束日期"), { target: { value: "2014-12-31" } });
+  await waitFor(() =>
+    expect(request).toHaveBeenLastCalledWith({
+      case: "getTableRows",
+      value: {
+        dataset: { provider: "rules", version: "historical-version" },
+        table: Table.PRICE_TICKS,
+        exchange: "SHFE",
+        firstDay: "2014-01-01",
+        lastDay: "2014-12-31",
+        offset: 0,
+      },
+    }),
+  );
+});

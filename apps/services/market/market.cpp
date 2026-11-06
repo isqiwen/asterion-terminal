@@ -52,6 +52,7 @@ Route route(const wire::Request& request)
             return {Lane::stream};
         case wire::Request::kStartAcquisition:
         case wire::Request::kCancelAcquisition:
+        case wire::Request::kImportPriceTicks:
             return {Lane::reader, true};
         default:
             return {Lane::reader};
@@ -243,6 +244,10 @@ void answer_reader(
 {
     const warehouse::Reader datasets(directory);
     switch (request.call_case()) {
+        case wire::Request::kImportPriceTicks:
+            *response.mutable_import_price_ticks() =
+                tasks.import_price_ticks(request.import_price_ticks());
+            break;
         case wire::Request::kListDatasets:
             *response.mutable_list_datasets() = datasets.datasets();
             break;

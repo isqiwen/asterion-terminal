@@ -84,7 +84,8 @@ wire::Sources Manager::sources() const
         auto* entry = result.add_sources();
         entry->set_provider(provider);
         std::set<std::string> exchanges;
-        for (const auto* table : {"daily", "minutes", "settlement", "calendar", "contracts"}) {
+        for (const auto* table :
+            {"daily", "minutes", "settlement", "price_ticks", "calendar", "contracts"}) {
             bool supported = false;
             for (const auto* exchange : {"SHFE", "INE", "DCE", "CZCE", "CFFEX", "GFEX"}) {
                 if (source->supports(table, exchange)) {
@@ -381,7 +382,7 @@ void Manager::run(Active& active, Source& source, warehouse::Store& store)
         publish(task, active);
     };
     if (table(request) == "minutes" || table(request) == "settlement"
-        || !source.supports("calendar", request.exchanges(0))) {
+        || table(request) == "price_ticks" || !source.supports("calendar", request.exchanges(0))) {
         // Exchange, day and, for minutes, contract of each partition.
         std::vector<std::tuple<std::string, std::string, std::string>> plan;
         if (table(request) == "minutes" && request.contracts().empty())
@@ -427,10 +428,12 @@ void Manager::run(Active& active, Source& source, warehouse::Store& store)
                     MinuteBatch batch;
                     if (table(request) == "minutes")
                         batch = source.minutes(contract, day);
+                    else if (table(request) == "settlement")
+                        batch.rows = source.settlement(exchange, day);
+                    else if (table(request) == "price_ticks")
+                        batch.rows = source.price_ticks(exchange, day);
                     else
-                        batch.rows = table(request) == "settlement"
-                            ? source.settlement(exchange, day)
-                            : source.daily(exchange, day);
+                        batch.rows = source.daily(exchange, day);
                     check_stop(stop);
                     if (batch.rows.empty())
                         task.set_items_empty(task.items_empty() + 1);

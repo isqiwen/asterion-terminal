@@ -8,9 +8,10 @@ target_include_directories(asterion_market_warehouse PUBLIC ${CMAKE_CURRENT_SOUR
 target_link_libraries(asterion_market_warehouse PUBLIC asterion_protocol PRIVATE asterion_bar_parquet duckdb::duckdb)
 asterion_target_defaults(asterion_market_warehouse)
 find_package(ZLIB CONFIG REQUIRED)
+find_package(tinyxml2 CONFIG REQUIRED)
 add_library(asterion_market_acquisition STATIC
-  acquisition/source.cpp acquisition/archive.cpp acquisition/values.cpp acquisition/tushare.cpp acquisition/recorded.cpp acquisition/recorded_publication.cpp acquisition/exchanges.cpp acquisition/manager.cpp)
-target_link_libraries(asterion_market_acquisition PUBLIC asterion_market_warehouse asterion_market_recording PRIVATE httplib::httplib Iconv::Iconv ZLIB::ZLIB)
+  acquisition/source.cpp acquisition/archive.cpp acquisition/values.cpp acquisition/tushare.cpp acquisition/recorded.cpp acquisition/recorded_publication.cpp acquisition/exchanges.cpp acquisition/manager.cpp acquisition/import_price_ticks.cpp)
+target_link_libraries(asterion_market_acquisition PUBLIC asterion_market_warehouse asterion_market_recording PRIVATE httplib::httplib Iconv::Iconv ZLIB::ZLIB tinyxml2::tinyxml2)
 asterion_target_defaults(asterion_market_acquisition)
 add_library(asterion_market_settings STATIC settings.cpp)
 target_link_libraries(asterion_market_settings PUBLIC asterion_ctp)

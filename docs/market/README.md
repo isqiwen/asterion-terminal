@@ -14,13 +14,40 @@
 
 ## 仓库与固定版本
 
-仓库模块（`apps/services/market/warehouse/`）管理六种表：日线、交易日历、合约、分钟线、结算参数和观测段。价格和数量为 `DECIMAL(28,6)`，写入拒绝需要舍入的数值。Tushare 仓库在数据目录（见[配置](deployment.md#配置)）的 `warehouse/`，其他来源在 `sources/<来源>/warehouse/`，各来源独立保存。
+仓库模块（`apps/services/market/warehouse/`）管理日线、交易日历、合约、分钟线、结算参数、观测段和历史报价单位。历史报价单位保留八位小数，其他价格和数量保留六位，写入拒绝需要舍入的数值。Tushare 仓库在数据目录（见[配置](deployment.md#配置)）的 `warehouse/`，其他来源在 `sources/<来源>/warehouse/`，各来源独立保存。
 
 - **研究数据集**（来源 `research`）：研究只读这一份。每当有来源提交新版本以及启动时，Market 按规则重新合成：合约表、交易日历、日线来自 Tushare；结算参数来自交易所；每个合约每个交易日的分钟线（连同观测段）Tushare 有就用 Tushare，没有才用自录。每个分区整块来自一个来源，清单记录来源（`source`）；文件以硬链接引用来源的文件，不另占空间。来源没有变化时不产生新版本。理由：Tushare 历史完整、各交易所口径一致，自录只补 Tushare 没有的日子。
 - 写入先完成分区文件，再发布不可变的版本清单，最后切换 `current`。旧版本的文件不改不删，所以读取一个固定版本不受之后的采集影响。版本清单只列分片（每个表、交易所、月份一片，`shards/<sha256>.json`，按内容命名），一次提交只写它改动的月份，顶层清单只记录分片引用。
 - 只读请求见[通信协议](../protocol.md#7-market)：版本、文件、摘要、覆盖和两个来源的分钟对比。
 - 第一次查询可以不指定版本，之后的分页和下载必须带回同一版本；指定的版本不存在就失败，不改读最新版本。
 - 日期覆盖表示已有分区；日内观测完整性由分钟线的 `partial` 和观测段记录描述。
+
+### 历史最小变动价位
+
+Market 的 `price_ticks` 表保存交割合约、最小变动价位、来源网址以及有效交易日区间 `[effective_from, effective_until)`。价格单位与该合约的报价单位一致。来源的逐日报表只覆盖对应交易日；规则公告按明确的适用合约和生效区间保存，采集时间与上市日期不能代替生效日期。
+
+- **自动采集**：数据页选择郑商所来源的“历史报价单位”和日期范围，Market 读取官方每日参考 XML 的 `TckSz`。档案不存在就保持缺失，不向前后日期延用。实时 CTP 目录和 Tushare 合约快照不用于填补历史。
+- **历史规则导入**：其他交易所或归档未覆盖的年份，先核对交易所文件或供应商历史参数，再在数据页选择 JSON 文件，预览交易所、条数和日期后导入。导入需要 Market 管理权限，替换 `rules` 来源中该交易所的全部导入规则，其他交易所及自动采集数据保留。
+- **固定版本**：自动采集与导入都进入 `research` 的固定版本；重新采集或导入不改变已有回测版本。在参考表中可按日期查看数值、有效区间与来源。多个来源同日同值可共存，值不一致时回测失败，需核对来源后修正。
+
+导入格式如下；这个例子来自[郑商所 2022-01-04 的实际报表](https://www.czce.com.cn/cn/DFSStaticFiles/Future/2022/20220104/FutureDataReferenceData.xml)，仅覆盖该交易日：
+
+```json
+{
+  "exchange": "CZCE",
+  "rows": [
+    {
+      "contract": "CZCE/ap/2022-01",
+      "effectiveFrom": "2022-01-04",
+      "effectiveUntil": "2022-01-05",
+      "priceTick": "1",
+      "sourceUrl": "https://www.czce.com.cn/cn/DFSStaticFiles/Future/2022/20220104/FutureDataReferenceData.xml"
+    }
+  ]
+}
+```
+
+同一文件中每个合约的区间不能重叠，`priceTick` 必须用十进制字符串填写。来源网址由导入者核对，Market 校验记录结构并保存；自动采集的来源网址由适配器固定。历史覆盖以已存参数为准，当前公开归档尚未覆盖六个交易所自 2015 年以来的全部日期。
 
 ## 历史采集
 
@@ -29,7 +56,7 @@
 | 来源 | 内容 |
 | --- | --- |
 | `tushare` | 合约表、交易日历、日线、单合约 1 分钟线（[`fut_basic`](https://tushare.pro/document/2?doc_id=135)、[`fut_trade_cal`](https://tushare.pro/document/2?doc_id=467)、[`fut_daily`](https://tushare.pro/document/2?doc_id=138)、[`ft_mins`](https://tushare.pro/document/2?doc_id=313)） |
-| `shfe`、`ine`、`czce` | 各自交易所的日线和结算参数 |
+| `shfe`、`ine`、`czce` | 各自交易所的日线和结算参数；`czce` 另提供历史报价单位 |
 | `dce`、`cffex`、`gfex` | 各自交易所的日线 |
 | `recorder` | 本机录制的分钟线发布为固定研究版本，见[录制](deployment.md#发布研究版本) |
 

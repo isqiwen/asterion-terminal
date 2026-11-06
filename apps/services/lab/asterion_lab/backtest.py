@@ -7,8 +7,8 @@ The data are read this way:
   high and low present) and settled; the bar is labelled 15:00 Shanghai.
 - Its multiplier is the contract table's, times the lot in the unit the
   price is quoted per; most days with turnover must agree with it within 5%.
-- A contract's price increment comes from its minimum quote unit description
-  in the pinned contract table, in the same unit as its quoted prices.
+- A contract's price increment comes from the pinned price-tick history;
+  its effective intervals must cover each replayed trading day.
 - A product's dominant series (symbol EXCHANGE/product) trades its dominant
   months by the rule of dominant.py; a later month joins a day before its
   roll, and a month that hands over stays until its bar on or after the roll
@@ -25,11 +25,11 @@ The service runs each backtest in a child process:
 
 reads its AdmittedRun (asterion/lab.proto) from standard input.
 """
+from bisect import bisect_left
 from dataclasses import dataclass
 import datetime
 from decimal import Decimal
 import math
-import re
 import sys
 from pathlib import Path
 
@@ -159,21 +159,29 @@ class Data:
         return chart.minute_bars(
             [(day.isoformat(), *values) for day, *values in rows], minutes)
 
-    def price_increment(self, exchange: str, contract: str) -> int:
+    def price_increments(self, exchange: str, contract: str, days: list) -> dict:
         rows = self.warehouse.query(self.version, """
-            select distinct tick_description, quote_unit from contracts
-            where exchange = ? and contract = ?""", ("contracts",),
+            select effective_from, effective_until, price_tick from price_ticks
+            where exchange = ? and contract = ?""", ("price_ticks",),
             (exchange, contract), exchange=exchange)
-        if len(rows) != 1:
-            raise ValueError(f"the contract table's price increment of {contract} is missing or ambiguous")
-        description, unit = rows[0]
-        description, unit = (description or "").strip(), (unit or "").strip()
-        match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)\s*" + re.escape(unit),
-                             description) if description and unit else None
-        if match is None or Decimal(match[1]) <= 0:
-            raise ValueError(f"the contract table's price increment of {contract} cannot be read: "
-                             f"{description!r} in quote unit {unit!r}")
-        return raw(match[1])
+        values = {day: set() for day in days}
+        for begin, end, tick in rows:
+            if begin is None or end is None or begin >= end:
+                raise ValueError(f"invalid price tick interval of {contract} on {begin or days[0]}")
+            covered = days[bisect_left(days, begin.isoformat()):bisect_left(days, end.isoformat())]
+            if not covered:
+                continue
+            if tick is None or tick <= 0:
+                raise ValueError(f"invalid price tick of {contract} on {covered[0]}")
+            for day in covered:
+                values[day].add(raw(tick))
+        result = {}
+        for day, ticks in values.items():
+            if len(ticks) != 1:
+                problem = "missing" if not ticks else "conflicting"
+                raise ValueError(f"{problem} price tick of {contract} on {day}")
+            result[day] = next(iter(ticks))
+        return result
 
     def multiplier(self, exchange: str, contract: str) -> Decimal:
         if contract not in self.multipliers:
@@ -258,16 +266,25 @@ def contract_input(data: Data, config: Config, contract: str, begin: str, end: s
         bars = [(day, close_ns(day), *(raw(month.days[day][name]) for name in
                                        ("open", "high", "low", "close", "volume")),
                  interest(month.days[day]["open_interest"])) for day in days]
+    settlements = [(day, raw(row["settlement"])) for day, row in sorted(month.days.items())
+                   if begin <= day <= end and row["settlement"] is not None]
+    tick_days = sorted({bar[0] for bar in bars}
+                       | {day for day, _ in settlements if day >= bars[0][0]})
+    increments = data.price_increments(exchange, contract, tick_days)
+    changes, current = [], increments[bars[0][0]]
+    for day in tick_days[1:]:
+        if increments[day] != current:
+            current = increments[day]
+            changes.append((day, current))
     return dict(
-        venue=exchange, symbol=contract, price_increment=data.price_increment(exchange, contract),
+        venue=exchange, symbol=contract, price_increment=increments[bars[0][0]],
         quantity_increment=R, multiplier=raw(data.multiplier(exchange, contract)),
         # The account prices every contract from the run's first day on.
         costs=[dict(effective_from=config.begin_day, source="run",
                     values=[raw(value) for value in costs])],
-        increments=[], slippage_ticks=config.slippage_ticks,
+        increments=changes, slippage_ticks=config.slippage_ticks,
         bars=[bar[:7] for bar in bars],
-        settlements=[(day, raw(row["settlement"])) for day, row in sorted(month.days.items())
-                     if begin <= day <= end and row["settlement"] is not None],
+        settlements=settlements,
         # Not the engine's: what a strategy reads besides prices, by bar time,
         # and the trading day of each bar left out.
         open_interest={bar[1]: bar[7] for bar in bars}, excluded=excluded)

@@ -114,4 +114,9 @@ Rows Source::settlement(const std::string&, const std::string&)
     throw SourceError("unsupported", "source does not provide settlement parameters");
 }
 
+Rows Source::price_ticks(const std::string&, const std::string&)
+{
+    throw SourceError("unsupported", "source does not provide historical price ticks");
+}
+
 } // namespace asterion::market_data::acquisition

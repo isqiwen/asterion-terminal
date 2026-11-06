@@ -54,6 +54,7 @@ public:
     // Contracts this source holds minutes of on `day`, for a task that names none.
     virtual std::vector<std::string> minute_contracts(const std::string& day);
     virtual Rows settlement(const std::string& exchange, const std::string& day);
+    virtual Rows price_ticks(const std::string& exchange, const std::string& day);
 
     std::uint64_t requests() const
     {

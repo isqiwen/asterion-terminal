@@ -48,6 +48,14 @@ def contract_row(contract):
                 tick_description="1元/吨", delivery_description="", trading_hours="")
 
 
+def price_tick(contract, value="1", begin=None, end=None, source="https://example.test/tick-notice"):
+    exchange, product, _ = contract.split("/")
+    return dict(exchange=exchange, product=product, contract=contract,
+                effective_from=begin or DAYS[0].isoformat(),
+                effective_until=end or (DAYS[-1] + datetime.timedelta(days=1)).isoformat(),
+                price_tick=Decimal(value), source_url=source)
+
+
 def closes(count):
     """Up for a while, then down, each leg with pullbacks: rules that follow a
     trend take a side, and a price decided at a close comes back to fill."""
@@ -71,6 +79,8 @@ def warehouse(directory: Path):
         for day in DAYS])
     writer.put_rows("contracts/SHFE", "contracts",
                     [contract_row("SHFE/rb/2026-05"), contract_row("SHFE/rb/2026-10")])
+    writer.put_rows("price_ticks/SHFE", "price_ticks",
+                    [price_tick("SHFE/rb/2026-05"), price_tick("SHFE/rb/2026-10")])
     writer.add_days("SHFE", "2026-01", [row for row in rows if row["day"] < "2026-02"],
                     [day.isoformat() for day in DAYS if day.isoformat() < "2026-02"])
     writer.add_days("SHFE", "2026-02", [row for row in rows if row["day"] >= "2026-02"],

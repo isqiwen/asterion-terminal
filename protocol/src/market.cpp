@@ -177,6 +177,8 @@ std::string table_name(::market::Table table)
             return "settlement";
         case ::market::TABLE_OBSERVATIONS:
             return "observations";
+        case ::market::TABLE_PRICE_TICKS:
+            return "price_ticks";
         default:
             throw std::invalid_argument("missing table");
     }
@@ -184,7 +186,7 @@ std::string table_name(::market::Table table)
 
 ::market::Table table_of(std::string_view name)
 {
-    for (int value = ::market::TABLE_CALENDAR; value <= ::market::TABLE_OBSERVATIONS; ++value)
+    for (int value = ::market::TABLE_CALENDAR; value <= ::market::TABLE_PRICE_TICKS; ++value)
         if (table_name(static_cast<::market::Table>(value)) == name)
             return static_cast<::market::Table>(value);
     throw std::invalid_argument("unknown table: " + std::string(name));

@@ -3,7 +3,6 @@
 Market owns publication. This module contains no acquisition or warehouse writer.
 """
 from dataclasses import dataclass
-from decimal import Decimal
 import json
 import os
 from pathlib import Path
@@ -11,8 +10,8 @@ from pathlib import Path
 import duckdb
 import polars as pl
 
-SCALE = Decimal("0.000001")
 NUMBER = pl.Decimal(28, 6)
+PRICE_TICK = pl.Decimal(28, 8)
 SCHEMAS = {
     "daily": {"exchange": pl.String, "product": pl.String, "contract": pl.String, "day": pl.Date,
               **{name: NUMBER for name in (
@@ -27,6 +26,9 @@ SCHEMAS = {
                   "multiplier": NUMBER, "per_unit": NUMBER, "trade_unit": pl.String,
                   "quote_unit": pl.String, "tick_description": pl.String,
                   "delivery_description": pl.String, "trading_hours": pl.String},
+    "price_ticks": {"exchange": pl.String, "product": pl.String, "contract": pl.String,
+                    "effective_from": pl.Date, "effective_until": pl.Date,
+                    "price_tick": PRICE_TICK, "source_url": pl.String},
 }
 
 SCHEMAS["minutes"] = {"exchange": pl.String, "product": pl.String, "contract": pl.String,
@@ -40,7 +42,7 @@ SCHEMAS["observations"] = {"exchange": pl.String, "contract": pl.String, "day": 
     "last_received_ms": pl.Int64, "ticks": pl.Int64, "end": pl.String}
 
 SQL_TYPES = {pl.Int64: "bigint", pl.String: "varchar", pl.Date: "date", pl.Boolean: "boolean",
-             NUMBER: "decimal(28, 6)"}
+             NUMBER: "decimal(28, 6)", PRICE_TICK: "decimal(28, 8)"}
 
 
 def write_durably(path: Path, data: bytes):

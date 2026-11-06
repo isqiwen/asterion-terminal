@@ -26,7 +26,7 @@ from asterion_strategy import Bar, FIELDS, Strategy, step  # noqa: E402
 from asterion_lab.runs import Runs  # noqa: E402
 from service_fixture import Service  # noqa: E402
 from warehouse_writer import Dataset, Warehouse  # noqa: E402
-from warehouse_fixture import DAYS, contract_row, warehouse  # noqa: E402
+from warehouse_fixture import DAYS, price_tick, warehouse  # noqa: E402
 
 EXAMPLES = Path(__file__).parent / "strategies"
 
@@ -143,30 +143,72 @@ class Backtests(unittest.TestCase):
         symbols = ("SHFE/rb/2026-05", "SHFE/rb/2026-10")
         pinned = self.config(symbols)
         writer = Warehouse(self.directory).writer()
-        writer.put_rows("contracts/SHFE", "contracts", [
-            {**contract_row(symbol), "tick_description": tick}
-            for symbol, tick in zip(symbols, ("2元/吨", "0.2元/吨"))])
+        writer.put_rows("price_ticks/SHFE", "price_ticks", [
+            price_tick(symbol, tick) for symbol, tick in zip(symbols, ("2", "0.00000001"))])
         writer.commit()
         current = self.config(symbols)
         for config, ticks in ((pinned, [backtest.R, backtest.R]),
-                              (current, [2 * backtest.R, backtest.R // 5])):
+                              (current, [2 * backtest.R, 1])):
             with self.subTest(version=config.dataset_version):
                 contracts, _, _ = backtest.prepare(backtest.open_data(self.directory, config), config)
                 self.assertEqual([item["price_increment"] for item in contracts], ticks)
                 self.assertEqual([item["increments"] for item in contracts], [[], []])
 
-    def test_a_backtest_requires_an_unambiguous_contract_price_increment(self):
+    def test_a_backtest_requires_price_ticks_for_each_trading_day(self):
         symbol = "SHFE/rb/2026-05"
-        for descriptions in ([], [None], [""], ["1或2元/吨"], ["1元/手"], ["0元/吨"],
-                             ["1元/吨", "2元/吨"]):
-            with self.subTest(descriptions=descriptions):
+        first, second, third = [day.isoformat() for day in DAYS[:3]]
+        cases = [([], first),
+                 ([price_tick(symbol, end=second)], second),
+                 ([price_tick(symbol, end=second), price_tick(symbol, begin=third)], second),
+                 ([price_tick(symbol), price_tick(symbol, "2", begin=second)], second),
+                 ([price_tick(symbol, "0")], first),
+                 ([price_tick(symbol, begin=first, end=first)], first),
+                 ([{**price_tick(symbol), "effective_until": None}], first)]
+        for rows, day in cases:
+            with self.subTest(rows=rows):
                 writer = Warehouse(self.directory).writer()
-                writer.put_rows("contracts/SHFE", "contracts", [
-                    {**contract_row(symbol), "tick_description": value} for value in descriptions])
+                writer.put_rows("price_ticks/SHFE", "price_ticks", rows)
                 writer.commit()
                 config = self.config((symbol,))
-                with self.assertRaisesRegex(ValueError, "price increment.*SHFE/rb/2026-05"):
+                with self.assertRaisesRegex(ValueError, f"price tick.*{symbol}.*{day}"):
                     backtest.prepare(backtest.open_data(self.directory, config), config)
+
+    def test_price_tick_changes_apply_to_night_session_fills_by_trading_day(self):
+        import asterion_engine
+
+        symbol = "SHFE/rb/2026-05"
+        first, second = [day.isoformat() for day in DAYS[:2]]
+        writer = Warehouse(self.directory).writer()
+        writer.put_rows("price_ticks/SHFE", "price_ticks", [
+            price_tick(symbol, "1", end=second), price_tick(symbol, "2", begin=second),
+            price_tick(symbol, "2", begin=second, source="https://example.test/second-source")])
+        for day, closes in zip(DAYS[:2], ((3030, 3020), (3030, 3040))):
+            evening = day - datetime.timedelta(days=3 if day.weekday() == 0 else 1)
+            start = int(datetime.datetime.combine(evening, datetime.time(21), backtest.BEIJING).timestamp()) * 1000
+            writer.put_rows(f"minutes/SHFE/{day}/rb/2026-05", "minutes", [
+                dict(exchange="SHFE", product="rb", contract=symbol, day=day.isoformat(),
+                     start_ms=start + minute * 60000, partial=False,
+                     open=Decimal(close), high=Decimal(close + 10), low=Decimal(close - 10),
+                     close=Decimal(close), volume=Decimal(100), average_price=None, open_interest=Decimal(100))
+                for minute, close in enumerate(closes)], days=[day.isoformat()])
+        writer.commit()
+        config = self.config((symbol,), end_day=second, minutes=1, slippage_ticks=1)
+        contracts, _, _ = backtest.prepare(backtest.open_data(self.directory, config), config)
+        self.assertEqual(contracts[0]["price_increment"], backtest.R)
+        self.assertEqual(contracts[0]["increments"], [(second, 2 * backtest.R)])
+        engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, [],
+                                        (10 * backtest.R, 10 * backtest.R, 10))
+        while not engine.finished:
+            while not engine.day_done:
+                bar, = engine.next()
+                engine.want(0, backtest.R if bar[4] == first else 0)
+                engine.decide()
+            engine.settle()
+        self.assertEqual([fill[3] for fill in engine.fills()], [3021 * backtest.R, 3038 * backtest.R])
+        later = self.config((symbol,), begin_day=second, end_day=second, minutes=1)
+        contracts, _, _ = backtest.prepare(backtest.open_data(self.directory, later), later)
+        self.assertEqual(contracts[0]["price_increment"], 2 * backtest.R)
+        self.assertEqual(contracts[0]["increments"], [])
 
     def publish_incomplete(self):
         writer = Warehouse(self.directory).writer()
@@ -211,10 +253,14 @@ class Backtests(unittest.TestCase):
                          Decimal(3000))
 
     def test_contract_terms_and_dominant_rolls_are_read_from_the_dataset(self):
+        writer = Warehouse(self.directory).writer()
+        writer.put_rows("price_ticks/SHFE", "price_ticks", [
+            price_tick("SHFE/rb/2026-05"), price_tick("SHFE/rb/2026-10", "0.2")])
+        writer.commit()
         data = backtest.Data(Warehouse(self.directory), DAYS[0].isoformat(), DAYS[-1].isoformat())
         self.assertEqual(data.multiplier("SHFE", "SHFE/rb/2026-05"), Decimal(10))
         contracts, series, first = backtest.prepare(data, self.config(("SHFE/rb",)))
-        self.assertEqual([item["price_increment"] for item in contracts], [backtest.R, backtest.R])
+        self.assertEqual([item["price_increment"] for item in contracts], [backtest.R, backtest.R // 5])
         # 2605 until day 15 rolls into 2610, which joins a day before the roll.
         self.assertEqual([item["symbol"] for item in contracts], ["SHFE/rb/2026-05", "SHFE/rb/2026-10"])
         (rolls,) = series

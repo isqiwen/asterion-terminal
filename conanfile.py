@@ -13,6 +13,7 @@ class Asterion(ConanFile):
     default_options = {"with_tests": True, "cpp-httplib/*:with_openssl": True, "spdlog/*:header_only": True, "fmt/*:header_only": True, "gtest/*:with_gmock": False, "protobuf/*:with_zlib": False, "sqlite3/*:threadsafe": 2, "duckdb/*:with_threads": True}
 
     def requirements(self):
+        self.requires("tinyxml2/11.0.0")
         if self.settings.os == "Linux":
             self.requires("libunwind/1.8.3")
             self.requires("cpptrace/1.0.4")

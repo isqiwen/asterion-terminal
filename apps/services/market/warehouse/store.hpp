@@ -15,7 +15,8 @@ enum class Kind
     date,
     boolean,
     integer,
-    number
+    number,
+    price
 };
 
 struct Column

@@ -17,11 +17,11 @@ Version compose_research(const std::filesystem::path& data, Store& research)
     writer.clear();
     for (const auto& [key, part] : primary.partitions)
         writer.adopt(key, tushare, primary);
-    for (const auto* provider : {"shfe", "ine", "czce", "dce", "cffex", "gfex"}) {
+    for (const auto* provider : {"shfe", "ine", "czce", "dce", "cffex", "gfex", "rules"}) {
         Store exchange(source_directory(data, provider), provider);
         const auto version = exchange.current();
         for (const auto& [key, part] : version.partitions)
-            if (table(key) == "settlement")
+            if (table(key) == "settlement" || table(key) == "price_ticks")
                 writer.adopt(key, exchange, version);
     }
     const auto recorded = recorder.current();

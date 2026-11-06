@@ -1,6 +1,7 @@
 """Research clients against the real C++ Market, using test-only Parquet data."""
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from decimal import Decimal
 import json
 from pathlib import Path
 import shutil
@@ -25,7 +26,7 @@ from asterion_lab.service import Service
 from asterion_lab.runs import Runs
 from market_installation import market_host
 import market_tls
-from warehouse_fixture import warehouse, DAYS
+from warehouse_fixture import warehouse, DAYS, price_tick
 from warehouse_writer import Warehouse
 
 
@@ -84,7 +85,6 @@ class RemoteResearch(unittest.TestCase):
 
     def test_recorded_minutes_publish_over_tls_and_remain_fixed_for_two_research_clients(self):
         import polars as pl
-        from decimal import Decimal
         from datetime import date
         recordings = self.data / 'recordings'
         minutes = recordings / 'minutes/trading_day=20261028'
@@ -169,6 +169,22 @@ class RemoteResearch(unittest.TestCase):
         # A local fixture exists but belongs to no remote version selection.
         self.assertNotEqual(Warehouse(self.lab).current().identity, self.original.identity)
         self.assertEqual(self.dataset.current().identity, self.original.identity)
+
+    def test_price_tick_history_downloads_with_its_exact_value_and_fixed_version(self):
+        symbol = 'SHFE/rb/2026-05'
+        writer = Warehouse(self.data).writer()
+        row = price_tick(symbol, '0.00000001')
+        writer.put_rows('price_ticks/SHFE', 'price_ticks', [row])
+        pinned = writer.commit().identity
+        writer.put_rows('price_ticks/SHFE', 'price_ticks', [price_tick(symbol, '0.2')])
+        writer.commit()
+        sql = 'select effective_from, effective_until, price_tick, source_url from price_ticks'
+        version = self.dataset.version(pinned)
+        actual, = self.dataset.query(version, sql, ('price_ticks',))
+        self.assertEqual((actual[0].isoformat(), actual[1].isoformat(), actual[2], actual[3]),
+                         (row['effective_from'], row['effective_until'], Decimal('0.00000001'), row['source_url']))
+        current, = self.dataset.query(self.dataset.current(), sql, ('price_ticks',))
+        self.assertEqual(current[2], Decimal('0.2'))
 
     def test_two_clients_keep_their_fixed_version_and_refetch_after_selection_changes(self):
         other = Dataset(self.node / 'other-lab', market=self.market)

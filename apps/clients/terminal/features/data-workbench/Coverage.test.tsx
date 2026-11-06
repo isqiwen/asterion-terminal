@@ -97,6 +97,7 @@ test("read-only clients see shared tasks but cannot start or cancel them", async
   serve(false);
   render(<Coverage {...context()} />);
   await screen.findByText("当前连接只有读取权限，不能启动或取消采集。");
+  expect(screen.queryByLabelText("历史规则文件（JSON）")).toBeNull();
   fireEvent.change(screen.getByLabelText("数据源"), { target: { value: "tushare" } });
   await screen.findByRole("table", { name: "采集任务" });
   expect(screen.queryByRole("button", { name: "取消" })).toBeNull();
@@ -322,4 +323,65 @@ test("each refresh reads one page of the source's tasks; earlier ones are read o
     value: { provider: "tushare", afterId: "task-19" },
   });
   expect(screen.queryByRole("button", { name: "更早的任务" })).toBeNull();
+});
+
+test("a completed historical rule import opens its published fixed version for review", async () => {
+  let published = false;
+  request.mockImplementation(async (body: { case: string; value: { provider?: string } }) => {
+    switch (body.case) {
+      case "listSources":
+        return {
+          sources: [{ ...source("czce", [Table.PRICE_TICKS]), exchanges: ["CZCE"] }],
+          canManage: true,
+        };
+      case "listDatasets":
+        return { datasets: published ? [{ provider: "rules", version: "imported-version" }] : [] };
+      case "getDatasetSummary":
+        return body.value.provider === "rules"
+          ? {
+              dataset: { provider: "rules", version: "imported-version" },
+              tables: [{ table: Table.PRICE_TICKS, rows: 1n, partitions: 1n }],
+            }
+          : { tables: [] };
+      case "getDatasetCoverage":
+        return { products: [], contracts: [] };
+      case "listAcquisitionTasks":
+        return { tasks: [], nextId: "" };
+      case "getTableRows":
+        return { columns: ["contract"], rows: [{ values: ["SHFE/rb/2015-05"] }], total: 1 };
+      case "importPriceTicks":
+        published = true;
+        return { provider: "rules", version: "imported-version" };
+      default:
+        return {};
+    }
+  });
+  render(<Coverage {...context()} />);
+  const input = await screen.findByLabelText("历史规则文件（JSON）");
+  const text = JSON.stringify({
+    exchange: "SHFE",
+    rows: [
+      {
+        contract: "SHFE/rb/2015-05",
+        effectiveFrom: "2014-05-16",
+        effectiveUntil: "2015-05-16",
+        priceTick: "1",
+        sourceUrl: "https://www.shfe.com.cn/test-rule",
+      },
+    ],
+  });
+  const file = new File([text], "historical-rules.json", { type: "application/json" });
+  Object.defineProperty(file, "text", { value: async () => text });
+  fireEvent.change(input, { target: { files: [file] } });
+  await screen.findByText("historical-rules.json");
+  fireEvent.click(screen.getByRole("button", { name: "导入" }));
+  await screen.findByRole("cell", { name: "SHFE/rb/2015-05" });
+  expect((screen.getByLabelText("数据源") as HTMLSelectElement).value).toBe("rules");
+  expect(request).toHaveBeenCalledWith({
+    case: "getTableRows",
+    value: expect.objectContaining({
+      dataset: { provider: "rules", version: "imported-version" },
+      table: Table.PRICE_TICKS,
+    }),
+  });
 });

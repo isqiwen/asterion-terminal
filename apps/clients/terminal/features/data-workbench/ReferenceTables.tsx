@@ -15,13 +15,18 @@ const names: Partial<Record<Table, string>> = {
   [Table.CONTRACTS]: "合约表",
   [Table.CALENDAR]: "交易日历",
   [Table.SETTLEMENT]: "结算参数",
+  [Table.PRICE_TICKS]: "历史报价单位",
 };
-export const referenceTables = [Table.CONTRACTS, Table.CALENDAR, Table.SETTLEMENT];
+export const referenceTables = [
+  Table.CONTRACTS,
+  Table.CALENDAR,
+  Table.SETTLEMENT,
+  Table.PRICE_TICKS,
+];
 const page = 100;
 const today = () => new Date().toISOString().slice(0, 10);
 
-// A version's contracts, calendar or settlement parameters, one exchange at a
-// time; the calendar and settlement only for the days chosen.
+// Browse one exchange in a fixed version, limited to the selected dates.
 export function ReferenceTables({
   provider,
   version,

@@ -3,6 +3,7 @@
 #include "support/market_host.hpp"
 #include "parquet_engine.hpp"
 #include <asterion/base/error.hpp>
+#include <asterion/protocol/common.hpp>
 #include <asterion/system/process/artifact.hpp>
 #include <asterion/market.pb.h>
 #include <gtest/gtest.h>
@@ -47,6 +48,9 @@ wh::Row row(std::string_view table)
                 break;
             case wh::Kind::number:
                 result.emplace_back(std::string("1234567890123456789012.123456"));
+                break;
+            case wh::Kind::price:
+                result.emplace_back(std::string("0.00000001"));
                 break;
         }
     }
@@ -117,7 +121,13 @@ TEST_F(Warehouse, EveryTablePreservesTypesPrecisionNullsAndText)
     wh::Store store(root, "tushare");
     auto writer = store.writer();
     for (const auto* table :
-        {"daily", "calendar", "contracts", "minutes", "settlement", "observations"}) {
+        {"daily",
+            "calendar",
+            "contracts",
+            "minutes",
+            "settlement",
+            "observations",
+            "price_ticks"}) {
         const std::vector<wh::Row> rows{row(table), wh::Row(wh::columns(table).size())};
         writer.put(std::string(table) + "/SHFE/all", rows);
     }
@@ -149,6 +159,10 @@ TEST_F(Warehouse, EveryTablePreservesTypesPrecisionNullsAndText)
                 case wh::Kind::number:
                     EXPECT_EQ(cell.type(), duckdb::LogicalType::DECIMAL(28, 6));
                     EXPECT_EQ(cell.ToString(), "1234567890123456789012.123456");
+                    break;
+                case wh::Kind::price:
+                    EXPECT_EQ(cell.type(), duckdb::LogicalType::DECIMAL(28, 8));
+                    EXPECT_EQ(cell.ToString(), "0.00000001");
                     break;
             }
         }
@@ -483,7 +497,7 @@ TEST_F(Warehouse, SourcesAndSummaryAreReadOnlyAndVersioned)
     summary.set_version(version.identity);
     publish(first, "daily/SHFE/202610", 3);
     const auto coverage = reader.summary(summary);
-    ASSERT_EQ(coverage.tables_size(), 6);
+    ASSERT_EQ(coverage.tables_size(), 7);
     EXPECT_EQ(coverage.tables(0).table(), wire::TABLE_DAILY);
     EXPECT_EQ(coverage.tables(0).rows(), 2);
     EXPECT_EQ(coverage.tables(0).first_day(), "2026-10-30");
@@ -565,6 +579,104 @@ TEST_F(Warehouse, ProductCoverageStaysOnOneVersionAndMissingCalendarStaysUnknown
     if (!response.ParseFromString(channel.receive(5s)))
         throw std::runtime_error("invalid Market response");
     return response;
+}
+
+TEST_F(Warehouse, ImportedPriceTicksPublishExactIntervalsAndKeepOldVersions)
+{
+    testing_support::MarketHost host(root);
+    host.start();
+    auto reader = host.open(), manager = host.open("manager");
+    wire::Request request;
+    auto* imported = request.mutable_import_price_ticks();
+    imported->set_exchange("SHFE");
+    for (const auto& [from, until, tick] :
+        {std::tuple{"2020-01-02", "2020-01-06", "0.00000001"},
+            std::tuple{"2020-01-06", "2020-02-01", "0.005"}}) {
+        auto* rule = imported->add_rows();
+        rule->set_contract("SHFE/rb/2020-05");
+        rule->set_effective_from(from);
+        rule->set_effective_until(until);
+        *rule->mutable_price_tick() = protocol::decimal(Decimal::parse(tick));
+        rule->set_source_url("https://example.invalid/test-rule");
+    }
+    EXPECT_EQ(call(reader, request).error().code(), ::common::ERROR_CODE_PERMISSION_DENIED);
+    const auto published = call(manager, request);
+    ASSERT_TRUE(published.has_import_price_ticks()) << published.DebugString();
+    EXPECT_EQ(published.import_price_ticks().provider(), "rules");
+    const wh::Store research(wh::source_directory(root / "data", "research"), "research");
+    const auto fixed = research.current();
+    EXPECT_EQ(fixed.partitions.at("price_ticks/SHFE/history").source, "rules");
+    wire::Request summary;
+    summary.mutable_get_dataset_summary()->set_provider("rules");
+    const auto summarized = call(reader, summary);
+    ASSERT_TRUE(summarized.has_get_dataset_summary()) << summarized.DebugString();
+    const auto& ticks = summarized.get_dataset_summary().tables(6);
+    EXPECT_EQ(ticks.table(), wire::TABLE_PRICE_TICKS);
+    EXPECT_EQ(ticks.first_day(), "2020-01-02");
+    EXPECT_EQ(ticks.last_day(), "2020-01-31");
+
+    *imported->mutable_rows(1)->mutable_price_tick() = protocol::decimal(Decimal::parse("0.01"));
+    ASSERT_TRUE(call(manager, request).has_import_price_ticks());
+    auto* query = request.mutable_get_table_rows();
+    query->mutable_dataset()->set_provider("research");
+    query->mutable_dataset()->set_version(fixed.identity);
+    query->set_table(wire::TABLE_PRICE_TICKS);
+    query->set_exchange("SHFE");
+    query->set_first_day("2020-01-06");
+    query->set_last_day("2020-01-06");
+    auto found = call(reader, request);
+    ASSERT_TRUE(found.has_get_table_rows()) << found.DebugString();
+    ASSERT_EQ(found.get_table_rows().total(), 1);
+    EXPECT_EQ(found.get_table_rows().rows(0).values(5), "0.00500000");
+    query->set_first_day("2020-01-05");
+    query->set_last_day("2020-01-05");
+    found = call(reader, request);
+    ASSERT_EQ(found.get_table_rows().total(), 1);
+    EXPECT_EQ(found.get_table_rows().rows(0).values(5), "0.00000001");
+    query->set_first_day("2020-02-01");
+    query->set_last_day("2020-02-01");
+    EXPECT_EQ(call(reader, request).get_table_rows().total(), 0);
+    query->set_first_day("2020-01-06");
+    query->set_last_day("2020-01-06");
+    query->mutable_dataset()->clear_version();
+    EXPECT_EQ(call(reader, request).get_table_rows().rows(0).values(5), "0.01000000");
+}
+
+TEST_F(Warehouse, InvalidImportedRulesLeaveThePublishedVersionIntact)
+{
+    testing_support::MarketHost host(root);
+    host.start();
+    auto manager = host.open("manager");
+    wire::Request valid;
+    auto* imported = valid.mutable_import_price_ticks();
+    imported->set_exchange("SHFE");
+    auto* rule = imported->add_rows();
+    rule->set_contract("SHFE/rb/2020-05");
+    rule->set_effective_from("2020-01-01");
+    rule->set_effective_until("2020-02-01");
+    *rule->mutable_price_tick() = protocol::decimal(Decimal::parse("1"));
+    rule->set_source_url("https://example.invalid/test-rule");
+    ASSERT_TRUE(call(manager, valid).has_import_price_ticks());
+    const wh::Store research(wh::source_directory(root / "data", "research"), "research");
+    const auto fixed = research.current_identity();
+    for (int broken = 0; broken < 5; ++broken) {
+        auto request = valid;
+        auto* row = request.mutable_import_price_ticks()->mutable_rows(0);
+        if (broken == 0)
+            row->set_effective_until(row->effective_from());
+        else if (broken == 1)
+            row->clear_source_url();
+        else if (broken == 2)
+            *row->mutable_price_tick() = protocol::decimal(Decimal{});
+        else if (broken == 3)
+            row->set_contract("DCE/i/2020-05");
+        else
+            *request.mutable_import_price_ticks()->add_rows() = *row;
+        const auto response = call(manager, request);
+        ASSERT_TRUE(response.has_error()) << response.DebugString();
+        EXPECT_EQ(response.error().code(), ::common::ERROR_CODE_INVALID_REQUEST);
+        EXPECT_EQ(research.current_identity(), fixed);
+    }
 }
 
 TEST_F(Warehouse, RemoteClientsKeepIndependentVersionsAndReconnect)

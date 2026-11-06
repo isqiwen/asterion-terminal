@@ -143,7 +143,13 @@ wire::DatasetSummary Reader::summary(const wire::DatasetRef& query) const
     wire::DatasetSummary result;
     *result.mutable_dataset() = dataset_of(version);
     for (const auto* table :
-        {"daily", "calendar", "contracts", "minutes", "settlement", "observations"}) {
+        {"daily",
+            "calendar",
+            "contracts",
+            "minutes",
+            "settlement",
+            "observations",
+            "price_ticks"}) {
         auto* item = result.add_tables();
         item->set_table(protocol::table_of(table));
         std::string files;
@@ -160,9 +166,13 @@ wire::DatasetSummary Reader::summary(const wire::DatasetRef& query) const
         }
         if (!files.empty()) {
             parquet::Engine engine;
-            const std::string day = std::string_view(table) == "contracts" ? "list_date" : "day";
+            const std::string day = std::string_view(table) == "price_ticks" ? "effective_from"
+                : std::string_view(table) == "contracts"                     ? "list_date"
+                                                                             : "day";
+            const std::string last =
+                std::string_view(table) == "price_ticks" ? "effective_until - 1" : day;
             const auto dates = engine.run(
-                "SELECT min(" + day + "), max(" + day + ") FROM read_parquet([" + files + "])");
+                "SELECT min(" + day + "), max(" + last + ") FROM read_parquet([" + files + "])");
             for (const auto column : {0, 1})
                 if (!dates->GetValue(column, 0).IsNull())
                     days.insert(dates->GetValue(column, 0).ToString());
@@ -205,8 +215,9 @@ wire::DatasetChange Reader::change(const wire::CompareDatasetVersions& query) co
 wire::TableRows Reader::rows(const wire::GetTableRows& query) const
 {
     const auto table = protocol::table_name(query.table());
-    if (table != "contracts" && table != "calendar" && table != "settlement")
-        throw std::invalid_argument("only contracts, calendar and settlement can be browsed");
+    if (table != "contracts" && table != "calendar" && table != "settlement"
+        && table != "price_ticks")
+        throw std::invalid_argument("only reference tables can be browsed");
     const bool dated = table != "contracts";
     if (dated) {
         require_day(query.first_day());
@@ -217,14 +228,13 @@ wire::TableRows Reader::rows(const wire::GetTableRows& query) const
     wire::TableRows result;
     for (const auto& column : columns(table))
         result.add_columns(column.name);
-    // contracts/<exchange>, calendar/<exchange>/<year>, settlement/<exchange>/<day>
     const auto prefix = table + '/' + query.exchange();
     std::string files;
     for (const auto& [key, part] : version.partitions) {
         if (key != prefix && !key.starts_with(prefix + '/'))
             continue;
         const auto period = key.substr(std::min(key.size(), prefix.size() + 1));
-        if (dated
+        if (dated && table != "price_ticks"
             && (period < query.first_day().substr(0, period.size())
                 || period > query.last_day().substr(0, period.size())))
             continue;
@@ -232,18 +242,24 @@ wire::TableRows Reader::rows(const wire::GetTableRows& query) const
     }
     if (files.empty())
         return result;
+    const auto filter = table == "price_ticks" ? " WHERE effective_from <= DATE '"
+            + query.last_day() + "' AND effective_until > DATE '" + query.first_day() + "'"
+        : dated
+        ? " WHERE day BETWEEN DATE '" + query.first_day() + "' AND DATE '" + query.last_day() + "'"
+        : std::string{};
     parquet::Engine engine;
     engine.run(
         "CREATE TEMP VIEW t AS SELECT * FROM read_parquet([" + files
         + "])"
         // Both days were validated as YYYY-MM-DD.
-        + (dated ? " WHERE day BETWEEN DATE '" + query.first_day() + "' AND DATE '"
-                    + query.last_day() + "'"
-                 : std::string{}));
+        + filter);
     result.set_total(
         engine.run("SELECT count(*) FROM t")->GetValue(0, 0).GetValue<std::uint32_t>());
     const auto rows = engine.run(
-        std::string("SELECT * FROM t ORDER BY ") + (dated ? "day, " : "")
+        std::string("SELECT * FROM t ORDER BY ")
+        + (table == "price_ticks" ? "effective_from, "
+                : dated           ? "day, "
+                                  : "")
         + (table == "calendar" ? "exchange" : "contract") + " LIMIT 100 OFFSET "
         + std::to_string(query.offset()));
     for (duckdb::idx_t row = 0; row < rows->RowCount(); ++row) {

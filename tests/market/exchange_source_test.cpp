@@ -31,6 +31,16 @@ const std::string shfe_settlement = R"({"report_date":"20261030","o_code":"0000"
 const std::string czce_settlement =
     "郑州商品交易所期货结算参数表(2026-10-30)\n" "合约代码|交易保证金率(%)|手续费收取方式|交易手续费|日内平今仓交易手续费\n" "MA701|8|比例值|0.50|1.25\n" "AP611|20|绝对值|5.00|10.00\n";
 
+std::string reference_fixture()
+{
+    std::ifstream file(
+        fs::path(ASTERION_EXCHANGE_FIXTURES) / "czce_reference_20220104.xml",
+        std::ios::binary);
+    if (!file)
+        throw std::runtime_error("missing CZCE reference fixture");
+    return {std::istreambuf_iterator<char>(file), {}};
+}
+
 class ExchangeSources : public testing::Test
 {
 protected:
@@ -168,6 +178,64 @@ TEST_F(ExchangeSources, MissingPublicationIsUncoveredButRefusalAndWrongDateFail)
     EXPECT_THROW(stopped.daily("SHFE", "2026-10-30"), ac::SourceError);
 }
 
+TEST_F(ExchangeSources, HistoricalPriceTicksKeepExactValuesAndOneDayOfEvidence)
+{
+    auto raw = reference_fixture();
+    raw.insert(raw.find("</Contracts>"), "<Contract><PrdTp>期权</PrdTp></Contract>");
+    ac::Exchange source("CZCE", {}, [&](const ac::HttpRequest& request, auto) {
+        EXPECT_EQ(request.origin, "https://www.czce.com.cn");
+        EXPECT_EQ(
+            request.path,
+            "/cn/DFSStaticFiles/Future/2022/20220104/FutureDataReferenceData.xml");
+        return ac::HttpReply{200, raw};
+    });
+    const auto rows = source.price_ticks("CZCE", "2022-01-04");
+    ASSERT_EQ(rows.size(), 4);
+    EXPECT_EQ(rows[0][2], wh::Cell{std::string("CZCE/ap/2022-01")});
+    EXPECT_EQ(rows[0][5], wh::Cell{std::string("1")});
+    EXPECT_EQ(rows[1][5], wh::Cell{std::string("5")});
+    EXPECT_EQ(rows[2][5], wh::Cell{std::string("2")});
+    EXPECT_EQ(rows[3][5], wh::Cell{std::string("0.2")});
+    for (const auto& row : rows) {
+        EXPECT_EQ(row[3], wh::Cell{std::string("2022-01-04")});
+        EXPECT_EQ(row[4], wh::Cell{std::string("2022-01-05")});
+        EXPECT_EQ(
+            row[6],
+            wh::Cell{
+                std::string(
+                    "https://www.czce.com.cn/cn/DFSStaticFiles/Future/2022/20220104/FutureDataReferenceData.xml")
+            });
+    }
+}
+
+TEST_F(ExchangeSources, InvalidHistoricalTickEvidenceFailsInsteadOfGuessing)
+{
+    const std::vector<std::pair<std::string, std::string>> changes{
+        {"<TckSz>1.00元/吨</TckSz>", "<TckSz>1.00元/手</TckSz>"},
+        {"<TckSz>1.00元/吨</TckSz>", "<TckSz>0.00元/吨</TckSz>"},
+        {"<TckSz>1.00元/吨</TckSz>", "<TckSz>1.00至2.00元/吨</TckSz>"},
+        {"<TrdCcyCd>CNY</TrdCcyCd>", "<TrdCcyCd>USD</TrdCcyCd>"},
+        {"<YrCd>2022</YrCd>", "<YrCd>2032</YrCd>"},
+        {"<FrstTrdDt>2021-01-18</FrstTrdDt>", "<FrstTrdDt>2022-01-05</FrstTrdDt>"},
+        {"<LstTrdDt>2022-01-17</LstTrdDt>", "<LstTrdDt>2022-01-03</LstTrdDt>"},
+        {"</Contracts>", ""}
+    };
+    for (const auto& [before, after] : changes) {
+        SCOPED_TRACE(after);
+        auto raw = reference_fixture();
+        raw.replace(raw.find(before), before.size(), after);
+        ac::Exchange source("CZCE", {}, [&](const auto&, auto) {
+            return ac::HttpReply{200, raw};
+        });
+        try {
+            source.price_ticks("CZCE", "2022-01-04");
+            FAIL() << "invalid historical reference accepted";
+        } catch (const ac::SourceError& error) {
+            EXPECT_EQ(error.code, "invalid_data");
+        }
+    }
+}
+
 ac::wire::AcquisitionTask wait(ac::Manager& manager, const std::string& id)
 {
     const auto until = std::chrono::steady_clock::now() + 10s;
@@ -180,6 +248,46 @@ ac::wire::AcquisitionTask wait(ac::Manager& manager, const std::string& id)
             throw std::runtime_error("acquisition did not finish");
         std::this_thread::sleep_for(5ms);
     }
+}
+
+TEST_F(ExchangeSources, PriceTickTasksDiscoverAndPublishOnlyObservedTradingDays)
+{
+    const auto raw = reference_fixture();
+    auto fetch = [&](const ac::HttpRequest& request, auto) {
+        return request.path.find("20220104") != std::string::npos ? ac::HttpReply{200, raw}
+                                                                  : ac::HttpReply{404, {}};
+    };
+    ac::Manager manager(root, {{"czce", [&](auto stop) {
+                                    return std::make_unique<ac::Exchange>("CZCE", stop, fetch);
+                                }}});
+    const auto sources = manager.sources();
+    ASSERT_EQ(sources.sources_size(), 1);
+    const auto& tables = sources.sources(0).tables();
+    EXPECT_NE(std::find(tables.begin(), tables.end(), ::market::TABLE_PRICE_TICKS), tables.end());
+    ac::wire::StartAcquisition request;
+    request.set_id("ticks");
+    request.set_provider("czce");
+    request.set_table(::market::TABLE_PRICE_TICKS);
+    request.set_first_day("2022-01-03");
+    request.set_last_day("2022-01-05");
+    manager.submit(request);
+    const auto task = wait(manager, "ticks");
+    ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
+    EXPECT_EQ(task.items_done(), 3);
+    EXPECT_EQ(task.items_empty(), 2);
+    wh::Store store(wh::source_directory(root, "czce"), "czce");
+    const auto original = store.current();
+    ASSERT_EQ(original.partitions.size(), 1);
+    const auto rows = store.read(original, "price_ticks/CZCE/2022-01-04");
+    ASSERT_EQ(rows.size(), 4);
+    EXPECT_EQ(rows[3][5], wh::Cell{std::string("0.20000000")});
+    EXPECT_EQ(rows[0][4], wh::Cell{std::string("2022-01-05")});
+    request.set_id("again");
+    manager.submit(request);
+    const auto again = wait(manager, "again");
+    EXPECT_EQ(again.state(), ac::wire::TASK_STATE_SUCCEEDED) << again.error().message();
+    EXPECT_EQ(again.requests_sent(), 2);
+    EXPECT_EQ(store.current().identity, original.identity);
 }
 
 TEST_F(ExchangeSources, TaskOwnsDatedPartitionsAndKeepsPublishedDataAfterFailure)
@@ -299,7 +407,7 @@ TEST_F(ExchangeSources, PublicFilesPublishThroughNativeTaskManager)
     ac::Manager manager(root, {{provider, [exchange](auto stop) {
                                     return std::make_unique<ac::Exchange>(exchange, stop);
                                 }}});
-    for (const auto* table : {"daily", "settlement"}) {
+    for (const auto* table : {"daily", "settlement", "price_ticks"}) {
         const auto* selected_table = std::getenv("ASTERION_EXCHANGE_ACCEPTANCE_TABLE");
         if (selected_table && std::string_view(selected_table) != table)
             continue;
