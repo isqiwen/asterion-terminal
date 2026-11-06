@@ -683,3 +683,22 @@ TEST(StrategyDirectory, BuiltInModulesAreReadOnlyCopiesThatFollowTheShippedVersi
     fs::permissions(research / "strategies/ma.py", fs::perms::owner_write, fs::perm_options::add);
     fs::remove_all(root);
 }
+
+TEST(TerminalApplication, SnapshotRejectsMalformedQueriesBeforeReadingState)
+{
+    terminal::Application app;
+    for (const auto& params : std::vector<Json>{
+             nullptr,
+             Json::array(),
+             true,
+             "invalid",
+             {{"extra", true}},
+             {{"since", -1}},
+             {{"since", 1.5}},
+             {{"since", "1"}},
+             {{"since", 0}, {"extra", true}}
+         }) {
+        EXPECT_THROW(app.dispatch(request("runtime.snapshot", params)), std::invalid_argument);
+    }
+    EXPECT_TRUE(app.dispatch(request("runtime.snapshot")).is_object());
+}

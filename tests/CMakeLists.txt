@@ -80,7 +80,7 @@ target_compile_features(asterion_test_ctp PRIVATE cxx_std_20)
 add_executable(asterion_test_market_remote market/market_remote_client.cpp)
 target_include_directories(asterion_test_market_remote PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_include_directories(asterion_test_market_remote PRIVATE ${CMAKE_SOURCE_DIR}/apps/clients/terminal/native)
-target_link_libraries(asterion_test_market_remote PRIVATE asterion_terminal_api)
+target_link_libraries(asterion_test_market_remote PRIVATE asterion_terminal_application)
 add_test(NAME remote_market COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/market/remote_market.py ${CMAKE_BINARY_DIR})
 set_tests_properties(remote_market PROPERTIES TIMEOUT 30)
 add_test(NAME market_recording_process COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/market/recording_process.py $<TARGET_FILE:asterion_market> $<TARGET_FILE:asterion_test_ctp> $<TARGET_FILE:asterion_test_ctp_trader>)
@@ -193,33 +193,20 @@ target_compile_features(asterion_test_certificates PRIVATE cxx_std_20)
 target_link_libraries(asterion_test_certificates PRIVATE asterion_system)
 
 # terminal: the Terminal's native layer — commands and credentials
-asterion_unit_tests(asterion_python_runtime_tests terminal/python_runtime_test.cpp asterion_terminal_api 900)
-asterion_unit_tests(asterion_terminal_application_tests terminal/terminal_application_test.cpp asterion_terminal_api)
+asterion_unit_tests(asterion_python_runtime_tests terminal/python_runtime_test.cpp asterion_terminal_application 900)
+asterion_unit_tests(asterion_terminal_application_tests terminal/terminal_application_test.cpp asterion_terminal_application)
 target_compile_definitions(asterion_terminal_application_tests PRIVATE
   ASTERION_TEST_CTP="$<TARGET_FILE:asterion_test_ctp>"
   ASTERION_TEST_CTP_TRADER="$<TARGET_FILE:asterion_test_ctp_trader>"
   ASTERION_MARKET_PATH="$<TARGET_FILE:asterion_market>")
 add_dependencies(asterion_terminal_application_tests asterion_market asterion_test_ctp asterion_test_ctp_trader)
 target_link_libraries(asterion_terminal_application_tests PRIVATE asio::asio spdlog::spdlog_header_only)
-add_executable(asterion_terminal_tests terminal/terminal_api_test.cpp)
-target_include_directories(asterion_terminal_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(asterion_terminal_tests PRIVATE asterion_terminal_api GTest::gtest)
-# One CTest per case, each with its own isolated Agent.
-set(asterion_terminal_test_timeout 90)
-if(ASTERION_SANITIZERS)
-  # Discovered tests are registered at test time, after the directory-level
-  # timeout loop below. Apply the same instrumentation multiplier here.
-  math(EXPR asterion_terminal_test_timeout "${asterion_terminal_test_timeout} * 5")
-endif()
-gtest_discover_tests(asterion_terminal_tests EXTRA_ARGS --isolated-node DISCOVERY_MODE PRE_TEST
-  DISCOVERY_TIMEOUT 30
-  PROPERTIES TIMEOUT ${asterion_terminal_test_timeout} LABELS process ${asterion_test_environment})
 # desktop: the Electron host
 add_test(NAME desktop_python_startup COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/desktop/python_runtime.py)
 find_program(ASTERION_TEST_NODE node REQUIRED)
 add_test(NAME lab_channel COMMAND "${ASTERION_TEST_NODE}" "${CMAKE_CURRENT_SOURCE_DIR}/desktop/lab_channel.cjs")
 if(ASTERION_NODE_HEADERS)
-  add_library(asterion_node_bridge_fixture MODULE ${CMAKE_SOURCE_DIR}/bindings/node/terminal.cpp desktop/node_bridge_fixture.cpp ${CMAKE_SOURCE_DIR}/apps/clients/terminal/native/service_io.cpp)
+  add_library(asterion_node_bridge_fixture MODULE ${CMAKE_SOURCE_DIR}/apps/clients/terminal/bindings/node/terminal.cpp desktop/node_bridge_fixture.cpp ${CMAKE_SOURCE_DIR}/apps/clients/terminal/native/service_io.cpp)
   target_include_directories(asterion_node_bridge_fixture PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
   target_compile_features(asterion_node_bridge_fixture PRIVATE cxx_std_20)
   target_compile_definitions(asterion_node_bridge_fixture PRIVATE NAPI_VERSION=8)

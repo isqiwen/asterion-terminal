@@ -35,7 +35,6 @@ include(cmake/CompilerOptions.cmake)
 add_subdirectory(core)
 add_subdirectory(protocol)
 add_subdirectory(apps)
-add_subdirectory(bindings)
 
 if(BUILD_TESTING)
   add_subdirectory(tests)

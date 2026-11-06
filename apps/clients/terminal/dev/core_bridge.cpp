@@ -1,8 +1,40 @@
-#include <asterion/terminal.h>
+#include "terminal_application.hpp"
+#include <asterion/base/serialization.hpp>
 #include <CLI/CLI.hpp>
 #include <iostream>
-#include <memory>
 #include <string>
+
+namespace {
+
+std::string error(const char* code, const char* message)
+{
+    return nlohmann::json{{"error", {{"code", code}, {"message", message}}}}.dump();
+}
+
+std::string call(asterion::terminal::Application& runtime, std::string request)
+{
+    try {
+        asterion::Payload response;
+        std::exception_ptr failure;
+        runtime
+            .request(
+                std::move(request),
+                [&](asterion::Payload value, std::exception_ptr e) noexcept {
+                    response = std::move(value);
+                    failure = e;
+                })
+            .get();
+        if (failure)
+            std::rethrow_exception(failure);
+        return *response;
+    } catch (const std::exception& e) {
+        return error(asterion::error_name(asterion::classify(e)).data(), e.what());
+    } catch (...) {
+        return error("internal_error", "native core call failed");
+    }
+}
+
+} // namespace
 
 int main(int argc, char** argv)
 {
@@ -10,27 +42,17 @@ int main(int argc, char** argv)
     app.set_version_flag("--version", "Asterion Terminal bridge 0.1.0");
     argv = app.ensure_utf8(argv);
     CLI11_PARSE(app, argc, argv);
-    char* failure = nullptr;
-    std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
-        asterion_terminal_create(&failure),
-        asterion_terminal_destroy);
-    std::unique_ptr<char, decltype(&asterion_terminal_free)> detail(
-        failure,
-        asterion_terminal_free);
-    if (!runtime) {
-        std::cerr
-            << (detail ? detail.get()
-                       : R"({"error":{"code":"resource_exhausted","message":"Cannot allocate the C++ initialization error"}})")
-            << std::endl;
+    try {
+        asterion::terminal::Application runtime;
+        std::string line;
+        while (std::getline(std::cin, line))
+            std::cout << call(runtime, std::move(line)) << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << error(asterion::error_name(asterion::classify(e)).data(), e.what())
+                  << std::endl;
         return 1;
-    }
-    std::string line;
-    while (std::getline(std::cin, line)) {
-        std::unique_ptr<char, decltype(&asterion_terminal_free)> response(
-            asterion_terminal_call(runtime.get(), line.c_str()),
-            asterion_terminal_free);
-        if (!response)
-            return 1;
-        std::cout << response.get() << std::endl;
+    } catch (...) {
+        std::cerr << error("internal_error", "native core initialization failed") << std::endl;
+        return 1;
     }
 }

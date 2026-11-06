@@ -56,7 +56,7 @@ pnpm desktop                       # 自动准备 Python 运行时、构建并�
 | `apps/services/trading/` | 独立账户进程、内置风控与交易主机策略运行器 |
 | `protocol/` | Protobuf 契约与边界校验 |
 | `apps/clients/terminal/` | Terminal 桌面端：`src/`、`features/` 是界面，`native/` 是 C++ 原生层（Lab 看护、行情与交易连接） |
-| `bindings/` | C ABI 与 Node-API |
+| `apps/clients/terminal/bindings/` | Terminal 的 Node-API 绑定 |
 | 各子项目的 `config/` | 默认配置和部署配置示例，见[配置文件](docs/configuration.md) |
 | `tests/` | C++ 与进程测试 |
 

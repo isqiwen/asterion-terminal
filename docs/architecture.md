@@ -51,7 +51,7 @@ flowchart TB
 | 位置 | 内容 |
 | --- | --- |
 | `apps/clients/terminal/electron/` | 主进程、预加载、窗口 |
-| `apps/clients/terminal/native/`、`bindings/` | C++ 原生层：服务客户端、命令、状态快照；Node-API 与 C ABI |
+| `apps/clients/terminal/native/`、`apps/clients/terminal/bindings/` | C++ 原生层：服务客户端、命令、状态快照；Node-API |
 | `apps/clients/terminal/src/` | React 宿主：工作台、设置、启动、多语言、桥接 |
 | `apps/clients/terminal/features/` | 行情、研究、交易、数据页面 |
 

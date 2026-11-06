@@ -1,5 +1,7 @@
 """CLI11 must reject malformed input before opening runtimes or account stores."""
 from pathlib import Path
+import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -26,5 +28,10 @@ with tempfile.TemporaryDirectory(prefix="asterion-market-") as folder:
     result = subprocess.run([str(root / "bin/asterion_market")],
                             cwd="/", capture_output=True, text=True, timeout=10)
     assert result.returncode != 0 and str(root / "config/market.json") in result.stderr, result
-print("CLI11 help, version, invalid arguments and trading without its account configuration verified")
+result = subprocess.run([sys.argv[1]], env={**os.environ, "ASTERION_ROOT": "relative"},
+                        capture_output=True, text=True, timeout=10)
+assert result.returncode != 0, result
+assert json.loads(result.stderr) == {"error": {"code": "invalid_request",
+                                             "message": "invalid Asterion root directory"}}, result
 
+print("CLI11 help, version, invalid arguments and trading without its account configuration verified")

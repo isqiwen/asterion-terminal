@@ -25,9 +25,11 @@ target_compile_definitions(asterion_terminal_application PRIVATE ASTERION_PRODUC
 target_include_directories(asterion_terminal_application PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/native)
 target_link_libraries(asterion_terminal_application PUBLIC asterion_terminal_settings asterion_protocol PRIVATE nlohmann_json::nlohmann_json OpenSSL::Crypto httplib::httplib)
 add_executable(asterion_terminal_dev_bridge dev/core_bridge.cpp)
-target_link_libraries(asterion_terminal_dev_bridge PRIVATE asterion_terminal_api CLI11::CLI11)
+target_link_libraries(asterion_terminal_dev_bridge PRIVATE asterion_terminal_application CLI11::CLI11)
 asterion_target_defaults(asterion_terminal_application)
 asterion_target_defaults(asterion_terminal_dev_bridge)
 # The Lab's version (scripts/desktop/python_runtime.py).
 file(CONFIGURE OUTPUT ${CMAKE_BINARY_DIR}/product.json
   CONTENT [[{"product":"asterion-terminal","version":"@PROJECT_VERSION@"}]] @ONLY)
+
+add_subdirectory(bindings/node)
