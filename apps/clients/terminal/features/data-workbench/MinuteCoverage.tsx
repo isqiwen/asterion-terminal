@@ -5,8 +5,7 @@ import { productOf } from "./ContractPicker";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.data-workbench", key, values);
 
-// Trading days with minutes, per contract of one product and month. In the
-// research dataset, a month with days taken from the recorder is marked.
+// Trading days with minutes, per contract of one product and month.
 // With `onFill`, every cell offers to acquire that contract's month.
 export function MinuteCoverage({
   contracts,
@@ -59,15 +58,7 @@ export function MinuteCoverage({
                         return (
                           <td
                             key={month}
-                            data-recorded={cell?.recordedDays ? true : undefined}
-                            title={
-                              cell
-                                ? t("{days} 天，其中自录 {recorded} 天", {
-                                    days: cell.days,
-                                    recorded: cell.recordedDays,
-                                  })
-                                : t("无数据")
-                            }
+                            title={cell ? t("{days} 天", { days: cell.days }) : t("无数据")}
                           >
                             {onFill ? (
                               <button

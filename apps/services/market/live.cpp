@@ -25,10 +25,7 @@ Live::Live(const Settings& settings)
     : settings_(settings),
       started_ms_(now_ms()),
       feed_(sdk_, settings.ctp_library, settings.directory / "ctp-flow"),
-      catalog_(
-          sdk_,
-          settings.directory / "ctp-catalog.pb",
-          settings.directory / "recordings" / "catalog")
+      catalog_(sdk_, settings.directory / "ctp-catalog.pb", settings.directory / "catalog")
 {
     login();
 }
@@ -137,6 +134,7 @@ void Live::status(wire::Status& out) const
     *out.mutable_catalog() = catalog_.state().status();
     out.set_subscribed(subscribed_);
     out.set_failed_subscriptions(feed_.failed_subscriptions());
+    out.set_disk_free_bytes(std::filesystem::space(settings_.directory).available);
     if (last_quote_ms_)
         out.set_last_quote_ms(last_quote_ms_);
     out.set_out_of_order_quotes(out_of_order_);

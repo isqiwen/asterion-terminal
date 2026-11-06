@@ -98,11 +98,10 @@ message Response {
 
 | 操作 | 参数 | 结果 |
 | --- | --- | --- |
-| `get_status` | — | 服务版本、启动时间、行情连接、目录、订阅数、最后报价时间、乱序报价数、录制进度 |
+| `get_status` | — | 服务版本、启动时间、行情连接、目录、订阅数、最后报价时间、乱序报价数、订阅失败数、磁盘余量 |
 | `get_board` | — | 当前全部合约行与完整目录，与报价流首帧相同 |
 | `stream_quotes` | 要看的合约，不填表示全部，最多 50 个 | 连续的 `QuoteFrame` |
 | `get_minutes` | `Instrument` | 本进程观测到的当前交易日分钟线 |
-| `list_recorded_days` | 起止日 | 每个交易日自录的观测段：开始和结束时间、Tick 数、结束原因 |
 | `list_datasets` | — | 每个来源的当前版本 |
 | `get_dataset_version` | 来源与版本、表、交易所、分页游标 | 版本信息与一页分区 |
 | `read_dataset_file` | 来源与版本、分区、偏移 | 一块原始 Parquet 字节、整个文件的大小和 SHA-256 |
@@ -110,9 +109,7 @@ message Response {
 | `get_table_rows` | 来源与版本、合约表/交易日历/结算参数/历史报价单位、交易所、日期范围、偏移 | 一页至多 100 行，值都是文本，另给总行数；报价单位按有效区间相交选择 |
 | `list_dataset_versions` | 来源、分页游标 | 从当前版本往前的一页版本，每个都带与上一版相比新增、替换、删除的分区数 |
 | `compare_dataset_versions` | 来源、两个版本 | 前者相比后者新增、替换、删除的分区数 |
-| `get_dataset_coverage` | 来源与版本 | 品种 × 月份的日线天数和开市天数；合约 × 月份的分钟线天数，研究数据集另给其中取自自录的天数 |
-| `compare_minutes` | — | Tushare 与自录当前版本分钟线的差异汇总 |
-| `get_minute_differences` | 合约、交易日 | 两个来源不一致的每一分钟 |
+| `get_dataset_coverage` | 来源与版本 | 品种 × 月份的日线天数和开市天数；合约 × 月份的分钟线天数 |
 | `list_sources` | — | 可采集的来源、表、交易所，及当前证书能否管理 |
 | `start_acquisition` | 任务参数（`manage`） | 已接纳的任务 |
 | `get_acquisition_task` | 任务 ID | 任务现状 |

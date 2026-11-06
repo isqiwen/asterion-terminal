@@ -83,28 +83,16 @@ class RemoteResearch(unittest.TestCase):
     def count(self, dataset, version):
         return dataset.query(version, 'select count(*) from daily', ('daily',))[0][0]
 
-    def test_recorded_minutes_publish_over_tls_and_remain_fixed_for_two_research_clients(self):
-        import polars as pl
+    def test_a_days_price_ticks_reach_research_over_tls_and_stay_fixed_for_two_clients(self):
         from datetime import date
-        recordings = self.data / 'recordings'
-        minutes = recordings / 'minutes/trading_day=20261028'
-        segments = recordings / 'segments/trading_day=20261028'
-        minutes.mkdir(parents=True)
-        segments.mkdir(parents=True)
-        base = 1793164800000
-        def record(name, start, price):
-            # Test-only native archive, including an incomplete minute and a gap.
-            schema = dict(venue=pl.String, symbol=pl.String, start_ms=pl.Int64,
-                **{key: pl.Decimal(18, 8) for key in ('open', 'high', 'low', 'close')},
-                volume=pl.Int64, average_price=pl.Decimal(18, 8),
-                open_interest=pl.Decimal(18, 8), partial=pl.Boolean)
-            pl.DataFrame([dict(venue='SHFE', symbol='rb2701', start_ms=start,
-                open=Decimal(price), high=Decimal(price), low=Decimal(price), close=Decimal(price),
-                volume=9007199254740993, average_price=None, open_interest=Decimal('2000'),
-                partial=True)], schema=schema).write_parquet(minutes / (name + '.parquet'))
-            pl.DataFrame(dict(instance=[name], segment=[1], first_received_ms=[start+5000],
-                last_received_ms=[start+55000], ticks=[20], end=['stopped'])).write_parquet(
-                    segments / (name + '.parquet'))
+        snapshots = self.data / 'catalog'
+        snapshots.mkdir(parents=True, exist_ok=True)
+        def snapshot(day, tick):
+            catalog = market.Catalog()
+            item = catalog.contracts.add()
+            item.contract = 'SHFE/rb/2027-01'
+            item.price_tick.text = tick
+            (snapshots / (day + '.pb')).write_bytes(catalog.SerializeToString())
         def rpc(operation, role='reader', **values):
             request = MarketRequest(id=1)
             call = getattr(request, operation)
@@ -121,55 +109,36 @@ class RemoteResearch(unittest.TestCase):
                         out.extend(chunk)
                     return bytes(out)
                 return MarketResponse.FromString(read(int.from_bytes(read(4), 'big')))
-        def publish(identity, refresh=False):
-            values = dict(id=identity, provider='recorder', table=market.TABLE_MINUTES,
-                contracts=['SHFE/rb/2027-01'], first_day='2026-10-28', last_day='2026-10-28',
-                refetch=refresh)
-            self.assertEqual(rpc('start_acquisition', **values).error.code,
-                             common.ERROR_CODE_PERMISSION_DENIED)
-            response = rpc('start_acquisition', 'manager', **values)
-            self.assertFalse(response.HasField('error'), response)
-            # The submitting connection has already closed. Another client watches completion.
-            deadline = time.monotonic() + 10
-            while True:
-                task = rpc('get_acquisition_task', id=identity).get_acquisition_task
-                if task.state not in (market.TASK_STATE_RUNNING, market.TASK_STATE_QUEUED):
-                    self.assertEqual(task.state, market.TASK_STATE_SUCCEEDED, task)
-                    return task.published_version
-                self.assertLess(time.monotonic(), deadline)
-                time.sleep(.02)
         left = Dataset(self.lab, market=self.market)
         right = Dataset(self.node / 'second-lab', market=self.market)
-        def composed_after(previous):
-            # Market composes research from the publication soon after it.
-            deadline = time.monotonic() + 10
-            while (identity := left.current().identity) == previous:
+        def composed_with(day):
+            # Market composes research from the snapshot soon after taking it in.
+            deadline = time.monotonic() + 15
+            while True:
+                identity = left.current().identity
+                if identity and any(key.endswith(day) for key in left.version(identity).keys('price_ticks')):
+                    return identity
                 self.assertLess(time.monotonic(), deadline)
                 time.sleep(.02)
-            return identity
-        before = left.current().identity
-        record('first', base, '3100.123456')
-        publish('recorded-first')
-        identity = composed_after(before)
-        sql = 'select day, start_ms, close, volume, average_price, partial from minutes order by start_ms'
-        expected = [(date(2026, 10, 28), base, Decimal('3100.123456'),
-                     Decimal('9007199254740993'), None, True)]
+        # Reading needs no permission to manage; starting a task does.
+        values = dict(id='denied', provider='ctp', table=market.TABLE_PRICE_TICKS,
+                      first_day='2026-10-28', last_day='2026-10-28')
+        self.assertEqual(rpc('start_acquisition', **values).error.code,
+                         common.ERROR_CODE_PERMISSION_DENIED)
+        snapshot('20261028', '1')
+        identity = composed_with('2026-10-28')
+        sql = ("select effective_from, price_tick from price_ticks "
+               "where effective_from = date '2026-10-28'")
+        expected = [(date(2026, 10, 28), Decimal('1'))]
         for dataset in (left, right):
-            version = dataset.version(identity)
-            self.assertEqual(dataset.query(version, sql, ('minutes',)), expected)
-            self.assertEqual(dataset.query(version, 'select instance, "end" from observations',
-                                            ('observations',)), [('first', 'stopped')])
-        record('later', base + 300000, '3101')
-        publish('recorded-skip')
-        self.assertEqual(left.current().identity, identity)
-        publish('recorded-refresh', True)
-        updated = composed_after(identity)
+            self.assertEqual(dataset.query(dataset.version(identity), sql, ('price_ticks',)), expected)
+        snapshot('20261029', '2')
+        updated = composed_with('2026-10-29')
         self.assertNotEqual(updated, identity)
-        self.assertEqual(len(left.query(left.version(updated), sql, ('minutes',))), 2)
-        self.assertEqual(right.query(right.version(identity), sql, ('minutes',)), expected)
-        # A new cache also downloads the old publication after a new one becomes current.
+        self.assertEqual(right.query(right.version(identity), sql, ('price_ticks',)), expected)
+        # A new cache also downloads the old version after a new one becomes current.
         cold = Dataset(self.node / 'cold-lab', market=self.market)
-        self.assertEqual(cold.query(cold.version(identity), sql, ('minutes',)), expected)
+        self.assertEqual(cold.query(cold.version(identity), sql, ('price_ticks',)), expected)
 
     def test_research_never_falls_back_to_a_local_warehouse(self):
         warehouse(self.lab)

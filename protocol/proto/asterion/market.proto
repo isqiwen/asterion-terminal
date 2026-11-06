@@ -2,7 +2,7 @@ syntax = "proto3";
 package market;
 import "asterion/common.proto";
 
-// Market: live quotes, recording, historical acquisition and the warehouse.
+// Market: live quotes, historical acquisition and the warehouse.
 
 message Request {
   uint64 id = 1;
@@ -11,15 +11,12 @@ message Request {
     StreamQuotes stream_quotes = 11;
     common.Instrument get_minutes = 12;
     common.Empty get_board = 13;
-    ListRecordedDays list_recorded_days = 14;
 
     common.Empty list_datasets = 20;
     GetDatasetVersion get_dataset_version = 21;
     ReadDatasetFile read_dataset_file = 22;
     DatasetRef get_dataset_summary = 23;
     DatasetRef get_dataset_coverage = 24;
-    common.Empty compare_minutes = 25;
-    GetMinuteDifferences get_minute_differences = 26;
     ListDatasetVersions list_dataset_versions = 27;
     CompareDatasetVersions compare_dataset_versions = 28;
     GetTableRows get_table_rows = 29;
@@ -40,15 +37,12 @@ message Response {
     QuoteFrame stream_quotes = 11;
     Minutes get_minutes = 12;
     Board get_board = 13;
-    RecordedDays list_recorded_days = 14;
 
     Datasets list_datasets = 20;
     DatasetVersion get_dataset_version = 21;
     DatasetFile read_dataset_file = 22;
     DatasetSummary get_dataset_summary = 23;
     DatasetCoverage get_dataset_coverage = 24;
-    MinuteComparison compare_minutes = 25;
-    MinuteDifferences get_minute_differences = 26;
     DatasetVersions list_dataset_versions = 27;
     DatasetChange compare_dataset_versions = 28;
     TableRows get_table_rows = 29;
@@ -71,7 +65,7 @@ message Status {
   uint32 subscribed = 5;
   optional int64 last_quote_ms = 6;
   uint64 out_of_order_quotes = 7;
-  Recording recording = 8;
+  uint64 disk_free_bytes = 8;
   // Listed contracts the provider refused to subscribe; retried every few minutes.
   uint32 failed_subscriptions = 9;
 }
@@ -105,20 +99,6 @@ message CatalogStatus {
   CatalogState state = 1;
   string trading_day = 2;
   string error = 3;
-}
-
-// What this Market process has written since it started.
-message Recording {
-  string trading_day = 1;
-  uint64 rows = 2;
-  uint64 files = 3;
-  uint64 bytes = 4;
-  uint64 lost_rows = 5;
-  optional int64 written_ms = 6;
-  uint64 disk_free_bytes = 7;
-  string write_error = 8;
-  string merging_day = 9;
-  string merge_error = 10;
 }
 
 // ---- Live quotes
@@ -232,8 +212,7 @@ enum Table {
   TABLE_DAILY = 3;
   TABLE_MINUTES = 4;
   TABLE_SETTLEMENT = 5;
-  TABLE_OBSERVATIONS = 6;
-  TABLE_PRICE_TICKS = 7;
+  TABLE_PRICE_TICKS = 6;
 }
 
 // An empty version names the provider's current version.
@@ -354,33 +333,6 @@ message TableRow {
   repeated string values = 1;
 }
 
-// The recorder's observation segments, per trading day, from its archive.
-message ListRecordedDays {
-  string first_day = 1;
-  string last_day = 2;
-}
-
-message RecordedDays {
-  repeated RecordedDay days = 1;
-}
-
-message RecordedDay {
-  string trading_day = 1;
-  // In the order they started; the time between two is a gap.
-  repeated ObservedSegment segments = 2;
-}
-
-// One stretch of uninterrupted observation by one Market process.
-message ObservedSegment {
-  string instance = 1;
-  uint64 number = 2;
-  int64 first_received_ms = 3;
-  int64 last_received_ms = 4;
-  uint64 ticks = 5;
-  // Why observation stopped; empty when the process stopped before it could say.
-  string end = 6;
-}
-
 message DatasetCoverage {
   // Daily bars.
   repeated ProductCoverage products = 1;
@@ -409,43 +361,6 @@ message ContractCoverage {
 message MinuteMonth {
   string month = 1;
   uint32 days = 2;
-  // In the research dataset: the days taken from the recorder.
-  uint32 recorded_days = 3;
-}
-
-// Tushare and recorded minutes, both from their current versions.
-message MinuteComparison {
-  string tushare_version = 1;
-  string recorder_version = 2;
-  uint32 days = 3;
-  uint32 differing_days = 4;
-  // The latest 500.
-  repeated ComparedDay differing = 5;
-}
-
-message ComparedDay {
-  string contract = 1;
-  string trading_day = 2;
-  uint32 compared = 3;
-  uint32 differing = 4;
-  uint32 tushare_only = 5;
-  uint32 recorder_only = 6;
-  uint32 partial = 7;
-}
-
-message GetMinuteDifferences {
-  string contract = 1;
-  string trading_day = 2;
-}
-
-message MinuteDifferences {
-  repeated MinuteDifference minutes = 1;
-}
-
-message MinuteDifference {
-  int64 start_ms = 1;
-  MinuteBar tushare = 2;
-  MinuteBar recorder = 3;
 }
 
 // ---- Acquisition

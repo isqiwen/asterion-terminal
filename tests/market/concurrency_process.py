@@ -63,10 +63,6 @@ def main():
                 selected = receive(first).stream_quotes.full.rows[0].instrument
             file_query = dict(dataset=dict(provider='tushare', version=fixed), key='daily/SHFE/2026-10')
             baseline = call('read_dataset_file', **file_query)
-            recorded = until(lambda: call('get_status').recording,
-                             lambda s: s.rows > 0 and s.files > 0, timeout=40)
-            assert not recorded.write_error and recorded.lost_rows == 0, recorded
-            trading_day = recorded.trading_day
             with market_tls.connect(tls, port) as slow, market_tls.connect(tls, port) as watch:
                 slow.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024)
                 # Pipelined one-MiB replies exceed the sender's socket buffer.
@@ -75,12 +71,6 @@ def main():
                     send(slow, 'read_dataset_file', **file_query)
                 send(watch, 'stream_quotes', instruments=[selected])
                 assert receive(watch).stream_quotes.HasField('full')
-                # The native publication runs while readers and the live watch proceed;
-                # its submitting connection closes immediately after acceptance.
-                call('start_acquisition', role='manager', id='publish', provider='recorder',
-                     table=market.TABLE_MINUTES, contracts=['SHFE/rb/2026-10'],
-                     first_day=(date.fromisoformat(trading_day) - timedelta(days=30)).isoformat(),
-                     last_day=trading_day)
                 with ThreadPoolExecutor(max_workers=1) as readers:
                     def read_history():
                         for _ in range(12):
@@ -99,19 +89,16 @@ def main():
             # No clients remain connected; provider intake and the writer keep running.
             time.sleep(.4)
             assert call('get_status').last_quote_ms > before
-            task = until(lambda: call('get_acquisition_task', id='publish'),
-                         lambda t: t.state not in (market.TASK_STATE_QUEUED, market.TASK_STATE_RUNNING))
-            assert task.state == market.TASK_STATE_SUCCEEDED and task.published_version, task
-            recorder = dict(provider='recorder', version=task.published_version)
-            publication = call('get_dataset_version', dataset=recorder)
-            assert publication.partitions
+            # The day's contract snapshot is taken in while readers and the watch proceed.
+            publication = until(lambda: call('get_dataset_version', dataset=dict(provider='ctp')),
+                                lambda v: v.partitions, timeout=30)
+            recorder = dict(provider='ctp', version=publication.dataset.version)
             assert call('read_dataset_file', **file_query) == baseline
-        # Stop above flushes the live archive. Reopen it, then kill a running task.
+        # Reopen it, then kill a running task.
         with running_market(root, port) as process:
             assert call('get_status').started_ms != initial.started_ms
-            call('start_acquisition', role='manager', id='interrupted', provider='recorder',
-                 table=market.TABLE_MINUTES, contracts=['SHFE/rb/2026-10'],
-                 first_day='1990-01-01', last_day=trading_day)
+            call('start_acquisition', role='manager', id='interrupted', provider='ctp',
+                 table=market.TABLE_PRICE_TICKS, first_day='1990-01-01', last_day='2026-10-28')
             progress = until(lambda: call('get_acquisition_task', id='interrupted'),
                              lambda t: t.state == market.TASK_STATE_RUNNING and t.items_done > 0)
             # The submitting client has gone; collection and task work continue.
@@ -121,7 +108,6 @@ def main():
         with running_market(root, port):
             recovered = call('get_acquisition_task', id='interrupted')
             assert recovered.state == market.TASK_STATE_INTERRUPTED, recovered
-            assert call('get_acquisition_task', id='publish') == task
             assert call('get_dataset_version', dataset=recorder) == publication
             assert call('read_dataset_file', **file_query) == baseline
             stable = recovered.SerializeToString()

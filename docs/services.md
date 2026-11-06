@@ -14,7 +14,7 @@ Lab 是 Terminal 的子进程（`apps/clients/terminal/native/lab_supervisor.*`�
 
 ## 远程服务
 
-- **Market**：用 `Asterion-Market-<版本>-linux-x86_64.sh` 安装到 `/opt/asterion/market`，服务 `asterion-market.service`，见[录制与部署](market/deployment.md)。
+- **Market**：用 `Asterion-Market-<版本>-linux-x86_64.sh` 安装到 `/opt/asterion/market`，服务 `asterion-market.service`，见[部署](market/deployment.md)。
 - **Trading**：用 `Asterion-Trading-<版本>-linux-x86_64.sh` 安装到 `/opt/asterion/trading`，每个账户一个 `asterion-trading@<账户>.service`，见[交易](trading/deployment.md#安装与账户配置)。安装包自带策略用的 Python 运行时。升级程序前必须停止全部账户。
 - 两个服务都以执行 `sudo` 的普通账户运行，凭据是 systemd 加密凭据，启动时自动登录柜台。Trading 重启不恢复授权。
 - Terminal 只是客户端：不安装、启动、升级或备份远程服务。
@@ -37,7 +37,7 @@ Terminal 发布包带有 Terminal 和 Lab 的程序：macOS 的 DMG 拖进“应
 只支持冷备份：先停止资料的拥有者，再复制。
 
 - 本机：等研究运行结束，关闭 Terminal，确认 Lab 已退出，再复制本机根目录。
-- Market 主机：停止 `asterion-market.service`，复制安装目录（配置、TLS 身份）和 `market.json` 里 `data` 指定的数据目录（仓库、录制文件、采集任务；默认在安装目录里，放到别的磁盘时要单独复制）。恢复时数据目录回到原来的路径，或者改 `data` 指向新位置。
+- Market 主机：停止 `asterion-market.service`，复制安装目录（配置、TLS 身份）和 `market.json` 里 `data` 指定的数据目录（仓库、合约快照、采集任务；默认在安装目录里，放到别的磁盘时要单独复制）。恢复时数据目录回到原来的路径，或者改 `data` 指向新位置。
 - Trading 主机：停止全部账户，复制安装目录（账户记录及 `archives/`、策略包和实例记录）和账户归属目录。停止服务不等于撤单。
 - Lab 的 `market-cache/` 可以从 Market 重新下载，不必备份。
 - 凭据加密绑定原主机，复制安装目录不包含它们；换机器恢复时要在新主机重新配置凭据。

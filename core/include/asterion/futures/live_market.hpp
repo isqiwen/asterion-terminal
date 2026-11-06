@@ -21,9 +21,7 @@ struct MarketQuote
     // Additional levels 2..5; best bid/ask remain the quote summary above the book.
     std::array<MarketDepthLevel, 4> bid_levels, ask_levels;
     std::optional<Decimal> last, bid, ask, previous_settlement, high, low, open_interest;
-    std::optional<Decimal> open, upper_limit, lower_limit, previous_close, settlement, close;
-    // Exactly as the provider sent it: a day's turnover can exceed Decimal's range.
-    std::optional<double> turnover;
+    std::optional<Decimal> open, upper_limit, lower_limit, previous_close;
     // Current open interest minus the provider previous-trading-day reference.
     std::optional<Decimal> open_interest_change;
     // Per-unit session average price; absent when the provider cannot normalize it.

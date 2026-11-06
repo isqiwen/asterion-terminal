@@ -105,14 +105,13 @@ with tempfile.TemporaryDirectory() as folder:
     # Install: the layout, the unit, then the settings (Enter keeps a default,
     # a bad port is asked again), then the first start.
     calls, result = host.run(release(folder, '1'),
-                             ['', 'abc', '7451', '', '', '', '', '', '273005', '', client_pin + '=manage', '', '100', 'fixture-token', 'fixture-password', 'fixture-auth'])
+                             ['', 'abc', '7451', '', '', '', '', '273005', '', client_pin + '=manage', '', '100', 'fixture-token', 'fixture-password', 'fixture-auth'])
     assert 'Invalid value' in result.stderr, result.stderr
     assert sorted(p.name for p in host.root.iterdir()) == ['bin', 'config', 'data', 'lib', 'logs']
     assert (host.root / 'bin/asterion_market').read_text().endswith('1"\n')
     assert (host.root / 'bin/setup.sh').read_bytes() == setup.read_bytes()
     assert (host.root / 'config/logging.json').read_bytes() == (setup.parent.parent / 'config/logging.json').read_bytes()
     assert host.settings() == {**shipped, 'port': 7451, 'data': str(host.root / 'data'),
-                               'recording': {'tick_days': 30},
                                'counter': {**shipped['counter'], 'user': '273005'}}
     text = (host.root / 'config/market.json').read_text()
     assert 'fixture-password' not in text and 'fixture-auth' not in text and 'fixture-token' not in text
@@ -178,9 +177,9 @@ with tempfile.TemporaryDirectory() as folder:
     # made for the market and becomes writable; the old data is not moved.
     disk = host.folder / 'disk/market-data'
     calls, result = host.run(host.root / 'bin/setup.sh',
-                             ['', '', str(disk), '7', '', '', '', '', '-', '', '', '0', 'fixture-password'])
+                             ['', '', str(disk), '', '', '', '', '-', '', '', '0', 'fixture-password'])
     assert host.settings()['port'] == 7999 and host.settings()['counter']['app_id'] == ''
-    assert host.settings()['data'] == str(disk) and host.settings()['recording'] == {'tick_days': 7}
+    assert host.settings()['data'] == str(disk)
     assert disk.is_dir() and any(call.startswith('chown ') and call.endswith(f': {disk}')
                                  for call in calls), calls
     unit = (host.units / 'asterion-market.service').read_text()

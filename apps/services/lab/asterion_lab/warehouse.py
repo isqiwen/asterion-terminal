@@ -37,9 +37,6 @@ SCHEMAS["minutes"] = {"exchange": pl.String, "product": pl.String, "contract": p
 SCHEMAS["settlement"] = {"exchange": pl.String, "product": pl.String, "contract": pl.String,
     "day": pl.Date, **{name: NUMBER for name in ("long_margin_rate", "short_margin_rate",
         "fee_rate", "fee_per_lot", "close_today_fee_rate", "close_today_fee_per_lot")}}
-SCHEMAS["observations"] = {"exchange": pl.String, "contract": pl.String, "day": pl.Date,
-    "instance": pl.String, "number": pl.Int64, "first_received_ms": pl.Int64,
-    "last_received_ms": pl.Int64, "ticks": pl.Int64, "end": pl.String}
 
 SQL_TYPES = {pl.Int64: "bigint", pl.String: "varchar", pl.Date: "date", pl.Boolean: "boolean",
              NUMBER: "decimal(28, 6)", PRICE_TICK: "decimal(28, 8)"}

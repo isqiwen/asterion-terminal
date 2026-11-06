@@ -34,9 +34,8 @@ test(
     // The saved watchlist is the desktop's own; Market still collects the contract.
     expect((await marketState(page.request)).rows).toHaveLength(1);
     await openView(page, "coverage");
-    const recording = page.getByRole("region", { name: "录制监控" });
-    await expect(recording.getByText("行情已连接", { exact: true })).toBeVisible();
-    await expect(recording.getByText("磁盘可用空间", { exact: true })).toBeVisible();
-    expect((await status()).recording).toBeDefined();
+    const state = page.getByRole("region", { name: "行情状态" });
+    await expect(state.getByText("行情已连接", { exact: true })).toBeVisible();
+    await expect(state.getByText("磁盘可用空间", { exact: true })).toBeVisible();
   },
 );

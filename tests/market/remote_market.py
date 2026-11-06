@@ -4,6 +4,6 @@ import subprocess
 import sys
 build = Path(sys.argv[1]).resolve()
 suffix = ".dylib" if sys.platform == "darwin" else ".so"
-subprocess.run([sys.executable, str(Path(__file__).parents[1] / "market/recording_process.py"),
+subprocess.run([sys.executable, str(Path(__file__).parents[1] / "market/live_process.py"),
     str(build / "asterion_market"), str(build / ("libasterion_test_ctp" + suffix)),
     str(build / ("libasterion_test_ctp_trader" + suffix)), str(build / "asterion_test_market_remote")], check=True)

@@ -22,7 +22,6 @@ struct Settings
     std::string tushare_token;
     unsigned tushare_requests_per_minute = 0;
     // Recorded tick days kept; minutes and observation segments are kept for good.
-    unsigned tick_days = 0;
     ctp::Configuration market;
     ctp::CatalogConfiguration catalog;
 };

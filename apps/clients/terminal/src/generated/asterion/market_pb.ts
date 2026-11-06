@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file asterion/market.proto.
  */
 export const file_asterion_market: GenFile = /*@__PURE__*/
-  fileDesc("ChVhc3Rlcmlvbi9tYXJrZXQucHJvdG8SBm1hcmtldCKPCAoHUmVxdWVzdBIKCgJpZBgBIAEoBBIjCgpnZXRfc3RhdHVzGAogASgLMg0uY29tbW9uLkVtcHR5SAASLQoNc3RyZWFtX3F1b3RlcxgLIAEoCzIULm1hcmtldC5TdHJlYW1RdW90ZXNIABIpCgtnZXRfbWludXRlcxgMIAEoCzISLmNvbW1vbi5JbnN0cnVtZW50SAASIgoJZ2V0X2JvYXJkGA0gASgLMg0uY29tbW9uLkVtcHR5SAASNgoSbGlzdF9yZWNvcmRlZF9kYXlzGA4gASgLMhgubWFya2V0Lkxpc3RSZWNvcmRlZERheXNIABImCg1saXN0X2RhdGFzZXRzGBQgASgLMg0uY29tbW9uLkVtcHR5SAASOAoTZ2V0X2RhdGFzZXRfdmVyc2lvbhgVIAEoCzIZLm1hcmtldC5HZXREYXRhc2V0VmVyc2lvbkgAEjQKEXJlYWRfZGF0YXNldF9maWxlGBYgASgLMhcubWFya2V0LlJlYWREYXRhc2V0RmlsZUgAEjEKE2dldF9kYXRhc2V0X3N1bW1hcnkYFyABKAsyEi5tYXJrZXQuRGF0YXNldFJlZkgAEjIKFGdldF9kYXRhc2V0X2NvdmVyYWdlGBggASgLMhIubWFya2V0LkRhdGFzZXRSZWZIABIoCg9jb21wYXJlX21pbnV0ZXMYGSABKAsyDS5jb21tb24uRW1wdHlIABI+ChZnZXRfbWludXRlX2RpZmZlcmVuY2VzGBogASgLMhwubWFya2V0LkdldE1pbnV0ZURpZmZlcmVuY2VzSAASPAoVbGlzdF9kYXRhc2V0X3ZlcnNpb25zGBsgASgLMhsubWFya2V0Lkxpc3REYXRhc2V0VmVyc2lvbnNIABJCChhjb21wYXJlX2RhdGFzZXRfdmVyc2lvbnMYHCABKAsyHi5tYXJrZXQuQ29tcGFyZURhdGFzZXRWZXJzaW9uc0gAEi4KDmdldF90YWJsZV9yb3dzGB0gASgLMhQubWFya2V0LkdldFRhYmxlUm93c0gAEiUKDGxpc3Rfc291cmNlcxgeIAEoCzINLmNvbW1vbi5FbXB0eUgAEjUKEXN0YXJ0X2FjcXVpc2l0aW9uGB8gASgLMhgubWFya2V0LlN0YXJ0QWNxdWlzaXRpb25IABIuChRnZXRfYWNxdWlzaXRpb25fdGFzaxggIAEoCzIOLm1hcmtldC5UYXNrSWRIABI+ChZsaXN0X2FjcXVpc2l0aW9uX3Rhc2tzGCEgASgLMhwubWFya2V0Lkxpc3RBY3F1aXNpdGlvblRhc2tzSAASLAoSY2FuY2VsX2FjcXVpc2l0aW9uGCIgASgLMg4ubWFya2V0LlRhc2tJZEgAQgYKBGNhbGwitggKCFJlc3BvbnNlEgoKAmlkGAEgASgEEh4KBWVycm9yGAIgASgLMg0uY29tbW9uLkVycm9ySAASJAoKZ2V0X3N0YXR1cxgKIAEoCzIOLm1hcmtldC5TdGF0dXNIABIrCg1zdHJlYW1fcXVvdGVzGAsgASgLMhIubWFya2V0LlF1b3RlRnJhbWVIABImCgtnZXRfbWludXRlcxgMIAEoCzIPLm1hcmtldC5NaW51dGVzSAASIgoJZ2V0X2JvYXJkGA0gASgLMg0ubWFya2V0LkJvYXJkSAASMgoSbGlzdF9yZWNvcmRlZF9kYXlzGA4gASgLMhQubWFya2V0LlJlY29yZGVkRGF5c0gAEikKDWxpc3RfZGF0YXNldHMYFCABKAsyEC5tYXJrZXQuRGF0YXNldHNIABI1ChNnZXRfZGF0YXNldF92ZXJzaW9uGBUgASgLMhYubWFya2V0LkRhdGFzZXRWZXJzaW9uSAASMAoRcmVhZF9kYXRhc2V0X2ZpbGUYFiABKAsyEy5tYXJrZXQuRGF0YXNldEZpbGVIABI1ChNnZXRfZGF0YXNldF9zdW1tYXJ5GBcgASgLMhYubWFya2V0LkRhdGFzZXRTdW1tYXJ5SAASNwoUZ2V0X2RhdGFzZXRfY292ZXJhZ2UYGCABKAsyFy5tYXJrZXQuRGF0YXNldENvdmVyYWdlSAASMwoPY29tcGFyZV9taW51dGVzGBkgASgLMhgubWFya2V0Lk1pbnV0ZUNvbXBhcmlzb25IABI7ChZnZXRfbWludXRlX2RpZmZlcmVuY2VzGBogASgLMhkubWFya2V0Lk1pbnV0ZURpZmZlcmVuY2VzSAASOAoVbGlzdF9kYXRhc2V0X3ZlcnNpb25zGBsgASgLMhcubWFya2V0LkRhdGFzZXRWZXJzaW9uc0gAEjkKGGNvbXBhcmVfZGF0YXNldF92ZXJzaW9ucxgcIAEoCzIVLm1hcmtldC5EYXRhc2V0Q2hhbmdlSAASKwoOZ2V0X3RhYmxlX3Jvd3MYHSABKAsyES5tYXJrZXQuVGFibGVSb3dzSAASJwoMbGlzdF9zb3VyY2VzGB4gASgLMg8ubWFya2V0LlNvdXJjZXNIABI0ChFzdGFydF9hY3F1aXNpdGlvbhgfIAEoCzIXLm1hcmtldC5BY3F1aXNpdGlvblRhc2tIABI3ChRnZXRfYWNxdWlzaXRpb25fdGFzaxggIAEoCzIXLm1hcmtldC5BY3F1aXNpdGlvblRhc2tIABI6ChZsaXN0X2FjcXVpc2l0aW9uX3Rhc2tzGCEgASgLMhgubWFya2V0LkFjcXVpc2l0aW9uVGFza3NIABI1ChJjYW5jZWxfYWNxdWlzaXRpb24YIiABKAsyFy5tYXJrZXQuQWNxdWlzaXRpb25UYXNrSABCCAoGcmVzdWx0IpQCCgZTdGF0dXMSDwoHdmVyc2lvbhgBIAEoCRISCgpzdGFydGVkX21zGAIgASgDEhoKBGZlZWQYAyABKAsyDC5tYXJrZXQuRmVlZBImCgdjYXRhbG9nGAQgASgLMhUubWFya2V0LkNhdGFsb2dTdGF0dXMSEgoKc3Vic2NyaWJlZBgFIAEoDRIaCg1sYXN0X3F1b3RlX21zGAYgASgDSACIAQESGwoTb3V0X29mX29yZGVyX3F1b3RlcxgHIAEoBBIkCglyZWNvcmRpbmcYCCABKAsyES5tYXJrZXQuUmVjb3JkaW5nEhwKFGZhaWxlZF9zdWJzY3JpcHRpb25zGAkgASgNQhAKDl9sYXN0X3F1b3RlX21zIjsKBEZlZWQSIAoFc3RhdGUYASABKA4yES5tYXJrZXQuRmVlZFN0YXRlEhEKCWN0cF9lcnJvchgCIAEoBSJYCg1DYXRhbG9nU3RhdHVzEiMKBXN0YXRlGAEgASgOMhQubWFya2V0LkNhdGFsb2dTdGF0ZRITCgt0cmFkaW5nX2RheRgCIAEoCRINCgVlcnJvchgDIAEoCSLfAQoJUmVjb3JkaW5nEhMKC3RyYWRpbmdfZGF5GAEgASgJEgwKBHJvd3MYAiABKAQSDQoFZmlsZXMYAyABKAQSDQoFYnl0ZXMYBCABKAQSEQoJbG9zdF9yb3dzGAUgASgEEhcKCndyaXR0ZW5fbXMYBiABKANIAIgBARIXCg9kaXNrX2ZyZWVfYnl0ZXMYByABKAQSEwoLd3JpdGVfZXJyb3IYCCABKAkSEwoLbWVyZ2luZ19kYXkYCSABKAkSEwoLbWVyZ2VfZXJyb3IYCiABKAlCDQoLX3dyaXR0ZW5fbXMiNwoMU3RyZWFtUXVvdGVzEicKC2luc3RydW1lbnRzGAEgAygLMhIuY29tbW9uLkluc3RydW1lbnQiVgoKUXVvdGVGcmFtZRIdCgRmdWxsGAEgASgLMg0ubWFya2V0LkJvYXJkSAASIAoHY2hhbmdlZBgCIAEoCzINLm1hcmtldC5Cb2FyZEgAQgcKBWZyYW1lImUKBUJvYXJkEhoKBGZlZWQYASABKAsyDC5tYXJrZXQuRmVlZBIeCgRyb3dzGAIgAygLMhAubWFya2V0LlF1b3RlUm93EiAKB2NhdGFsb2cYAyABKAsyDy5tYXJrZXQuQ2F0YWxvZyK7AQoIUXVvdGVSb3cSJgoKaW5zdHJ1bWVudBgBIAEoCzISLmNvbW1vbi5JbnN0cnVtZW50EioKDHN1YnNjcmlwdGlvbhgCIAEoDjIULm1hcmtldC5TdWJzY3JpcHRpb24SEQoJY3RwX2Vycm9yGAMgASgFEhwKBXF1b3RlGAQgASgLMg0ubWFya2V0LlF1b3RlEioKEWNoYW5nZV8xbV9wZXJjZW50GAUgASgLMg8uY29tbW9uLkRlY2ltYWwiwgQKBVF1b3RlEh0KBGxhc3QYASABKAsyDy5jb21tb24uRGVjaW1hbBIdCgRvcGVuGAIgASgLMg8uY29tbW9uLkRlY2ltYWwSHQoEaGlnaBgDIAEoCzIPLmNvbW1vbi5EZWNpbWFsEhwKA2xvdxgEIAEoCzIPLmNvbW1vbi5EZWNpbWFsEiYKDWF2ZXJhZ2VfcHJpY2UYBSABKAsyDy5jb21tb24uRGVjaW1hbBInCg5wcmV2aW91c19jbG9zZRgGIAEoCzIPLmNvbW1vbi5EZWNpbWFsEiwKE3ByZXZpb3VzX3NldHRsZW1lbnQYByABKAsyDy5jb21tb24uRGVjaW1hbBIkCgt1cHBlcl9saW1pdBgIIAEoCzIPLmNvbW1vbi5EZWNpbWFsEiQKC2xvd2VyX2xpbWl0GAkgASgLMg8uY29tbW9uLkRlY2ltYWwSDgoGdm9sdW1lGAogASgDEiYKDW9wZW5faW50ZXJlc3QYCyABKAsyDy5jb21tb24uRGVjaW1hbBItChRvcGVuX2ludGVyZXN0X2NoYW5nZRgMIAEoCzIPLmNvbW1vbi5EZWNpbWFsEhsKBGJpZHMYDSADKAsyDS5tYXJrZXQuTGV2ZWwSGwoEYXNrcxgOIAMoCzINLm1hcmtldC5MZXZlbBITCgt0cmFkaW5nX2RheRgPIAEoCRIYCgtleGNoYW5nZV9tcxgQIAEoA0gAiAEBEhMKC3JlY2VpdmVkX21zGBEgASgDQg4KDF9leGNoYW5nZV9tcyJDCgVMZXZlbBIeCgVwcmljZRgBIAEoCzIPLmNvbW1vbi5EZWNpbWFsEhEKBGxvdHMYAiABKANIAIgBAUIHCgVfbG90cyJcCgdDYXRhbG9nEiUKBnN0YXR1cxgBIAEoCzIVLm1hcmtldC5DYXRhbG9nU3RhdHVzEioKCWNvbnRyYWN0cxgCIAMoCzIXLm1hcmtldC5DYXRhbG9nQ29udHJhY3QitwEKD0NhdGFsb2dDb250cmFjdBImCgppbnN0cnVtZW50GAEgASgLMhIuY29tbW9uLkluc3RydW1lbnQSEAoIY29udHJhY3QYAiABKAkSDwoHcHJvZHVjdBgDIAEoCRIMCgRuYW1lGAQgASgJEhIKCmV4cGlyeV9kYXkYBSABKAkSEgoKbXVsdGlwbGllchgGIAEoBRIjCgpwcmljZV90aWNrGAcgASgLMg8uY29tbW9uLkRlY2ltYWwi3gEKB01pbnV0ZXMSJgoKaW5zdHJ1bWVudBgBIAEoCzISLmNvbW1vbi5JbnN0cnVtZW50EhMKC3RyYWRpbmdfZGF5GAIgASgJEiwKE3ByZXZpb3VzX3NldHRsZW1lbnQYAyABKAsyDy5jb21tb24uRGVjaW1hbBIdChBvYnNlcnZlZF9mcm9tX21zGAQgASgDSACIAQESEwoLaW50ZXJydXB0ZWQYBSABKAgSHwoEYmFycxgGIAMoCzIRLm1hcmtldC5NaW51dGVCYXJCEwoRX29ic2VydmVkX2Zyb21fbXMiigIKCU1pbnV0ZUJhchIQCghzdGFydF9tcxgBIAEoAxIdCgRvcGVuGAIgASgLMg8uY29tbW9uLkRlY2ltYWwSHQoEaGlnaBgDIAEoCzIPLmNvbW1vbi5EZWNpbWFsEhwKA2xvdxgEIAEoCzIPLmNvbW1vbi5EZWNpbWFsEh4KBWNsb3NlGAUgASgLMg8uY29tbW9uLkRlY2ltYWwSDgoGdm9sdW1lGAYgASgDEiYKDWF2ZXJhZ2VfcHJpY2UYByABKAsyDy5jb21tb24uRGVjaW1hbBImCg1vcGVuX2ludGVyZXN0GAggASgLMg8uY29tbW9uLkRlY2ltYWwSDwoHcGFydGlhbBgJIAEoCCIvCgpEYXRhc2V0UmVmEhAKCHByb3ZpZGVyGAEgASgJEg8KB3ZlcnNpb24YAiABKAkiLQoIRGF0YXNldHMSIQoIZGF0YXNldHMYASADKAsyDy5tYXJrZXQuRGF0YXNldCJACgdEYXRhc2V0EhAKCHByb3ZpZGVyGAEgASgJEg8KB3ZlcnNpb24YAiABKAkSEgoKY3JlYXRlZF9tcxgDIAEoAyJ7ChFHZXREYXRhc2V0VmVyc2lvbhIjCgdkYXRhc2V0GAEgASgLMhIubWFya2V0LkRhdGFzZXRSZWYSHAoFdGFibGUYAiABKA4yDS5tYXJrZXQuVGFibGUSEAoIZXhjaGFuZ2UYAyABKAkSEQoJYWZ0ZXJfa2V5GAQgASgJInsKDkRhdGFzZXRWZXJzaW9uEiAKB2RhdGFzZXQYASABKAsyDy5tYXJrZXQuRGF0YXNldBIOCgZwYXJlbnQYAiABKAkSJQoKcGFydGl0aW9ucxgDIAMoCzIRLm1hcmtldC5QYXJ0aXRpb24SEAoIbmV4dF9rZXkYBCABKAkidgoJUGFydGl0aW9uEgsKA2tleRgBIAEoCRIcCgV0YWJsZRgCIAEoDjINLm1hcmtldC5UYWJsZRIOCgZzaGEyNTYYAyABKAkSDAoEcm93cxgEIAEoBBIMCgRkYXlzGAUgAygJEhIKCnRha2VuX2Zyb20YBiABKAkiUwoPUmVhZERhdGFzZXRGaWxlEiMKB2RhdGFzZXQYASABKAsyEi5tYXJrZXQuRGF0YXNldFJlZhILCgNrZXkYAiABKAkSDgoGb2Zmc2V0GAMgASgEIkkKC0RhdGFzZXRGaWxlEg4KBnNoYTI1NhgBIAEoCRIMCgRzaXplGAIgASgEEg4KBm9mZnNldBgDIAEoBBIMCgRkYXRhGAQgASgMIlgKDkRhdGFzZXRTdW1tYXJ5EiAKB2RhdGFzZXQYASABKAsyDy5tYXJrZXQuRGF0YXNldBIkCgZ0YWJsZXMYAiADKAsyFC5tYXJrZXQuVGFibGVTdW1tYXJ5InMKDFRhYmxlU3VtbWFyeRIcCgV0YWJsZRgBIAEoDjINLm1hcmtldC5UYWJsZRISCgpwYXJ0aXRpb25zGAIgASgEEgwKBHJvd3MYAyABKAQSEQoJZmlyc3RfZGF5GAQgASgJEhAKCGxhc3RfZGF5GAUgASgJIj4KE0xpc3REYXRhc2V0VmVyc2lvbnMSEAoIcHJvdmlkZXIYASABKAkSFQoNYWZ0ZXJfdmVyc2lvbhgCIAEoCSJQCg9EYXRhc2V0VmVyc2lvbnMSJwoIdmVyc2lvbnMYASADKAsyFS5tYXJrZXQuRGF0YXNldENoYW5nZRIUCgxuZXh0X3ZlcnNpb24YAiABKAkiSQoWQ29tcGFyZURhdGFzZXRWZXJzaW9ucxIQCghwcm92aWRlchgBIAEoCRIPCgd2ZXJzaW9uGAIgASgJEgwKBGJhc2UYAyABKAkicQoNRGF0YXNldENoYW5nZRIgCgdkYXRhc2V0GAEgASgLMg8ubWFya2V0LkRhdGFzZXQSDAoEYmFzZRgCIAEoCRINCgVhZGRlZBgDIAEoDRIQCghyZXBsYWNlZBgEIAEoDRIPCgdyZW1vdmVkGAUgASgNIpgBCgxHZXRUYWJsZVJvd3MSIwoHZGF0YXNldBgBIAEoCzISLm1hcmtldC5EYXRhc2V0UmVmEhwKBXRhYmxlGAIgASgOMg0ubWFya2V0LlRhYmxlEhAKCGV4Y2hhbmdlGAMgASgJEhEKCWZpcnN0X2RheRgEIAEoCRIQCghsYXN0X2RheRgFIAEoCRIOCgZvZmZzZXQYBiABKA0iSwoJVGFibGVSb3dzEg8KB2NvbHVtbnMYASADKAkSHgoEcm93cxgCIAMoCzIQLm1hcmtldC5UYWJsZVJvdxINCgV0b3RhbBgDIAEoDSIaCghUYWJsZVJvdxIOCgZ2YWx1ZXMYASADKAkiNwoQTGlzdFJlY29yZGVkRGF5cxIRCglmaXJzdF9kYXkYASABKAkSEAoIbGFzdF9kYXkYAiABKAkiMQoMUmVjb3JkZWREYXlzEiEKBGRheXMYASADKAsyEy5tYXJrZXQuUmVjb3JkZWREYXkiTQoLUmVjb3JkZWREYXkSEwoLdHJhZGluZ19kYXkYASABKAkSKQoIc2VnbWVudHMYAiADKAsyFy5tYXJrZXQuT2JzZXJ2ZWRTZWdtZW50IoQBCg9PYnNlcnZlZFNlZ21lbnQSEAoIaW5zdGFuY2UYASABKAkSDgoGbnVtYmVyGAIgASgEEhkKEWZpcnN0X3JlY2VpdmVkX21zGAMgASgDEhgKEGxhc3RfcmVjZWl2ZWRfbXMYBCABKAMSDQoFdGlja3MYBSABKAQSCwoDZW5kGAYgASgJImkKD0RhdGFzZXRDb3ZlcmFnZRIpCghwcm9kdWN0cxgBIAMoCzIXLm1hcmtldC5Qcm9kdWN0Q292ZXJhZ2USKwoJY29udHJhY3RzGAIgAygLMhgubWFya2V0LkNvbnRyYWN0Q292ZXJhZ2UiSQoPUHJvZHVjdENvdmVyYWdlEg8KB3Byb2R1Y3QYASABKAkSJQoGbW9udGhzGAIgAygLMhUubWFya2V0Lk1vbnRoQ292ZXJhZ2UiPwoNTW9udGhDb3ZlcmFnZRINCgVtb250aBgBIAEoCRIMCgRkYXlzGAIgASgNEhEKCW9wZW5fZGF5cxgDIAEoDSJJChBDb250cmFjdENvdmVyYWdlEhAKCGNvbnRyYWN0GAEgASgJEiMKBm1vbnRocxgCIAMoCzITLm1hcmtldC5NaW51dGVNb250aCJBCgtNaW51dGVNb250aBINCgVtb250aBgBIAEoCRIMCgRkYXlzGAIgASgNEhUKDXJlY29yZGVkX2RheXMYAyABKA0ikwEKEE1pbnV0ZUNvbXBhcmlzb24SFwoPdHVzaGFyZV92ZXJzaW9uGAEgASgJEhgKEHJlY29yZGVyX3ZlcnNpb24YAiABKAkSDAoEZGF5cxgDIAEoDRIWCg5kaWZmZXJpbmdfZGF5cxgEIAEoDRImCglkaWZmZXJpbmcYBSADKAsyEy5tYXJrZXQuQ29tcGFyZWREYXkilwEKC0NvbXBhcmVkRGF5EhAKCGNvbnRyYWN0GAEgASgJEhMKC3RyYWRpbmdfZGF5GAIgASgJEhAKCGNvbXBhcmVkGAMgASgNEhEKCWRpZmZlcmluZxgEIAEoDRIUCgx0dXNoYXJlX29ubHkYBSABKA0SFQoNcmVjb3JkZXJfb25seRgGIAEoDRIPCgdwYXJ0aWFsGAcgASgNIj0KFEdldE1pbnV0ZURpZmZlcmVuY2VzEhAKCGNvbnRyYWN0GAEgASgJEhMKC3RyYWRpbmdfZGF5GAIgASgJIj4KEU1pbnV0ZURpZmZlcmVuY2VzEikKB21pbnV0ZXMYASADKAsyGC5tYXJrZXQuTWludXRlRGlmZmVyZW5jZSJtChBNaW51dGVEaWZmZXJlbmNlEhAKCHN0YXJ0X21zGAEgASgDEiIKB3R1c2hhcmUYAiABKAsyES5tYXJrZXQuTWludXRlQmFyEiMKCHJlY29yZGVyGAMgASgLMhEubWFya2V0Lk1pbnV0ZUJhciI+CgdTb3VyY2VzEh8KB3NvdXJjZXMYASADKAsyDi5tYXJrZXQuU291cmNlEhIKCmNhbl9tYW5hZ2UYAiABKAgiTAoGU291cmNlEhAKCHByb3ZpZGVyGAEgASgJEh0KBnRhYmxlcxgCIAMoDjINLm1hcmtldC5UYWJsZRIRCglleGNoYW5nZXMYAyADKAkiqgEKEFN0YXJ0QWNxdWlzaXRpb24SCgoCaWQYASABKAkSEAoIcHJvdmlkZXIYAiABKAkSHAoFdGFibGUYAyABKA4yDS5tYXJrZXQuVGFibGUSEQoJZmlyc3RfZGF5GAQgASgJEhAKCGxhc3RfZGF5GAUgASgJEhEKCWV4Y2hhbmdlcxgGIAMoCRIRCgljb250cmFjdHMYByADKAkSDwoHcmVmZXRjaBgIIAEoCCIUCgZUYXNrSWQSCgoCaWQYASABKAkipAIKD0FjcXVpc2l0aW9uVGFzaxIpCgdyZXF1ZXN0GAEgASgLMhgubWFya2V0LlN0YXJ0QWNxdWlzaXRpb24SIAoFc3RhdGUYAiABKA4yES5tYXJrZXQuVGFza1N0YXRlEg0KBWl0ZW1zGAMgASgEEhIKCml0ZW1zX2RvbmUYBCABKAQSEwoLaXRlbXNfZW1wdHkYBSABKAQSFQoNcmVxdWVzdHNfc2VudBgGIAEoBBIZChFwdWJsaXNoZWRfdmVyc2lvbhgHIAEoCRIcCgVlcnJvchgIIAEoCzINLmNvbW1vbi5FcnJvchISCgpzdGFydGVkX21zGAkgASgDEhgKC2ZpbmlzaGVkX21zGAogASgDSACIAQFCDgoMX2ZpbmlzaGVkX21zIjoKFExpc3RBY3F1aXNpdGlvblRhc2tzEhAKCGFmdGVyX2lkGAEgASgJEhAKCHByb3ZpZGVyGAIgASgJIksKEEFjcXVpc2l0aW9uVGFza3MSJgoFdGFza3MYASADKAsyFy5tYXJrZXQuQWNxdWlzaXRpb25UYXNrEg8KB25leHRfaWQYAiABKAkq3wEKCUZlZWRTdGF0ZRIaChZGRUVEX1NUQVRFX1VOU1BFQ0lGSUVEEAASFQoRRkVFRF9TVEFURV9OT19TREsQARIbChdGRUVEX1NUQVRFX0RJU0NPTk5FQ1RFRBACEhkKFUZFRURfU1RBVEVfQ09OTkVDVElORxADEhkKFUZFRURfU1RBVEVfTE9HR0lOR19JThAEEhgKFEZFRURfU1RBVEVfQ09OTkVDVEVEEAUSGwoXRkVFRF9TVEFURV9SRUNPTk5FQ1RJTkcQBhIVChFGRUVEX1NUQVRFX0ZBSUxFRBAHKq0BCgxDYXRhbG9nU3RhdGUSHQoZQ0FUQUxPR19TVEFURV9VTlNQRUNJRklFRBAAEhYKEkNBVEFMT0dfU1RBVEVfTk9ORRABEhkKFUNBVEFMT0dfU1RBVEVfTE9BRElORxACEhgKFENBVEFMT0dfU1RBVEVfQ0FDSEVEEAMSFwoTQ0FUQUxPR19TVEFURV9SRUFEWRAEEhgKFENBVEFMT0dfU1RBVEVfRkFJTEVEEAUqeAoMU3Vic2NyaXB0aW9uEhwKGFNVQlNDUklQVElPTl9VTlNQRUNJRklFRBAAEhgKFFNVQlNDUklQVElPTl9QRU5ESU5HEAESFwoTU1VCU0NSSVBUSU9OX0FDVElWRRACEhcKE1NVQlNDUklQVElPTl9GQUlMRUQQAyqwAQoFVGFibGUSFQoRVEFCTEVfVU5TUEVDSUZJRUQQABISCg5UQUJMRV9DQUxFTkRBUhABEhMKD1RBQkxFX0NPTlRSQUNUUxACEg8KC1RBQkxFX0RBSUxZEAMSEQoNVEFCTEVfTUlOVVRFUxAEEhQKEFRBQkxFX1NFVFRMRU1FTlQQBRIWChJUQUJMRV9PQlNFUlZBVElPTlMQBhIVChFUQUJMRV9QUklDRV9USUNLUxAHKr0BCglUYXNrU3RhdGUSGgoWVEFTS19TVEFURV9VTlNQRUNJRklFRBAAEhUKEVRBU0tfU1RBVEVfUVVFVUVEEAESFgoSVEFTS19TVEFURV9SVU5OSU5HEAISGAoUVEFTS19TVEFURV9TVUNDRUVERUQQAxIVChFUQVNLX1NUQVRFX0ZBSUxFRBAEEhgKFFRBU0tfU1RBVEVfQ0FOQ0VMTEVEEAUSGgoWVEFTS19TVEFURV9JTlRFUlJVUFRFRBAGYgZwcm90bzM", [file_asterion_common]);
+  fileDesc("ChVhc3Rlcmlvbi9tYXJrZXQucHJvdG8SBm1hcmtldCLtBgoHUmVxdWVzdBIKCgJpZBgBIAEoBBIjCgpnZXRfc3RhdHVzGAogASgLMg0uY29tbW9uLkVtcHR5SAASLQoNc3RyZWFtX3F1b3RlcxgLIAEoCzIULm1hcmtldC5TdHJlYW1RdW90ZXNIABIpCgtnZXRfbWludXRlcxgMIAEoCzISLmNvbW1vbi5JbnN0cnVtZW50SAASIgoJZ2V0X2JvYXJkGA0gASgLMg0uY29tbW9uLkVtcHR5SAASJgoNbGlzdF9kYXRhc2V0cxgUIAEoCzINLmNvbW1vbi5FbXB0eUgAEjgKE2dldF9kYXRhc2V0X3ZlcnNpb24YFSABKAsyGS5tYXJrZXQuR2V0RGF0YXNldFZlcnNpb25IABI0ChFyZWFkX2RhdGFzZXRfZmlsZRgWIAEoCzIXLm1hcmtldC5SZWFkRGF0YXNldEZpbGVIABIxChNnZXRfZGF0YXNldF9zdW1tYXJ5GBcgASgLMhIubWFya2V0LkRhdGFzZXRSZWZIABIyChRnZXRfZGF0YXNldF9jb3ZlcmFnZRgYIAEoCzISLm1hcmtldC5EYXRhc2V0UmVmSAASPAoVbGlzdF9kYXRhc2V0X3ZlcnNpb25zGBsgASgLMhsubWFya2V0Lkxpc3REYXRhc2V0VmVyc2lvbnNIABJCChhjb21wYXJlX2RhdGFzZXRfdmVyc2lvbnMYHCABKAsyHi5tYXJrZXQuQ29tcGFyZURhdGFzZXRWZXJzaW9uc0gAEi4KDmdldF90YWJsZV9yb3dzGB0gASgLMhQubWFya2V0LkdldFRhYmxlUm93c0gAEiUKDGxpc3Rfc291cmNlcxgeIAEoCzINLmNvbW1vbi5FbXB0eUgAEjUKEXN0YXJ0X2FjcXVpc2l0aW9uGB8gASgLMhgubWFya2V0LlN0YXJ0QWNxdWlzaXRpb25IABIuChRnZXRfYWNxdWlzaXRpb25fdGFzaxggIAEoCzIOLm1hcmtldC5UYXNrSWRIABI+ChZsaXN0X2FjcXVpc2l0aW9uX3Rhc2tzGCEgASgLMhwubWFya2V0Lkxpc3RBY3F1aXNpdGlvblRhc2tzSAASLAoSY2FuY2VsX2FjcXVpc2l0aW9uGCIgASgLMg4ubWFya2V0LlRhc2tJZEgAQgYKBGNhbGwikAcKCFJlc3BvbnNlEgoKAmlkGAEgASgEEh4KBWVycm9yGAIgASgLMg0uY29tbW9uLkVycm9ySAASJAoKZ2V0X3N0YXR1cxgKIAEoCzIOLm1hcmtldC5TdGF0dXNIABIrCg1zdHJlYW1fcXVvdGVzGAsgASgLMhIubWFya2V0LlF1b3RlRnJhbWVIABImCgtnZXRfbWludXRlcxgMIAEoCzIPLm1hcmtldC5NaW51dGVzSAASIgoJZ2V0X2JvYXJkGA0gASgLMg0ubWFya2V0LkJvYXJkSAASKQoNbGlzdF9kYXRhc2V0cxgUIAEoCzIQLm1hcmtldC5EYXRhc2V0c0gAEjUKE2dldF9kYXRhc2V0X3ZlcnNpb24YFSABKAsyFi5tYXJrZXQuRGF0YXNldFZlcnNpb25IABIwChFyZWFkX2RhdGFzZXRfZmlsZRgWIAEoCzITLm1hcmtldC5EYXRhc2V0RmlsZUgAEjUKE2dldF9kYXRhc2V0X3N1bW1hcnkYFyABKAsyFi5tYXJrZXQuRGF0YXNldFN1bW1hcnlIABI3ChRnZXRfZGF0YXNldF9jb3ZlcmFnZRgYIAEoCzIXLm1hcmtldC5EYXRhc2V0Q292ZXJhZ2VIABI4ChVsaXN0X2RhdGFzZXRfdmVyc2lvbnMYGyABKAsyFy5tYXJrZXQuRGF0YXNldFZlcnNpb25zSAASOQoYY29tcGFyZV9kYXRhc2V0X3ZlcnNpb25zGBwgASgLMhUubWFya2V0LkRhdGFzZXRDaGFuZ2VIABIrCg5nZXRfdGFibGVfcm93cxgdIAEoCzIRLm1hcmtldC5UYWJsZVJvd3NIABInCgxsaXN0X3NvdXJjZXMYHiABKAsyDy5tYXJrZXQuU291cmNlc0gAEjQKEXN0YXJ0X2FjcXVpc2l0aW9uGB8gASgLMhcubWFya2V0LkFjcXVpc2l0aW9uVGFza0gAEjcKFGdldF9hY3F1aXNpdGlvbl90YXNrGCAgASgLMhcubWFya2V0LkFjcXVpc2l0aW9uVGFza0gAEjoKFmxpc3RfYWNxdWlzaXRpb25fdGFza3MYISABKAsyGC5tYXJrZXQuQWNxdWlzaXRpb25UYXNrc0gAEjUKEmNhbmNlbF9hY3F1aXNpdGlvbhgiIAEoCzIXLm1hcmtldC5BY3F1aXNpdGlvblRhc2tIAEIICgZyZXN1bHQihwIKBlN0YXR1cxIPCgd2ZXJzaW9uGAEgASgJEhIKCnN0YXJ0ZWRfbXMYAiABKAMSGgoEZmVlZBgDIAEoCzIMLm1hcmtldC5GZWVkEiYKB2NhdGFsb2cYBCABKAsyFS5tYXJrZXQuQ2F0YWxvZ1N0YXR1cxISCgpzdWJzY3JpYmVkGAUgASgNEhoKDWxhc3RfcXVvdGVfbXMYBiABKANIAIgBARIbChNvdXRfb2Zfb3JkZXJfcXVvdGVzGAcgASgEEhcKD2Rpc2tfZnJlZV9ieXRlcxgIIAEoBBIcChRmYWlsZWRfc3Vic2NyaXB0aW9ucxgJIAEoDUIQCg5fbGFzdF9xdW90ZV9tcyI7CgRGZWVkEiAKBXN0YXRlGAEgASgOMhEubWFya2V0LkZlZWRTdGF0ZRIRCgljdHBfZXJyb3IYAiABKAUiWAoNQ2F0YWxvZ1N0YXR1cxIjCgVzdGF0ZRgBIAEoDjIULm1hcmtldC5DYXRhbG9nU3RhdGUSEwoLdHJhZGluZ19kYXkYAiABKAkSDQoFZXJyb3IYAyABKAkiNwoMU3RyZWFtUXVvdGVzEicKC2luc3RydW1lbnRzGAEgAygLMhIuY29tbW9uLkluc3RydW1lbnQiVgoKUXVvdGVGcmFtZRIdCgRmdWxsGAEgASgLMg0ubWFya2V0LkJvYXJkSAASIAoHY2hhbmdlZBgCIAEoCzINLm1hcmtldC5Cb2FyZEgAQgcKBWZyYW1lImUKBUJvYXJkEhoKBGZlZWQYASABKAsyDC5tYXJrZXQuRmVlZBIeCgRyb3dzGAIgAygLMhAubWFya2V0LlF1b3RlUm93EiAKB2NhdGFsb2cYAyABKAsyDy5tYXJrZXQuQ2F0YWxvZyK7AQoIUXVvdGVSb3cSJgoKaW5zdHJ1bWVudBgBIAEoCzISLmNvbW1vbi5JbnN0cnVtZW50EioKDHN1YnNjcmlwdGlvbhgCIAEoDjIULm1hcmtldC5TdWJzY3JpcHRpb24SEQoJY3RwX2Vycm9yGAMgASgFEhwKBXF1b3RlGAQgASgLMg0ubWFya2V0LlF1b3RlEioKEWNoYW5nZV8xbV9wZXJjZW50GAUgASgLMg8uY29tbW9uLkRlY2ltYWwiwgQKBVF1b3RlEh0KBGxhc3QYASABKAsyDy5jb21tb24uRGVjaW1hbBIdCgRvcGVuGAIgASgLMg8uY29tbW9uLkRlY2ltYWwSHQoEaGlnaBgDIAEoCzIPLmNvbW1vbi5EZWNpbWFsEhwKA2xvdxgEIAEoCzIPLmNvbW1vbi5EZWNpbWFsEiYKDWF2ZXJhZ2VfcHJpY2UYBSABKAsyDy5jb21tb24uRGVjaW1hbBInCg5wcmV2aW91c19jbG9zZRgGIAEoCzIPLmNvbW1vbi5EZWNpbWFsEiwKE3ByZXZpb3VzX3NldHRsZW1lbnQYByABKAsyDy5jb21tb24uRGVjaW1hbBIkCgt1cHBlcl9saW1pdBgIIAEoCzIPLmNvbW1vbi5EZWNpbWFsEiQKC2xvd2VyX2xpbWl0GAkgASgLMg8uY29tbW9uLkRlY2ltYWwSDgoGdm9sdW1lGAogASgDEiYKDW9wZW5faW50ZXJlc3QYCyABKAsyDy5jb21tb24uRGVjaW1hbBItChRvcGVuX2ludGVyZXN0X2NoYW5nZRgMIAEoCzIPLmNvbW1vbi5EZWNpbWFsEhsKBGJpZHMYDSADKAsyDS5tYXJrZXQuTGV2ZWwSGwoEYXNrcxgOIAMoCzINLm1hcmtldC5MZXZlbBITCgt0cmFkaW5nX2RheRgPIAEoCRIYCgtleGNoYW5nZV9tcxgQIAEoA0gAiAEBEhMKC3JlY2VpdmVkX21zGBEgASgDQg4KDF9leGNoYW5nZV9tcyJDCgVMZXZlbBIeCgVwcmljZRgBIAEoCzIPLmNvbW1vbi5EZWNpbWFsEhEKBGxvdHMYAiABKANIAIgBAUIHCgVfbG90cyJcCgdDYXRhbG9nEiUKBnN0YXR1cxgBIAEoCzIVLm1hcmtldC5DYXRhbG9nU3RhdHVzEioKCWNvbnRyYWN0cxgCIAMoCzIXLm1hcmtldC5DYXRhbG9nQ29udHJhY3QitwEKD0NhdGFsb2dDb250cmFjdBImCgppbnN0cnVtZW50GAEgASgLMhIuY29tbW9uLkluc3RydW1lbnQSEAoIY29udHJhY3QYAiABKAkSDwoHcHJvZHVjdBgDIAEoCRIMCgRuYW1lGAQgASgJEhIKCmV4cGlyeV9kYXkYBSABKAkSEgoKbXVsdGlwbGllchgGIAEoBRIjCgpwcmljZV90aWNrGAcgASgLMg8uY29tbW9uLkRlY2ltYWwi3gEKB01pbnV0ZXMSJgoKaW5zdHJ1bWVudBgBIAEoCzISLmNvbW1vbi5JbnN0cnVtZW50EhMKC3RyYWRpbmdfZGF5GAIgASgJEiwKE3ByZXZpb3VzX3NldHRsZW1lbnQYAyABKAsyDy5jb21tb24uRGVjaW1hbBIdChBvYnNlcnZlZF9mcm9tX21zGAQgASgDSACIAQESEwoLaW50ZXJydXB0ZWQYBSABKAgSHwoEYmFycxgGIAMoCzIRLm1hcmtldC5NaW51dGVCYXJCEwoRX29ic2VydmVkX2Zyb21fbXMiigIKCU1pbnV0ZUJhchIQCghzdGFydF9tcxgBIAEoAxIdCgRvcGVuGAIgASgLMg8uY29tbW9uLkRlY2ltYWwSHQoEaGlnaBgDIAEoCzIPLmNvbW1vbi5EZWNpbWFsEhwKA2xvdxgEIAEoCzIPLmNvbW1vbi5EZWNpbWFsEh4KBWNsb3NlGAUgASgLMg8uY29tbW9uLkRlY2ltYWwSDgoGdm9sdW1lGAYgASgDEiYKDWF2ZXJhZ2VfcHJpY2UYByABKAsyDy5jb21tb24uRGVjaW1hbBImCg1vcGVuX2ludGVyZXN0GAggASgLMg8uY29tbW9uLkRlY2ltYWwSDwoHcGFydGlhbBgJIAEoCCIvCgpEYXRhc2V0UmVmEhAKCHByb3ZpZGVyGAEgASgJEg8KB3ZlcnNpb24YAiABKAkiLQoIRGF0YXNldHMSIQoIZGF0YXNldHMYASADKAsyDy5tYXJrZXQuRGF0YXNldCJACgdEYXRhc2V0EhAKCHByb3ZpZGVyGAEgASgJEg8KB3ZlcnNpb24YAiABKAkSEgoKY3JlYXRlZF9tcxgDIAEoAyJ7ChFHZXREYXRhc2V0VmVyc2lvbhIjCgdkYXRhc2V0GAEgASgLMhIubWFya2V0LkRhdGFzZXRSZWYSHAoFdGFibGUYAiABKA4yDS5tYXJrZXQuVGFibGUSEAoIZXhjaGFuZ2UYAyABKAkSEQoJYWZ0ZXJfa2V5GAQgASgJInsKDkRhdGFzZXRWZXJzaW9uEiAKB2RhdGFzZXQYASABKAsyDy5tYXJrZXQuRGF0YXNldBIOCgZwYXJlbnQYAiABKAkSJQoKcGFydGl0aW9ucxgDIAMoCzIRLm1hcmtldC5QYXJ0aXRpb24SEAoIbmV4dF9rZXkYBCABKAkidgoJUGFydGl0aW9uEgsKA2tleRgBIAEoCRIcCgV0YWJsZRgCIAEoDjINLm1hcmtldC5UYWJsZRIOCgZzaGEyNTYYAyABKAkSDAoEcm93cxgEIAEoBBIMCgRkYXlzGAUgAygJEhIKCnRha2VuX2Zyb20YBiABKAkiUwoPUmVhZERhdGFzZXRGaWxlEiMKB2RhdGFzZXQYASABKAsyEi5tYXJrZXQuRGF0YXNldFJlZhILCgNrZXkYAiABKAkSDgoGb2Zmc2V0GAMgASgEIkkKC0RhdGFzZXRGaWxlEg4KBnNoYTI1NhgBIAEoCRIMCgRzaXplGAIgASgEEg4KBm9mZnNldBgDIAEoBBIMCgRkYXRhGAQgASgMIlgKDkRhdGFzZXRTdW1tYXJ5EiAKB2RhdGFzZXQYASABKAsyDy5tYXJrZXQuRGF0YXNldBIkCgZ0YWJsZXMYAiADKAsyFC5tYXJrZXQuVGFibGVTdW1tYXJ5InMKDFRhYmxlU3VtbWFyeRIcCgV0YWJsZRgBIAEoDjINLm1hcmtldC5UYWJsZRISCgpwYXJ0aXRpb25zGAIgASgEEgwKBHJvd3MYAyABKAQSEQoJZmlyc3RfZGF5GAQgASgJEhAKCGxhc3RfZGF5GAUgASgJIj4KE0xpc3REYXRhc2V0VmVyc2lvbnMSEAoIcHJvdmlkZXIYASABKAkSFQoNYWZ0ZXJfdmVyc2lvbhgCIAEoCSJQCg9EYXRhc2V0VmVyc2lvbnMSJwoIdmVyc2lvbnMYASADKAsyFS5tYXJrZXQuRGF0YXNldENoYW5nZRIUCgxuZXh0X3ZlcnNpb24YAiABKAkiSQoWQ29tcGFyZURhdGFzZXRWZXJzaW9ucxIQCghwcm92aWRlchgBIAEoCRIPCgd2ZXJzaW9uGAIgASgJEgwKBGJhc2UYAyABKAkicQoNRGF0YXNldENoYW5nZRIgCgdkYXRhc2V0GAEgASgLMg8ubWFya2V0LkRhdGFzZXQSDAoEYmFzZRgCIAEoCRINCgVhZGRlZBgDIAEoDRIQCghyZXBsYWNlZBgEIAEoDRIPCgdyZW1vdmVkGAUgASgNIpgBCgxHZXRUYWJsZVJvd3MSIwoHZGF0YXNldBgBIAEoCzISLm1hcmtldC5EYXRhc2V0UmVmEhwKBXRhYmxlGAIgASgOMg0ubWFya2V0LlRhYmxlEhAKCGV4Y2hhbmdlGAMgASgJEhEKCWZpcnN0X2RheRgEIAEoCRIQCghsYXN0X2RheRgFIAEoCRIOCgZvZmZzZXQYBiABKA0iSwoJVGFibGVSb3dzEg8KB2NvbHVtbnMYASADKAkSHgoEcm93cxgCIAMoCzIQLm1hcmtldC5UYWJsZVJvdxINCgV0b3RhbBgDIAEoDSIaCghUYWJsZVJvdxIOCgZ2YWx1ZXMYASADKAkiaQoPRGF0YXNldENvdmVyYWdlEikKCHByb2R1Y3RzGAEgAygLMhcubWFya2V0LlByb2R1Y3RDb3ZlcmFnZRIrCgljb250cmFjdHMYAiADKAsyGC5tYXJrZXQuQ29udHJhY3RDb3ZlcmFnZSJJCg9Qcm9kdWN0Q292ZXJhZ2USDwoHcHJvZHVjdBgBIAEoCRIlCgZtb250aHMYAiADKAsyFS5tYXJrZXQuTW9udGhDb3ZlcmFnZSI/Cg1Nb250aENvdmVyYWdlEg0KBW1vbnRoGAEgASgJEgwKBGRheXMYAiABKA0SEQoJb3Blbl9kYXlzGAMgASgNIkkKEENvbnRyYWN0Q292ZXJhZ2USEAoIY29udHJhY3QYASABKAkSIwoGbW9udGhzGAIgAygLMhMubWFya2V0Lk1pbnV0ZU1vbnRoIioKC01pbnV0ZU1vbnRoEg0KBW1vbnRoGAEgASgJEgwKBGRheXMYAiABKA0iPgoHU291cmNlcxIfCgdzb3VyY2VzGAEgAygLMg4ubWFya2V0LlNvdXJjZRISCgpjYW5fbWFuYWdlGAIgASgIIkwKBlNvdXJjZRIQCghwcm92aWRlchgBIAEoCRIdCgZ0YWJsZXMYAiADKA4yDS5tYXJrZXQuVGFibGUSEQoJZXhjaGFuZ2VzGAMgAygJIqoBChBTdGFydEFjcXVpc2l0aW9uEgoKAmlkGAEgASgJEhAKCHByb3ZpZGVyGAIgASgJEhwKBXRhYmxlGAMgASgOMg0ubWFya2V0LlRhYmxlEhEKCWZpcnN0X2RheRgEIAEoCRIQCghsYXN0X2RheRgFIAEoCRIRCglleGNoYW5nZXMYBiADKAkSEQoJY29udHJhY3RzGAcgAygJEg8KB3JlZmV0Y2gYCCABKAgiFAoGVGFza0lkEgoKAmlkGAEgASgJIqQCCg9BY3F1aXNpdGlvblRhc2sSKQoHcmVxdWVzdBgBIAEoCzIYLm1hcmtldC5TdGFydEFjcXVpc2l0aW9uEiAKBXN0YXRlGAIgASgOMhEubWFya2V0LlRhc2tTdGF0ZRINCgVpdGVtcxgDIAEoBBISCgppdGVtc19kb25lGAQgASgEEhMKC2l0ZW1zX2VtcHR5GAUgASgEEhUKDXJlcXVlc3RzX3NlbnQYBiABKAQSGQoRcHVibGlzaGVkX3ZlcnNpb24YByABKAkSHAoFZXJyb3IYCCABKAsyDS5jb21tb24uRXJyb3ISEgoKc3RhcnRlZF9tcxgJIAEoAxIYCgtmaW5pc2hlZF9tcxgKIAEoA0gAiAEBQg4KDF9maW5pc2hlZF9tcyI6ChRMaXN0QWNxdWlzaXRpb25UYXNrcxIQCghhZnRlcl9pZBgBIAEoCRIQCghwcm92aWRlchgCIAEoCSJLChBBY3F1aXNpdGlvblRhc2tzEiYKBXRhc2tzGAEgAygLMhcubWFya2V0LkFjcXVpc2l0aW9uVGFzaxIPCgduZXh0X2lkGAIgASgJKt8BCglGZWVkU3RhdGUSGgoWRkVFRF9TVEFURV9VTlNQRUNJRklFRBAAEhUKEUZFRURfU1RBVEVfTk9fU0RLEAESGwoXRkVFRF9TVEFURV9ESVNDT05ORUNURUQQAhIZChVGRUVEX1NUQVRFX0NPTk5FQ1RJTkcQAxIZChVGRUVEX1NUQVRFX0xPR0dJTkdfSU4QBBIYChRGRUVEX1NUQVRFX0NPTk5FQ1RFRBAFEhsKF0ZFRURfU1RBVEVfUkVDT05ORUNUSU5HEAYSFQoRRkVFRF9TVEFURV9GQUlMRUQQByqtAQoMQ2F0YWxvZ1N0YXRlEh0KGUNBVEFMT0dfU1RBVEVfVU5TUEVDSUZJRUQQABIWChJDQVRBTE9HX1NUQVRFX05PTkUQARIZChVDQVRBTE9HX1NUQVRFX0xPQURJTkcQAhIYChRDQVRBTE9HX1NUQVRFX0NBQ0hFRBADEhcKE0NBVEFMT0dfU1RBVEVfUkVBRFkQBBIYChRDQVRBTE9HX1NUQVRFX0ZBSUxFRBAFKngKDFN1YnNjcmlwdGlvbhIcChhTVUJTQ1JJUFRJT05fVU5TUEVDSUZJRUQQABIYChRTVUJTQ1JJUFRJT05fUEVORElORxABEhcKE1NVQlNDUklQVElPTl9BQ1RJVkUQAhIXChNTVUJTQ1JJUFRJT05fRkFJTEVEEAMqmAEKBVRhYmxlEhUKEVRBQkxFX1VOU1BFQ0lGSUVEEAASEgoOVEFCTEVfQ0FMRU5EQVIQARITCg9UQUJMRV9DT05UUkFDVFMQAhIPCgtUQUJMRV9EQUlMWRADEhEKDVRBQkxFX01JTlVURVMQBBIUChBUQUJMRV9TRVRUTEVNRU5UEAUSFQoRVEFCTEVfUFJJQ0VfVElDS1MQBiq9AQoJVGFza1N0YXRlEhoKFlRBU0tfU1RBVEVfVU5TUEVDSUZJRUQQABIVChFUQVNLX1NUQVRFX1FVRVVFRBABEhYKElRBU0tfU1RBVEVfUlVOTklORxACEhgKFFRBU0tfU1RBVEVfU1VDQ0VFREVEEAMSFQoRVEFTS19TVEFURV9GQUlMRUQQBBIYChRUQVNLX1NUQVRFX0NBTkNFTExFRBAFEhoKFlRBU0tfU1RBVEVfSU5URVJSVVBURUQQBmIGcHJvdG8z", [file_asterion_common]);
 
 /**
  * @generated from message market.Request
@@ -52,12 +52,6 @@ export type Request = Message<"market.Request"> & {
     case: "getBoard";
   } | {
     /**
-     * @generated from field: market.ListRecordedDays list_recorded_days = 14;
-     */
-    value: ListRecordedDays;
-    case: "listRecordedDays";
-  } | {
-    /**
      * @generated from field: common.Empty list_datasets = 20;
      */
     value: Empty;
@@ -86,18 +80,6 @@ export type Request = Message<"market.Request"> & {
      */
     value: DatasetRef;
     case: "getDatasetCoverage";
-  } | {
-    /**
-     * @generated from field: common.Empty compare_minutes = 25;
-     */
-    value: Empty;
-    case: "compareMinutes";
-  } | {
-    /**
-     * @generated from field: market.GetMinuteDifferences get_minute_differences = 26;
-     */
-    value: GetMinuteDifferences;
-    case: "getMinuteDifferences";
   } | {
     /**
      * @generated from field: market.ListDatasetVersions list_dataset_versions = 27;
@@ -200,12 +182,6 @@ export type Response = Message<"market.Response"> & {
     case: "getBoard";
   } | {
     /**
-     * @generated from field: market.RecordedDays list_recorded_days = 14;
-     */
-    value: RecordedDays;
-    case: "listRecordedDays";
-  } | {
-    /**
      * @generated from field: market.Datasets list_datasets = 20;
      */
     value: Datasets;
@@ -234,18 +210,6 @@ export type Response = Message<"market.Response"> & {
      */
     value: DatasetCoverage;
     case: "getDatasetCoverage";
-  } | {
-    /**
-     * @generated from field: market.MinuteComparison compare_minutes = 25;
-     */
-    value: MinuteComparison;
-    case: "compareMinutes";
-  } | {
-    /**
-     * @generated from field: market.MinuteDifferences get_minute_differences = 26;
-     */
-    value: MinuteDifferences;
-    case: "getMinuteDifferences";
   } | {
     /**
      * @generated from field: market.DatasetVersions list_dataset_versions = 27;
@@ -344,9 +308,9 @@ export type Status = Message<"market.Status"> & {
   outOfOrderQuotes: bigint;
 
   /**
-   * @generated from field: market.Recording recording = 8;
+   * @generated from field: uint64 disk_free_bytes = 8;
    */
-  recording?: Recording | undefined;
+  diskFreeBytes: bigint;
 
   /**
    * Listed contracts the provider refused to subscribe; retried every few minutes.
@@ -413,70 +377,6 @@ export const CatalogStatusSchema: GenMessage<CatalogStatus> = /*@__PURE__*/
   messageDesc(file_asterion_market, 4);
 
 /**
- * What this Market process has written since it started.
- *
- * @generated from message market.Recording
- */
-export type Recording = Message<"market.Recording"> & {
-  /**
-   * @generated from field: string trading_day = 1;
-   */
-  tradingDay: string;
-
-  /**
-   * @generated from field: uint64 rows = 2;
-   */
-  rows: bigint;
-
-  /**
-   * @generated from field: uint64 files = 3;
-   */
-  files: bigint;
-
-  /**
-   * @generated from field: uint64 bytes = 4;
-   */
-  bytes: bigint;
-
-  /**
-   * @generated from field: uint64 lost_rows = 5;
-   */
-  lostRows: bigint;
-
-  /**
-   * @generated from field: optional int64 written_ms = 6;
-   */
-  writtenMs?: bigint | undefined;
-
-  /**
-   * @generated from field: uint64 disk_free_bytes = 7;
-   */
-  diskFreeBytes: bigint;
-
-  /**
-   * @generated from field: string write_error = 8;
-   */
-  writeError: string;
-
-  /**
-   * @generated from field: string merging_day = 9;
-   */
-  mergingDay: string;
-
-  /**
-   * @generated from field: string merge_error = 10;
-   */
-  mergeError: string;
-};
-
-/**
- * Describes the message market.Recording.
- * Use `create(RecordingSchema)` to create a new message.
- */
-export const RecordingSchema: GenMessage<Recording> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 5);
-
-/**
  * No instruments streams every contract.
  *
  * @generated from message market.StreamQuotes
@@ -493,7 +393,7 @@ export type StreamQuotes = Message<"market.StreamQuotes"> & {
  * Use `create(StreamQuotesSchema)` to create a new message.
  */
 export const StreamQuotesSchema: GenMessage<StreamQuotes> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 6);
+  messageDesc(file_asterion_market, 5);
 
 /**
  * The first frame is full; a later frame is full again or holds changes.
@@ -524,7 +424,7 @@ export type QuoteFrame = Message<"market.QuoteFrame"> & {
  * Use `create(QuoteFrameSchema)` to create a new message.
  */
 export const QuoteFrameSchema: GenMessage<QuoteFrame> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 7);
+  messageDesc(file_asterion_market, 6);
 
 /**
  * In a changed frame, rows replace the rows of the same instrument and a
@@ -554,7 +454,7 @@ export type Board = Message<"market.Board"> & {
  * Use `create(BoardSchema)` to create a new message.
  */
 export const BoardSchema: GenMessage<Board> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 8);
+  messageDesc(file_asterion_market, 7);
 
 /**
  * @generated from message market.QuoteRow
@@ -591,7 +491,7 @@ export type QuoteRow = Message<"market.QuoteRow"> & {
  * Use `create(QuoteRowSchema)` to create a new message.
  */
 export const QuoteRowSchema: GenMessage<QuoteRow> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 9);
+  messageDesc(file_asterion_market, 8);
 
 /**
  * @generated from message market.Quote
@@ -690,7 +590,7 @@ export type Quote = Message<"market.Quote"> & {
  * Use `create(QuoteSchema)` to create a new message.
  */
 export const QuoteSchema: GenMessage<Quote> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 10);
+  messageDesc(file_asterion_market, 9);
 
 /**
  * @generated from message market.Level
@@ -712,7 +612,7 @@ export type Level = Message<"market.Level"> & {
  * Use `create(LevelSchema)` to create a new message.
  */
 export const LevelSchema: GenMessage<Level> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 11);
+  messageDesc(file_asterion_market, 10);
 
 /**
  * @generated from message market.Catalog
@@ -734,7 +634,7 @@ export type Catalog = Message<"market.Catalog"> & {
  * Use `create(CatalogSchema)` to create a new message.
  */
 export const CatalogSchema: GenMessage<Catalog> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 12);
+  messageDesc(file_asterion_market, 11);
 
 /**
  * @generated from message market.CatalogContract
@@ -781,7 +681,7 @@ export type CatalogContract = Message<"market.CatalogContract"> & {
  * Use `create(CatalogContractSchema)` to create a new message.
  */
 export const CatalogContractSchema: GenMessage<CatalogContract> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 13);
+  messageDesc(file_asterion_market, 12);
 
 /**
  * @generated from message market.Minutes
@@ -823,7 +723,7 @@ export type Minutes = Message<"market.Minutes"> & {
  * Use `create(MinutesSchema)` to create a new message.
  */
 export const MinutesSchema: GenMessage<Minutes> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 14);
+  messageDesc(file_asterion_market, 13);
 
 /**
  * @generated from message market.MinuteBar
@@ -880,7 +780,7 @@ export type MinuteBar = Message<"market.MinuteBar"> & {
  * Use `create(MinuteBarSchema)` to create a new message.
  */
 export const MinuteBarSchema: GenMessage<MinuteBar> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 15);
+  messageDesc(file_asterion_market, 14);
 
 /**
  * An empty version names the provider's current version.
@@ -904,7 +804,7 @@ export type DatasetRef = Message<"market.DatasetRef"> & {
  * Use `create(DatasetRefSchema)` to create a new message.
  */
 export const DatasetRefSchema: GenMessage<DatasetRef> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 16);
+  messageDesc(file_asterion_market, 15);
 
 /**
  * @generated from message market.Datasets
@@ -921,7 +821,7 @@ export type Datasets = Message<"market.Datasets"> & {
  * Use `create(DatasetsSchema)` to create a new message.
  */
 export const DatasetsSchema: GenMessage<Datasets> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 17);
+  messageDesc(file_asterion_market, 16);
 
 /**
  * @generated from message market.Dataset
@@ -948,7 +848,7 @@ export type Dataset = Message<"market.Dataset"> & {
  * Use `create(DatasetSchema)` to create a new message.
  */
 export const DatasetSchema: GenMessage<Dataset> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 18);
+  messageDesc(file_asterion_market, 17);
 
 /**
  * @generated from message market.GetDatasetVersion
@@ -980,7 +880,7 @@ export type GetDatasetVersion = Message<"market.GetDatasetVersion"> & {
  * Use `create(GetDatasetVersionSchema)` to create a new message.
  */
 export const GetDatasetVersionSchema: GenMessage<GetDatasetVersion> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 19);
+  messageDesc(file_asterion_market, 18);
 
 /**
  * @generated from message market.DatasetVersion
@@ -1012,7 +912,7 @@ export type DatasetVersion = Message<"market.DatasetVersion"> & {
  * Use `create(DatasetVersionSchema)` to create a new message.
  */
 export const DatasetVersionSchema: GenMessage<DatasetVersion> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 20);
+  messageDesc(file_asterion_market, 19);
 
 /**
  * @generated from message market.Partition
@@ -1056,7 +956,7 @@ export type Partition = Message<"market.Partition"> & {
  * Use `create(PartitionSchema)` to create a new message.
  */
 export const PartitionSchema: GenMessage<Partition> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 21);
+  messageDesc(file_asterion_market, 20);
 
 /**
  * @generated from message market.ReadDatasetFile
@@ -1083,7 +983,7 @@ export type ReadDatasetFile = Message<"market.ReadDatasetFile"> & {
  * Use `create(ReadDatasetFileSchema)` to create a new message.
  */
 export const ReadDatasetFileSchema: GenMessage<ReadDatasetFile> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 22);
+  messageDesc(file_asterion_market, 21);
 
 /**
  * @generated from message market.DatasetFile
@@ -1115,7 +1015,7 @@ export type DatasetFile = Message<"market.DatasetFile"> & {
  * Use `create(DatasetFileSchema)` to create a new message.
  */
 export const DatasetFileSchema: GenMessage<DatasetFile> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 23);
+  messageDesc(file_asterion_market, 22);
 
 /**
  * @generated from message market.DatasetSummary
@@ -1137,7 +1037,7 @@ export type DatasetSummary = Message<"market.DatasetSummary"> & {
  * Use `create(DatasetSummarySchema)` to create a new message.
  */
 export const DatasetSummarySchema: GenMessage<DatasetSummary> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 24);
+  messageDesc(file_asterion_market, 23);
 
 /**
  * @generated from message market.TableSummary
@@ -1174,7 +1074,7 @@ export type TableSummary = Message<"market.TableSummary"> & {
  * Use `create(TableSummarySchema)` to create a new message.
  */
 export const TableSummarySchema: GenMessage<TableSummary> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 25);
+  messageDesc(file_asterion_market, 24);
 
 /**
  * A source's versions, newest first: from the current one, or after
@@ -1199,7 +1099,7 @@ export type ListDatasetVersions = Message<"market.ListDatasetVersions"> & {
  * Use `create(ListDatasetVersionsSchema)` to create a new message.
  */
 export const ListDatasetVersionsSchema: GenMessage<ListDatasetVersions> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 26);
+  messageDesc(file_asterion_market, 25);
 
 /**
  * @generated from message market.DatasetVersions
@@ -1225,7 +1125,7 @@ export type DatasetVersions = Message<"market.DatasetVersions"> & {
  * Use `create(DatasetVersionsSchema)` to create a new message.
  */
 export const DatasetVersionsSchema: GenMessage<DatasetVersions> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 27);
+  messageDesc(file_asterion_market, 26);
 
 /**
  * @generated from message market.CompareDatasetVersions
@@ -1252,7 +1152,7 @@ export type CompareDatasetVersions = Message<"market.CompareDatasetVersions"> & 
  * Use `create(CompareDatasetVersionsSchema)` to create a new message.
  */
 export const CompareDatasetVersionsSchema: GenMessage<CompareDatasetVersions> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 28);
+  messageDesc(file_asterion_market, 27);
 
 /**
  * The partitions `dataset` adds to `base`, replaces in it and removes from it.
@@ -1293,7 +1193,7 @@ export type DatasetChange = Message<"market.DatasetChange"> & {
  * Use `create(DatasetChangeSchema)` to create a new message.
  */
 export const DatasetChangeSchema: GenMessage<DatasetChange> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 29);
+  messageDesc(file_asterion_market, 28);
 
 /**
  * A page of a reference table of one exchange, limited to the days given;
@@ -1338,7 +1238,7 @@ export type GetTableRows = Message<"market.GetTableRows"> & {
  * Use `create(GetTableRowsSchema)` to create a new message.
  */
 export const GetTableRowsSchema: GenMessage<GetTableRows> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 30);
+  messageDesc(file_asterion_market, 29);
 
 /**
  * @generated from message market.TableRows
@@ -1367,7 +1267,7 @@ export type TableRows = Message<"market.TableRows"> & {
  * Use `create(TableRowsSchema)` to create a new message.
  */
 export const TableRowsSchema: GenMessage<TableRows> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 31);
+  messageDesc(file_asterion_market, 30);
 
 /**
  * @generated from message market.TableRow
@@ -1384,118 +1284,7 @@ export type TableRow = Message<"market.TableRow"> & {
  * Use `create(TableRowSchema)` to create a new message.
  */
 export const TableRowSchema: GenMessage<TableRow> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 32);
-
-/**
- * The recorder's observation segments, per trading day, from its archive.
- *
- * @generated from message market.ListRecordedDays
- */
-export type ListRecordedDays = Message<"market.ListRecordedDays"> & {
-  /**
-   * @generated from field: string first_day = 1;
-   */
-  firstDay: string;
-
-  /**
-   * @generated from field: string last_day = 2;
-   */
-  lastDay: string;
-};
-
-/**
- * Describes the message market.ListRecordedDays.
- * Use `create(ListRecordedDaysSchema)` to create a new message.
- */
-export const ListRecordedDaysSchema: GenMessage<ListRecordedDays> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 33);
-
-/**
- * @generated from message market.RecordedDays
- */
-export type RecordedDays = Message<"market.RecordedDays"> & {
-  /**
-   * @generated from field: repeated market.RecordedDay days = 1;
-   */
-  days: RecordedDay[];
-};
-
-/**
- * Describes the message market.RecordedDays.
- * Use `create(RecordedDaysSchema)` to create a new message.
- */
-export const RecordedDaysSchema: GenMessage<RecordedDays> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 34);
-
-/**
- * @generated from message market.RecordedDay
- */
-export type RecordedDay = Message<"market.RecordedDay"> & {
-  /**
-   * @generated from field: string trading_day = 1;
-   */
-  tradingDay: string;
-
-  /**
-   * In the order they started; the time between two is a gap.
-   *
-   * @generated from field: repeated market.ObservedSegment segments = 2;
-   */
-  segments: ObservedSegment[];
-};
-
-/**
- * Describes the message market.RecordedDay.
- * Use `create(RecordedDaySchema)` to create a new message.
- */
-export const RecordedDaySchema: GenMessage<RecordedDay> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 35);
-
-/**
- * One stretch of uninterrupted observation by one Market process.
- *
- * @generated from message market.ObservedSegment
- */
-export type ObservedSegment = Message<"market.ObservedSegment"> & {
-  /**
-   * @generated from field: string instance = 1;
-   */
-  instance: string;
-
-  /**
-   * @generated from field: uint64 number = 2;
-   */
-  number: bigint;
-
-  /**
-   * @generated from field: int64 first_received_ms = 3;
-   */
-  firstReceivedMs: bigint;
-
-  /**
-   * @generated from field: int64 last_received_ms = 4;
-   */
-  lastReceivedMs: bigint;
-
-  /**
-   * @generated from field: uint64 ticks = 5;
-   */
-  ticks: bigint;
-
-  /**
-   * Why observation stopped; empty when the process stopped before it could say.
-   *
-   * @generated from field: string end = 6;
-   */
-  end: string;
-};
-
-/**
- * Describes the message market.ObservedSegment.
- * Use `create(ObservedSegmentSchema)` to create a new message.
- */
-export const ObservedSegmentSchema: GenMessage<ObservedSegment> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 36);
+  messageDesc(file_asterion_market, 31);
 
 /**
  * @generated from message market.DatasetCoverage
@@ -1521,7 +1310,7 @@ export type DatasetCoverage = Message<"market.DatasetCoverage"> & {
  * Use `create(DatasetCoverageSchema)` to create a new message.
  */
 export const DatasetCoverageSchema: GenMessage<DatasetCoverage> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 37);
+  messageDesc(file_asterion_market, 32);
 
 /**
  * @generated from message market.ProductCoverage
@@ -1543,7 +1332,7 @@ export type ProductCoverage = Message<"market.ProductCoverage"> & {
  * Use `create(ProductCoverageSchema)` to create a new message.
  */
 export const ProductCoverageSchema: GenMessage<ProductCoverage> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 38);
+  messageDesc(file_asterion_market, 33);
 
 /**
  * @generated from message market.MonthCoverage
@@ -1570,7 +1359,7 @@ export type MonthCoverage = Message<"market.MonthCoverage"> & {
  * Use `create(MonthCoverageSchema)` to create a new message.
  */
 export const MonthCoverageSchema: GenMessage<MonthCoverage> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 39);
+  messageDesc(file_asterion_market, 34);
 
 /**
  * @generated from message market.ContractCoverage
@@ -1594,7 +1383,7 @@ export type ContractCoverage = Message<"market.ContractCoverage"> & {
  * Use `create(ContractCoverageSchema)` to create a new message.
  */
 export const ContractCoverageSchema: GenMessage<ContractCoverage> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 40);
+  messageDesc(file_asterion_market, 35);
 
 /**
  * Trading days with minutes in one month.
@@ -1611,13 +1400,6 @@ export type MinuteMonth = Message<"market.MinuteMonth"> & {
    * @generated from field: uint32 days = 2;
    */
   days: number;
-
-  /**
-   * In the research dataset: the days taken from the recorder.
-   *
-   * @generated from field: uint32 recorded_days = 3;
-   */
-  recordedDays: number;
 };
 
 /**
@@ -1625,161 +1407,7 @@ export type MinuteMonth = Message<"market.MinuteMonth"> & {
  * Use `create(MinuteMonthSchema)` to create a new message.
  */
 export const MinuteMonthSchema: GenMessage<MinuteMonth> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 41);
-
-/**
- * Tushare and recorded minutes, both from their current versions.
- *
- * @generated from message market.MinuteComparison
- */
-export type MinuteComparison = Message<"market.MinuteComparison"> & {
-  /**
-   * @generated from field: string tushare_version = 1;
-   */
-  tushareVersion: string;
-
-  /**
-   * @generated from field: string recorder_version = 2;
-   */
-  recorderVersion: string;
-
-  /**
-   * @generated from field: uint32 days = 3;
-   */
-  days: number;
-
-  /**
-   * @generated from field: uint32 differing_days = 4;
-   */
-  differingDays: number;
-
-  /**
-   * The latest 500.
-   *
-   * @generated from field: repeated market.ComparedDay differing = 5;
-   */
-  differing: ComparedDay[];
-};
-
-/**
- * Describes the message market.MinuteComparison.
- * Use `create(MinuteComparisonSchema)` to create a new message.
- */
-export const MinuteComparisonSchema: GenMessage<MinuteComparison> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 42);
-
-/**
- * @generated from message market.ComparedDay
- */
-export type ComparedDay = Message<"market.ComparedDay"> & {
-  /**
-   * @generated from field: string contract = 1;
-   */
-  contract: string;
-
-  /**
-   * @generated from field: string trading_day = 2;
-   */
-  tradingDay: string;
-
-  /**
-   * @generated from field: uint32 compared = 3;
-   */
-  compared: number;
-
-  /**
-   * @generated from field: uint32 differing = 4;
-   */
-  differing: number;
-
-  /**
-   * @generated from field: uint32 tushare_only = 5;
-   */
-  tushareOnly: number;
-
-  /**
-   * @generated from field: uint32 recorder_only = 6;
-   */
-  recorderOnly: number;
-
-  /**
-   * @generated from field: uint32 partial = 7;
-   */
-  partial: number;
-};
-
-/**
- * Describes the message market.ComparedDay.
- * Use `create(ComparedDaySchema)` to create a new message.
- */
-export const ComparedDaySchema: GenMessage<ComparedDay> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 43);
-
-/**
- * @generated from message market.GetMinuteDifferences
- */
-export type GetMinuteDifferences = Message<"market.GetMinuteDifferences"> & {
-  /**
-   * @generated from field: string contract = 1;
-   */
-  contract: string;
-
-  /**
-   * @generated from field: string trading_day = 2;
-   */
-  tradingDay: string;
-};
-
-/**
- * Describes the message market.GetMinuteDifferences.
- * Use `create(GetMinuteDifferencesSchema)` to create a new message.
- */
-export const GetMinuteDifferencesSchema: GenMessage<GetMinuteDifferences> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 44);
-
-/**
- * @generated from message market.MinuteDifferences
- */
-export type MinuteDifferences = Message<"market.MinuteDifferences"> & {
-  /**
-   * @generated from field: repeated market.MinuteDifference minutes = 1;
-   */
-  minutes: MinuteDifference[];
-};
-
-/**
- * Describes the message market.MinuteDifferences.
- * Use `create(MinuteDifferencesSchema)` to create a new message.
- */
-export const MinuteDifferencesSchema: GenMessage<MinuteDifferences> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 45);
-
-/**
- * @generated from message market.MinuteDifference
- */
-export type MinuteDifference = Message<"market.MinuteDifference"> & {
-  /**
-   * @generated from field: int64 start_ms = 1;
-   */
-  startMs: bigint;
-
-  /**
-   * @generated from field: market.MinuteBar tushare = 2;
-   */
-  tushare?: MinuteBar | undefined;
-
-  /**
-   * @generated from field: market.MinuteBar recorder = 3;
-   */
-  recorder?: MinuteBar | undefined;
-};
-
-/**
- * Describes the message market.MinuteDifference.
- * Use `create(MinuteDifferenceSchema)` to create a new message.
- */
-export const MinuteDifferenceSchema: GenMessage<MinuteDifference> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 46);
+  messageDesc(file_asterion_market, 36);
 
 /**
  * @generated from message market.Sources
@@ -1801,7 +1429,7 @@ export type Sources = Message<"market.Sources"> & {
  * Use `create(SourcesSchema)` to create a new message.
  */
 export const SourcesSchema: GenMessage<Sources> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 47);
+  messageDesc(file_asterion_market, 37);
 
 /**
  * @generated from message market.Source
@@ -1828,7 +1456,7 @@ export type Source = Message<"market.Source"> & {
  * Use `create(SourceSchema)` to create a new message.
  */
 export const SourceSchema: GenMessage<Source> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 48);
+  messageDesc(file_asterion_market, 38);
 
 /**
  * The client chooses the id. No exchanges means all of the source's.
@@ -1886,7 +1514,7 @@ export type StartAcquisition = Message<"market.StartAcquisition"> & {
  * Use `create(StartAcquisitionSchema)` to create a new message.
  */
 export const StartAcquisitionSchema: GenMessage<StartAcquisition> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 49);
+  messageDesc(file_asterion_market, 39);
 
 /**
  * @generated from message market.TaskId
@@ -1903,7 +1531,7 @@ export type TaskId = Message<"market.TaskId"> & {
  * Use `create(TaskIdSchema)` to create a new message.
  */
 export const TaskIdSchema: GenMessage<TaskId> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 50);
+  messageDesc(file_asterion_market, 40);
 
 /**
  * Items are exchange-days, or contract-days for minutes.
@@ -1967,7 +1595,7 @@ export type AcquisitionTask = Message<"market.AcquisitionTask"> & {
  * Use `create(AcquisitionTaskSchema)` to create a new message.
  */
 export const AcquisitionTaskSchema: GenMessage<AcquisitionTask> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 51);
+  messageDesc(file_asterion_market, 41);
 
 /**
  * Newest first; 20 a page.
@@ -1993,7 +1621,7 @@ export type ListAcquisitionTasks = Message<"market.ListAcquisitionTasks"> & {
  * Use `create(ListAcquisitionTasksSchema)` to create a new message.
  */
 export const ListAcquisitionTasksSchema: GenMessage<ListAcquisitionTasks> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 52);
+  messageDesc(file_asterion_market, 42);
 
 /**
  * @generated from message market.AcquisitionTasks
@@ -2017,7 +1645,7 @@ export type AcquisitionTasks = Message<"market.AcquisitionTasks"> & {
  * Use `create(AcquisitionTasksSchema)` to create a new message.
  */
 export const AcquisitionTasksSchema: GenMessage<AcquisitionTasks> = /*@__PURE__*/
-  messageDesc(file_asterion_market, 53);
+  messageDesc(file_asterion_market, 43);
 
 /**
  * @generated from enum market.FeedState
@@ -2177,14 +1805,9 @@ export enum Table {
   SETTLEMENT = 5,
 
   /**
-   * @generated from enum value: TABLE_OBSERVATIONS = 6;
+   * @generated from enum value: TABLE_PRICE_TICKS = 6;
    */
-  OBSERVATIONS = 6,
-
-  /**
-   * @generated from enum value: TABLE_PRICE_TICKS = 7;
-   */
-  PRICE_TICKS = 7,
+  PRICE_TICKS = 6,
 }
 
 /**

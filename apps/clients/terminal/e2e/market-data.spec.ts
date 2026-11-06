@@ -31,9 +31,6 @@ test(
         page.getByText("当前连接只有读取权限，不能启动或取消采集。", { exact: true }),
       ).toBeVisible();
       await expect(page.getByRole("button", { name: "开始采集", exact: true })).toBeDisabled();
-      await page.getByRole("combobox", { name: "数据源", exact: true }).selectOption("recorder");
-      await expect(page.getByRole("button", { name: "发布录制分钟", exact: true })).toBeDisabled();
-      await expect(page.getByRole("heading", { name: "发布录制分钟", exact: true })).toBeVisible();
       await page.getByRole("combobox", { name: "数据源", exact: true }).selectOption("research");
       await expect(
         page.getByRole("region", { name: "数据集版本" }).locator(`code[title="${version}"]`),

@@ -153,13 +153,7 @@ wire::DatasetSummary Reader::summary(const wire::DatasetRef& query) const
     wire::DatasetSummary result;
     *result.mutable_dataset() = dataset_of(version);
     for (const auto* table :
-        {"daily",
-            "calendar",
-            "contracts",
-            "minutes",
-            "settlement",
-            "observations",
-            "price_ticks"}) {
+        {"daily", "calendar", "contracts", "minutes", "settlement", "price_ticks"}) {
         auto* item = result.add_tables();
         item->set_table(protocol::table_of(table));
         std::string files;
@@ -299,7 +293,6 @@ wire::DatasetCoverage Reader::coverage(const wire::DatasetRef& query) const
                 std::getline(fields, *field, '/');
             auto& month = minutes[exchange + '/' + product + '/' + delivery][day.substr(0, 7)];
             month.set_days(month.days() + 1);
-            month.set_recorded_days(month.recorded_days() + (part.source == "recorder"));
             continue;
         }
         auto* files = key.starts_with("daily/") ? &daily

@@ -529,11 +529,6 @@ struct Feed::Impl final
         q.open_interest = tick->OpenInterest >= 0 ? price(tick->OpenInterest) : std::nullopt;
         q.open_interest_change = open_interest_change(tick->OpenInterest, tick->PreOpenInterest);
         q.previous_close = price(tick->PreClosePrice);
-        q.settlement = price(tick->SettlementPrice);
-        q.close = price(tick->ClosePrice);
-        // The provider marks an absent value with the largest double.
-        if (std::isfinite(tick->Turnover) && tick->Turnover >= 0 && tick->Turnover < 1e300)
-            q.turnover = tick->Turnover;
         const auto multiplier = multipliers.find(s.instrument);
         q.average_price = average_price(
             tick->AveragePrice,

@@ -123,7 +123,7 @@ C++ 和 Python 的生成规则在 [protocol/CMakeLists.txt](../protocol/CMakeLis
 
 | 发布包 | 构建 | 安装 |
 | --- | --- | --- |
-| Market：`Asterion-Market-<版本>-linux-x86_64.sh` | `scripts/services/build_linux_services.sh` | Market 主机上 `sudo bash "Asterion-Market-<版本>-linux-x86_64.sh"`，见[录制与部署](market/deployment.md) |
+| Market：`Asterion-Market-<版本>-linux-x86_64.sh` | `scripts/services/build_linux_services.sh` | Market 主机上 `sudo bash "Asterion-Market-<版本>-linux-x86_64.sh"`，见[部署](market/deployment.md) |
 | Trading：`Asterion-Trading-<版本>-linux-x86_64.sh` | 同上 | Trading 主机上 `sudo bash "Asterion-Trading-<版本>-linux-x86_64.sh"`，见[交易](trading/deployment.md#安装与账户配置) |
 | Terminal：`Asterion-Terminal-<版本>-mac-arm64.dmg` 或 `…-linux-amd64.deb` | `pnpm desktop:build`，输出到 `build/desktop/` | macOS 拖进“应用程序”；Linux `sudo apt install ./Asterion-Terminal-….deb` |
 

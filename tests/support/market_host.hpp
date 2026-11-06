@@ -53,7 +53,6 @@ struct MarketHost
             {"bind", "127.0.0.1"},
             {"port", port},
             {"data", (root / "data").string()},
-            {"recording", {{"tick_days", 30}}},
             {"clients",
                 {{{"fingerprint", reader_pin}, {"role", "read"}},
                     {{"fingerprint", manager_pin}, {"role", "manage"}}}},

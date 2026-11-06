@@ -175,8 +175,6 @@ std::string table_name(::market::Table table)
             return "minutes";
         case ::market::TABLE_SETTLEMENT:
             return "settlement";
-        case ::market::TABLE_OBSERVATIONS:
-            return "observations";
         case ::market::TABLE_PRICE_TICKS:
             return "price_ticks";
         default:

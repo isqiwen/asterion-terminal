@@ -647,7 +647,7 @@ TEST_F(Acquisition, FullMinutePagesAdvanceAndRepeatedPagesFail)
     ASSERT_GT(vendor->minutes.size(), 8000);
     std::reverse(vendor->minutes.begin(), vendor->minutes.end());
     auto source = factory(vendor)({});
-    const auto rows = source->minutes("SHFE/rb/2026-05", "2026-01-05").rows;
+    const auto rows = source->minutes("SHFE/rb/2026-05", "2026-01-05");
     ASSERT_FALSE(rows.empty());
     EXPECT_EQ(vendor->minute_offsets, (std::vector<std::size_t>{0, 8000}));
     EXPECT_TRUE(std::is_sorted(rows.begin(), rows.end(), [](const auto& a, const auto& b) {
@@ -716,7 +716,7 @@ TEST_F(Acquisition, RemoteManagementRequiresItsVerifiedCertificateAndSurvivesDis
     ASSERT_TRUE(catalog.has_list_sources()) << catalog.DebugString();
     EXPECT_FALSE(catalog.list_sources().can_manage());
     ASSERT_EQ(catalog.list_sources().sources_size(), 2);
-    EXPECT_EQ(catalog.list_sources().sources(0).provider(), "recorder");
+    EXPECT_EQ(catalog.list_sources().sources(0).provider(), "ctp");
     EXPECT_EQ(catalog.list_sources().sources(1).provider(), "tushare");
     EXPECT_EQ(catalog.list_sources().sources(1).tables_size(), 4);
     EXPECT_TRUE(call("manager", query).list_sources().can_manage());

@@ -1,13 +1,10 @@
 #include "market.hpp"
 #include "live.hpp"
-#include "recording.hpp"
 #include "acquisition/exchanges.hpp"
 #include "acquisition/guotai.hpp"
-#include "acquisition/recorded.hpp"
-#include "acquisition/recorded_intake.hpp"
+#include "acquisition/catalog_source.hpp"
+#include "acquisition/snapshot_intake.hpp"
 #include "acquisition/tushare.hpp"
-#include "recorded/compaction.hpp"
-#include "recorded/reader.hpp"
 #include "warehouse/composer.hpp"
 #include "warehouse/reader.hpp"
 #include "warehouse/research.hpp"
@@ -60,10 +57,7 @@ Route route(const wire::Request& request)
             return {Lane::reader, true};
         case wire::Request::kGetDatasetSummary:
         case wire::Request::kGetDatasetCoverage:
-        case wire::Request::kCompareMinutes:
-        case wire::Request::kGetMinuteDifferences:
         case wire::Request::kGetTableRows:
-        case wire::Request::kListRecordedDays:
         case wire::Request::kListDatasetVersions:
         case wire::Request::kCompareDatasetVersions:
             return {Lane::analysis};
@@ -166,12 +160,11 @@ private:
     std::optional<Message> frame;
 };
 
-std::map<std::string, acquisition::Factory>
-sources(const Settings& settings, std::shared_ptr<std::shared_mutex> archive)
+std::map<std::string, acquisition::Factory> sources(const Settings& settings)
 {
     std::map<std::string, acquisition::Factory> result;
-    result["recorder"] = [root = settings.directory / "recordings", archive](std::stop_token stop) {
-        return std::make_unique<acquisition::Recorded>(root, archive, stop);
+    result["ctp"] = [root = settings.directory / "catalog"](std::stop_token stop) {
+        return std::make_unique<acquisition::CatalogSource>(root, stop);
     };
     std::vector<std::string> reference_exchanges;
     for (const auto& exchange : settings.exchanges) {
@@ -198,23 +191,11 @@ sources(const Settings& settings, std::shared_ptr<std::shared_mutex> archive)
     return result;
 }
 
-void answer_live(
-    const wire::Request& request,
-    wire::Response& response,
-    const Live& live,
-    const Recording& recording,
-    const acquisition::RecordedIntake& intake)
+void answer_live(const wire::Request& request, wire::Response& response, const Live& live)
 {
     switch (request.call_case()) {
         case wire::Request::kGetStatus:
             live.status(*response.mutable_get_status());
-            recording.status(*response.mutable_get_status()->mutable_recording());
-            {
-                const auto merging = intake.status();
-                auto* out = response.mutable_get_status()->mutable_recording();
-                out->set_merging_day(protocol::iso_day(merging.day));
-                out->set_merge_error(merging.error);
-            }
             break;
         case wire::Request::kGetBoard: {
             Sent nothing;
@@ -229,43 +210,10 @@ void answer_live(
     }
 }
 
-// Days arrive as YYYY-MM-DD; the archive names them YYYYMMDD.
-wire::RecordedDays recorded_days(
-    const std::filesystem::path& recordings,
-    std::shared_mutex& archive,
-    const wire::ListRecordedDays& query)
-{
-    warehouse::require_day(query.first_day());
-    warehouse::require_day(query.last_day());
-    const auto compact = [](std::string day) {
-        std::erase(day, '-');
-        return day;
-    };
-    // A merge replaces archive files; read between merges.
-    std::shared_lock lock(archive);
-    recording::Reader reader(recordings);
-    wire::RecordedDays result;
-    for (const auto& day : reader.days(compact(query.first_day()), compact(query.last_day()))) {
-        auto* out = result.add_days();
-        out->set_trading_day(protocol::iso_day(day));
-        for (const auto& segment : reader.segments(day)) {
-            auto* item = out->add_segments();
-            item->set_instance(segment.instance);
-            item->set_number(segment.number);
-            item->set_first_received_ms(segment.first_received_ms);
-            item->set_last_received_ms(segment.last_received_ms);
-            item->set_ticks(segment.ticks);
-            item->set_end(segment.end);
-        }
-    }
-    return result;
-}
-
 void answer_reader(
     const wire::Request& request,
     wire::Response& response,
     const std::filesystem::path& directory,
-    std::shared_mutex& archive,
     acquisition::Manager& tasks,
     bool can_manage)
 {
@@ -289,19 +237,8 @@ void answer_reader(
             *response.mutable_get_dataset_coverage() =
                 datasets.coverage(request.get_dataset_coverage());
             break;
-        case wire::Request::kCompareMinutes:
-            *response.mutable_compare_minutes() = warehouse::compare_minutes(directory);
-            break;
-        case wire::Request::kGetMinuteDifferences:
-            *response.mutable_get_minute_differences() =
-                warehouse::minute_differences(directory, request.get_minute_differences());
-            break;
         case wire::Request::kGetTableRows:
             *response.mutable_get_table_rows() = datasets.rows(request.get_table_rows());
-            break;
-        case wire::Request::kListRecordedDays:
-            *response.mutable_list_recorded_days() =
-                recorded_days(directory / "recordings", archive, request.list_recorded_days());
             break;
         case wire::Request::kListDatasetVersions:
             *response.mutable_list_dataset_versions() =
@@ -339,14 +276,12 @@ void answer_reader(
 
 struct Market::Running
 {
-    using Call = std::packaged_task<Message(const Live&, const Recording&)>;
+    using Call = std::packaged_task<Message(const Live&)>;
 
     const Settings settings;
-    const std::string instance;
-    const std::shared_ptr<std::shared_mutex> archive = std::make_shared<std::shared_mutex>();
     warehouse::Composer composer;
     acquisition::Manager acquisitions;
-    acquisition::RecordedIntake intake;
+    acquisition::SnapshotIntake intake;
     ThreadPool readers{1, 8}, analysis{1, 8};
     BoundedQueue<Call> calls{64};
     std::mutex streams_mutex;
@@ -356,26 +291,21 @@ struct Market::Running
     std::shared_future<void> stopped = completion.get_future().share();
     std::jthread thread;
 
-    Running(Settings settings, std::string instance)
+    explicit Running(Settings settings)
         : settings(std::move(settings)),
-          instance(std::move(instance)),
           composer(this->settings.directory),
           acquisitions(
               this->settings.directory,
-              sources(this->settings, archive),
+              sources(this->settings),
               [this] {
                   composer.request();
               }),
-          intake(
-              this->settings.directory / "recordings",
-              archive,
-              this->settings.tick_days,
-              acquisitions)
+          intake(this->settings.directory / "catalog", this->settings.directory, acquisitions)
     {
         thread = std::jthread([this](std::stop_token stop) {
             try {
                 run(stop);
-                // Recording closed with run(); only now may history take its time.
+                // The live market closed with run(); only now may history take its time.
                 intake.stop();
                 acquisitions.stop();
                 composer.stop();
@@ -390,25 +320,19 @@ struct Market::Running
     void run(std::stop_token stop)
     {
         Live live(settings);
-        Recording recording(settings.directory, instance, live.minutes());
         while (!stop.stop_requested()) {
             const auto now = Clock::now();
             live.maintain(now);
             const auto update = live.poll();
-            for (const auto& event : update.events) {
-                recording.observe(event);
+            for (const auto& event : update.events)
                 live.apply(event);
-            }
             // A feed that lost callbacks never recovers in place: exit, and
             // systemd starts a complete stream again.
-            if (update.failed) {
-                recording.interrupt("feed_failed");
+            if (update.failed)
                 throw std::runtime_error("market feed lost provider events");
-            }
-            recording.maintain();
             bool answered = false;
             while (auto call = calls.try_pop()) {
-                (*call)(live, recording);
+                (*call)(live);
                 answered = true;
             }
             if (publish(live, now) || answered)
@@ -471,12 +395,11 @@ struct Market::Running
     Reply ask_market_thread(wire::Request request)
     {
         const auto id = request.id();
-        Call call(
-            [this, request = std::move(request)](const Live& live, const Recording& recording) {
-                return reply(respond(request, [&](wire::Response& out) {
-                    answer_live(request, out, live, recording, intake);
-                }));
-            });
+        Call call([request = std::move(request)](const Live& live) {
+            return reply(respond(request, [&](wire::Response& out) {
+                answer_live(request, out, live);
+            }));
+        });
         auto result = call.get_future();
         if (!calls.try_push(std::move(call)))
             throw Error(ErrorCode::resource_exhausted, "market request queue is full or stopped");
@@ -490,7 +413,7 @@ struct Market::Running
         auto result = promise->get_future();
         pool.submit([this, request = std::move(request), promise, can_manage](std::stop_token) {
             promise->set_value(reply(respond(request, [&](wire::Response& out) {
-                answer_reader(request, out, settings.directory, *archive, acquisitions, can_manage);
+                answer_reader(request, out, settings.directory, acquisitions, can_manage);
             })));
             service::wake_io_owner();
         });
@@ -498,8 +421,8 @@ struct Market::Running
     }
 };
 
-Market::Market(Settings settings, std::string instance)
-    : running_(std::make_unique<Running>(std::move(settings), std::move(instance)))
+Market::Market(Settings settings)
+    : running_(std::make_unique<Running>(std::move(settings)))
 {}
 
 Market::~Market() = default;

@@ -10,7 +10,7 @@ namespace wire = ::market;
 
 // Market owns this object and every admitted task, independently of clients.
 // A task takes one table from one source; at most one runs per source. Three
-// workers serve clients and a fourth the recorder. A full service refuses
+// workers serve clients and a fourth the contract snapshots. A full service refuses
 // admission instead of accumulating an unbounded task queue.
 class Manager
 {

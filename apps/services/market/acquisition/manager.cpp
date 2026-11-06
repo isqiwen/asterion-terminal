@@ -43,8 +43,6 @@ void validate(wire::StartAcquisition& request)
     const auto first = day_of(request.first_day()), last = day_of(request.last_day());
     if (first > last || request.first_day() < "1990-01-01")
         throw std::invalid_argument("acquisition needs a range of days from 1990 on");
-    if (request.table() == wire::TABLE_OBSERVATIONS)
-        throw std::invalid_argument("acquisition table is not implemented");
     if (table(request) == "minutes" && request.contracts().empty()) {
         // Every contract the source holds on those days.
         if (request.exchanges_size())
@@ -192,10 +190,10 @@ wire::AcquisitionTask Manager::submit(wire::StartAcquisition request)
     for (const auto& [id, active] : active_) {
         if (active->task.request().provider() == request.provider())
             throw Error(ErrorCode::conflict, "another acquisition for this source is running");
-        requested += active->task.request().provider() != "recorder";
+        requested += active->task.request().provider() != "ctp";
     }
-    // The recorder's slot is its own: a day's publication never waits for a provider.
-    if (request.provider() != "recorder" && requested >= 3)
+    // The snapshots' slot is their own: a day's intake never waits for a provider.
+    if (request.provider() != "ctp" && requested >= 3)
         throw Error(ErrorCode::resource_exhausted, "acquisition capacity is full");
     auto active = std::make_unique<Active>();
     *active->task.mutable_request() = request;
@@ -440,25 +438,15 @@ void Manager::run(
                 if (!contract.empty())
                     key += "/" + contract.substr(exchange.size() + 1);
                 if (request.refetch() || !version.partitions.contains(key)) {
-                    MinuteBatch batch;
-                    if (table(request) == "minutes")
-                        batch = source.minutes(contract, day);
-                    else if (table(request) == "settlement")
-                        batch.rows = source.settlement(exchange, day);
-                    else if (table(request) == "price_ticks")
-                        batch.rows = source.price_ticks(exchange, day);
-                    else
-                        batch.rows = source.daily(exchange, day);
+                    const auto rows = table(request) == "minutes" ? source.minutes(contract, day)
+                        : table(request) == "settlement"          ? source.settlement(exchange, day)
+                        : table(request) == "price_ticks" ? source.price_ticks(exchange, day)
+                                                          : source.daily(exchange, day);
                     check_stop(stop);
-                    if (batch.rows.empty())
+                    if (rows.empty())
                         task.set_items_empty(task.items_empty() + 1);
                     else {
-                        writer.put(key, batch.rows, {day});
-                        if (!batch.observations.empty())
-                            writer.put(
-                                "observations/" + key.substr(key.find('/') + 1),
-                                batch.observations,
-                                {day});
+                        writer.put(key, rows, {day});
                         ++unpublished;
                     }
                 }

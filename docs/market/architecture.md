@@ -1,17 +1,17 @@
 # Market 开发者导读
 
-先读[功能与协议](README.md)，再按本文的图找到代码入口；安装和数据目录见[录制与部署](deployment.md)，产品边界见[总体架构](../architecture.md)。图中的类名对应当前 C++ 实现，省略私有辅助类和字段。
+先读[功能与协议](README.md)，再按本文的图找到代码入口；安装和数据目录见[部署](deployment.md)，产品边界见[总体架构](../architecture.md)。图中的类名对应当前 C++ 实现，省略私有辅助类和字段。
 
 ## 服务边界与数据流
 
-Market 是由 systemd 看护的 Linux C++ 进程，拥有共享行情、录制文件、采集任务和正式仓库。Terminal 与 Lab 是客户端；Trading 独立连接柜台，不经过 Market 获取策略行情。理由：研究和看盘的生命周期不影响交易执行。
+Market 是由 systemd 看护的 Linux C++ 进程，拥有共享行情、合约快照、采集任务和正式仓库。Terminal 与 Lab 是客户端；Trading 独立连接柜台，不经过 Market 获取策略行情。理由：研究和看盘的生命周期不影响交易执行。
 
 ```mermaid
 flowchart LR
-    CTP[CTP 行情与合约目录] --> Record[录制]
-    Record --> Files[录制文件]
-    CTP --> Live[实时行情] --> Terminal[Terminal]
-    Files --> Ingest[入库]
+    CTP[CTP 行情与合约目录] --> Live[实时行情]
+    Live --> Terminal[Terminal]
+    Live --> Snapshot[每日合约快照]
+    Snapshot --> Ingest[入库]
     Provider[Tushare / 交易所 / 期货公司] --> Ingest
     Ingest --> Sources[来源仓库]
     Sources --> Compose[合成]
@@ -22,27 +22,22 @@ flowchart LR
     Read --> Lab[Lab]
 ```
 
-箭头只往右走，后面的模块不调用前面的模块。理由：录制丢失不可恢复，入库和合成都可以重做，所以它们的等待和故障不能影响录制。
+箭头只往右走，后面的模块不调用前面的模块。Market 不录制 Tick 和分钟线，理由见[产品说明](../product.md)。
 
 | 模块 | 代码 | 只回答 | 不管 |
 | --- | --- | --- | --- |
-| 录制 | `live`、`recording`、`recording/` | 行情落盘了吗 | 数据之后怎么用 |
-| 入库 | `acquisition/`、`recorded/` | 这个来源这一天的数据取回来了吗 | 研究该用哪份 |
+| 实时行情 | `live`、`catalog.hpp` | 现在的报价和今天的分钟线是什么 | 历史数据 |
+| 入库 | `acquisition/` | 这个来源这一天的数据取回来了吗 | 研究该用哪份 |
 | 合成 | `warehouse/composer`、`warehouse/research` | 研究该用哪份 | 数据从哪取、怎么取 |
 | 读取 | `warehouse/reader`、`market.cpp` | 这个固定版本里有什么 | 数据缺了怎么办 |
 
-录制文件只是入库的一个来源，和 Tushare、交易所走同一条路径，差别只在触发方式：交易日结束后自动入库，外部来源按需提交。
-
-- 录制的构建目标（`asterion_market_live`、`asterion_market_recording`）不链接入库和仓库，违反时编译失败。
+- 实时行情的构建目标（`asterion_market_live`）不链接入库和仓库，违反时编译失败。
 - 每个来源只写自己的仓库，`research` 只由合成写入，Lab 只读 `research`。
-- 实时报价快照供界面展示，有序行情事件供聚合和录制，避免界面合并报价时丢掉录制输入。
 - 行情状态只由行情线程更新；SDK 回调只把事件放进队列，SDK 调用和释放交给其执行器，避免柜台调用拖住行情线程。
-- 录制与仓库使用不同的 Parquet 执行通道，避免历史查询占住录制写入。
-- 合并替换录制文件时与录制历史读取互斥；固定仓库版本引用不可变文件，因此后续合并不会改变研究已选的数据。
 
 ## 核心类关系
 
-RPC 接入负责收发帧；行情执行路径拥有 `Live` 和 `Recording`；`RecordedIntake` 在自己的线程里从磁盘取走已结束的交易日；后台读取路径访问仓库并管理采集任务。录制的构建目标不链接入库和仓库，理由：录制丢失不可恢复，其他工作都可以重做。每个调用走哪条路径，只由 `market.cpp` 的 `route()` 决定。可能耗时的扫描单独排队，理由：Lab 下载和任务查询不等它们。
+RPC 接入负责收发帧；行情线程拥有 `Live`；`SnapshotIntake` 在自己的线程里把已结束交易日的合约快照入库；`Composer` 在自己的线程里更新 `research`。每个调用走哪条路径，只由 `market.cpp` 的 `route()` 决定。可能耗时的扫描单独排队，理由：Lab 下载和任务查询不等它们。
 
 ```mermaid
 classDiagram
@@ -61,55 +56,35 @@ classDiagram
         frame()
         status()
     }
-    class Recording {
-        observe()
-        maintain()
-        status()
-    }
-    class Feed {
-        connect()
-        subscribe()
-        poll()
-        snapshot()
-    }
-    class Catalog {
-        refresh()
-        poll()
-    }
+    class Feed
+    class Catalog
     class IntradayBars
-    class Recorder
-    class RecordedIntake
-    class Composer
-    class Compactor
-    class RecordedPublication
     class Manager
+    class SnapshotIntake
+    class Composer
     class QuoteStream
     RpcHost ..> Market : 每个请求帧
     Market *-- Live : 行情线程
-    Market *-- Recording : 行情线程
     Market *-- Manager
-    Market *-- RecordedIntake
+    Market *-- SnapshotIntake
     Market *-- Composer
     Market *-- QuoteStream : 每条报价流
     Live *-- Feed
     Live *-- Catalog
     Live *-- IntradayBars
-    Recording *-- Recorder
-    Recording ..> IntradayBars : 只读
-    RecordedIntake *-- Compactor
-    RecordedIntake *-- RecordedPublication
-    RecordedPublication --> Manager
+    SnapshotIntake --> Manager
+    Manager ..> Composer : 提交后通知
 ```
 
 | 调用 | 路径 | 权限 |
 | --- | --- | --- |
 | `get_status`、`get_board`、`get_minutes` | 行情线程 | `read` |
-| `stream_quotes` | 行情执行路径持续生成报价帧 | `read` |
+| `stream_quotes` | 行情线程持续生成报价帧 | `read` |
 | `start_acquisition`、`cancel_acquisition` | 读取线程 | `manage` |
-| 摘要、覆盖、分钟对比、参考表、录制日、版本历史与比较 | 分析线程 | `read` |
+| 摘要、覆盖、参考表、版本历史与比较 | 分析线程 | `read` |
 | 其余调用 | 读取线程 | `read` |
 
-采集与仓库分开：来源适配器负责供应商数据转换，`Manager` 负责任务与提交，`Store` 负责固定版本。`recording::Reader` 读取录制归档，`warehouse::Reader` 读取正式仓库。
+来源适配器负责供应商数据转换，`Manager` 负责任务与提交，`Store` 负责固定版本。
 
 ```mermaid
 classDiagram
@@ -119,16 +94,16 @@ classDiagram
         supports()
         daily()
         minutes()
+        price_ticks()
     }
     class Tushare
     class Exchange
     class Guotai
-    class Recorded
-    class RecordingReader["recording::Reader"]
-    class WarehouseReader["warehouse::Reader"]
+    class CatalogSource
     class Store {
         current()
         version()
+        locate()
         writer()
     }
     class Writer {
@@ -140,13 +115,10 @@ classDiagram
     Source <|-- Tushare
     Source <|-- Exchange
     Source <|-- Guotai
-    Source <|-- Recorded
+    Source <|-- CatalogSource
     Manager ..> Source : 为任务创建
     Manager *-- Store : 各来源
-    Composer *-- Store : research
     Manager ..> Writer
-    Recorded ..> RecordingReader
-    WarehouseReader ..> Store
     Writer --> Store : 锁定写入并发布
 ```
 
@@ -154,26 +126,18 @@ classDiagram
 
 服务启动时自行登录、读取目录缓存并刷新目录，随后订阅全市场；这些操作不依赖客户端打开页面。合约查询使用 CTP 交易接口，入口是 `CatalogQuery`；行情接收入口是 `Feed`。
 
-行情执行路径按以下固定顺序处理事件：
-
 ```mermaid
 sequenceDiagram
     participant SDK as CTP SDK
     participant Live
-    participant Recording
     participant Stream as QuoteStream
     participant RPC as RpcHost
     participant Client as Terminal 原生层
     SDK->>Live: 回调入队
-    Note over Live: 1. maintain()：登录重试、目录刷新、订阅
-    Live->>Live: 2. poll()：取走本轮的连接变化和报价
-    loop 每个事件
-        Live->>Recording: observe(事件)
-        Live->>Live: apply(事件)：更新分钟线
-    end
-    Note over Recording: 3. maintain()：写入到期的文件
-    Note over Live: 4. 回答排队的 get_status / get_board / get_minutes
-    Live->>Stream: 5. 到期的报价流放入下一帧
+    Note over Live: 1. maintain()：登录重试、目录刷新、订阅、重试被拒的合约
+    Live->>Live: 2. poll() 与 apply()：更新报价和分钟线
+    Note over Live: 3. 回答排队的 get_status / get_board / get_minutes
+    Live->>Stream: 4. 到期的报价流放入下一帧
     Client->>RPC: Request.stream_quotes
     RPC-->>Client: Response.stream_quotes.full
     loop 同一条连接
@@ -183,7 +147,7 @@ sequenceDiagram
     Note over Client,Stream: 重开连接取得完整首帧；客户端筛选不改变全市场订阅
 ```
 
-`Recording::observe()` 在 `Live::apply()` 之前调用，是为了先保留换交易日前的旧分钟序列。报价乱序仍录制，但不推进实时分钟聚合。页面通过原生层取走报价帧；原生层持有 TLS 连接，页面按生成的 Protobuf 类型合并报价。
+报价乱序不推进实时分钟聚合。页面通过原生层取走报价帧；原生层持有 TLS 连接，页面按生成的 Protobuf 类型合并报价。
 
 ## 采集、发布与固定版本读取
 
@@ -200,8 +164,8 @@ sequenceDiagram
     RPC->>Manager: submit(request)
     Manager->>Manager: 持久化 QUEUED 任务
     Manager-->>Client: 经 RPC 返回已接纳任务
-    Manager->>Source: 后台读取供应商或自录数据
-    Source-->>Manager: 标准化行与观测段
+    Manager->>Source: 后台读取供应商数据
+    Source-->>Manager: 标准化行
     Manager->>Writer: put() / merge_days()
     Manager->>Writer: commit()
     Writer->>Writer: 分区文件 → 月度分片 → 版本清单 → current
@@ -216,7 +180,7 @@ sequenceDiagram
     end
 ```
 
-录制自动发布复用上述采集路径：`RecordedIntake` 只看磁盘文件，`Compactor` 报告完成日期，`RecordedPublication` 将日期保存到 `recordings/unpublished.json`，再提交 `recorder` 任务。任务成功且期间没有再次合并才移除待办；失败保留待办，这一天一小时后再试，不影响后面的日期，重启重新读取待办。理由：录制文件已存在后，研究发布可以独立补做。
+每日合约快照也走上述路径：`SnapshotIntake` 只看磁盘，发现交易日已结束且未入库就提交 `ctp` 任务；失败的日期一小时后再试，不影响其他日期。
 
 `research` 的来源选择规则见[功能文档](README.md#仓库与固定版本)。`Writer::adopt()` 用硬链接引用选中的分区，旧版本仍引用原文件；无内容变化不生成新版本。`Composer` 在启动时和每次来源提交后运行，运行期间的通知合并为一次，所以任务完成后 `research` 稍后才更新；合成失败不影响任务，一分钟后重试。
 
@@ -224,13 +188,11 @@ sequenceDiagram
 
 | 情况 | 行为与代码入口 |
 | --- | --- |
-| 客户端关闭 | 释放该连接与它的报价流；服务仍录制，已接纳的采集继续，见 `market.cpp` |
-| 行情中断 | 中断分钟观测、结束录制段；重连后继续，见 `Live::apply()`、`Recording::observe()` |
+| 客户端关闭 | 释放该连接与它的报价流；已接纳的采集继续，见 `market.cpp` |
+| 行情中断 | 中断分钟观测；重连后继续，见 `Live::apply()` |
 | SDK 事件队列溢出 | 终止本次服务运行，由 systemd 重启，见 `Feed::poll()` 与 `Market` 的行情线程 |
-| 磁盘积压 | 录制丢弃积压区间并报告丢失计数，行情继续，见 `Recorder::flush()` |
-| 交易日结束 | 最后一根分钟线写入；当天文件安静后盘后合并、提交发布待办，见 `Recorder`、`RecordedIntake` |
-| 服务正常停止 | 报价流发出最后一帧、写完录制缓冲、再结束历史任务，见 `main.cpp` 与 `market.cpp` |
-| 服务重新启动 | 恢复合并日志、读取发布待办；旧采集任务标为中断，损坏的任务文件只影响它自己，见 `RecordedIntake`、`Manager` |
+| 服务正常停止 | 报价流发出最后一帧、关闭行情、再结束后台任务，见 `main.cpp` 与 `market.cpp` |
+| 服务重新启动 | 旧采集任务标为中断，损坏的任务文件只影响它自己，见 `Manager` |
 
 ## 代码阅读路线
 
@@ -239,10 +201,8 @@ sequenceDiagram
 | 1 | [main.cpp](../../apps/services/market/main.cpp)、[settings.cpp](../../apps/services/market/settings.cpp) | 配置、数据目录锁、TLS 身份、权限和停止流程 |
 | 2 | [market.cpp](../../apps/services/market/market.cpp) | 调用路径表、行情线程的一轮、报价流 |
 | 3 | [live.cpp](../../apps/services/market/live.cpp)、[ctp_feed.cpp](../../apps/services/common/market/ctp/ctp_feed.cpp)、[catalog.hpp](../../apps/services/market/catalog.hpp) | 登录与目录刷新、全市场订阅、报价帧 |
-| 4 | [recording.cpp](../../apps/services/market/recording.cpp)、[intraday_bars.cpp](../../core/src/futures/intraday_bars.cpp)、[recorder.cpp](../../apps/services/market/recording/recorder.cpp) | 录制观测段、分钟完整性 |
-| 5 | [recorded_intake.cpp](../../apps/services/market/acquisition/recorded_intake.cpp)、[compaction.cpp](../../apps/services/market/recorded/compaction.cpp)、[recorded_publication.cpp](../../apps/services/market/acquisition/recorded_publication.cpp) | 合并时机、归档替换与发布恢复 |
-| 6 | [manager.cpp](../../apps/services/market/acquisition/manager.cpp)、[source.hpp](../../apps/services/market/acquisition/source.hpp) | 来源扩展、任务生命周期与批量提交 |
-| 7 | [store.cpp](../../apps/services/market/warehouse/store.cpp)、[research.cpp](../../apps/services/market/warehouse/research.cpp) | 不可变版本、月度分片、来源合成 |
-| 8 | [通信协议](../protocol.md)、[market.proto](../../protocol/proto/asterion/market.proto) | 客户端契约与固定版本读取 |
+| 4 | [manager.cpp](../../apps/services/market/acquisition/manager.cpp)、[source.hpp](../../apps/services/market/acquisition/source.hpp)、[snapshot_intake.cpp](../../apps/services/market/acquisition/snapshot_intake.cpp) | 来源扩展、任务生命周期与批量提交 |
+| 5 | [store.cpp](../../apps/services/market/warehouse/store.cpp)、[research.cpp](../../apps/services/market/warehouse/research.cpp)、[composer.cpp](../../apps/services/market/warehouse/composer.cpp) | 不可变版本、月度分片、来源合成 |
+| 6 | [通信协议](../protocol.md)、[market.proto](../../protocol/proto/asterion/market.proto) | 客户端契约与固定版本读取 |
 
 模块测试见 [tests/market](../../tests/market)；跨客户端与重启行为看 [concurrency_process.py](../../tests/market/concurrency_process.py)，真实行情验收入口是 [ctp_market.py](../../tests/acceptance/ctp_market.py)。

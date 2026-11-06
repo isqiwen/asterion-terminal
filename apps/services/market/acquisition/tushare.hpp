@@ -32,7 +32,7 @@ public:
     Rows calendar(const std::string&, int year) override;
     Rows contracts(const std::string&) override;
     Rows daily(const std::string&, const std::string&) override;
-    MinuteBatch minutes(const std::string&, const std::string&) override;
+    Rows minutes(const std::string&, const std::string&) override;
 
 private:
     struct Table;

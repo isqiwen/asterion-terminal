@@ -82,24 +82,24 @@
   color: var(--accent);
 }
 
-.recording-status [data-phase] {
+.market-status [data-phase] {
   color: var(--muted);
   font-size: 12px;
 }
-.recording-status [data-phase="connected"] {
+.market-status [data-phase="connected"] {
   color: var(--success);
 }
-.recording-status dl {
+.market-status dl {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
   gap: 12px 24px;
   margin: 0;
 }
-.recording-status dt {
+.market-status dt {
   color: var(--muted);
   font-size: 12px;
 }
-.recording-status dd {
+.market-status dd {
   margin: 4px 0 0;
   color: var(--text-strong);
   font-size: 14px;
@@ -119,11 +119,6 @@
 }
 .coverage-matrix td[data-share="partial"] {
   background: color-mix(in srgb, var(--warning) 30%, transparent);
-}
-/* Includes days taken from the recorder. */
-.coverage-matrix td[data-recorded] {
-  background: var(--accent-surface);
-  box-shadow: inset 0 0 0 1px var(--accent-line);
 }
 
 /* A value the other minute source does not share. */

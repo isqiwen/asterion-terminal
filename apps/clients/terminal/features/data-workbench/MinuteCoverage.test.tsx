@@ -15,13 +15,13 @@ const { contracts } = create(DatasetCoverageSchema, {
       contract: "SHFE/rb/2027-01",
       months: [
         { month: "2026-09", days: 21 },
-        { month: "2026-10", days: 18, recordedDays: 2 },
+        { month: "2026-10", days: 18 },
       ],
     },
   ],
 });
 
-test("a chosen product's contracts show their minute days, and recorded months are marked", () => {
+test("a chosen product's contracts show their minute days", () => {
   render(<MinuteCoverage contracts={contracts} />);
   const table = screen.getByRole("table", { name: "分钟线覆盖" });
   expect(within(table).getByRole("rowheader", { name: "SHFE/cu/2026-12" })).toBeTruthy();
@@ -30,8 +30,6 @@ test("a chosen product's contracts show their minute days, and recorded months a
   const row = within(table).getByRole("row", { name: /SHFE\/rb\/2027-01/ });
   const [september, october] = within(row).getAllByRole("cell");
   expect(september!.textContent).toBe("21");
-  expect(september!.dataset.recorded).toBeUndefined();
   expect(october!.textContent).toBe("18");
-  expect(october!.dataset.recorded).toBe("true");
-  expect(october!.title).toBe("18 天，其中自录 2 天");
+  expect(october!.title).toBe("18 天");
 });

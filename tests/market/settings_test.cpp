@@ -21,7 +21,6 @@ struct Installation
     // The settings file the installer writes for this installation.
     std::string configuration;
     static constexpr const char* template_text = R"({"bind":"0.0.0.0","port":7450,
-    "recording":{"tick_days":30},
     "clients":[{"fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","role":"read"}],
     "acquisition":{"exchanges":[],"tushare":null},
     "counter":{"market_front":"tcp://md:1","trade_front":"tcp://td:2",
@@ -80,17 +79,14 @@ TEST(MarketSettings, ProgramsComeFromTheInstallationAndDataAndTheRestFromItsFile
     EXPECT_EQ(settings.catalog.front, "tcp://td:2");
     EXPECT_EQ(settings.catalog.auth_code, "fixture-auth");
     EXPECT_EQ(settings.catalog.user, "000001");
-    EXPECT_EQ(settings.tick_days, 30U);
     // Data may live on another disk; the path must be absolute and exist.
     auto moved = nlohmann::json::parse(installation.configuration);
     moved["data"] = (installation.root / "elsewhere").string();
-    moved["recording"]["tick_days"] = 5;
     replace_file_durably(installation.file, moved.dump());
     EXPECT_TRUE(names(installation.refusal(installation.credentials), "elsewhere"));
     fs::create_directories(installation.root / "elsewhere");
     const auto elsewhere = load_settings(installation.root, installation.credentials);
     EXPECT_EQ(elsewhere.directory, installation.root / "elsewhere");
-    EXPECT_EQ(elsewhere.tick_days, 5U);
     moved["data"] = "relative/data";
     replace_file_durably(installation.file, moved.dump());
     EXPECT_TRUE(names(installation.refusal(installation.credentials), "absolute data directory"));

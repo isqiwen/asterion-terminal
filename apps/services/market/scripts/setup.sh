@@ -1,5 +1,5 @@
 #!/bin/bash
-# Installs, upgrades and configures the market on a recording host.
+# Installs, upgrades and configures the market on a service host.
 #
 #   sudo bash Asterion-Market-VERSION-linux-x86_64.sh       install, or upgrade an installation
 #   sudo /opt/asterion/market/bin/setup.sh   change the settings
@@ -41,7 +41,6 @@ SELF=$(readlink -f "${BASH_SOURCE[0]}")
 declare -Ar DEFAULTS=(
     [bind]='0.0.0.0'
     [port]='7450'
-    [recording.tick_days]='30'
     [clients]=''
     [acquisition.exchanges]='SHFE INE CZCE DCE CFFEX GFEX'
     [acquisition.tushare]='0'
@@ -118,7 +117,7 @@ restart() {
         echo "The market has (re)started. Status: systemctl status $UNIT; logs in $ROOT/logs"
     else
         systemd-run --quiet --unit="$RESTART" --on-calendar="$at:00 Asia/Shanghai" systemctl restart "$UNIT"
-        echo "The market is recording during trading hours. The change is saved and takes effect when it restarts automatically at $at Beijing time. To cancel: systemctl stop $RESTART.timer"
+        echo "The market is serving during trading hours. The change is saved and takes effect when it restarts automatically at $at Beijing time. To cancel: systemctl stop $RESTART.timer"
     fi
 }
 
@@ -187,9 +186,7 @@ configure() {
     port=$(ask port "Listen port" '^[0-9]{1,5}$')
     ((port >= 1 && port <= 65535)) || fail "The port must be between 1 and 65535"
     previous=$(current data)
-    data=$(ask data "Data directory (warehouse and recordings)" '^/[^[:space:]]*$')
-    tick_days=$(ask recording.tick_days "Trading days of recorded ticks kept" '^[0-9]{1,5}$')
-    ((tick_days >= 1)) || fail "Keep the ticks of at least one trading day"
+    data=$(ask data "Data directory (warehouse)" '^/[^[:space:]]*$')
     market_front=$(ask counter.market_front "Market data front" "$front")
     trade_front=$(ask counter.trade_front "Trading front" "$front")
     broker=$(ask counter.broker "Broker ID" '^[A-Za-z0-9]+$')
@@ -212,7 +209,7 @@ configure() {
     stage settings "$ROOT/config/market.json"
     python3 -I -c '
 import json, sys
-bind, port, data, tick_days, market, trade, broker, user, app_id, clients, exchanges, budget = sys.argv[2:]
+bind, port, data, market, trade, broker, user, app_id, clients, exchanges, budget = sys.argv[2:]
 import re
 peers = []
 for item in clients.split():
@@ -227,12 +224,12 @@ exchanges = [] if exchanges == "-" else exchanges.split()
 if len(set(exchanges)) != len(exchanges) or set(exchanges) - {"SHFE", "INE", "CZCE", "DCE", "CFFEX", "GFEX"}:
     raise SystemExit("Invalid or duplicate acquisition exchanges")
 settings = {"bind": bind, "port": int(port), "data": data,
-    "recording": {"tick_days": int(tick_days)}, "clients": peers,
+    "clients": peers,
     "acquisition": {"exchanges": exchanges, "tushare": {"requests_per_minute": int(budget)} if int(budget) else None}, "counter": {
     "market_front": market, "trade_front": trade, "broker": broker, "user": user, "app_id": app_id}}
 with open(sys.argv[1], "w") as output:
     json.dump(settings, output, ensure_ascii=False, indent=2)
-    output.write("\n")' "$settings" "$bind" "$port" "$data" "$tick_days" "$market_front" "$trade_front" \
+    output.write("\n")' "$settings" "$bind" "$port" "$data" "$market_front" "$trade_front" \
         "$broker" "$user" "$app_id" "$clients" "$exchanges" "$budget"
     chown "$ACCOUNT:" "$settings"
     chmod 0600 "$settings"

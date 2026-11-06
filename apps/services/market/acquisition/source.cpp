@@ -104,7 +104,7 @@ Rows Source::daily(const std::string&, const std::string&)
     throw SourceError("unsupported", "source does not provide daily bars");
 }
 
-MinuteBatch Source::minutes(const std::string&, const std::string&)
+Rows Source::minutes(const std::string&, const std::string&)
 {
     throw SourceError("unsupported", "source does not provide minutes");
 }

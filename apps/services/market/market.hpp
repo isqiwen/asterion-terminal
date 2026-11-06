@@ -6,16 +6,15 @@
 
 namespace asterion::market_data {
 
-// The Market service: the market thread that owns the live market and its
-// recording; intake that takes finished recording files from disk; the composer
-// that keeps research current; and the reader pool that serves datasets and
-// acquisition tasks.
+// The Market service: the market thread that owns the live market; intake that
+// takes each day's contract snapshot from disk; the composer that keeps the
+// dataset current; and the reader pool that serves datasets and acquisition tasks.
 class Market
 {
 public:
     using Reply = service::RpcHost::Reply;
 
-    Market(Settings settings, std::string instance);
+    explicit Market(Settings settings);
     ~Market();
 
     // One request frame from a client; `can_manage` is absent for an unknown

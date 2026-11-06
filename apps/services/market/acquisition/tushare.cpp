@@ -440,7 +440,7 @@ std::string Tushare::trading_day(const std::string& exchange, std::chrono::sys_s
     throw std::invalid_argument("no trading day after night session");
 }
 
-MinuteBatch Tushare::minutes(const std::string& contract, const std::string& day)
+Rows Tushare::minutes(const std::string& contract, const std::string& day)
 {
     using namespace std::chrono;
     require_contract(contract);
@@ -448,7 +448,7 @@ MinuteBatch Tushare::minutes(const std::string& contract, const std::string& day
     check_stop(stop_);
     if (window_.contract == contract && day >= window_.first && day <= window_.last) {
         const auto at = window_.rows.find(day);
-        return {at == window_.rows.end() ? Rows{} : at->second, {}};
+        return at == window_.rows.end() ? Rows{} : at->second;
     }
     const auto exchange = contract.substr(0, contract.find('/'));
     const auto entry = calendar_day(exchange, day);
@@ -540,7 +540,7 @@ MinuteBatch Tushare::minutes(const std::string& contract, const std::string& day
         });
     window_ = std::move(pending);
     const auto found = window_.rows.find(day);
-    return {found == window_.rows.end() ? Rows{} : found->second, {}};
+    return found == window_.rows.end() ? Rows{} : found->second;
 }
 
 } // namespace asterion::market_data::acquisition

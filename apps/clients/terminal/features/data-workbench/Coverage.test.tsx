@@ -102,7 +102,7 @@ test("market data also asks each other source for its exchange's price ticks", a
             source("shfe", [Table.SETTLEMENT]),
             { provider: "gtja", tables: [Table.PRICE_TICKS], exchanges: ["SHFE", "DCE"] },
             { provider: "czce", tables: [Table.PRICE_TICKS], exchanges: ["CZCE"] },
-            { provider: "recorder", tables: [Table.PRICE_TICKS], exchanges: ["SHFE"] },
+            { provider: "ctp", tables: [Table.PRICE_TICKS], exchanges: ["SHFE"] },
           ],
           canManage: true,
         };
@@ -224,37 +224,6 @@ test("polls shared tasks even when this client has no active acquisition", async
       case: "cancelAcquisition",
       value: { id: "other-client" },
     }),
-  );
-});
-
-test("recorded minutes publish through Market with a contract and explicit refresh", async () => {
-  serve();
-  const current = request.getMockImplementation()!;
-  request.mockImplementation(async body =>
-    body.case === "listSources"
-      ? { sources: [source("recorder", [Table.MINUTES])], canManage: true }
-      : current(body),
-  );
-  render(<Coverage {...context()} />);
-  await screen.findByRole("option", { name: "自录" });
-  const publish = screen.getByRole("button", { name: "发布录制分钟" }) as HTMLButtonElement;
-  expect(publish.disabled).toBe(true);
-  fireEvent.change(screen.getByLabelText("其他合约"), { target: { value: "SHFE/rb/2027-01" } });
-  fireEvent.click(screen.getByRole("button", { name: "添加" }));
-  fireEvent.click(screen.getByLabelText("重新发布已有分区，保留旧数据集版本"));
-  fireEvent.click(publish);
-  await waitFor(() =>
-    expect(request).toHaveBeenCalledWith(
-      expect.objectContaining({
-        case: "startAcquisition",
-        value: expect.objectContaining({
-          provider: "recorder",
-          table: Table.MINUTES,
-          contracts: ["SHFE/rb/2027-01"],
-          refetch: true,
-        }),
-      }),
-    ),
   );
 });
 

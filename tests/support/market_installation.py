@@ -38,7 +38,7 @@ def market_host(build, root, *, vendor=False, exchanges=(), user="steady"):
     with socket.socket() as probe:
         probe.bind(('127.0.0.1',0));port=probe.getsockname()[1]
     tls = market_tls.prepare(root)
-    (root/'config/market.json').write_text(json.dumps({'bind':'127.0.0.1','port':port, 'data':str(root/'data'), 'recording':{'tick_days':30}, 'clients':market_tls.clients(tls), 'acquisition':{'exchanges':list(exchanges), 'tushare':None},
+    (root/'config/market.json').write_text(json.dumps({'bind':'127.0.0.1','port':port, 'data':str(root/'data'), 'clients':market_tls.clients(tls), 'acquisition':{'exchanges':list(exchanges), 'tushare':None},
         'counter':{'market_front':'tcp://127.0.0.1:1','trade_front':'tcp://127.0.0.1:1',
                    'broker':'test','user':user,'app_id':'app'}}))
     (root/'credentials/asterion.ctp.password').write_text('fixture-only-secret')

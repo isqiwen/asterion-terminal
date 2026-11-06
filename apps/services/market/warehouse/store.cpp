@@ -88,17 +88,6 @@ constexpr Column settlement[] = {
     {"close_today_fee_rate", K::number},
     {"close_today_fee_per_lot", K::number}
 };
-constexpr Column observations[] = {
-    {"exchange", K::text},
-    {"contract", K::text},
-    {"day", K::date},
-    {"instance", K::text},
-    {"number", K::integer},
-    {"first_received_ms", K::integer},
-    {"last_received_ms", K::integer},
-    {"ticks", K::integer},
-    {"end", K::text}
-};
 constexpr Column price_ticks[] = {
     {"exchange", K::text},
     {"product", K::text},
@@ -257,8 +246,6 @@ std::span<const Column> columns(std::string_view table)
         return minutes;
     if (table == "settlement")
         return settlement;
-    if (table == "observations")
-        return observations;
     if (table == "price_ticks")
         return price_ticks;
     throw std::invalid_argument("unknown warehouse table");

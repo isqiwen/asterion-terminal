@@ -39,22 +39,15 @@ def unpack(bundle, root):
     return root
 
 
-def record(root):
-    folder = root / 'data/recordings/minutes/trading_day=20261028'
-    folder.mkdir(parents=True)
-    schema = dict(venue=pl.String, symbol=pl.String, start_ms=pl.Int64,
-                  **{key: pl.Decimal(18, 8) for key in ('open', 'high', 'low', 'close')},
-                  volume=pl.Int64, average_price=pl.Decimal(18, 8),
-                  open_interest=pl.Decimal(18, 8), partial=pl.Boolean)
-    pl.DataFrame([dict(venue='SHFE', symbol='rb2701', start_ms=1793164800000,
-                      **{key: Decimal('3100.123456') for key in ('open', 'high', 'low', 'close')},
-                      volume=12, average_price=None, open_interest=Decimal('2000'), partial=True)],
-                 schema=schema).write_parquet(folder / 'fixture.parquet')
+def snapshot(root):
+    (root / 'data/catalog').mkdir(parents=True)
+    catalog = market.Catalog()
+    item = catalog.contracts.add()
+    item.contract = 'SHFE/rb/2027-01'
+    item.price_tick.text = '1'
+    (root / 'data/catalog/20261028.pb').write_bytes(catalog.SerializeToString())
 
 
-
-
-@contextmanager
 def running(root, port):
     name = 'asterion-market-package-' + root.parent.name
     command = ['docker', 'run', '--rm', '--name', name, '--network', 'host', '--read-only',
@@ -98,25 +91,18 @@ def main():
             port = probe.getsockname()[1]
         # The container mounts the installation at /market.
         (root / 'config/market.json').write_text(json.dumps(dict(bind='127.0.0.1', port=port,
-            data='/market/data', recording=dict(tick_days=30), clients=market_tls.clients(tls), acquisition=dict(exchanges=[], tushare=None),
+            data='/market/data', clients=market_tls.clients(tls), acquisition=dict(exchanges=[], tushare=None),
             counter=dict(market_front='tcp://127.0.0.1:1', trade_front='tcp://127.0.0.1:1',
                          broker='fixture', user='fixture', app_id='fixture'))))
         for name in ('password', 'auth_code'):
             (root / 'credentials' / ('asterion.ctp.' + name)).write_text('fixture-only')
         with running(root, port):
-            rpc(tls, port, 'start_acquisition', 'manager', id='recorded-release', provider='recorder',
-                table=market.TABLE_MINUTES, contracts=['SHFE/rb/2027-01'], first_day='2026-10-28',
-                last_day='2026-10-28')
+            dataset = dict(provider='ctp')
             deadline = time.monotonic() + 30
-            while True:
-                task = rpc(tls, port, 'get_acquisition_task', id='recorded-release')
-                if task.state not in (market.TASK_STATE_QUEUED, market.TASK_STATE_RUNNING):
-                    break
-                assert time.monotonic() < deadline, task
+            while not rpc(tls, port, 'get_dataset_version', dataset=dataset).partitions:
+                assert time.monotonic() < deadline
                 time.sleep(.05)
-            assert task.state == market.TASK_STATE_SUCCEEDED, task
-            dataset = dict(provider='recorder', version=task.published_version)
-            assert task.published_version
+            dataset['version'] = rpc(tls, port, 'get_dataset_version', dataset=dataset).dataset.version
             def published():
                 manifest = rpc(tls, port, 'get_dataset_version', dataset=dataset)
                 partition, = manifest.partitions
@@ -124,14 +110,13 @@ def main():
                 return rpc(tls, port, 'read_dataset_file', dataset=dataset, key=partition.key).data
             before = published()
             table = pl.read_parquet(io.BytesIO(before))
-            assert table['close'].to_list() == [Decimal('3100.123456')]
-        # Re-extracting the release changes only its programs; persisted tasks,
-        # recordings and fixed versions remain readable after a restart.
+            assert table['price_tick'].to_list() == [Decimal('1')]
+        # Re-extracting the release changes only its programs; fixed versions
+        # remain readable after a restart.
         unpack(sys.argv[1], Path(folder))
         with running(root, port):
-            assert rpc(tls, port, 'get_acquisition_task', id='recorded-release') == task
             assert published() == before
-    print('Pure C++ release: publication, fixed reads and restart passed without Python')
+    print('Pure C++ release: snapshot intake, fixed reads and restart passed without Python')
 
 
 if __name__ == '__main__':

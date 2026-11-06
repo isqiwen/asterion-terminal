@@ -7,14 +7,14 @@ Terminal、Market、Lab 和 Trading 已实现行情、数据管理、研究与�
 | 应用 | 使用者可以做什么 |
 | --- | --- |
 | [Terminal](terminal/README.md) | 在 macOS Apple Silicon 或 Linux x86_64 上查看行情、编辑策略与因子、运行研究、管理数据和交易账户；支持中文和英文 |
-| [Market](market/README.md) | 接收 CTP 行情并持续录制；采集 Tushare 和交易所历史数据；查看覆盖、观测缺口和来源差异；发布可固定读取的数据版本 |
+| [Market](market/README.md) | 接收 CTP 行情；采集 Tushare 和交易所历史数据；查看覆盖；发布可固定读取的数据版本 |
 | [Lab](lab/README.md) | 对固定的数据与源码运行日线或分钟回测、参数扫描、滚动验证和日线因子评价；查看、比较和复现研究记录 |
 | [Trading](trading/README.md) | 发布策略包、启动和恢复实例、现场预热、授权交易、手动委托、暂停新增及平仓；独立于 Terminal、Market 和 Lab 运行 |
 
 ## 当前限制
 
 - Market 和 Trading 仅部署在 Linux x86_64。当前没有 Web、移动端、Windows 或独立 CLI 客户端。
-- 数据仅来自真实来源。研究数据集按分区选择来源，Tushare 分钟线优先、自录补缺；覆盖天数与日内完整性分别展示。
+- 数据仅来自真实来源。研究数据集按分区选择来源，以 Tushare 为准。
 - 回测使用日线或分钟线，因子评价只使用日线。费用由运行配置给出；回测尚未实现完整的涨跌停成交限制或交易所微观结构，组合按单币种处理。
 - 历史最小变动价位由 Market 随行情采集[自动补齐](market/README.md#历史最小变动价位)，六家交易所均已接入历史来源。参数缺失或冲突的区间不能回测。
 - Trading 仅发送限价单，策略使用固定月份合约；自动换月和多策略目标合并尚未实现。

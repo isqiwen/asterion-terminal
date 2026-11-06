@@ -98,7 +98,7 @@ TEST_F(Warehouse, ImmutableVersionsAndAbandonedWrites)
 
 TEST_F(Warehouse, ACommitWritesOnlyTheMonthsItChanged)
 {
-    wh::Store store(root, "recorder");
+    wh::Store store(root, "shfe");
     const auto shards = [&] {
         return std::distance(
             fs::directory_iterator(store.root() / "shards"),
@@ -121,13 +121,7 @@ TEST_F(Warehouse, EveryTablePreservesTypesPrecisionNullsAndText)
     wh::Store store(root, "tushare");
     auto writer = store.writer();
     for (const auto* table :
-        {"daily",
-            "calendar",
-            "contracts",
-            "minutes",
-            "settlement",
-            "observations",
-            "price_ticks"}) {
+        {"daily", "calendar", "contracts", "minutes", "settlement", "price_ticks"}) {
         const std::vector<wh::Row> rows{row(table), wh::Row(wh::columns(table).size())};
         writer.put(std::string(table) + "/SHFE/all", rows);
     }
@@ -203,22 +197,22 @@ TEST_F(Warehouse, RefusesLossyInputAndDoesNotPublishIt)
     EXPECT_EQ(values->GetValue(1, 0).ToString(), "1.000000");
 }
 
-TEST_F(Warehouse, ResearchTakesTushareFirstAndRecordedMinutesOnlyWhereTushareHasNone)
+TEST_F(Warehouse, ResearchTakesTushareFirstAndTheDaysOwnPriceTicks)
 {
     const auto store = [&](const char* provider) {
         return std::make_unique<wh::Store>(wh::source_directory(root, provider), provider);
     };
     const std::string mine = "minutes/SHFE/2026-10-29/rb/2027-01";
-    const std::string recorded_only = "minutes/SHFE/2026-10-30/rb/2027-01";
-    auto tushare = store("tushare"), shfe = store("shfe"), recorder = store("recorder");
+    const std::string tick = "price_ticks/SHFE/2026-10-30";
+    auto tushare = store("tushare"), shfe = store("shfe"), gtja = store("gtja"), ctp = store("ctp");
     publish(*tushare, "daily/SHFE/2026-10");
     publish(*tushare, "contracts/SHFE");
     publish(*tushare, mine, 2);
     publish(*shfe, "settlement/SHFE/2026-10-30");
     publish(*shfe, "daily/SHFE/2026-10-30");
-    publish(*recorder, mine, 3);
-    publish(*recorder, recorded_only, 3);
-    publish(*recorder, "observations/SHFE/2026-10-30/rb/2027-01");
+    publish(*gtja, tick, 2);
+    publish(*gtja, "price_ticks/SHFE/2026-10-29");
+    publish(*ctp, tick, 3);
     wh::Store composed(wh::source_directory(root, "research"), "research");
     const auto research = wh::compose_research(root, composed);
     std::map<std::string, std::string> sources;
@@ -230,37 +224,31 @@ TEST_F(Warehouse, ResearchTakesTushareFirstAndRecordedMinutesOnlyWhereTushareHas
             {"contracts/SHFE", "tushare"},
             {"daily/SHFE/2026-10", "tushare"},
             {mine, "tushare"},
-            {recorded_only, "recorder"},
-            {"observations/SHFE/2026-10-30/rb/2027-01", "recorder"},
+            {"price_ticks/SHFE/2026-10-29", "gtja"},
+            {tick, "ctp"},
             {"settlement/SHFE/2026-10-30", "shfe"}
         }));
     // Files are linked, not copied.
     const wh::Store reader(wh::source_directory(root, "research"), "research");
-    EXPECT_TRUE(
-        fs::equivalent(
-            reader.file(research, recorded_only),
-            recorder->file(recorder->current(), recorded_only)));
+    EXPECT_TRUE(fs::equivalent(reader.file(research, tick), ctp->file(ctp->current(), tick)));
     EXPECT_EQ(reader.read(research, mine).size(), 2U);
     EXPECT_EQ(wh::compose_research(root, composed).identity, research.identity);
-    // Once Tushare has the recorded day, research takes it from Tushare alone.
-    publish(*tushare, recorded_only, 4);
+    publish(*tushare, mine, 4);
     const auto later = wh::compose_research(root, composed);
-    EXPECT_EQ(later.partitions.at(recorded_only).source, "tushare");
-    EXPECT_EQ(reader.read(later, recorded_only).size(), 4U);
-    EXPECT_FALSE(later.partitions.contains("observations/SHFE/2026-10-30/rb/2027-01"));
-    EXPECT_EQ(reader.read(research, recorded_only).size(), 3U) << "earlier versions are unchanged";
+    EXPECT_EQ(reader.read(later, mine).size(), 4U);
+    EXPECT_EQ(reader.read(research, mine).size(), 2U) << "earlier versions are unchanged";
 }
 
-TEST_F(Warehouse, MinuteCoverageCountsDaysPerContractAndMonthAndMarksRecordedDays)
+TEST_F(Warehouse, MinuteCoverageCountsDaysPerContractAndMonth)
 {
     const auto store = [&](const char* provider) {
         return std::make_unique<wh::Store>(wh::source_directory(root, provider), provider);
     };
-    auto tushare = store("tushare"), recorder = store("recorder");
+    auto tushare = store("tushare");
     publish(*tushare, "minutes/SHFE/2026-09-30/rb/2027-01", 2);
     publish(*tushare, "minutes/SHFE/2026-10-29/rb/2027-01", 2);
-    publish(*recorder, "minutes/SHFE/2026-10-30/rb/2027-01", 2);
-    publish(*recorder, "minutes/SHFE/2026-10-30/cu/2026-12", 2);
+    publish(*tushare, "minutes/SHFE/2026-10-30/rb/2027-01", 2);
+    publish(*tushare, "minutes/SHFE/2026-10-30/cu/2026-12", 2);
     wh::Store composed(wh::source_directory(root, "research"), "research");
     wire::DatasetRef query;
     query.set_provider("research");
@@ -268,16 +256,13 @@ TEST_F(Warehouse, MinuteCoverageCountsDaysPerContractAndMonthAndMarksRecordedDay
     const auto coverage = wh::Reader(root).coverage(query);
     ASSERT_EQ(coverage.contracts_size(), 2);
     EXPECT_EQ(coverage.contracts(0).contract(), "SHFE/cu/2026-12");
-    EXPECT_EQ(coverage.contracts(0).months(0).recorded_days(), 1);
     const auto& rb = coverage.contracts(1);
     EXPECT_EQ(rb.contract(), "SHFE/rb/2027-01");
     ASSERT_EQ(rb.months_size(), 2);
     EXPECT_EQ(rb.months(0).month(), "2026-09");
     EXPECT_EQ(rb.months(0).days(), 1);
-    EXPECT_EQ(rb.months(0).recorded_days(), 0);
     EXPECT_EQ(rb.months(1).month(), "2026-10");
     EXPECT_EQ(rb.months(1).days(), 2);
-    EXPECT_EQ(rb.months(1).recorded_days(), 1);
 }
 
 TEST_F(Warehouse, VersionsListNewestFirstWithWhatEachAddedReplacedAndRemoved)
@@ -364,70 +349,6 @@ TEST_F(Warehouse, ReferenceTablesPageByExchangeAndDays)
     EXPECT_EQ(calendar.rows(0).values(1), "2026-10-30");
     query.set_table(wire::TABLE_MINUTES);
     EXPECT_THROW(reader.rows(query), std::invalid_argument);
-}
-
-TEST_F(Warehouse, MinuteComparisonCountsDifferencesPartialAndMissingMinutes)
-{
-    const auto minute = [](std::int64_t start, const char* close, bool partial) {
-        return wh::Row{
-            std::string("SHFE"),
-            std::string("rb"),
-            std::string("SHFE/rb/2027-01"),
-            std::string("2026-10-30"),
-            start,
-            partial,
-            std::string("3100"),
-            std::string("3110"),
-            std::string("3090"),
-            std::string(close),
-            std::string("12"),
-            wh::Cell{},
-            std::string("2000")
-        };
-    };
-    const std::string key = "minutes/SHFE/2026-10-30/rb/2027-01";
-    const auto put = [&](const char* provider, std::vector<wh::Row> rows) {
-        wh::Store store(wh::source_directory(root, provider), provider);
-        auto writer = store.writer();
-        writer.put(key, rows, {"2026-10-30"});
-        writer.commit();
-    };
-    constexpr std::int64_t open = 1793322000000;
-    put("tushare",
-        {minute(open, "3100", false),
-            minute(open + 60000, "3105", false),
-            minute(open + 120000, "3101", false),
-            minute(open + 180000, "3102", false)});
-    put("recorder",
-        {minute(open, "3100", false),
-            minute(open + 60000, "3106", false),
-            minute(open + 120000, "3101", true)});
-    const auto comparison = wh::compare_minutes(root);
-    EXPECT_EQ(comparison.days(), 1U);
-    EXPECT_EQ(comparison.differing_days(), 1U);
-    ASSERT_EQ(comparison.differing_size(), 1);
-    const auto& day = comparison.differing(0);
-    EXPECT_EQ(day.contract(), "SHFE/rb/2027-01");
-    EXPECT_EQ(day.trading_day(), "2026-10-30");
-    EXPECT_EQ(day.compared(), 2U);
-    EXPECT_EQ(day.differing(), 1U);
-    EXPECT_EQ(day.tushare_only(), 1U);
-    EXPECT_EQ(day.recorder_only(), 0U);
-    EXPECT_EQ(day.partial(), 1U);
-    ::market::GetMinuteDifferences query;
-    query.set_contract("SHFE/rb/2027-01");
-    query.set_trading_day("2026-10-30");
-    const auto differences = wh::minute_differences(root, query);
-    ASSERT_EQ(differences.minutes_size(), 2);
-    EXPECT_EQ(differences.minutes(0).start_ms(), open + 60000);
-    EXPECT_EQ(differences.minutes(0).tushare().close().text(), "3105");
-    EXPECT_EQ(differences.minutes(0).recorder().close().text(), "3106");
-    EXPECT_EQ(differences.minutes(0).recorder().volume(), 12);
-    EXPECT_EQ(differences.minutes(1).start_ms(), open + 180000);
-    EXPECT_TRUE(differences.minutes(1).has_tushare());
-    EXPECT_FALSE(differences.minutes(1).has_recorder());
-    query.set_trading_day("../../etc");
-    EXPECT_THROW(wh::minute_differences(root, query), std::exception);
 }
 
 TEST_F(Warehouse, ReadingAPartitionLoadsOnlyTheShardsItNeeds)
@@ -519,7 +440,7 @@ TEST_F(Warehouse, SourcesAndSummaryAreReadOnlyAndVersioned)
     summary.set_version(version.identity);
     publish(first, "daily/SHFE/202610", 3);
     const auto coverage = reader.summary(summary);
-    ASSERT_EQ(coverage.tables_size(), 7);
+    ASSERT_EQ(coverage.tables_size(), 6);
     EXPECT_EQ(coverage.tables(0).table(), wire::TABLE_DAILY);
     EXPECT_EQ(coverage.tables(0).rows(), 2);
     EXPECT_EQ(coverage.tables(0).first_day(), "2026-10-30");

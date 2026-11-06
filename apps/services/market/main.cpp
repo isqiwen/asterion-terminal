@@ -66,7 +66,7 @@ int main(int argc, char** argv)
             std::move(options),
             io_progress);
         // Listen before starting resources whose teardown may wait for a provider.
-        market = std::make_unique<market_data::Market>(settings, unique_process_id());
+        market = std::make_unique<market_data::Market>(settings);
         try {
             if (!host.run())
                 std::_Exit(1);

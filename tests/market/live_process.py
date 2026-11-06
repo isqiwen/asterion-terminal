@@ -95,7 +95,7 @@ def ask(port, number, body=b"", magic=b"ASTR", rejected=False, role="reader"):
 
 
 # Field numbers of market.proto.
-ERROR, GET_STATUS, STREAM_QUOTES, GET_MINUTES, LIST_RECORDED_DAYS = 2, 10, 11, 12, 14
+ERROR, GET_STATUS, STREAM_QUOTES, GET_MINUTES = 2, 10, 11, 12
 GET_DATASET_VERSION, START_ACQUISITION, GET_ACQUISITION_TASK = 21, 31, 32
 FEED_CONNECTED, CATALOG_LOADING, CATALOG_READY, CATALOG_FAILED = 5, 2, 4, 5
 INVALID_REQUEST, TABLE_MINUTES, TASK_SUCCEEDED = 1, 4, 3
@@ -197,7 +197,7 @@ def start(root, port, user="fixture"):
     """Everything comes from the installation directory and its configuration file."""
     (root / "config" / "market.json").write_text(json.dumps({
         "bind": "127.0.0.1", "port": port, "data": str(root / "data"),
-        "recording": {"tick_days": 30}, "clients": market_tls.clients(tls),
+        "clients": market_tls.clients(tls),
         "acquisition": {"exchanges": [], "tushare": None},
         "counter": {"market_front": "tcp://127.0.0.1:1", "trade_front": "tcp://127.0.0.1:1",
                     "broker": "test", "user": user, "app_id": "app"}}))
@@ -225,30 +225,12 @@ def collecting(status, catalog=CATALOG_READY):
             and feed_state(status) == FEED_CONNECTED and catalog_state(status) == catalog)
 
 
-def publish_recorded(port, day):
-    """The recorder's minutes of `day`, published as a fixed dataset version."""
-    start = (field(1, b"recorded-" + day.replace("-", "").encode()) + field(2, b"recorder")
-             + b"\x18" + bytes([TABLE_MINUTES]) + field(4, day.encode()) + field(5, day.encode())
-             + b"\x40\x01")
-    ask(port, START_ACQUISITION, start, role="manager")
-    deadline = time.monotonic() + 30
-    while True:
-        task = ask(port, GET_ACQUISITION_TASK, field(1, b"recorded-" + day.replace("-", "").encode()))
-        if number(task, 2) not in (1, 2):
-            break
-        assert time.monotonic() < deadline, task
-        time.sleep(.1)
-    assert number(task, 2) == TASK_SUCCEEDED, task
-    dataset = field(1, b"recorder") + field(2, task[7][0])
-    return [decode(part) for part in ask(port, GET_DATASET_VERSION, field(1, dataset)).get(3, [])]
-
-
 with tempfile.TemporaryDirectory(prefix="ast-market-") as folder:
     root = Path(folder)
     install(root)
     tls = market_tls.prepare(root)
     (root / "credentials").mkdir(mode=0o700)
-    # The recorder writes its logs to <installation>/logs by itself.
+    # Market writes its logs to <installation>/logs by itself.
     env = dict(os.environ, CREDENTIALS_DIRECTORY=str(root / "credentials"))
 
     # A missing credential refuses the start and names it.
@@ -296,35 +278,14 @@ with tempfile.TemporaryDirectory(prefix="ast-market-") as folder:
         first.wait(timeout=30)
     assert first.returncode == 0, first.stderr.read()
 
-    second_endpoint = free_port()
-    second = start(root, second_endpoint)
-    try:
-        status = wait_for(second, second_endpoint,
-                          lambda s: 8 in s and text(decode(s[8][0]), 1), "nothing recorded after restart")
-        trading_day = text(decode(status[8][0]), 1)
-        # Each process left its own observation segment of the day.
-        day = trading_day.encode()
-        recorded = ask(second_endpoint, LIST_RECORDED_DAYS, field(1, day) + field(2, day))
-        observed = decode(recorded[1][0])
-        assert text(observed, 1) == trading_day and len(observed[2]) >= 2, observed
-        partitions = publish_recorded(second_endpoint, trading_day)
-        minutes = [p for p in partitions if text(p, 1).startswith("minutes/SHFE/")]
-        segments = [p for p in partitions if text(p, 1).startswith("observations/SHFE/")]
-        # Both processes' recordings of the day reach research.
-        assert minutes and number(minutes[0], 4) >= 1, partitions
-        assert segments and number(segments[0], 4) >= 1, partitions
-        assert text(minutes[0], 5) == trading_day, minutes
-        # The day's contract catalog is on record for its price ticks.
-        assert list((root / "data/recordings/catalog").glob("*.pb"))
-    finally:
-        second.send_signal(signal.SIGTERM)
-        second.wait(timeout=30)
+    # The day's contract catalog is kept for its price ticks.
+    assert list((root / "data/catalog").glob("*.pb"))
 
     # A connection that outlasts a trading day reads the catalog for the new day.
     endpoint = free_port()
     continuing = start(root, endpoint, "next-day")
     try:
-        snapshots = root / "data/recordings/catalog"
+        snapshots = root / "data/catalog"
         begun = time.time_ns()
         deadline = time.monotonic() + 40
         reads = set()
@@ -339,7 +300,7 @@ with tempfile.TemporaryDirectory(prefix="ast-market-") as folder:
         continuing.wait(timeout=30)
 
     # A refresh that stalls or fails must not erase the last usable catalog.
-    # The restarted host can still collect and record while reporting the query state.
+    # The restarted host can still serve quotes while reporting the query state.
     for mode, state in (("catalog-stall", CATALOG_LOADING), ("catalog-error", CATALOG_FAILED)):
         endpoint = free_port()
         restarted = start(root, endpoint, mode)
@@ -360,8 +321,7 @@ with tempfile.TemporaryDirectory(prefix="ast-market-") as folder:
     assert flooded.returncode != 0, flooded.returncode
 
     logs = "".join(path.read_text() for path in (root / "logs").rglob("*.log"))
-    assert "[info] [asterion_market] [" in logs, logs  # one text line per record
+    assert "[error] [asterion_market] [" in logs, logs  # one text line per record
     assert not logs.lstrip().startswith("{"), logs
     for secret in ("fixture-only-secret", "fixture-auth"):
-        assert secret not in logs and secret not in second.stderr.read()
-    print("recorded", trading_day, "and published", len(minutes), "minute partitions")
+        assert secret not in logs and secret not in continuing.stderr.read()

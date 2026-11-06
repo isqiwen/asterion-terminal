@@ -1,12 +1,10 @@
 import { Table, TaskState } from "../../src/generated/asterion/market_pb";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MinuteComparison } from "./MinuteComparison";
 import { ContractPicker } from "./ContractPicker";
 import { DatasetHistory, changeText } from "./DatasetHistory";
 import { MinuteCoverage } from "./MinuteCoverage";
 import { useMarket } from "../../src/host/market";
-import { RecordedDays } from "./RecordedDays";
-import { RecordingStatus } from "./RecordingStatus";
+import { MarketStatus } from "./MarketStatus";
 import { ReferenceTables, referenceTables } from "./ReferenceTables";
 import {
   ErrorNotice,
@@ -50,7 +48,6 @@ const tables: Partial<Record<Table, string>> = {
   [Table.CONTRACTS]: "合约表",
   [Table.MINUTES]: "分钟线",
   [Table.SETTLEMENT]: "结算参数",
-  [Table.OBSERVATIONS]: "观测区间",
   [Table.PRICE_TICKS]: "历史报价单位",
 };
 const tableName = (table: Table) => t(tables[table] ?? Table[table]);
@@ -143,27 +140,21 @@ function DataPage({ context }: { context: TerminalContext }) {
     );
   return (
     <div className="page-body data-body">
-      <RecordingStatus context={context} />
-      <RecordedDays />
-      <MinuteComparison />
+      <MarketStatus context={context} />
       <div className="data-source">
         <label>
           {t("数据源")}
           <select value={provider} onChange={event => setProvider(event.target.value)}>
             {sources.map(item => (
               <option key={item.provider} value={item.provider}>
-                {item.provider === "recorder"
-                  ? t("自录")
-                  : item.provider === "research"
-                    ? t("研究数据")
-                    : item.provider}
+                {item.provider === "research" ? t("研究数据") : item.provider}
               </option>
             ))}
           </select>
         </label>
         <p className="subtle">
           {t(
-            "各来源分别采集和保存。研究只读「研究数据」：行情服务按规则合成，日线和分钟线以 Tushare 为准，Tushare 没有的合约交易日用自录分钟线。",
+            "各来源分别采集和保存。研究只读「研究数据」：行情服务按规则合成，日线和分钟线以 Tushare 为准。",
           )}
         </p>
       </div>
@@ -337,16 +328,13 @@ function SourceCoverage({
         },
       });
       // Market data is usable only with its price ticks: each source's are a task of its own.
-      if (
-        [Table.DAILY, Table.MINUTES, Table.SETTLEMENT].includes(table) &&
-        provider !== "recorder"
-      ) {
+      if ([Table.DAILY, Table.MINUTES, Table.SETTLEMENT].includes(table) && provider !== "ctp") {
         const wanted =
           table !== Table.MINUTES ? [exchange] : contracts.map(contract => contract.split("/")[0]);
         for (const reference of sources) {
           if (
             reference.provider === provider ||
-            reference.provider === "recorder" ||
+            reference.provider === "ctp" ||
             !reference.tables.includes(Table.PRICE_TICKS)
           )
             continue;
@@ -429,20 +417,12 @@ function SourceCoverage({
       </section>
       <DatasetHistory provider={provider} latest={latest} viewed={viewed} onView={setViewed} />
       {source.tables.length > 0 && (
-        <section
-          ref={form}
-          className="data-card"
-          aria-label={t(source.provider === "recorder" ? "发布录制分钟" : "采集")}
-        >
+        <section ref={form} className="data-card" aria-label={t("采集")}>
           <header>
-            <h3>{t(source.provider === "recorder" ? "发布录制分钟" : "采集")}</h3>
+            <h3>{t("采集")}</h3>
           </header>
           <p className="subtle">
-            {t(
-              source.provider === "recorder"
-                ? "将行情服务已落盘的分钟发布为研究版本，保留不完整分钟和观测中断；补录后可重新发布，旧版本仍可读取。"
-                : "采集按交易所保存，分钟线按合约保存；已入库分区跳过。",
-            )}{" "}
+            {t("采集按交易所保存，分钟线按合约保存；已入库分区跳过。")}{" "}
             {t("来源配置和凭据由行情服务主机管理；关闭此页面不会停止采集。")}
           </p>
           <div className="data-fields">
@@ -484,11 +464,7 @@ function SourceCoverage({
               checked={replace}
               onChange={event => setReplace(event.target.checked)}
             />
-            {t(
-              source.provider === "recorder"
-                ? "重新发布已有分区，保留旧数据集版本"
-                : "重新采集已有分区，保留旧数据集版本",
-            )}
+            {t("重新采集已有分区，保留旧数据集版本")}
           </label>
           <div className="data-actions">
             <button
@@ -506,7 +482,7 @@ function SourceCoverage({
               }
               onClick={() => void acquire()}
             >
-              {t(source.provider === "recorder" ? "发布录制分钟" : "开始采集")}
+              {t("开始采集")}
             </button>
             {!canManage && (
               <span className="subtle" role="status">
