@@ -93,7 +93,7 @@ C++ 和 Python 的生成规则在 [protocol/CMakeLists.txt](../protocol/CMakeLis
 - 组件测试用 `src/testing/core.ts` 提供核心通道替身；`@journey` 标记关键端到端场景。
 - 端到端测试只能用 `pnpm run test:e2e`：它用临时根目录、测试凭据和测试 CTP SDK；直接运行 `playwright test` 会操作本机正在使用的服务。首次运行先 `pnpm exec playwright install chromium`；运行前确认 1423 端口空闲。需要 Electron 窗口的测试要有图形会话（无显示器时用 `xvfb-run -a`）。
 - macOS 上 CTest 用 `TMPDIR=/private/tmp`，因为 Unix socket 路径不能超过 104 字节。
-- CI 的 core 作业覆盖两平台 Debug，桌面作业共用一次 Release 构建运行 CTest、浏览器、Electron 和安装包验收；另外运行 Sanitizer、单 CPU Market 重复检查和交易恢复检查。Conan 缓存按作业、平台、运行器镜像和依赖配置区分，避免每次重新编译依赖。
+- CI 在两平台使用 Release 构建运行 CTest、浏览器、Electron 和安装包验收；Sanitizer 使用 Debug 检查内存错误和数据竞争，另外运行单 CPU Market 重复检查和交易恢复检查。Conan 缓存按作业、平台、运行器镜像和依赖配置区分，避免每次重新编译依赖。
 - 主机安装包的隔离测试：`python3 tests/market/package_test.py <market 安装包>`、`python3 tests/trading/package_test.py <trading 安装包>`，在断网的 Ubuntu 24.04 容器里安装、升级并运行。
 - 真实柜台的验收见 [CTP 仿真验收](acceptance/ctp-simulation.md)。
 

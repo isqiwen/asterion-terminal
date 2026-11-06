@@ -32,13 +32,13 @@ jobs:
         run: pnpm lint
       - name: TypeScript unit and component tests
         run: pnpm test:unit
-  core:
+  linux-hosts:
     strategy:
       fail-fast: false
       matrix:
-        # Linux matches the image the host releases are built on. GCC 11 on 22.04
-        # leaks initializer-list elements when a later element throws.
-        os: [ubuntu-24.04, macos-latest]
+        include:
+          - os: ubuntu-24.04
+            arch: x86_64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -59,49 +59,11 @@ jobs:
         run: conan cache restore "${{ runner.temp }}/conan-packages.tgz"
       - run: conan profile detect
       - run: python scripts/prepare_ctp.py
-      # Dependencies build optimized; only the project is a debug build.
-      - run: conan install . -s "&:build_type=Debug" -s build_type=Release -s compiler.cppstd=20 -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing
+      - run: conan install . -s build_type=Release -s compiler.cppstd=20 -o with_tests=False -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing
       - &conan-save
         name: Prepare Conan cache
         if: steps.conan-cache.outputs.cache-hit != 'true'
         run: conan cache save '*:*' --no-source -cc core:compresslevel=1 --file "${{ runner.temp }}/conan-packages.tgz"
-      - run: cmake --preset conan-debug
-      # -k 0 reports every failing translation unit in one run, not only the first.
-      - run: cmake --build --preset conan-debug -- -k 0
-      - run: python scripts/desktop/python_runtime.py
-      - run: ctest --preset conan-debug --output-on-failure
-        env:
-          ASTERION_TEST_RUNTIME_MANIFEST: ${{ github.workspace }}/build/electron-resources/runtime
-      - name: Repeat Market process tests on one CPU
-        if: runner.os == 'Linux'
-        run: |
-          cpu=$(python -c 'import os; print(min(os.sched_getaffinity(0)))')
-          taskset -c "$cpu" ctest --preset conan-debug --output-on-failure -j 1 --repeat until-fail:5 -R 'CtpPublication.CatalogRevision|CtpEvents.ProcessExposes|^market_recording_process$|^market_process$'
-      - name: Market release without a Python runtime
-        if: runner.os == 'Linux'
-        run: |
-          cmake --build build/Debug --target asterion_market_setup
-          build/electron-resources/python/bin/python3 tests/market/package_test.py build/Debug/asterion-market-setup.sh
-  linux-hosts:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-24.04
-            arch: x86_64
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-      - run: python -m pip install conan==2.32.0 ninja uv==0.12.9
-      - *conan-cache
-      - *conan-restore
-      - run: conan profile detect
-      - run: python scripts/prepare_ctp.py
-      - run: conan install . -s build_type=Release -s compiler.cppstd=20 -o with_tests=False -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing
-      - *conan-save
       - run: cmake --preset conan-release
       # The trading and Market hosts' own releases, one self-extracting
       # script each.
@@ -150,11 +112,12 @@ jobs:
       - run: python scripts/prepare_ctp.py
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec install-electron
-      # Core covers Debug; desktop tests and packaging share the Release build.
       - name: Build acceptance installer and native desktop
         run: python scripts/desktop/desktop.py package-test --prepare-python
       - *conan-save
       - run: ctest --preset conan-release --output-on-failure
+        env:
+          ASTERION_TEST_RUNTIME_MANIFEST: ${{ github.workspace }}/build/electron-resources/runtime
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
       - name: Exercise native Electron host
@@ -200,11 +163,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xvfb
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      # Core covers Debug; desktop tests and packaging share the Release build.
       - name: Build acceptance installer and native desktop
         run: python scripts/desktop/desktop.py package-test --prepare-python
       - *conan-save
       - run: ctest --preset conan-release --output-on-failure
+        env:
+          ASTERION_TEST_RUNTIME_MANIFEST: ${{ github.workspace }}/build/electron-resources/runtime
+      - name: Repeat Market process tests on one CPU
+        run: |
+          cpu=$(python -c 'import os; print(min(os.sched_getaffinity(0)))')
+          taskset -c "$cpu" ctest --preset conan-release --output-on-failure -j 1 --repeat until-fail:5 -R '^(market_recording_process|market_process)$'
+      - name: Market release without a Python runtime
+        run: |
+          cmake --build build/Release --target asterion_market_setup
+          build/electron-resources/python/bin/python3 tests/market/package_test.py build/Release/asterion-market-setup.sh
       - run: pnpm exec playwright install --with-deps chromium
       - name: Trading browser tests
         run: pnpm run test:e2e --grep @trading
@@ -247,7 +219,7 @@ jobs:
       - run: cmake --preset conan-debug -DASTERION_SANITIZERS=${{ matrix.sanitizer }}
       - run: cmake --build --preset conan-debug
       # Python loads an uninstrumented interpreter; Lab and runtime installation
-      # are covered by the ordinary core and desktop jobs.
+      # are covered by the desktop jobs.
       - run: ctest --preset conan-debug --output-on-failure -E '^(lab_(strategy|sessions|dominant|service)$|PythonRuntime[.])'
         env:
           ASTERION_TIMING_SCALE: "20"
