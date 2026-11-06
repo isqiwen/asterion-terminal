@@ -1,7 +1,7 @@
 import { BrandMark } from "../ui/BrandMark";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
-import { translate, type MessageValues } from "../i18n";
-const t = (key: string, values?: MessageValues) => translate("host", key, values);
+import { translate } from "../i18n";
+const t = (key: string) => translate("host", key);
 import { useLocale } from "../i18n";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { WindowFrame } from "../host/components/WindowFrame";
@@ -105,7 +105,6 @@ export function SetupGate({ children }: { children: ReactNode }) {
       </div>
     );
   const failed = runtime?.state === "failed";
-  const total = (runtime?.modules ?? []).reduce((sum, module) => sum + module.size, 0);
   return (
     <WindowFrame title={t("Asterion Terminal — 首次启动")}>
       <main className="first-setup" aria-label={t("首次启动")}>
@@ -132,14 +131,6 @@ export function SetupGate({ children }: { children: ReactNode }) {
               <BrandMark size={48} />
             </div>
             <h1>ASTERION TERMINAL</h1>
-            <p>
-              {t(
-                "第一次启动：下载并安装研究所需的 Python 运行时，共 {size}。以后启动直接进入工作台。",
-                {
-                  size: megabytes(total),
-                },
-              )}
-            </p>
           </header>
           <div className="setup-steps" aria-live="polite">
             {(runtime?.modules ?? []).map(module => {

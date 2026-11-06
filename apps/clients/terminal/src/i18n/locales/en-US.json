@@ -138,7 +138,6 @@
   "策略仓库": "Strategy repository",
   "Asterion Terminal — 首次启动": "Asterion Terminal — First launch",
   "首次启动": "First launch",
-  "第一次启动：下载并安装研究所需的 Python 运行时，共 {size}。以后启动直接进入工作台。": "First launch: downloading and installing the Python runtime for research, {size} in all. Later launches open the workbench directly.",
   "下载中": "Downloading",
   "安装中": "Installing",
   "重试": "Retry",

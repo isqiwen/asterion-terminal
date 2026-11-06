@@ -59,7 +59,6 @@ test("the first launch installs the runtime, one row per module, then enters", a
   });
   start();
   await screen.findByRole("progressbar", { name: "核心" });
-  expect(screen.getByText(/第一次启动/).textContent).toContain("0 MB");
   await waitFor(() => expect(workbench()).not.toBeNull(), { timeout: 4000 });
   expect(calls.map(call => call.method)).toContain("runtime.python.install");
 });

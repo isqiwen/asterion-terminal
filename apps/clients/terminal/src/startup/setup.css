@@ -39,10 +39,6 @@
   line-height: 1.2;
   margin: 0;
 }
-.setup-content header p {
-  margin: 10px 0 0;
-  font-size: 12px;
-}
 /* One hairline row per module: name, size, progress, state. */
 .setup-steps {
   border-top: 1px solid var(--line);
