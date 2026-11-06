@@ -7,7 +7,8 @@
 namespace asterion::market_data {
 
 // The Market service: the market thread that owns the live market and its
-// recording, and the reader pool that serves datasets and acquisition tasks.
+// recording; intake that takes finished recording files from disk; and the
+// reader pool that serves datasets and acquisition tasks.
 class Market
 {
 public:

@@ -1,6 +1,6 @@
-#include "compaction.hpp"
+#include "recorded/compaction.hpp"
 #include "parquet_engine.hpp"
-#include "recorder.hpp"
+#include "recording/recorder.hpp"
 #include <asterion/system/durable_file.hpp>
 #include <asterion/system/process/child.hpp>
 #include <gtest/gtest.h>
@@ -50,6 +50,11 @@ void record(const fs::path& root, const std::string& instance, std::int64_t from
             minutes.observe(q);
         }
     recorder.close("stopped", from + seconds * 1000, minutes);
+    for (const auto& entry : fs::recursive_directory_iterator(root))
+        if (entry.is_regular_file())
+            fs::last_write_time(
+                entry.path(),
+                file_clock::from_sys(system_clock::time_point(milliseconds(from))));
 }
 
 std::vector<std::string> names(const fs::path& folder)
@@ -90,6 +95,18 @@ TEST(Merge, ADayIsMergedOnlyAfterItsTradingEnded)
         std::vector<std::string>{"20261028"});
     // A night session's trading day is tomorrow: never early.
     EXPECT_TRUE(recording::compactable_days(folder.path, beijing(27, 22, 0)).empty());
+}
+
+TEST(Merge, ADayWaitsUntilItsFilesHaveBeenQuietForHalfAnHour)
+{
+    Folder folder;
+    record(folder.path, "a", base, 3);
+    const auto file = *fs::directory_iterator(folder.path / "ticks/trading_day=20261028");
+    fs::last_write_time(file.path(), file_clock::from_sys(beijing(28, 16, 0)));
+    EXPECT_TRUE(recording::compactable_days(folder.path, beijing(28, 16, 29)).empty());
+    EXPECT_EQ(
+        recording::compactable_days(folder.path, beijing(28, 16, 30)),
+        std::vector<std::string>{"20261028"});
 }
 
 TEST(Merge, FilesBecomeOnePerExchangeWithEveryRowAndALateQuoteIsFoldedIn)
@@ -202,6 +219,9 @@ TEST(Merge, OnlyTheLatestTickDaysAreKeptAndMinutesAndSegmentsStay)
     EXPECT_TRUE(recording::prune_ticks(folder.path, 3).empty());
     EXPECT_EQ(recording::prune_ticks(folder.path, 2), std::vector<std::string>{"20261026"});
     EXPECT_FALSE(fs::exists(folder.path / "ticks/trading_day=20261026"));
+    EXPECT_TRUE(fs::exists(folder.path / "ticks/trading_day=20261027/SHFE.parquet"));
+    // A day whose merge keeps failing keeps its ticks.
+    EXPECT_TRUE(recording::prune_ticks(folder.path, 1, {"20261027"}).empty());
     EXPECT_TRUE(fs::exists(folder.path / "ticks/trading_day=20261027/SHFE.parquet"));
     for (const auto* table : {"minutes", "segments"})
         EXPECT_TRUE(fs::exists(folder.path / table / "trading_day=20261026/SHFE.parquet"));

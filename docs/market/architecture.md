@@ -35,7 +35,7 @@ flowchart LR
 
 ## 核心类关系
 
-RPC 接入负责收发帧；行情执行路径拥有 `Live` 和 `Recording`；后台读取路径访问仓库并管理采集任务。每个调用走哪条路径，只由 `market.cpp` 的 `route()` 决定。
+RPC 接入负责收发帧；行情执行路径拥有 `Live` 和 `Recording`；`RecordedIntake` 在自己的线程里从磁盘取走已结束的交易日；后台读取路径访问仓库并管理采集任务。录制的构建目标不链接入库和仓库，理由：录制丢失不可恢复，其他工作都可以重做。每个调用走哪条路径，只由 `market.cpp` 的 `route()` 决定。
 
 ```mermaid
 classDiagram
@@ -71,6 +71,7 @@ classDiagram
     }
     class IntradayBars
     class Recorder
+    class RecordedIntake
     class Compactor
     class RecordedPublication
     class Manager
@@ -79,14 +80,15 @@ classDiagram
     Market *-- Live : 行情线程
     Market *-- Recording : 行情线程
     Market *-- Manager
+    Market *-- RecordedIntake
     Market *-- QuoteStream : 每条报价流
     Live *-- Feed
     Live *-- Catalog
     Live *-- IntradayBars
     Recording *-- Recorder
-    Recording *-- Compactor
-    Recording *-- RecordedPublication
     Recording ..> IntradayBars : 只读
+    RecordedIntake *-- Compactor
+    RecordedIntake *-- RecordedPublication
     RecordedPublication --> Manager
 ```
 
@@ -158,7 +160,7 @@ sequenceDiagram
         Live->>Recording: observe(事件)
         Live->>Live: apply(事件)：更新分钟线
     end
-    Note over Recording: 3. maintain()：写入、盘后合并、发布
+    Note over Recording: 3. maintain()：写入到期的文件
     Note over Live: 4. 回答排队的 get_status / get_board / get_minutes
     Live->>Stream: 5. 到期的报价流放入下一帧
     Client->>RPC: Request.stream_quotes
@@ -203,7 +205,7 @@ sequenceDiagram
     end
 ```
 
-录制自动发布复用上述采集路径：`Compactor` 报告完成日期，`RecordedPublication` 将日期保存到 `recordings/unpublished.json`，再提交 `recorder` 任务。任务成功且期间没有再次合并才移除待办；失败保留待办并延后再试，重启重新读取待办。理由：录制文件已存在后，研究发布可以独立补做。
+录制自动发布复用上述采集路径：`RecordedIntake` 只看磁盘文件，`Compactor` 报告完成日期，`RecordedPublication` 将日期保存到 `recordings/unpublished.json`，再提交 `recorder` 任务。任务成功且期间没有再次合并才移除待办；失败保留待办，这一天一小时后再试，不影响后面的日期，重启重新读取待办。理由：录制文件已存在后，研究发布可以独立补做。
 
 `research` 的来源选择规则见[功能文档](README.md#仓库与固定版本)。`Writer::adopt()` 用硬链接引用选中的分区，旧版本仍引用原文件；无内容变化不生成新版本。
 
@@ -215,9 +217,9 @@ sequenceDiagram
 | 行情中断 | 中断分钟观测、结束录制段；重连后继续，见 `Live::apply()`、`Recording::observe()` |
 | SDK 事件队列溢出 | 终止本次服务运行，由 systemd 重启，见 `Feed::poll()` 与 `Market` 的行情线程 |
 | 磁盘积压 | 录制丢弃积压区间并报告丢失计数，行情继续，见 `Recorder::flush()` |
-| 交易日结束 | 最后一根分钟线写入、盘后合并、提交发布待办，见 `Recorder`、`Compactor`、`RecordedPublication` |
-| 服务正常停止 | 报价流发出最后一帧、结束后台资源、写完录制缓冲，见 `main.cpp` 与 `Recording` 析构 |
-| 服务重新启动 | 恢复合并日志、读取发布待办；旧采集任务标为中断，见 `Market`、`Manager` |
+| 交易日结束 | 最后一根分钟线写入；当天文件安静后盘后合并、提交发布待办，见 `Recorder`、`RecordedIntake` |
+| 服务正常停止 | 报价流发出最后一帧、写完录制缓冲、再结束历史任务，见 `main.cpp` 与 `market.cpp` |
+| 服务重新启动 | 恢复合并日志、读取发布待办；旧采集任务标为中断，损坏的任务文件只影响它自己，见 `RecordedIntake`、`Manager` |
 
 ## 代码阅读路线
 
@@ -226,8 +228,8 @@ sequenceDiagram
 | 1 | [main.cpp](../../apps/services/market/main.cpp)、[settings.cpp](../../apps/services/market/settings.cpp) | 配置、数据目录锁、TLS 身份、权限和停止流程 |
 | 2 | [market.cpp](../../apps/services/market/market.cpp) | 调用路径表、行情线程的一轮、报价流 |
 | 3 | [live.cpp](../../apps/services/market/live.cpp)、[ctp_feed.cpp](../../apps/services/common/market/ctp/ctp_feed.cpp)、[catalog.hpp](../../apps/services/market/catalog.hpp) | 登录与目录刷新、全市场订阅、报价帧 |
-| 4 | [recording.cpp](../../apps/services/market/recording.cpp)、[intraday_bars.cpp](../../core/src/futures/intraday_bars.cpp)、[recorder.cpp](../../apps/services/market/recording/recorder.cpp) | 录制观测段、分钟完整性、盘后合并的时机 |
-| 5 | [compaction.cpp](../../apps/services/market/recording/compaction.cpp)、[recorded_publication.cpp](../../apps/services/market/acquisition/recorded_publication.cpp) | 归档替换与发布恢复 |
+| 4 | [recording.cpp](../../apps/services/market/recording.cpp)、[intraday_bars.cpp](../../core/src/futures/intraday_bars.cpp)、[recorder.cpp](../../apps/services/market/recording/recorder.cpp) | 录制观测段、分钟完整性 |
+| 5 | [recorded_intake.cpp](../../apps/services/market/acquisition/recorded_intake.cpp)、[compaction.cpp](../../apps/services/market/recorded/compaction.cpp)、[recorded_publication.cpp](../../apps/services/market/acquisition/recorded_publication.cpp) | 合并时机、归档替换与发布恢复 |
 | 6 | [manager.cpp](../../apps/services/market/acquisition/manager.cpp)、[source.hpp](../../apps/services/market/acquisition/source.hpp) | 来源扩展、任务生命周期与批量提交 |
 | 7 | [store.cpp](../../apps/services/market/warehouse/store.cpp)、[research.cpp](../../apps/services/market/warehouse/research.cpp) | 不可变版本、月度分片、来源合成 |
 | 8 | [通信协议](../protocol.md)、[market.proto](../../protocol/proto/asterion/market.proto) | 客户端契约与固定版本读取 |

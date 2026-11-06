@@ -126,13 +126,18 @@ Manager::Manager(fs::path directory, std::map<std::string, Factory> sources)
     for (const auto& entry : fs::directory_iterator(directory_)) {
         if (entry.path().extension() != ".pb")
             continue;
-        auto task = load(entry.path());
-        if (pending(task)) {
-            task.set_state(wire::TASK_STATE_INTERRUPTED);
-            task.mutable_error()->set_code(::common::ERROR_CODE_UNAVAILABLE);
-            task.mutable_error()->set_message("Market stopped before acquisition completed");
-            task.set_finished_ms(now_ms());
-            persist(task);
+        // A damaged record costs that task alone, never the service's start.
+        try {
+            auto task = load(entry.path());
+            if (pending(task)) {
+                task.set_state(wire::TASK_STATE_INTERRUPTED);
+                task.mutable_error()->set_code(::common::ERROR_CODE_UNAVAILABLE);
+                task.mutable_error()->set_message("Market stopped before acquisition completed");
+                task.set_finished_ms(now_ms());
+                persist(task);
+            }
+        } catch (const std::exception& error) {
+            log::error("acquisition task ignored: {}", error.what());
         }
     }
 }
@@ -342,9 +347,13 @@ wire::AcquisitionTasks Manager::list(const wire::ListAcquisitionTasks& query) co
     for (const auto& entry : fs::directory_iterator(directory_)) {
         if (entry.path().extension() != ".pb")
             continue;
-        auto task = load(entry.path());
-        if (query.provider().empty() || task.request().provider() == query.provider())
-            tasks.push_back(std::move(task));
+        try {
+            auto task = load(entry.path());
+            if (query.provider().empty() || task.request().provider() == query.provider())
+                tasks.push_back(std::move(task));
+        } catch (const std::exception& error) {
+            log::error("acquisition task ignored: {}", error.what());
+        }
     }
     std::sort(tasks.begin(), tasks.end(), [](const auto& a, const auto& b) {
         return a.started_ms() != b.started_ms() ? a.started_ms() > b.started_ms()

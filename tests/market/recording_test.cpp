@@ -1,5 +1,5 @@
 #include "parquet_engine.hpp"
-#include "recorder.hpp"
+#include "recording/recorder.hpp"
 #include <asterion/system/process/child.hpp>
 #include <gtest/gtest.h>
 #include <thread>

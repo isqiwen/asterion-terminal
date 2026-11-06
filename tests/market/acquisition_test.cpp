@@ -504,6 +504,19 @@ TEST_F(Acquisition, FailedTaskPersistenceIsVisibleAndRecoveryDoesNotResubmit)
     EXPECT_EQ(attempts, 1);
 }
 
+TEST_F(Acquisition, ADamagedTaskFileCostsOnlyThatTask)
+{
+    auto vendor = std::make_shared<Vendor>();
+    fs::create_directories(root / "acquisition");
+    std::ofstream(root / "acquisition/damaged.pb") << "not a task";
+    ac::Manager manager(root, {{"tushare", factory(vendor)}});
+    EXPECT_EQ(
+        finished(manager, manager.submit(request("next")).request().id()).state(),
+        ac::wire::TASK_STATE_SUCCEEDED);
+    EXPECT_EQ(manager.list({}).tasks_size(), 1);
+    EXPECT_THROW(manager.get("damaged"), std::runtime_error);
+}
+
 TEST_F(Acquisition, MarketRestartMarksUnfinishedTasksAndServesIndependentReadOnlyClients)
 {
     testing_support::MarketHost host(root);

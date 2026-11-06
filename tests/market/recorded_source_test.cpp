@@ -1,9 +1,10 @@
 #include "acquisition/recorded.hpp"
+#include "acquisition/recorded_intake.hpp"
 #include "acquisition/recorded_publication.hpp"
 #include "acquisition/manager.hpp"
 #include "recording/recorder.hpp"
-#include "recording/compaction.hpp"
-#include "recording/compactor.hpp"
+#include "recorded/compaction.hpp"
+#include "recorded/compactor.hpp"
 #include <asterion/system/process/child.hpp>
 #include <gtest/gtest.h>
 #include <future>
@@ -23,6 +24,7 @@ class RecordedSource : public testing::Test
 protected:
     fs::path root = fs::temp_directory_path() / ("recorded-source-" + unique_process_id());
     std::shared_ptr<std::shared_mutex> archive = std::make_shared<std::shared_mutex>();
+    std::string trading_day = "20261028";
 
     void TearDown() override
     {
@@ -41,7 +43,7 @@ protected:
         for (int i = 0; i < 2; ++i) {
             MarketQuote q;
             q.instrument = id;
-            q.trading_day = "20261028";
+            q.trading_day = trading_day;
             q.source_ms = from + i * 60000;
             q.received_ms = q.source_ms + 5;
             q.last = Decimal::parse(price);
@@ -53,6 +55,13 @@ protected:
         }
         recorder.close("stopped", from + 60010, minutes);
         ASSERT_TRUE(recorder.status().error.empty()) << recorder.status().error;
+        // The day went quiet long before any `wall` these tests use.
+        for (const auto& entry : fs::recursive_directory_iterator(root / "recordings"))
+            if (entry.is_regular_file())
+                fs::last_write_time(
+                    entry.path(),
+                    std::chrono::file_clock::from_sys(
+                        std::chrono::system_clock::time_point(std::chrono::milliseconds(from))));
     }
 
     ac::wire::AcquisitionTask publish(
@@ -169,7 +178,7 @@ TEST_F(RecordedSource, MaintenanceWaitDoesNotBlockRecordingOrFixedVersions)
     const auto now = recording::Compactor::Clock::now();
     const auto wall = std::chrono::sys_days{std::chrono::year{2026} / 10 / 29};
     std::unique_lock held(*archive);
-    compactor.poll(true, now, wall);
+    compactor.poll(now, wall);
     const auto deadline = now + 5s;
     while (compactor.status().day.empty() && recording::Compactor::Clock::now() < deadline)
         std::this_thread::sleep_for(5ms);
@@ -180,7 +189,7 @@ TEST_F(RecordedSource, MaintenanceWaitDoesNotBlockRecordingOrFixedVersions)
     EXPECT_TRUE(compactor.running());
     held.unlock();
     while (compactor.running() && recording::Compactor::Clock::now() < deadline) {
-        compactor.poll(false, now, wall);
+        compactor.poll(now, wall);
         std::this_thread::sleep_for(5ms);
     }
     ASSERT_FALSE(compactor.running());
@@ -200,9 +209,8 @@ TEST_F(RecordedSource, AMergedDayIsReportedAndEveryContractOfItReachesResearch)
     const auto wall = std::chrono::sys_days{std::chrono::year{2026} / 10 / 29};
     std::optional<std::string> merged;
     const auto deadline = now + 5s;
-    for (bool quiet = true; !merged && recording::Compactor::Clock::now() < deadline;
-        quiet = false) {
-        merged = compactor.poll(quiet, now, wall);
+    while (!merged && recording::Compactor::Clock::now() < deadline) {
+        merged = compactor.poll(now, wall);
         std::this_thread::sleep_for(5ms);
     }
     ASSERT_EQ(merged, "20261028") << compactor.status().error;
@@ -230,7 +238,7 @@ TEST_F(RecordedSource, MaintenanceShutdownDoesNotWaitForAnArchiveReader)
     const auto now = recording::Compactor::Clock::now();
     const auto wall = std::chrono::sys_days{std::chrono::year{2026} / 10 / 29};
     std::shared_lock held(*archive);
-    compactor->poll(true, now, wall);
+    compactor->poll(now, wall);
     const auto deadline = now + 5s;
     while (compactor->status().day.empty() && recording::Compactor::Clock::now() < deadline)
         std::this_thread::sleep_for(5ms);
@@ -257,22 +265,84 @@ TEST_F(RecordedSource, AScanFailureIsReportedAndRetriedAfterBackoff)
     const auto finish = [&](auto when) {
         const auto deadline = recording::Compactor::Clock::now() + 5s;
         while (compactor.running() && recording::Compactor::Clock::now() < deadline) {
-            compactor.poll(false, when, wall);
+            compactor.poll(when, wall);
             std::this_thread::sleep_for(5ms);
         }
         ASSERT_FALSE(compactor.running());
     };
-    compactor.poll(true, now, wall);
+    compactor.poll(now, wall);
     finish(now);
     ASSERT_FALSE(compactor.status().error.empty());
     fs::remove(damaged);
     record("repaired");
-    compactor.poll(true, now + 59min, wall);
+    compactor.poll(now + 59min, wall);
     EXPECT_FALSE(compactor.running());
-    compactor.poll(true, now + 1h, wall);
+    compactor.poll(now + 1h, wall);
     finish(now + 1h);
     EXPECT_TRUE(compactor.status().error.empty());
     EXPECT_TRUE(fs::exists(root / "recordings/minutes/trading_day=20261028/SHFE.parquet"));
+}
+
+TEST_F(RecordedSource, ADayThatFailsToMergeDoesNotHoldBackLaterDays)
+{
+    record("first");
+    const auto damaged = root / "recordings/ticks/trading_day=20261027/damaged.parquet";
+    fs::create_directories(damaged.parent_path());
+    std::ofstream(damaged) << "not parquet";
+    fs::last_write_time(
+        damaged,
+        fs::last_write_time(root / "recordings/segments/trading_day=20261028/first.parquet"));
+    recording::Compactor compactor(root / "recordings", archive, 30);
+    auto now = recording::Compactor::Clock::now();
+    const auto wall = std::chrono::sys_days{std::chrono::year{2026} / 10 / 29};
+    const auto next = [&] {
+        now += 2min;
+        std::optional<std::string> merged;
+        compactor.poll(now, wall);
+        const auto deadline = std::chrono::steady_clock::now() + 5s;
+        while (compactor.running() && std::chrono::steady_clock::now() < deadline) {
+            merged = compactor.poll(now, wall);
+            std::this_thread::sleep_for(5ms);
+        }
+        return merged;
+    };
+    EXPECT_FALSE(next());
+    EXPECT_FALSE(compactor.status().error.empty());
+    EXPECT_EQ(next(), "20261028");
+    EXPECT_FALSE(compactor.status().error.empty());
+    EXPECT_TRUE(fs::exists(damaged));
+}
+
+TEST_F(RecordedSource, ADayThatFailsToPublishDoesNotHoldBackLaterDays)
+{
+    trading_day = "20261027";
+    record("too-precise", base, {"SHFE", "rb2701"}, "3100.12345678");
+    trading_day = "20261028";
+    record("first");
+    ac::Manager manager(root, {{"recorder", factory()}});
+    ac::RecordedPublication queue(root / "unpublished.json", manager);
+    queue.add("20261027");
+    queue.add("20261028");
+    const auto deadline = std::chrono::steady_clock::now() + 10s;
+    while (queue.pending().size() == 2 && std::chrono::steady_clock::now() < deadline) {
+        queue.poll(std::chrono::steady_clock::now());
+        std::this_thread::sleep_for(5ms);
+    }
+    EXPECT_EQ(queue.pending(), std::set<std::string>{"20261027"});
+}
+
+TEST_F(RecordedSource, IntakeTakesAFinishedDayFromTheDiskAlone)
+{
+    record("first");
+    ac::Manager manager(root, {{"recorder", factory()}});
+    ac::RecordedIntake intake(root / "recordings", archive, 30, manager);
+    wh::Store store(wh::source_directory(root, "recorder"), "recorder");
+    const auto deadline = std::chrono::steady_clock::now() + 15s;
+    while (store.current().partitions.empty() && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(20ms);
+    EXPECT_TRUE(store.current().partitions.contains("minutes/SHFE/2026-10-28/rb/2027-01"));
+    EXPECT_TRUE(fs::exists(root / "recordings/minutes/trading_day=20261028/SHFE.parquet"));
+    intake.stop();
 }
 
 TEST_F(RecordedSource, ATradedAverageWithEightPlacesIsRoundedToSix)

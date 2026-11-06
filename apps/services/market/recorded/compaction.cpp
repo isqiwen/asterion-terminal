@@ -1,6 +1,7 @@
 #include "compaction.hpp"
 #include "database.hpp"
 #include "parquet_engine.hpp"
+#include "recording/recorder.hpp"
 #include <asterion/base/error.hpp>
 #include <asterion/base/serialization.hpp>
 #include <asterion/system/durable_file.hpp>
@@ -17,6 +18,8 @@ namespace fs = std::filesystem;
 const std::set<std::string> exchanges{"SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX"};
 constexpr auto journal_name = "compaction.json";
 constexpr auto merged_suffix = ".parquet.merging";
+// Late quotes of a day that ended are written within a flush interval of each other.
+constexpr std::chrono::minutes quiet{30};
 
 bool merged(const fs::path& file)
 {
@@ -128,16 +131,6 @@ merge(duckdb::Connection& connection, const fs::path& folder, std::stop_token st
     return std::pair{rows, files.size()};
 }
 
-std::string beijing(std::chrono::system_clock::time_point now, const char* format)
-{
-    const auto time = std::chrono::system_clock::to_time_t(now) + 8 * 3600;
-    std::tm tm{};
-    gmtime_r(&time, &tm);
-    char text[16];
-    std::strftime(text, sizeof(text), format, &tm);
-    return text;
-}
-
 std::string day_of(const fs::path& partition)
 {
     static const std::regex pattern("trading_day=([0-9]{8})");
@@ -148,18 +141,12 @@ std::string day_of(const fs::path& partition)
 
 } // namespace
 
-bool trading_ended(const std::string& trading_day, std::chrono::system_clock::time_point now)
-{
-    const auto today = beijing(now, "%Y%m%d");
-    return trading_day < today || (trading_day == today && beijing(now, "%H%M") >= "1530");
-}
-
 std::vector<std::string> compactable_days(
     const fs::path& recordings,
     std::chrono::system_clock::time_point now,
     std::stop_token stop)
 {
-    std::set<std::string> days;
+    std::set<std::string> days, journaled, writing;
     for (const auto* table : {"ticks", "minutes"}) {
         const auto folder = recordings / table;
         if (!fs::is_directory(folder))
@@ -171,11 +158,20 @@ std::vector<std::string> compactable_days(
             if (day.empty() || !trading_ended(day, now))
                 continue;
             const auto files = parquet_files(partition.path(), stop);
-            if (fs::exists(partition.path() / journal_name)
-                || !std::all_of(files.begin(), files.end(), merged))
+            if (fs::exists(partition.path() / journal_name))
+                journaled.insert(day);
+            if (!std::all_of(files.begin(), files.end(), merged))
                 days.insert(day);
+            for (const auto& file : files)
+                if (now - std::chrono::file_clock::to_sys(fs::last_write_time(file)) < quiet)
+                    writing.insert(day);
         }
     }
+    // A day still being written waits as a whole, unless a merge has to be finished.
+    std::erase_if(days, [&](const std::string& day) {
+        return writing.contains(day);
+    });
+    days.insert(journaled.begin(), journaled.end());
     return {days.begin(), days.end()};
 }
 
@@ -206,7 +202,8 @@ compact_day(const fs::path& recordings, const std::string& trading_day, std::sto
     return result;
 }
 
-std::vector<std::string> prune_ticks(const fs::path& recordings, unsigned keep)
+std::vector<std::string>
+prune_ticks(const fs::path& recordings, unsigned keep, const std::vector<std::string>& unmerged)
 {
     const auto folder = recordings / "ticks";
     std::vector<std::string> days;
@@ -218,6 +215,9 @@ std::vector<std::string> prune_ticks(const fs::path& recordings, unsigned keep)
         return {};
     std::sort(days.begin(), days.end());
     days.resize(days.size() - keep);
+    std::erase_if(days, [&](const std::string& day) {
+        return std::find(unmerged.begin(), unmerged.end(), day) != unmerged.end();
+    });
     for (const auto& day : days)
         fs::remove_all(folder / ("trading_day=" + day));
     return days;

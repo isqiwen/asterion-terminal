@@ -1,6 +1,7 @@
 #pragma once
 #include <asterion/futures/intraday_bars.hpp>
 #include <asterion/system/thread_pool.hpp>
+#include <chrono>
 #include <deque>
 #include <filesystem>
 #include <future>
@@ -29,6 +30,11 @@ namespace asterion::recording {
 // observed, so fewer rows in its files means a write failed. Files are
 // written on a worker. When four writes are behind, an interval is dropped and
 // its segment ends with `write_backlog`: the market thread never waits for the disk.
+// Whether a trading day (YYYYMMDD) has ended at `now`: days before today in
+// Beijing, and today from 15:30 Beijing time on. A night session belongs to
+// the next trading day, so it never ends a day early.
+bool trading_ended(const std::string& trading_day, std::chrono::system_clock::time_point now);
+
 // Test hook: writes wait while held, as on a stalled disk.
 void hold_writes_for_testing(bool hold);
 

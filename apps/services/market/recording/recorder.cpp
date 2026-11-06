@@ -1,10 +1,10 @@
 #include "recorder.hpp"
-#include "compaction.hpp"
 #include "parquet_engine.hpp"
 #include <asterion/system/durable_file.hpp>
 #include <asterion/system/log.hpp>
 #include <atomic>
 #include <cstdio>
+#include <ctime>
 
 namespace asterion::recording {
 namespace {
@@ -135,6 +135,20 @@ void write_segments(
 }
 
 } // namespace
+
+bool trading_ended(const std::string& trading_day, std::chrono::system_clock::time_point now)
+{
+    const auto beijing = [&](const char* format) {
+        const auto time = std::chrono::system_clock::to_time_t(now) + 8 * 3600;
+        std::tm tm{};
+        gmtime_r(&time, &tm);
+        char text[16];
+        std::strftime(text, sizeof(text), format, &tm);
+        return std::string(text);
+    };
+    const auto today = beijing("%Y%m%d");
+    return trading_day < today || (trading_day == today && beijing("%H%M") >= "1530");
+}
 
 void hold_writes_for_testing(bool hold)
 {

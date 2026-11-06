@@ -4,9 +4,10 @@
 #include "acquisition/exchanges.hpp"
 #include "acquisition/guotai.hpp"
 #include "acquisition/recorded.hpp"
+#include "acquisition/recorded_intake.hpp"
 #include "acquisition/tushare.hpp"
-#include "recording/compaction.hpp"
-#include "recording/reader.hpp"
+#include "recorded/compaction.hpp"
+#include "recorded/reader.hpp"
 #include "warehouse/reader.hpp"
 #include "warehouse/research.hpp"
 #include <asterion/base/bounded_queue.hpp>
@@ -189,12 +190,19 @@ void answer_live(
     const wire::Request& request,
     wire::Response& response,
     const Live& live,
-    const Recording& recording)
+    const Recording& recording,
+    const acquisition::RecordedIntake& intake)
 {
     switch (request.call_case()) {
         case wire::Request::kGetStatus:
             live.status(*response.mutable_get_status());
             recording.status(*response.mutable_get_status()->mutable_recording());
+            {
+                const auto merging = intake.status();
+                auto* out = response.mutable_get_status()->mutable_recording();
+                out->set_merging_day(protocol::iso_day(merging.day));
+                out->set_merge_error(merging.error);
+            }
             break;
         case wire::Request::kGetBoard: {
             Sent nothing;
@@ -325,6 +333,7 @@ struct Market::Running
     const std::string instance;
     const std::shared_ptr<std::shared_mutex> archive = std::make_shared<std::shared_mutex>();
     acquisition::Manager acquisitions;
+    acquisition::RecordedIntake intake;
     ThreadPool readers{1, 8};
     BoundedQueue<Call> calls{64};
     std::mutex streams_mutex;
@@ -337,13 +346,19 @@ struct Market::Running
     Running(Settings settings, std::string instance)
         : settings(std::move(settings)),
           instance(std::move(instance)),
-          acquisitions(this->settings.directory, sources(this->settings, archive))
+          acquisitions(this->settings.directory, sources(this->settings, archive)),
+          intake(
+              this->settings.directory / "recordings",
+              archive,
+              this->settings.tick_days,
+              acquisitions)
     {
-        // Recovery finishes before any client or publication can read the archive.
-        recording::finish_compactions(this->settings.directory / "recordings");
         thread = std::jthread([this](std::stop_token stop) {
             try {
                 run(stop);
+                // Recording closed with run(); only now may history take its time.
+                intake.stop();
+                acquisitions.stop();
                 completion.set_value();
             } catch (...) {
                 completion.set_exception(std::current_exception());
@@ -355,13 +370,7 @@ struct Market::Running
     void run(std::stop_token stop)
     {
         Live live(settings);
-        Recording recording(
-            settings.directory,
-            instance,
-            settings.tick_days,
-            archive,
-            acquisitions,
-            live.minutes());
+        Recording recording(settings.directory, instance, live.minutes());
         while (!stop.stop_requested()) {
             const auto now = Clock::now();
             live.maintain(now);
@@ -376,7 +385,7 @@ struct Market::Running
                 recording.interrupt("feed_failed");
                 throw std::runtime_error("market feed lost provider events");
             }
-            recording.maintain(now);
+            recording.maintain();
             bool answered = false;
             while (auto call = calls.try_pop()) {
                 (*call)(live, recording);
@@ -386,8 +395,6 @@ struct Market::Running
                 service::wake_io_owner();
             std::this_thread::sleep_for(10ms);
         }
-        // Tasks hold the archive and publication; stop them before recording closes.
-        acquisitions.stop();
     }
 
     // Leaves the next frame for each stream that has taken its last one and is due.
@@ -444,11 +451,12 @@ struct Market::Running
     Reply ask_market_thread(wire::Request request)
     {
         const auto id = request.id();
-        Call call([request = std::move(request)](const Live& live, const Recording& recording) {
-            return reply(respond(request, [&](wire::Response& out) {
-                answer_live(request, out, live, recording);
-            }));
-        });
+        Call call(
+            [this, request = std::move(request)](const Live& live, const Recording& recording) {
+                return reply(respond(request, [&](wire::Response& out) {
+                    answer_live(request, out, live, recording, intake);
+                }));
+            });
         auto result = call.get_future();
         if (!calls.try_push(std::move(call)))
             throw Error(ErrorCode::resource_exhausted, "market request queue is full or stopped");

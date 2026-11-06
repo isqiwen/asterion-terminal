@@ -2,6 +2,7 @@
 #include "manager.hpp"
 #include <chrono>
 #include <filesystem>
+#include <map>
 #include <set>
 #include <string>
 
@@ -10,9 +11,9 @@ namespace asterion::market_data::acquisition {
 // Merged trading days (YYYYMMDD) whose recorded minutes are still to reach
 // research. They are kept in `file`, so a restart publishes them again, and a
 // day leaves only when a publication that started after its last merge
-// succeeded. One publication runs at a
-// time; a busy service is tried again each minute, a failed publication each
-// hour.
+// succeeded. One publication runs at a time; a busy service is tried again each
+// minute, a day whose publication failed an hour later, without holding back
+// the days after it.
 class RecordedPublication
 {
 public:
@@ -37,6 +38,7 @@ private:
     // The day was merged again while its publication ran: publish it again.
     bool merged_again_ = false;
     Clock::time_point next_{};
+    std::map<std::string, Clock::time_point> retry_;
 };
 
 } // namespace asterion::market_data::acquisition

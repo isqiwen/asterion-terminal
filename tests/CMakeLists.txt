@@ -112,9 +112,9 @@ target_compile_definitions(asterion_acquisition_tests PRIVATE
   ASTERION_TEST_CTP_TRADER="$<TARGET_FILE:asterion_test_ctp_trader>"
   ASTERION_MARKET_PATH="$<TARGET_FILE:asterion_market>")
 add_dependencies(asterion_acquisition_tests asterion_test_ctp asterion_test_ctp_trader asterion_market)
-asterion_unit_tests(asterion_market_recording_tests market/recording_test.cpp asterion_market_recording)
+asterion_unit_tests(asterion_market_recording_tests market/recording_test.cpp asterion_market_recorded)
 target_sources(asterion_market_recording_tests PRIVATE market/settings_test.cpp market/compaction_test.cpp)
-target_include_directories(asterion_market_recording_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/services/market/recording ${CMAKE_SOURCE_DIR}/apps/services/market)
+target_include_directories(asterion_market_recording_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/services/market)
 target_link_libraries(asterion_market_recording_tests PRIVATE asterion_market_settings)
 # Market installs and runs on Linux hosts only; so do its setup tests.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

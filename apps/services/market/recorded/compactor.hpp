@@ -2,14 +2,16 @@
 #include <asterion/system/thread_pool.hpp>
 #include <chrono>
 #include <filesystem>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
 
 namespace asterion::recording {
 
-// The market owner only schedules and observes maintenance. Directory scans,
-// archive replacement and teardown all belong to this bounded worker.
+// Merges the recorded trading days that ended and went quiet, one at a time,
+// and removes old ticks. A day that fails is retried an hour later without
+// holding back the others.
 class Compactor
 {
 public:
@@ -27,7 +29,7 @@ public:
         unsigned tick_days);
     // Returns a trading day (YYYYMMDD) whose merge has just completed.
     std::optional<std::string>
-    poll(bool quiet, Clock::time_point now, std::chrono::system_clock::time_point wall);
+    poll(Clock::time_point now, std::chrono::system_clock::time_point wall);
     Status status() const;
 
     bool running() const
@@ -42,6 +44,7 @@ private:
     mutable std::mutex mutex_;
     Status status_;
     Clock::time_point next_{};
+    std::map<std::string, Clock::time_point> retry_;
     std::future<void> finished_;
     // The day the finished job merged, if it merged one.
     std::string merged_;

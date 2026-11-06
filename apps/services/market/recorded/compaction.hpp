@@ -28,11 +28,6 @@ struct Compacted
     std::uint64_t ticks = 0, minutes = 0, files_before = 0, files_after = 0;
 };
 
-// Whether a trading day (YYYYMMDD) has ended at `now`: days before today in
-// Beijing, and today from 15:30 Beijing time on. A night session belongs to
-// the next trading day, so it never ends a day early.
-bool trading_ended(const std::string& trading_day, std::chrono::system_clock::time_point now);
-
 // Trading days with files to merge whose trading has ended at `now`.
 std::vector<std::string> compactable_days(
     const std::filesystem::path& recordings,
@@ -46,7 +41,10 @@ Compacted compact_day(
 
 // Deletes the tick partitions of every recorded trading day but the latest
 // `keep`, and returns those days. Minutes and segments are never deleted.
-std::vector<std::string> prune_ticks(const std::filesystem::path& recordings, unsigned keep);
+std::vector<std::string> prune_ticks(
+    const std::filesystem::path& recordings,
+    unsigned keep,
+    const std::vector<std::string>& unmerged = {});
 
 // Completes merges whose journal was written before a stop.
 void finish_compactions(const std::filesystem::path& recordings);

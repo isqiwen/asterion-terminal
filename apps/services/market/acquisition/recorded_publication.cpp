@@ -5,6 +5,7 @@
 #include <asterion/base/serialization.hpp>
 #include <asterion/system/durable_file.hpp>
 #include <asterion/system/log.hpp>
+#include <algorithm>
 #include <fstream>
 #include <regex>
 
@@ -38,6 +39,7 @@ void RecordedPublication::add(const std::string& day)
 {
     if (day == day_)
         merged_again_ = true;
+    retry_.erase(day);
     if (days_.insert(day).second)
         save();
 }
@@ -56,16 +58,21 @@ void RecordedPublication::poll(Clock::time_point now)
                 "recorded minutes of {} did not reach research: {}",
                 day_,
                 task.error().message());
-            next_ = now + 1h;
+            retry_[day_] = now + 1h;
         }
         task_.clear();
         day_.clear();
         merged_again_ = false;
     }
-    if (days_.empty() || now < next_)
+    if (now < next_)
         return;
-    next_ = now + 1min;
-    const auto day = *days_.begin();
+    const auto due = std::find_if(days_.begin(), days_.end(), [&](const std::string& item) {
+        const auto retry = retry_.find(item);
+        return retry == retry_.end() || retry->second <= now;
+    });
+    if (due == days_.end())
+        return;
+    const auto day = *due;
     wire::StartAcquisition request;
     request.set_id("recorded-" + day + "-" + unique_process_id().substr(0, 8));
     request.set_provider("recorder");
@@ -78,9 +85,10 @@ void RecordedPublication::poll(Clock::time_point now)
         task_ = request.id();
         day_ = day;
     } catch (const Error& error) {
-        // Another task of the recorder, or both workers, are busy.
+        // Another task of the recorder is running.
         if (error.code() != ErrorCode::conflict && error.code() != ErrorCode::resource_exhausted)
             throw;
+        next_ = now + 1min;
     }
 }
 
