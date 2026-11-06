@@ -11,6 +11,7 @@ from pathlib import Path
 import socket
 import struct
 import sys
+import traceback
 import datetime
 from decimal import Decimal, ROUND_HALF_EVEN
 
@@ -129,6 +130,7 @@ def main():
             except EOFError:
                 return
             except Exception as error:
+                traceback.print_exc()
                 reply(channel, Response(error=dict(code=ErrorCode.ERROR_CODE_OPERATION_FAILED,
                     message=f'{type(error).__name__}: {error}'[:4096])))
 

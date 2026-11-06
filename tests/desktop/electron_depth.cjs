@@ -21,6 +21,12 @@ const { createInterface } = require("node:readline");
       recursive: true,
     });
     await fs.symlink(path.resolve("apps/clients/terminal/dist"), path.join(client, "dist"), "dir");
+    const build = path.join(temp, "build/Release");
+    await fs.mkdir(build, { recursive: true });
+    await fs.copyFile(
+      path.resolve(process.env.ASTERION_CPP_BUILD || "build/Release", "product.json"),
+      path.join(build, "product.json"),
+    );
     const resources = path.join(temp, "build/electron-resources");
     const native = path.join(resources, "native");
     await fs.mkdir(native, { recursive: true });

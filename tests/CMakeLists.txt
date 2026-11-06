@@ -71,6 +71,13 @@ asterion_unit_tests(asterion_replay_tests core/replay_test.cpp Asterion::Futures
 asterion_unit_tests(asterion_logging_tests core/logger_test.cpp Asterion::System)
 target_link_libraries(asterion_logging_tests PRIVATE spdlog::spdlog_header_only asio::asio OpenSSL::SSL)
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT ASTERION_SANITIZERS)
+  add_executable(asterion_crash_process core/crash_process.cpp)
+  target_link_libraries(asterion_crash_process PRIVATE Asterion::System)
+  add_test(NAME crash_diagnostics COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/core/crash_test.py $<TARGET_FILE:asterion_crash_process>)
+  set_tests_properties(crash_diagnostics PROPERTIES TIMEOUT 45)
+endif()
+
 # market: CTP feed and catalog, the market service, the market SDK double
 asterion_unit_tests(asterion_strategy_bars_tests trading/strategy_bars_test.cpp asterion_trading_session)
 add_library(asterion_test_ctp SHARED market/ctp_fake_sdk.cpp)

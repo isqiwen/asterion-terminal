@@ -243,6 +243,10 @@ class TestStrategy(Strategy):
             config.id = 'bad'; config.params['lots'].integer = -1
             error = rpc(host, 'start_strategy', config, True)
             assert 'fixture constructor failure' in error.message
+            diagnostic_logs = list((host.root / 'logs').glob('strategy-*.log'))
+            assert any('Traceback (most recent call last):' in file.read_text()
+                       and 'fixture constructor failure' in file.read_text()
+                       for file in diagnostic_logs), diagnostic_logs
             assert rpc(host, 'get_strategies', {}).instance.state == trading.INSTANCE_STATE_FAILED
             if sys.platform == 'linux':
                 config.id = 'memory'; config.params['lots'].integer = -3

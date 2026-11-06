@@ -183,6 +183,7 @@ def main():
     try:
         run(Path(sys.argv[1]), request.id, request.sweep_id, backtest.config_of(request.base),
             request.walk_forward.training_days, request.walk_forward.validation_days)
-    except BaseException as error:
-        print(error, file=sys.stderr)
+    except BaseException:
+        import traceback
+        traceback.print_exc()
         sys.exit(1)

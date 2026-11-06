@@ -658,6 +658,7 @@ def main():
     try:
         run(Path(sys.argv[1]), request.backtest.id, config_of(request),
             lambda: print("started", flush=True))
-    except BaseException as error:
-        print(error, file=sys.stderr)
+    except BaseException:
+        import traceback
+        traceback.print_exc()
         sys.exit(1)

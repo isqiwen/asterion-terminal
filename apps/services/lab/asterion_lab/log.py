@@ -17,6 +17,7 @@ import json
 import os
 import re
 import sys
+import traceback
 from pathlib import Path
 
 LEVELS = {"debug": 10, "info": 20, "warning": 30, "error": 40}
@@ -97,12 +98,16 @@ class ProcessLog:
             self.base.parent.mkdir(parents=True, exist_ok=True)
             remove_expired(self.base.parent, days)
 
-    def write(self, level: str, module: str, event: str, **fields):
+    def write(self, level: str, module: str, event: str, *, stack: str = "", **fields):
         caller = sys._getframe(1)
         filename, line = caller.f_code.co_filename, caller.f_lineno
         del caller
         message = f"{module} {event}" + "".join(f" {key}={describe(value)}"
                                                 for key, value in fields.items())
+        if not stack and level in ("warning", "error") and sys.exception() is not None:
+            stack = "".join(traceback.format_exception(sys.exception()))
+        if stack:
+            message += "\n" + stack.rstrip()
         if self.console.enabled and LEVELS[level] >= self.console.threshold:
             print(render(self.console.pattern, level, self.program, message, filename, line), file=sys.stderr,
                   flush=True)

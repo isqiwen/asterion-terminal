@@ -12,6 +12,10 @@ class Asterion(ConanFile):
     options = {"with_tests": [True, False]}
     default_options = {"with_tests": True, "cpp-httplib/*:with_openssl": True, "spdlog/*:header_only": True, "fmt/*:header_only": True, "gtest/*:with_gmock": False, "protobuf/*:with_zlib": False, "sqlite3/*:threadsafe": 2, "duckdb/*:with_threads": True}
 
+    def requirements(self):
+        if self.settings.os == "Linux":
+            self.requires("libunwind/1.8.3")
+
     def set_version(self):
         self.version = (Path(self.recipe_folder) / "VERSION").read_text().strip()
 

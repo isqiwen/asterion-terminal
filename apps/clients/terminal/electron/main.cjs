@@ -1,5 +1,6 @@
 const {
   app,
+  crashReporter,
   BrowserWindow,
   ipcMain,
   dialog,
@@ -11,6 +12,9 @@ const {
   shell,
 } = require("electron");
 const path = require("node:path");
+const fs = require("node:fs");
+const os = require("node:os");
+const { diagnostics } = require("./diagnostics.cjs");
 const { pathToFileURL } = require("node:url");
 const { labChannel } = require("./lab-channel.cjs");
 const root = path.resolve(__dirname, "../../../..");
@@ -42,6 +46,46 @@ app.setName("Asterion Terminal");
 // Run from source or installed, the Terminal keeps one set of settings.
 if (!app.commandLine.hasSwitch("user-data-dir"))
   app.setPath("userData", path.join(app.getPath("appData"), "me.asterion.terminal"));
+const dataRoot =
+  process.env.ASTERION_ROOT ||
+  (process.platform === "darwin"
+    ? path.join(os.homedir(), "Library", "Application Support", "Asterion")
+    : path.join(
+        process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share"),
+        "asterion",
+      ));
+if (!path.isAbsolute(dataRoot)) throw new Error("Invalid Asterion root directory");
+const product = app.isPackaged
+  ? { version: app.getVersion(), commit: require("./package.json").buildCommit }
+  : JSON.parse(
+      fs.readFileSync(
+        path.join(
+          process.env.ASTERION_CPP_BUILD || path.join(root, "build/Release"),
+          "product.json",
+        ),
+        "utf8",
+      ),
+    );
+const logs = path.join(dataRoot, "terminal", "logs");
+const report = diagnostics(logs, product);
+const dumps = path.join(logs, "crashes");
+fs.mkdirSync(dumps, { recursive: true, mode: 0o700 });
+app.setPath("crashDumps", dumps);
+crashReporter.start({
+  uploadToServer: false,
+  globalExtra: { version: product.version, commit: product.commit },
+});
+process.on("uncaughtException", error => {
+  report("uncaughtException", error);
+  app.exit(1);
+});
+process.on("unhandledRejection", error => {
+  report("unhandledRejection", error);
+  app.exit(1);
+});
+app.on("child-process-gone", (_event, details) =>
+  report("child-process-gone", JSON.stringify(details)),
+);
 let main, settings, native;
 let quitting = false;
 let pending = 0;
@@ -83,7 +127,11 @@ function configure(win) {
     if (!trusted(url)) event.preventDefault();
   });
   win.webContents.on("will-attach-webview", event => event.preventDefault());
-  win.webContents.on("render-process-gone", () => {
+  win.webContents.on("console-message", details => {
+    if (details.level === "error") report("renderer-error", details.message);
+  });
+  win.webContents.on("render-process-gone", (_event, details) => {
+    report("render-process-gone", JSON.stringify(details));
     if (win === main) app.quit();
   });
 }
@@ -345,6 +393,6 @@ app
     main.show();
   })
   .catch(error => {
-    console.error(error.message);
+    report("startup.failed", error);
     app.exit(1);
   });

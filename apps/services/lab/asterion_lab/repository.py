@@ -223,7 +223,7 @@ def child(module: str) -> list:
     # The child runs elsewhere: relative entries are made absolute.
     path = [os.path.abspath(entry) for entry in sys.path]
     start = f"import sys; sys.path[:] = {path!r}; from {module} import main; main()"
-    return [sys.executable, "-I", "-B", "-c", start]
+    return [sys.executable, "-I", "-B", "-X", "faulthandler", "-c", start]
 
 
 MODULE = re.compile(r"(strategies|factors)/[A-Za-z_][A-Za-z0-9_]*\.py")

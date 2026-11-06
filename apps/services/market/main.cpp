@@ -3,6 +3,7 @@
 #include <asterion/system/environment.hpp>
 #include <CLI/CLI.hpp>
 #include <asterion/system/log.hpp>
+#include <asterion/system/crash.hpp>
 #include <asterion/system/process/child.hpp>
 #include <asterion/system/process/file_lock.hpp>
 #include <cstdlib>
@@ -23,6 +24,9 @@ int main(int argc, char** argv)
         asterion::log::init();
         const auto settings =
             market_data::load_settings(installation, environment_path("CREDENTIALS_DIRECTORY"));
+#if defined(__linux__) && !defined(ASTERION_SANITIZED)
+        asterion::install_crash_logging(installation / "logs", "asterion_market");
+#endif
         FileLock owner(settings.directory, "market.lock");
         service::Transport transport;
         transport.bind = settings.bind;

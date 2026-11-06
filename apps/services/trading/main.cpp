@@ -1,5 +1,6 @@
 #include <asterion/version.hpp>
 #include <asterion/system/log.hpp>
+#include <asterion/system/crash.hpp>
 #include "live_session.hpp"
 #include "settings.hpp"
 #include "strategy_host.hpp"
@@ -41,6 +42,9 @@ int main(int argc, char** argv)
                 + installation.string());
         asterion::log::init(installation, "asterion_trading-" + account_name);
         const auto settings = asterion::trading::load_settings(installation, account_name);
+#if defined(__linux__) && !defined(ASTERION_SANITIZED)
+        asterion::install_crash_logging(installation / "logs", "asterion_trading-" + account_name);
+#endif
         namespace wire = ::trading;
         const auto& sdk = settings.ctp_library;
         const auto configured_account = asterion::protocol::encode_account(settings.identity);

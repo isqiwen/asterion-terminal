@@ -51,3 +51,14 @@ Terminal 发布包带有 Terminal 和 Lab 的程序：macOS 的 DMG 拖进“应
 - 配置有缺键、多余键或无效值时程序启动失败并报告文件和键；没有这个文件时只写到标准错误。修改后重启生效。
 - 日志是自由文本，密码、令牌、授权码和凭据不得写进日志。
 - 桌面通过通知中心的“打开本机日志目录”打开本机程序根目录，再进入对应程序的 `logs/`。Market 和 Trading 的日志保存在各自服务主机。
+
+### 崩溃诊断
+
+- Linux Market、Trading 在安装目录的 `logs/<程序>-<pid>-crash.log` 记录致命信号、C++ 未捕获异常、调用栈、加载模块和产品版本/提交。崩溃后进程退出；Trading 仍需重新授权。Sanitizer 构建保留 Sanitizer 自己的错误报告。
+- Lab 捕获的异常在日常日志中保留 Python traceback；解释器启动错误、线程未捕获异常和原生扩展崩溃写入 `lab/logs/python-*.log`。回测子进程的标准错误保留在 Lab 的失败记录中。
+- Trading 策略子进程的 traceback 和解释器崩溃信息写入服务的 `logs/strategy-*.log`，服务日志记录实例与文件的对应关系。
+- Terminal 的 JavaScript 异常堆栈及子进程退出原因写入 `terminal/logs/electron-*.log`；原生崩溃的 minidump 存在同目录下的 `crashes/`，只保存在本机，不上传。主进程未捕获异常后退出。
+
+C++ 日志先写原始符号，避免在致命信号中分配内存或获取普通日志锁。用 `c++filt < crash.log` 读取函数名；需要源码行号时，用同次构建的程序与 `addr2line -f -C -e <程序> '<函数符号>+<偏移>'` 解析对应帧。Release 程序保留行号信息；macOS 桌面包在 `Contents/Resources/symbols/` 携带原生模块的 dSYM，供 minidump 符号化。前端包携带 source map，以便将 JavaScript 堆栈还原到 TypeScript。
+
+`SIGKILL`（包括系统强制杀进程）不能被进程捕获；这类退出从宿主进程或系统日志查看。崩溃日志和转储排查完成后可删除。

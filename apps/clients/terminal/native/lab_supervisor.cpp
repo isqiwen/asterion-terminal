@@ -114,6 +114,8 @@ struct LabSupervisor::Impl
             std::vector<std::string>{
                 "-I",
                 "-B",
+                "-X",
+                "faulthandler",
                 "-m",
                 "asterion_lab",
                 "--owner-pid",
@@ -128,7 +130,10 @@ struct LabSupervisor::Impl
                 health_endpoint(),
                 "--endpoint",
                 endpoint()
-            });
+            },
+            false,
+            program_directory("lab") / "logs" / ("python-" + unique_process_id() + ".log"),
+            true);
     }
 
     void start(bool automatic)

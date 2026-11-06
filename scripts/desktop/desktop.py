@@ -274,6 +274,11 @@ def main():
     env["ASTERION_CPP_BUILD"] = str(ROOT / "build" / configuration)
     native = ROOT / "build/electron-resources/native"
     stage_native_resources(ROOT / "build" / configuration, native)
+    if MACOS:
+        symbols = ROOT / "build/electron-resources/symbols"
+        symbols.mkdir(parents=True, exist_ok=True)
+        run(["dsymutil", str(ROOT / "build" / configuration / "asterion_terminal.node"),
+             "-o", str(symbols / "asterion_terminal.node.dSYM")])
     if arguments.prepare_python:
         python_runtime.prepare(ROOT / "build" / configuration)
     else:

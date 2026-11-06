@@ -26,6 +26,20 @@ class LogTest(unittest.TestCase):
             self.assertRegex(text, r'^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} [+-]\d{2}:\d{2}\]')
             self.assertIn(f'[info] [asterion_lab] [log_test.py:{line}] lab started count=2', text)
 
+    def test_exception_log_keeps_the_traceback(self):
+        from contextlib import redirect_stderr
+        from io import StringIO
+        with tempfile.TemporaryDirectory() as directory, redirect_stderr(StringIO()) as output:
+            log = ProcessLog('asterion_lab', Path(directory))
+            try:
+                raise RuntimeError("fixture research failure")
+            except RuntimeError:
+                log.write('error', 'lab', 'service.failed')
+            text = output.getvalue()
+            self.assertIn('Traceback (most recent call last):', text)
+            self.assertIn('raise RuntimeError("fixture research failure")', text)
+            self.assertIn('RuntimeError: fixture research failure', text)
+
 
 if __name__ == '__main__':
     unittest.main()

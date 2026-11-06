@@ -34,12 +34,14 @@ module.exports = {
   },
   files: [
     "main.cjs",
+    "diagnostics.cjs",
     "preload.cjs",
     "lab-channel.cjs",
     "package.json",
     { from: "../dist", to: "dist" },
   ],
   extraResources: [
+    ...(mac ? [{ from: "build/electron-resources/symbols", to: "symbols" }] : []),
     // The Python runtime is installed at the first launch from this manifest;
     // the application ships only its own Python code beside it.
     { from: "build/electron-resources/runtime", to: "runtime", filter: ["**/*"] },

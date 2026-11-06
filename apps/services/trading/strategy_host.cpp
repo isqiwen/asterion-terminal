@@ -532,17 +532,25 @@ struct StrategyHost::State
             endpoint = directory / "child.sock";
             const auto bootstrap = "import sys; sys.path.insert(0, " + json_string(code.string())
                 + "); import strategy_runner; strategy_runner.main()";
+            const auto diagnostics =
+                installation / "logs" / ("strategy-" + unique_process_id() + ".log");
+            create_directories_durably(diagnostics.parent_path());
+            log::info("strategy {} diagnostics: {}", configuration.id(), diagnostics.string());
             child = std::make_unique<ChildProcess>(
                 python,
                 std::vector<std::string>{
                     "-I",
                     "-B",
+                    "-X",
+                    "faulthandler",
                     "-c",
                     bootstrap,
                     endpoint.string(),
                     package.string(),
                     std::to_string(::getpid())
                 },
+                true,
+                diagnostics,
                 true);
             const auto deadline = std::chrono::steady_clock::now() + 5s;
             while (!fs::exists(endpoint)) {

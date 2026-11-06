@@ -250,7 +250,7 @@ export default defineConfig({
   },
   // The desktop app loads one bundle from disk behind its startup screen, so
   // every workspace is ready on first click.
-  build: { chunkSizeWarningLimit: 2048 },
+  build: { chunkSizeWarningLimit: 2048, sourcemap: true },
   server: {
     host: "127.0.0.1",
     port,

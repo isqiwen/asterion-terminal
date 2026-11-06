@@ -557,7 +557,7 @@ class Service:
             self.log.write("info", MODULE, "backtest.finished", run=identity)
             return
         self.log.write("warning", MODULE, "backtest.failed", run=identity, exit_code=code,
-                       message=error.splitlines()[-1] if error else "")
+                       stack=error)
         # A child stopped from outside could not record how it ended.
         if any(row["id"] == identity and row["state"] == "running" for row in self.runs.list()):
             self.runs.end(identity, "interrupted", "cancelled" if code < 0 else error)
