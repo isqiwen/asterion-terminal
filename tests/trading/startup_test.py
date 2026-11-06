@@ -5,10 +5,10 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "support"))
-from cli import check_cli
+from startup import check_startup_options
 
 binary = sys.argv[1]
-check_cli(binary)
+check_startup_options(binary)
 with tempfile.TemporaryDirectory(prefix="asterion-trading-", ignore_cleanup_errors=True) as folder:
     # An installation without the account's configuration: refused, naming it.
     (Path(folder) / "bin").mkdir()

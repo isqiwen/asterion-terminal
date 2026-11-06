@@ -4,7 +4,7 @@ import json
 import subprocess
 
 
-def check_cli(binary):
+def check_startup_options(binary):
     product = json.loads((Path(binary).parent / "product.json").read_text())
     for option in ("--help", "--version"):
         result = subprocess.run([binary, option], capture_output=True, text=True, timeout=10)

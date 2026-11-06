@@ -81,8 +81,8 @@ add_executable(asterion_test_market_remote market/market_remote_client.cpp)
 target_include_directories(asterion_test_market_remote PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_include_directories(asterion_test_market_remote PRIVATE ${CMAKE_SOURCE_DIR}/apps/clients/terminal/native)
 target_link_libraries(asterion_test_market_remote PRIVATE asterion_terminal_application)
-add_test(NAME market_cli_contract COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/market/cli_contract.py $<TARGET_FILE:asterion_market>)
-set_tests_properties(market_cli_contract PROPERTIES TIMEOUT 45)
+add_test(NAME market_startup COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/market/startup_test.py $<TARGET_FILE:asterion_market>)
+set_tests_properties(market_startup PROPERTIES TIMEOUT 45)
 
 add_test(NAME remote_market COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/market/remote_market.py ${CMAKE_BINARY_DIR})
 set_tests_properties(remote_market PROPERTIES TIMEOUT 30)
@@ -130,8 +130,8 @@ asterion_unit_tests(asterion_intraday_tests market/intraday_bars_test.cpp asteri
 # trading: live sessions, the CTP trader, risk limits, the trading service, the trader SDK double
 add_test(NAME acceptance_dry_run COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/trading/acceptance_dry_run.py ${CMAKE_BINARY_DIR} $<TARGET_FILE:asterion_test_ctp>)
 set_tests_properties(acceptance_dry_run PROPERTIES TIMEOUT 150)
-add_test(NAME trading_cli_contract COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/trading/cli_contract.py $<TARGET_FILE:asterion_trading>)
-set_tests_properties(trading_cli_contract PROPERTIES TIMEOUT 45)
+add_test(NAME trading_startup COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/trading/startup_test.py $<TARGET_FILE:asterion_trading>)
+set_tests_properties(trading_startup PROPERTIES TIMEOUT 45)
 
 # Trading installs on Linux hosts only; its setup script uses their tools.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -196,8 +196,8 @@ target_compile_features(asterion_test_certificates PRIVATE cxx_std_20)
 target_link_libraries(asterion_test_certificates PRIVATE asterion_system)
 
 # terminal: the Terminal's native layer — commands and credentials
-add_test(NAME terminal_cli_contract COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/terminal/cli_contract.py $<TARGET_FILE:asterion_terminal_dev_bridge>)
-set_tests_properties(terminal_cli_contract PROPERTIES TIMEOUT 45)
+add_test(NAME terminal_startup COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/terminal/startup_test.py $<TARGET_FILE:asterion_terminal_dev_bridge>)
+set_tests_properties(terminal_startup PROPERTIES TIMEOUT 45)
 
 asterion_unit_tests(asterion_python_runtime_tests terminal/python_runtime_test.cpp asterion_terminal_application 900)
 asterion_unit_tests(asterion_terminal_application_tests terminal/terminal_application_test.cpp asterion_terminal_application)
