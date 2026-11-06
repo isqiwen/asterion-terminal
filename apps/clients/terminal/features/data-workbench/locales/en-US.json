@@ -191,17 +191,5 @@
   "第 {first}–{last} 行，共 {total} 行": "Rows {first}–{last} of {total}",
   "所选范围内没有数据。": "No rows in the chosen range.",
   "更早的任务": "Earlier tasks",
-  "历史报价单位": "Historical price ticks",
-  "导入规则": "Imported rules",
-  "导入历史报价单位": "Import historical price ticks",
-  "仅导入已核对官方来源的历史规则。": "Import only historical rules checked against official sources.",
-  "历史规则文件（JSON）": "Historical rules file (JSON)",
-  "{exchange} · {count} 条 · {from} 至 {until}（不含）": "{exchange} · {count} records · {from} to {until} (exclusive)",
-  "将替换该交易所已导入的历史规则，已固定的旧版本不变。": "Replaces this exchange’s imported rules. Previously pinned versions remain unchanged.",
-  "正在导入…": "Importing…",
-  "导入": "Import",
-  "已导入": "Imported",
-  "文件需要交易所和非空的历史规则列表。": "The file needs an exchange and a nonempty list of historical rules.",
-  "每条规则需要合约、生效日期、失效日期、报价单位字符串和来源网址。": "Each rule needs a contract, effective dates, a price tick string and a source URL.",
-  "文件不是有效的 JSON。": "The file is not valid JSON."
+  "历史报价单位": "Historical price ticks"
 }

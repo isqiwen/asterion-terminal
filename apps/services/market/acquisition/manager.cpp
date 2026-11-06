@@ -188,12 +188,30 @@ wire::AcquisitionTask Manager::submit(wire::StartAcquisition request)
         throw std::invalid_argument("acquisition source is not configured");
     if (fs::exists(directory_ / (request.id() + ".pb")))
         throw Error(ErrorCode::conflict, "acquisition task id already exists");
+    std::set<std::string> providers{request.provider()};
+    if (request.table() == wire::TABLE_DAILY || request.table() == wire::TABLE_MINUTES
+        || request.table() == wire::TABLE_SETTLEMENT) {
+        const auto primary = sources_.at(request.provider())({});
+        for (const auto& [provider, factory] : sources_) {
+            const auto source = factory({});
+            for (const auto* exchange : {"SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX"}) {
+                const auto selected = request.exchanges().empty()
+                    ? primary->supports(table(request), exchange)
+                    : std::find(request.exchanges().begin(), request.exchanges().end(), exchange)
+                        != request.exchanges().end();
+                if (selected && source->supports("price_ticks", exchange))
+                    providers.insert(provider);
+            }
+        }
+    }
     for (const auto& [id, active] : active_)
-        if (active->task.request().provider() == request.provider())
-            throw Error(ErrorCode::conflict, "another acquisition for this source is running");
+        for (const auto& provider : providers)
+            if (active->providers.contains(provider))
+                throw Error(ErrorCode::conflict, "another acquisition for this source is running");
     if (active_.size() >= 2)
         throw Error(ErrorCode::resource_exhausted, "acquisition capacity is full");
     auto active = std::make_unique<Active>();
+    active->providers = std::move(providers);
     *active->task.mutable_request() = request;
     active->task.set_state(wire::TASK_STATE_QUEUED);
     active->task.set_started_ms(now_ms());
@@ -209,12 +227,39 @@ wire::AcquisitionTask Manager::submit(wire::StartAcquisition request)
                 });
                 auto task = current->task;
                 std::unique_ptr<Source> source;
+                std::uint64_t completed_requests = 0;
                 try {
                     check_stop(current->cancel.get_token());
                     task.set_state(wire::TASK_STATE_RUNNING);
                     publish(task, *current);
                     source = sources_.at(request.provider())(current->cancel.get_token());
-                    run(*current, *source, *stores_.at(request.provider()));
+                    auto query = request;
+                    if (query.exchanges().empty())
+                        for (const auto* exchange : {"SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX"})
+                            if (source->supports(table(query), exchange))
+                                query.add_exchanges(exchange);
+                    *task.mutable_request() = query;
+                    publish(task, *current);
+                    run(*current, *source, *stores_.at(query.provider()), query);
+                    if (query.table() == wire::TABLE_DAILY || query.table() == wire::TABLE_MINUTES
+                        || query.table() == wire::TABLE_SETTLEMENT) {
+                        for (const auto& provider : current->providers) {
+                            auto reference = query;
+                            reference.set_provider(provider);
+                            reference.set_table(wire::TABLE_PRICE_TICKS);
+                            reference.clear_contracts();
+                            reference.clear_exchanges();
+                            auto next = sources_.at(provider)(current->cancel.get_token());
+                            for (const auto& exchange : query.exchanges())
+                                if (next->supports("price_ticks", exchange))
+                                    reference.add_exchanges(exchange);
+                            if (reference.exchanges().empty())
+                                continue;
+                            completed_requests += source->requests();
+                            source = std::move(next);
+                            run(*current, *source, *stores_.at(provider), reference);
+                        }
+                    }
                     {
                         std::lock_guard lock(mutex_);
                         task = current->task;
@@ -254,7 +299,7 @@ wire::AcquisitionTask Manager::submit(wire::StartAcquisition request)
                         error.what());
                 }
                 if (source)
-                    task.set_requests_sent(source->requests());
+                    task.set_requests_sent(completed_requests + source->requests());
                 task.set_finished_ms(now_ms());
                 // The source may have committed data immediately before a status write
                 // failed. The warehouse remains authoritative; never roll it back.
@@ -341,18 +386,18 @@ void Manager::stop()
     workers_.shutdown();
 }
 
-void Manager::run(Active& active, Source& source, warehouse::Store& store)
+void Manager::run(
+    Active& active,
+    Source& source,
+    warehouse::Store& store,
+    const wire::StartAcquisition& request)
 {
     wire::AcquisitionTask task;
     {
         std::lock_guard lock(mutex_);
         task = active.task;
     }
-    if (task.request().exchanges().empty())
-        for (const auto* exchange : {"SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX"})
-            if (source.supports(table(task.request()), exchange))
-                task.mutable_request()->add_exchanges(exchange);
-    const auto& request = task.request();
+    const auto previous_requests = task.requests_sent();
     if (request.exchanges().empty())
         throw SourceError("unsupported", "source does not provide the requested table");
     for (const auto& exchange : request.exchanges())
@@ -373,12 +418,14 @@ void Manager::run(Active& active, Source& source, warehouse::Store& store)
         return;
     auto writer = store.writer();
     auto version = store.current();
-    task.set_published_version(version.identity);
+    if (request.provider() == task.request().provider())
+        task.set_published_version(version.identity);
     const auto commit = [&] {
         version = writer.commit();
         warehouse::compose_research(directory_.parent_path(), research_);
-        task.set_published_version(version.identity);
-        task.set_requests_sent(source.requests());
+        if (request.provider() == task.request().provider())
+            task.set_published_version(version.identity);
+        task.set_requests_sent(previous_requests + source.requests());
         publish(task, active);
     };
     if (table(request) == "minutes" || table(request) == "settlement"
@@ -405,7 +452,7 @@ void Manager::run(Active& active, Source& source, warehouse::Store& store)
                     if (std::chrono::weekday(day).iso_encoding() < 6)
                         plan.emplace_back(exchange, day_text(day), "");
                 }
-        task.set_items(plan.size());
+        task.set_items(task.items() + plan.size());
         publish(task, active);
         // Every version lists all partitions: publish in batches, and on
         // cancellation or failure keep what was fetched.
@@ -451,7 +498,7 @@ void Manager::run(Active& active, Source& source, warehouse::Store& store)
                     || std::chrono::steady_clock::now() - published_at >= std::chrono::minutes(5))
                     publish_batch();
                 task.set_items_done(task.items_done() + 1);
-                task.set_requests_sent(source.requests());
+                task.set_requests_sent(previous_requests + source.requests());
                 publish(task, active);
             }
         } catch (...) {
@@ -500,7 +547,7 @@ void Manager::run(Active& active, Source& source, warehouse::Store& store)
         }
     }
     std::sort(plan.begin(), plan.end());
-    task.set_items(plan.size());
+    task.set_items(task.items() + plan.size());
     publish(task, active);
     Rows rows;
     std::vector<std::string> days;
@@ -531,7 +578,7 @@ void Manager::run(Active& active, Source& source, warehouse::Store& store)
                 days.push_back(day);
             }
             task.set_items_done(task.items_done() + 1);
-            task.set_requests_sent(source.requests());
+            task.set_requests_sent(previous_requests + source.requests());
             publish(task, active);
         }
     } catch (...) {

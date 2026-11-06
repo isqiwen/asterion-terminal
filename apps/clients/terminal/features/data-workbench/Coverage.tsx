@@ -8,7 +8,6 @@ import { useMarket } from "../../src/host/market";
 import { RecordedDays } from "./RecordedDays";
 import { RecordingStatus } from "./RecordingStatus";
 import { ReferenceTables, referenceTables } from "./ReferenceTables";
-import { PriceTickImport } from "./PriceTickImport";
 import {
   ErrorNotice,
   asDisplayError,
@@ -91,10 +90,8 @@ function DataPage({ context }: { context: TerminalContext }) {
   const opened = context.workspaceParams;
   const [sources, setSources] = useState<Source[]>([]);
   const [provider, setProvider] = useState(opened?.provider ?? "");
-  const [imported, setImported] = useState<{ provider: string; version: string }>();
   useEffect(() => {
     if (opened?.provider) setProvider(opened.provider);
-    setImported(undefined);
   }, [opened?.provider, opened?.version]);
   const [canManage, setCanManage] = useState<boolean | null>(null);
   const [error, setError] = useState<DisplayError>("");
@@ -159,9 +156,7 @@ function DataPage({ context }: { context: TerminalContext }) {
                   ? t("自录")
                   : item.provider === "research"
                     ? t("研究数据")
-                    : item.provider === "rules"
-                      ? t("导入规则")
-                      : item.provider}
+                    : item.provider}
               </option>
             ))}
           </select>
@@ -172,30 +167,15 @@ function DataPage({ context }: { context: TerminalContext }) {
           )}
         </p>
       </div>
-      {canManage && (
-        <PriceTickImport
-          onImported={dataset => {
-            setImported(dataset);
-            setProvider(dataset.provider);
-            setRetry(value => value + 1);
-          }}
-        />
-      )}
       {!source && canManage !== null && (
         <p className="data-card">{t("行情服务尚未启用采集来源，也没有已保存的数据集。")}</p>
       )}
       {source && (
         <SourceCoverage
-          key={`${provider}/${source.tables.join()}/${source.exchanges.join()}/${imported?.version ?? opened?.version}`}
+          key={`${provider}/${source.tables.join()}/${source.exchanges.join()}/${opened?.version}`}
           source={source}
           canManage={canManage === true}
-          opened={
-            imported?.provider === provider
-              ? imported.version
-              : opened?.provider === provider
-                ? (opened.version ?? "")
-                : ""
-          }
+          opened={opened?.provider === provider ? (opened.version ?? "") : ""}
         />
       )}
     </div>

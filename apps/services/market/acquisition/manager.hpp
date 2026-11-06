@@ -2,6 +2,7 @@
 #include "source.hpp"
 #include <asterion/market.pb.h>
 #include <asterion/system/thread_pool.hpp>
+#include <set>
 
 namespace asterion::market_data::acquisition {
 namespace wire = ::market;
@@ -19,18 +20,18 @@ public:
     wire::AcquisitionTask get(const std::string& id) const;
     wire::AcquisitionTasks list(const wire::ListAcquisitionTasks&) const;
     wire::Sources sources() const;
-    wire::Dataset import_price_ticks(const wire::ImportPriceTicks&);
     void stop();
 
 private:
     struct Active
     {
         wire::AcquisitionTask task;
+        std::set<std::string> providers;
         std::stop_source cancel;
         std::shared_future<void> finished;
     };
 
-    void run(Active&, Source&, warehouse::Store&);
+    void run(Active&, Source&, warehouse::Store&, const wire::StartAcquisition&);
     void persist(const wire::AcquisitionTask&) const;
     void publish(const wire::AcquisitionTask&, Active&);
     void reap();
@@ -38,10 +39,6 @@ private:
     std::filesystem::path directory_;
     std::map<std::string, Factory> sources_;
     std::map<std::string, std::unique_ptr<warehouse::Store>> stores_;
-    warehouse::Store rules_{
-        warehouse::source_directory(directory_.parent_path(), "rules"),
-        "rules"
-    };
     warehouse::Store research_;
     mutable std::mutex mutex_;
     std::map<std::string, std::unique_ptr<Active>> active_;

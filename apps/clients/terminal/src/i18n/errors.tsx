@@ -139,10 +139,6 @@ const prefixedDiagnostics = [
   ["conflicting price tick of ", "conflicting historical price ticks"],
   ["invalid price tick of ", "price tick must be positive"],
   ["invalid price tick interval", "invalid price tick interval"],
-  ["price tick must be positive: ", "price tick must be positive"],
-  ["price tick import contains another exchange: ", "price tick import contains another exchange"],
-  ["price tick rule requires a source URL: ", "price tick rule requires a source URL"],
-  ["overlapping imported price tick rules: ", "overlapping imported price tick rules"],
   ["invalid exchange price_ticks file: ", "invalid historical price tick source data"],
   ["invalid decimal: ", "invalid decimal"],
   [

@@ -17,7 +17,7 @@ Version compose_research(const std::filesystem::path& data, Store& research)
     writer.clear();
     for (const auto& [key, part] : primary.partitions)
         writer.adopt(key, tushare, primary);
-    for (const auto* provider : {"shfe", "ine", "czce", "dce", "cffex", "gfex", "rules"}) {
+    for (const auto* provider : {"shfe", "ine", "czce", "dce", "cffex", "gfex"}) {
         Store exchange(source_directory(data, provider), provider);
         const auto version = exchange.current();
         for (const auto& [key, part] : version.partitions)

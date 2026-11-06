@@ -29,7 +29,6 @@ message Request {
     TaskId get_acquisition_task = 32;
     ListAcquisitionTasks list_acquisition_tasks = 33;
     TaskId cancel_acquisition = 34;
-    ImportPriceTicks import_price_ticks = 35;
   }
 }
 
@@ -59,7 +58,6 @@ message Response {
     AcquisitionTask get_acquisition_task = 32;
     AcquisitionTasks list_acquisition_tasks = 33;
     AcquisitionTask cancel_acquisition = 34;
-    Dataset import_price_ticks = 35;
   }
 }
 
@@ -234,21 +232,6 @@ enum Table {
   TABLE_SETTLEMENT = 5;
   TABLE_OBSERVATIONS = 6;
   TABLE_PRICE_TICKS = 7;
-}
-
-// Replaces the imported rules of one exchange; existing dataset versions remain readable.
-message ImportPriceTicks {
-  string exchange = 1;
-  repeated PriceTickRule rows = 2;
-}
-
-message PriceTickRule {
-  string contract = 1;
-  string effective_from = 2;
-  // Exclusive trading-date boundary, supported by the source document.
-  string effective_until = 3;
-  common.Decimal price_tick = 4;
-  string source_url = 5;
 }
 
 // An empty version names the provider's current version.
