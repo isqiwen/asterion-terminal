@@ -291,11 +291,11 @@ async function closeDesktop(application) {
       // The public settings helper selects reused windows through this storage event.
       localStorage.setItem(
         "asterion.settings.category",
-        JSON.stringify({ page: "market", nonce: Date.now() }),
+        JSON.stringify({ page: "history", nonce: Date.now() }),
       );
-      return window.asterionDesktop.openSettings("market");
+      return window.asterionDesktop.openSettings("history");
     });
-    await expect(settings.getByRole("heading", { name: "行情服务", exact: true })).toBeVisible();
+    await expect(settings.getByRole("heading", { name: "历史服务", exact: true })).toBeVisible();
     await settings.getByRole("button", { name: "偏好设置", exact: true }).click();
     await capture(settings, "native-settings");
     await settings.getByLabel("语言", { exact: true }).selectOption("en-US");
