@@ -114,7 +114,7 @@ function localCore(): Plugin {
           });
         // Inside the wrapper's temporary root, which it cleans up at exit.
         process.env.ASTERION_ROOT = mkdtempSync(resolve(originalNode!, "reset-"));
-        const tls = process.env.ASTERION_TEST_HISTORY_TLS;
+        const tls = process.env.ASTERION_TEST_WAREHOUSE_TLS;
         if (tls) {
           const target = resolve(process.env.ASTERION_ROOT!, "terminal/data/tls");
           mkdirSync(target, { recursive: true });

@@ -11,11 +11,11 @@ test(
     await page.getByRole("tab", { name: "实时行情", exact: true }).click();
     const panel = page.getByRole("region", { name: "实时期货行情" });
     await expect(panel.getByRole("cell", { name: "3510", exact: true })).toBeVisible();
-    const saved = async () => (await rpc(page.request, "runtime.snapshot")).quotes_endpoint;
+    const saved = async () => (await rpc(page.request, "runtime.snapshot")).market_endpoint;
     const watch = async () =>
-      (await rpc(page.request, "quotes.watch", { restart: false })).quotes_watch;
+      (await rpc(page.request, "market.watch", { restart: false })).market_watch;
     const status = async () =>
-      (await rpc(page.request, "quotes.call", { request: { getStatus: {} } })).quotes.getStatus;
+      (await rpc(page.request, "market.call", { request: { getStatus: {} } })).market.getStatus;
     const before = await status();
     expect((await saved()).instruments).toEqual([]);
     await expect(panel.locator('input[type="password"]')).toHaveCount(0);
@@ -25,12 +25,12 @@ test(
       .getByRole("button", { name: "自选", exact: true })
       .click();
     await expect(panel.getByRole("button", { name: "rb2610", exact: true })).toBeVisible();
-    await rpc(page.request, "quotes.close");
+    await rpc(page.request, "market.close");
     expect(await watch()).toBeNull();
-    await rpc(page.request, "quotes.open");
+    await rpc(page.request, "market.open");
     expect((await status()).startedMs).toBe(before.startedMs);
     expect((await saved()).instruments).toEqual([{ exchange: "SHFE", symbol: "rb2610" }]);
-    await rpc(page.request, "quotes.watchlist", { instruments: [] });
+    await rpc(page.request, "market.watchlist", { instruments: [] });
     // The saved watchlist is the desktop's own; Market still collects the contract.
     expect((await marketState(page.request)).rows).toHaveLength(1);
     await page.getByRole("button", { name: "行情设置" }).click();

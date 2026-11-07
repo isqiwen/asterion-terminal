@@ -1,18 +1,18 @@
 import { useEffect, useState } from "react";
 import type { Snapshot, TradingConnection } from "../../bridge/client";
-import { historyData } from "../../bridge/history-data";
+import { warehouseData } from "../../bridge/warehouse-data";
 import { translate, useLocale } from "../../i18n";
 import { asDisplayError, errorSummary } from "../../i18n/errors";
 import { useMarket } from "../market";
 import { stalled, useTradingAccounts } from "../trading-accounts";
-import { FeedState } from "../../generated/asterion/quotes_pb";
+import { FeedState } from "../../generated/asterion/market_pb";
 import { BrokerState } from "../../generated/asterion/trading_pb";
 
 const label = (name: string, state: string) =>
   `● ${name}${state && ` ${translate("host", state)}`}`;
 
-// History has no stream to watch, so its light comes from reading its status.
-function HistoryIndicator() {
+// Warehouse has no stream to watch, so its light comes from reading its status.
+function WarehouseIndicator() {
   const [error, setError] = useState<string>();
   useEffect(() => {
     let active = true;
@@ -21,7 +21,7 @@ function HistoryIndicator() {
       if (pending || document.hidden) return;
       pending = true;
       try {
-        await historyData({ case: "getStatus", value: {} });
+        await warehouseData({ case: "getStatus", value: {} });
         if (active) setError("");
       } catch (failure) {
         if (active) setError(errorSummary(asDisplayError(failure)));
@@ -49,14 +49,14 @@ export function StatusIndicators({
   snapshot,
   openMarketSettings,
   openMarket,
-  openHistorySettings,
+  openWarehouseSettings,
   openTradingSettings,
   openTrading,
 }: {
   snapshot: Snapshot | null;
   openMarketSettings: () => void;
   openMarket: () => void;
-  openHistorySettings: () => void;
+  openWarehouseSettings: () => void;
   openTradingSettings: () => void;
   openTrading: () => void;
 }) {
@@ -70,8 +70,8 @@ export function StatusIndicators({
     (item): item is TradingConnection => !("error" in item),
   );
   const feed = market?.board.feed;
-  // The link to Quotes first, then Quotes' own link to the broker.
-  const [quotesTone, quotesState] = !market?.online
+  // The link to Market first, then Market' own link to the broker.
+  const [marketTone, marketState] = !market?.online
     ? ["bad", "中断"]
     : feed?.state === FeedState.CONNECTED
       ? ["good", ""]
@@ -80,7 +80,7 @@ export function StatusIndicators({
           feed?.state === FeedState.RECONNECTING
         ? ["", "连接柜台中"]
         : ["bad", "柜台未连接"];
-  const history = snapshot.history_endpoint;
+  const warehouse = snapshot.warehouse_endpoint;
   return (
     <>
       {lab &&
@@ -98,7 +98,7 @@ export function StatusIndicators({
             </span>
           );
         })()}
-      {!(snapshot.quotes_endpoint && "host" in snapshot.quotes_endpoint) ? (
+      {!(snapshot.market_endpoint && "host" in snapshot.market_endpoint) ? (
         <button className="status-item" onClick={openMarketSettings}>
           {label(t("行情"), "未设置")}
         </button>
@@ -108,16 +108,16 @@ export function StatusIndicators({
         </button>
       ) : (
         <span
-          className={`status-item ${quotesTone}`}
+          className={`status-item ${marketTone}`}
           title={market.error || (feed?.ctpError ? `CTP ${feed.ctpError}` : undefined)}
         >
-          {label(t("行情"), quotesState)}
+          {label(t("行情"), marketState)}
         </span>
       )}
-      {history && "host" in history ? (
-        <HistoryIndicator key={`${history.host}:${history.port}/${history.fingerprint}`} />
+      {warehouse && "host" in warehouse ? (
+        <WarehouseIndicator key={`${warehouse.host}:${warehouse.port}/${warehouse.fingerprint}`} />
       ) : (
-        <button className="status-item" onClick={openHistorySettings}>
+        <button className="status-item" onClick={openWarehouseSettings}>
           {label(t("数据"), "未设置")}
         </button>
       )}

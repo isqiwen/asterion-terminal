@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 
 type Instrument = { exchange: string; symbol: string };
 const decimals = new Set(["last", "open", "high", "low", "previousSettlement", "openInterest"]);
-// A quotes.proto QuoteRow in ProtoJSON, with a quote when one is given; prices
+// A market.proto QuoteRow in ProtoJSON, with a quote when one is given; prices
 // are given as text.
 export const watchRow = (id: Instrument, quote?: Record<string, string>) => ({
   instrument: id,
@@ -33,11 +33,11 @@ export async function serveWatch(
 ) {
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
-    if (request.method === "quotes.watch")
-      return route.fulfill({ json: { result: { quotes_watch: next(request.params.restart) } } });
+    if (request.method === "market.watch")
+      return route.fulfill({ json: { result: { market_watch: next(request.params.restart) } } });
     const response = await route.fetch();
     const body = await response.json();
-    if (body.result?.quotes_endpoint?.host) body.result.quotes_endpoint.instruments = watchlist;
+    if (body.result?.market_endpoint?.host) body.result.market_endpoint.instruments = watchlist;
     await route.fulfill({ response, json: body });
   });
 }

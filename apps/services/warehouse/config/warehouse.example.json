@@ -1,0 +1,17 @@
+{
+  "bind": "0.0.0.0",
+  "port": 7450,
+  "data": "/srv/asterion-warehouse/data",
+  "clients": [
+    {
+      "fingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "role": "manage"
+    }
+  ],
+  "acquisition": {
+    "exchanges": ["SHFE", "INE", "CZCE", "DCE", "CFFEX", "GFEX"],
+    "tushare": {
+      "requests_per_minute": 120
+    }
+  }
+}

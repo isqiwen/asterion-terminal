@@ -4,7 +4,7 @@ namespace asterion::build {
 inline constexpr char version[] = "@ASTERION_VERSION@";
 inline constexpr char commit[] = "@ASTERION_COMMIT@";
 inline constexpr char description[] = "@ASTERION_VERSION@ (@ASTERION_COMMIT@)";
-inline constexpr char quotes_protocol[] = "@ASTERION_QUOTES_PROTOCOL@";
-inline constexpr char history_protocol[] = "@ASTERION_HISTORY_PROTOCOL@";
+inline constexpr char market_protocol[] = "@ASTERION_MARKET_PROTOCOL@";
+inline constexpr char warehouse_protocol[] = "@ASTERION_WAREHOUSE_PROTOCOL@";
 inline constexpr char trading_protocol[] = "@ASTERION_TRADING_PROTOCOL@";
 }

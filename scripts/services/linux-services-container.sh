@@ -16,7 +16,7 @@ python3 scripts/prepare_ctp.py
 conan install . -s build_type=Release -s compiler.cppstd=20 -o with_tests=False -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing '--build=cpptrace/*'
 cmake --preset conan-release
 # The service hosts' own releases, one self-extracting script each.
-CMAKE_BUILD_PARALLEL_LEVEL=4 cmake --build build/Release --target asterion_quotes_setup asterion_history_setup asterion_trading_setup
+CMAKE_BUILD_PARALLEL_LEVEL=4 cmake --build build/Release --target asterion_market_setup asterion_warehouse_setup asterion_trading_setup
 mkdir -p /output
 version=$(cat VERSION)
-cp "build/Release/Asterion-Quotes-${version}-linux-x86_64.sh" "build/Release/Asterion-History-${version}-linux-x86_64.sh" "build/Release/Asterion-Trading-${version}-linux-x86_64.sh" /output/
+cp "build/Release/Asterion-Market-${version}-linux-x86_64.sh" "build/Release/Asterion-Warehouse-${version}-linux-x86_64.sh" "build/Release/Asterion-Trading-${version}-linux-x86_64.sh" /output/

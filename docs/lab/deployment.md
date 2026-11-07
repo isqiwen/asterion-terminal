@@ -20,7 +20,7 @@ Lab 使用 `python3 -I -B -m asterion_lab` 启动。`LabSupervisor` 提供拥有
 ├── terminal/
 │   ├── runtime/                    # 安装版准备的研究运行时
 │   └── data/
-│       ├── history.json            # 共享的 History 地址与服务指纹
+│       ├── warehouse.json            # 共享的 Warehouse 地址与服务指纹
 │       └── tls/                    # 本机客户端身份
 └── lab/
     ├── config/logging.json
@@ -41,7 +41,7 @@ Lab 使用 `python3 -I -B -m asterion_lab` 启动。`LabSupervisor` 提供拥有
 ## 配置与连接
 
 - 日志配置来自 [logging.json](../../apps/services/lab/config/logging.json)，首次启动复制，字段见[运行日志](../services.md#运行日志)。
-- History 地址和证书由 Terminal 设置维护；Lab 使用同一客户端身份，经双向 TLS 读取 `research` 固定版本。无需单独填写供应商配置或密钥。
+- Warehouse 地址和证书由 Terminal 设置维护；Lab 使用同一客户端身份，经双向 TLS 读取 `research` 固定版本。无需单独填写供应商配置或密钥。
 - 回测、扫描和因子设置通过协议提交，不保存为另一份服务配置。
 
 ## 停止、升级与恢复
@@ -51,7 +51,7 @@ Lab 使用 `python3 -I -B -m asterion_lab` 启动。`LabSupervisor` 提供拥有
 | 正常退出 | 等待需要保留的计算完成，再关闭 Terminal |
 | Lab 意外退出 | Terminal 自动重启；遗留运行标为中断，由使用者决定是否重新运行 |
 | Terminal 升级 | 先结束研究并关闭应用，再安装新版本，研究记录保留 |
-| 缓存缺失 | 读取时从原 History 版本重新下载；该版本不可用时明确失败 |
+| 缓存缺失 | 读取时从原 Warehouse 版本重新下载；该版本不可用时明确失败 |
 | 备份 | 关闭 Terminal 并确认 Lab 已退出，复制源码、运行记录和源码副本 |
 
-完整冷备份范围见[备份与恢复](../services.md#备份与恢复)。排查顺序是研究状态、通知中的诊断、`lab/logs/`；数据访问失败同时核对 History 的连接配置与版本是否可读取。
+完整冷备份范围见[备份与恢复](../services.md#备份与恢复)。排查顺序是研究状态、通知中的诊断、`lab/logs/`；数据访问失败同时核对 Warehouse 的连接配置与版本是否可读取。

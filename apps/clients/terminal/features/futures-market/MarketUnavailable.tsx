@@ -11,7 +11,7 @@ const t = (key: string, values?: MessageValues) =>
 
 // What a live market view shows before it has a Market connection, and the one step to get one.
 export function MarketUnavailable({ context }: { context: TerminalContext }) {
-  const saved = context.snapshot?.quotes_endpoint;
+  const saved = context.snapshot?.market_endpoint;
   const endpoint = saved && "host" in saved ? saved : null;
   const { error, attempt } = useActionError();
   if (!endpoint) return <MarketUnset openSettings={context.openSettings} />;
@@ -24,7 +24,7 @@ export function MarketUnavailable({ context }: { context: TerminalContext }) {
       <button
         className="primary"
         disabled={context.busy}
-        onClick={() => void attempt(() => context.trade("quotes.open"))}
+        onClick={() => void attempt(() => context.trade("market.open"))}
       >
         {t("连接行情服务")}
       </button>

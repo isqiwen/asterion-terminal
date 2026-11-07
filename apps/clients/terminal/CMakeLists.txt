@@ -11,8 +11,8 @@ asterion_target_defaults(asterion_terminal_settings)
 
 add_library(asterion_terminal_application STATIC
   native/python_runtime.cpp
-  native/quotes_client.cpp
-  native/history_client.cpp
+  native/market_client.cpp
+  native/warehouse_client.cpp
   native/terminal_application.cpp
   native/commands_connections.cpp
   native/commands_data.cpp

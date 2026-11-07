@@ -1,7 +1,7 @@
 syntax = "proto3";
 package lab;
 import "asterion/common.proto";
-import "asterion/history.proto";
+import "asterion/warehouse.proto";
 import "asterion/strategy.proto";
 
 // Lab: research over the research dataset, started by the Terminal.
@@ -41,7 +41,7 @@ message Response {
     common.Error error = 2;
     Health get_health = 10;
 
-    history.DatasetSummary get_dataset_summary = 20;
+    warehouse.DatasetSummary get_dataset_summary = 20;
     StoredContracts list_stored_contracts = 21;
     ChartBars get_chart_bars = 22;
     DominantSeries get_dominant_series = 23;

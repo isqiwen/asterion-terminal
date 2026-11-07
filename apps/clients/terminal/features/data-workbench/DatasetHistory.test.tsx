@@ -1,13 +1,13 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
-import { Table } from "../../src/generated/asterion/history_pb";
+import { Table } from "../../src/generated/asterion/warehouse_pb";
 import type { TerminalContext } from "../contract";
 import { Coverage } from "./Coverage";
 
 const request = vi.hoisted(() => vi.fn());
 vi.mock("../contract", async importOriginal => ({
   ...(await importOriginal<typeof import("../contract")>()),
-  historyData: request,
+  warehouseData: request,
   translate: (_namespace: string, key: string, values?: Record<string, unknown>) =>
     key.replace(/\{(\w+)\}/g, (_, name: string) => String(values?.[name])),
 }));
@@ -18,7 +18,7 @@ const current = "b".repeat(64);
 const context = (params?: Record<string, string>) =>
   ({
     trade: vi.fn(),
-    snapshot: { history_endpoint: { host: "market", port: 7450, fingerprint: "f" } },
+    snapshot: { warehouse_endpoint: { host: "market", port: 7450, fingerprint: "f" } },
     workspaceParams: params,
   }) as unknown as TerminalContext;
 // Research has two versions: the older one holds copper, the current one rebar.

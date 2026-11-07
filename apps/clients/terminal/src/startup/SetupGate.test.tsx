@@ -27,7 +27,7 @@ test("the startup screen starts Lab and Market, then opens the workbench", async
   expect(screen.getByRole("main", { name: "正在启动" })).toBeTruthy();
   await waitFor(() => expect(workbench()).not.toBeNull(), { timeout: 4000 });
   const methods = calls.map(call => call.method);
-  expect(methods).toEqual(expect.arrayContaining(["lab.endpoint", "quotes.open"]));
+  expect(methods).toEqual(expect.arrayContaining(["lab.endpoint", "market.open"]));
   expect(methods).not.toContain("runtime.python.install");
 });
 

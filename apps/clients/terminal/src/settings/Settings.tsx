@@ -16,7 +16,7 @@ import type { Snapshot } from "@asterion/desktop-bridge/client";
 const pages: [SettingsPage, string, IconName][] = [
   ["preferences", "偏好设置", "sliders"],
   ["market", "行情服务", "data"],
-  ["history", "数据服务", "data"],
+  ["warehouse", "数据服务", "data"],
   ["trading", "交易服务", "trading"],
   ["about", "关于", "info"],
 ];
@@ -145,10 +145,10 @@ export function Settings({
         )}
         {page === "trading" && <TradingConnections snapshot={snapshot} busy={busy} trade={trade} />}
         {page === "market" && (
-          <ServiceConnection service="quotes" snapshot={snapshot} busy={busy} trade={trade} />
+          <ServiceConnection service="market" snapshot={snapshot} busy={busy} trade={trade} />
         )}
-        {page === "history" && (
-          <ServiceConnection service="history" snapshot={snapshot} busy={busy} trade={trade} />
+        {page === "warehouse" && (
+          <ServiceConnection service="warehouse" snapshot={snapshot} busy={busy} trade={trade} />
         )}
         {page === "about" && (
           <SettingsSection title="Asterion Terminal">

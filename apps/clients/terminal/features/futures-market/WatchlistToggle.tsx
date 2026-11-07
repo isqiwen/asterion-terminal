@@ -1,4 +1,4 @@
-import { FeedState } from "../../src/generated/asterion/quotes_pb";
+import { FeedState } from "../../src/generated/asterion/market_pb";
 import type { MarketView } from "../../src/host/market";
 import { ActionError, translate, useActionError, type TerminalContext } from "../contract";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
@@ -14,7 +14,7 @@ export function WatchlistToggle({
   market: MarketView;
   row: { exchange: string; symbol: string };
 }) {
-  const saved = context.snapshot?.quotes_endpoint;
+  const saved = context.snapshot?.market_endpoint;
   const ids = saved && "instruments" in saved ? saved.instruments : [];
   const same = (id: { exchange: string; symbol: string }) =>
     id.exchange === row.exchange && id.symbol === row.symbol;
@@ -31,7 +31,7 @@ export function WatchlistToggle({
         }
         onClick={() =>
           void attempt(() =>
-            context.trade("quotes.watchlist", {
+            context.trade("market.watchlist", {
               instruments: present
                 ? ids.filter(id => !same(id))
                 : [...ids, { exchange: row.exchange, symbol: row.symbol }],

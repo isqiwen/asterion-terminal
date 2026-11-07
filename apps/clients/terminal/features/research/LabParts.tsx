@@ -43,7 +43,7 @@ export function LabHeader({
   modules: LabStrategies | null;
   refresh: () => void;
 }) {
-  const endpoint = context.snapshot?.history_endpoint;
+  const endpoint = context.snapshot?.warehouse_endpoint;
   const address =
     endpoint && "host" in endpoint
       ? `${endpoint.host}:${endpoint.port}/${endpoint.fingerprint}`
@@ -52,7 +52,7 @@ export function LabHeader({
   useEffect(() => {
     let active = true;
     setSummary(null);
-    // Without a History service there is no research data to read; the chip says so.
+    // Without a Warehouse service there is no research data to read; the chip says so.
     if (!address) return;
     void lab({ case: "getDatasetSummary", value: {} })
       .then(value => active && setSummary(value))

@@ -3,7 +3,7 @@ import {
   ErrorNotice,
   asDisplayError,
   getLocale,
-  historyData,
+  warehouseData,
   translate,
   type DisplayError,
   type MarketChange,
@@ -37,7 +37,7 @@ export function DatasetHistory({
   const [error, setError] = useState<DisplayError>("");
   useEffect(() => {
     let active = true;
-    void historyData({ case: "listDatasetVersions", value: {} })
+    void warehouseData({ case: "listDatasetVersions", value: {} })
       .then(page => {
         if (!active) return;
         setVersions(page.versions);
@@ -51,7 +51,7 @@ export function DatasetHistory({
   }, [latest]);
   const more = async () => {
     try {
-      const page = await historyData({
+      const page = await warehouseData({
         case: "listDatasetVersions",
         value: { afterVersion: next },
       });

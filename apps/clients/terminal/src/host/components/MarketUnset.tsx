@@ -5,8 +5,8 @@ export function MarketUnset({
   openSettings,
   page = "market",
 }: {
-  openSettings: (page: "market" | "history") => void;
-  page?: "market" | "history";
+  openSettings: (page: "market" | "warehouse") => void;
+  page?: "market" | "warehouse";
 }) {
   useLocale();
   const t = (key: string) => translate("host", key);

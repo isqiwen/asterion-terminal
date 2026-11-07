@@ -44,7 +44,7 @@ test("a service error and a reply to another request are errors", async () => {
         id: request.id,
         result: {
           case: "error",
-          value: { code: ErrorCode.INVALID_REQUEST, message: "Market settings missing" },
+          value: { code: ErrorCode.INVALID_REQUEST, message: "Warehouse settings missing" },
         },
       }),
     ),

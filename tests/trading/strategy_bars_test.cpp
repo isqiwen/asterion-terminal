@@ -145,7 +145,7 @@ TEST(StrategyBars, ASubscriptionCacheCannotTurnAPreStartMinuteIntoACompleteBar)
     EXPECT_EQ(closed[0].bars(0).volume(), 1);
 }
 
-// Research compares Tushare's minutes with Market's recorded ones; that says
+// Research compares Tushare's minutes with Warehouse's recorded ones; that says
 // something about live trading only if a strategy's one-minute bars are the
 // recorded minutes. The same quotes, across a new trading day whose first
 // quote carries the opening auction's volume, give the same bars.

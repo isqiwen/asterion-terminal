@@ -7,14 +7,14 @@ import { ActionError, useActionError } from "../host/action-error";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 const t = (key: string) => translate("host", key);
 const words = {
-  quotes: {
+  market: {
     edit: "编辑行情连接",
     add: "添加行情连接",
     unreadable: "行情服务设置文件无法读取，已保留原文件供检查。",
     fingerprint: "行情服务证书指纹",
     port: 7451,
   },
-  history: {
+  warehouse: {
     edit: "编辑数据连接",
     add: "添加数据连接",
     unreadable: "数据服务设置文件无法读取，已保留原文件供检查。",
@@ -29,13 +29,13 @@ export function ServiceConnection({
   busy,
   trade,
 }: {
-  service: "quotes" | "history";
+  service: "market" | "warehouse";
   snapshot: Snapshot | null;
   busy: boolean;
   trade: CommandHandler;
 }) {
   const word = words[service];
-  const saved = service === "quotes" ? snapshot?.quotes_endpoint : snapshot?.history_endpoint;
+  const saved = service === "market" ? snapshot?.market_endpoint : snapshot?.warehouse_endpoint;
   const endpoint = saved && "host" in saved ? saved : null;
   const [editing, setEditing] = useState(false);
   const [host, setHost] = useState("");

@@ -29,7 +29,7 @@ test("every settings page has its title, and trading connections have their own 
 
 test("the two data pages each configure their own service without counter credentials", async () => {
   const snapshot = readySnapshot();
-  snapshot.quotes_endpoint = null;
+  snapshot.market_endpoint = null;
   const trade = vi.fn().mockResolvedValue(undefined);
   render(<Settings snapshot={snapshot} error="" busy={false} trade={trade} initialPage="market" />);
   expect(screen.getByRole("heading", { name: "行情服务", level: 1 })).toBeTruthy();
@@ -45,27 +45,27 @@ test("the two data pages each configure their own service without counter creden
   });
   fireEvent.click(within(market).getByRole("button", { name: "保存连接" }));
   await waitFor(() =>
-    expect(trade).toHaveBeenCalledWith("quotes.endpoint.save", {
+    expect(trade).toHaveBeenCalledWith("market.endpoint.save", {
       host: "192.168.1.20",
       port: 7451,
       fingerprint: "a".repeat(64),
     }),
   );
   cleanup();
-  snapshot.history_endpoint = null;
+  snapshot.warehouse_endpoint = null;
   render(
-    <Settings snapshot={snapshot} error="" busy={false} trade={trade} initialPage="history" />,
+    <Settings snapshot={snapshot} error="" busy={false} trade={trade} initialPage="warehouse" />,
   );
   expect(screen.getByRole("heading", { name: "数据服务", level: 1 })).toBeTruthy();
-  const history = screen.getByRole("region", { name: "连接" });
-  fireEvent.click(within(history).getByRole("button", { name: "添加数据连接" }));
-  fireEvent.change(within(history).getByLabelText("主机地址"), { target: { value: "h" } });
-  fireEvent.change(within(history).getByLabelText("数据服务证书指纹"), {
+  const warehouse = screen.getByRole("region", { name: "连接" });
+  fireEvent.click(within(warehouse).getByRole("button", { name: "添加数据连接" }));
+  fireEvent.change(within(warehouse).getByLabelText("主机地址"), { target: { value: "h" } });
+  fireEvent.change(within(warehouse).getByLabelText("数据服务证书指纹"), {
     target: { value: "b".repeat(64) },
   });
-  fireEvent.click(within(history).getByRole("button", { name: "保存连接" }));
+  fireEvent.click(within(warehouse).getByRole("button", { name: "保存连接" }));
   await waitFor(() =>
-    expect(trade).toHaveBeenCalledWith("history.endpoint.save", {
+    expect(trade).toHaveBeenCalledWith("warehouse.endpoint.save", {
       host: "h",
       port: 7450,
       fingerprint: "b".repeat(64),

@@ -49,7 +49,7 @@ export type Snapshot = {
   trading_connections?: (TradingConnection | UnreadableCtpConnection)[];
   client_fingerprint?: string;
   // The saved Market host, or a mark that its settings file is unreadable.
-  quotes_endpoint?:
+  market_endpoint?:
     | null
     | {
         host: string;
@@ -59,7 +59,7 @@ export type Snapshot = {
       }
     | { error: "unreadable" };
   // The fixed strategy directory, when the entry point names one.
-  history_endpoint?:
+  warehouse_endpoint?:
     | null
     | {
         host: string;

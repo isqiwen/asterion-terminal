@@ -24,7 +24,7 @@ flowchart LR
 - `LiveSession` 将外部命令和策略目标交给账户执行路径；`LiveAccountState` 维护账户事实并检查发送条件。
 - `AccountJournal` 串行持久化记录，完成结果交回账户处理。理由：写入成功之前不能发送委托。
 - `StrategyHost` 管理策略包、行情、K 线与 Python 进程，通过私有 Unix 套接字交换 Protobuf 消息；它通过账户入口执行目标，不直接调用交易 SDK。
-- Trading 自行连接行情前置。History 停机、Lab 计算失败或 Terminal 退出均不结束交易服务。
+- Trading 自行连接行情前置。Warehouse 停机、Lab 计算失败或 Terminal 退出均不结束交易服务。
 
 ## 核心类关系
 

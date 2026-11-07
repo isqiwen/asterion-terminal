@@ -67,7 +67,7 @@ export function ContractHistory({
     contract?: LabStoredContract;
     error: DisplayError;
   }>();
-  const endpoint = snapshot?.history_endpoint;
+  const endpoint = snapshot?.warehouse_endpoint;
   const address =
     endpoint && "host" in endpoint
       ? `${endpoint.host}:${endpoint.port}/${endpoint.fingerprint}`

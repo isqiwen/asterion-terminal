@@ -1,5 +1,5 @@
 add_subdirectory(common)
-add_subdirectory(history)
-add_subdirectory(quotes)
+add_subdirectory(warehouse)
+add_subdirectory(market)
 add_subdirectory(trading)
 add_subdirectory(lab)

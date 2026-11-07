@@ -18,11 +18,11 @@ test("language switches every workspace, preserves preferences and survives relo
   await page.getByRole("button", { name: "Trading", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Trading", level: 1 })).toBeVisible();
   await expect(page.locator(".settings-content")).not.toContainText(/\p{Script=Han}/u);
-  await page.getByRole("button", { name: "Quotes", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Quotes", level: 1 })).toBeVisible();
+  await page.getByRole("button", { name: "Market", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Market", level: 1 })).toBeVisible();
   await expect(page.locator(".settings-content")).not.toContainText(/\p{Script=Han}/u);
-  await page.getByRole("button", { name: "History", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "History", level: 1 })).toBeVisible();
+  await page.getByRole("button", { name: "Data", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Data", level: 1 })).toBeVisible();
   await expect(page.locator(".settings-content")).not.toContainText(/\p{Script=Han}/u);
   page = await closeSettingsWindow(page);
   for (const workspace of ["Market", "Research", "Trading", "Data"]) {

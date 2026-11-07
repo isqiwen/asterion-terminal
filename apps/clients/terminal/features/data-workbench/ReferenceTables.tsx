@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { Table, type TableRows } from "../../src/generated/asterion/history_pb";
+import { Table, type TableRows } from "../../src/generated/asterion/warehouse_pb";
 import {
   ErrorNotice,
   asDisplayError,
-  historyData,
+  warehouseData,
   translate,
   type DisplayError,
   type MessageValues,
@@ -45,7 +45,7 @@ export function ReferenceTables({
   const [error, setError] = useState<DisplayError>("");
   useEffect(() => {
     let active = true;
-    void historyData({
+    void warehouseData({
       case: "getTableRows",
       value: {
         dataset: { version },

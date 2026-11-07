@@ -1,12 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
-import { Table } from "../../src/generated/asterion/history_pb";
+import { Table } from "../../src/generated/asterion/warehouse_pb";
 import { ReferenceTables } from "./ReferenceTables";
 
 const request = vi.hoisted(() => vi.fn());
 vi.mock("../contract", async importOriginal => ({
   ...(await importOriginal<typeof import("../contract")>()),
-  historyData: request,
+  warehouseData: request,
   translate: (_namespace: string, key: string, values?: Record<string, unknown>) =>
     key.replace(/\{(\w+)\}/g, (_, name: string) => String(values?.[name])),
 }));

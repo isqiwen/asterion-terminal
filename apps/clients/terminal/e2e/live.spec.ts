@@ -15,7 +15,7 @@ test(
     const password = "test-only-password";
     const account = tradingHost.connection;
     await page.goto("/");
-    await rpc(page.request, "quotes.open");
+    await rpc(page.request, "market.open");
     await page.reload();
     await openView(page, "trading");
     const panel = page.getByRole("region", { name: "CTP 交易账户", exact: true });

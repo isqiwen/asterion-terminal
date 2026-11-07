@@ -1261,21 +1261,21 @@
   flex-basis: 100%;
   font-size: 12px;
 }
-.quotes-status {
+.market-service-status {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 24px;
   margin: 0;
   font-size: 12px;
 }
-.quotes-status div {
+.market-service-status div {
   display: flex;
   gap: 8px;
 }
-.quotes-status dt {
+.market-service-status dt {
   color: var(--muted);
 }
-.quotes-status dd {
+.market-service-status dd {
   margin: 0;
   color: var(--text-strong);
   font-variant-numeric: tabular-nums;

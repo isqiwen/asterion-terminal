@@ -24,7 +24,7 @@ type Stored = { contract: string; name: string; dailyDays: number; minuteDays: n
 export function MarketPanel({ context }: { context: TerminalContext }) {
   const [selected, setSelected] = useWorkspaceDraft("history-market-selected", "");
   const [search, setSearch] = useWorkspaceDraft("history-market-search", "");
-  const endpoint = context.snapshot?.quotes_endpoint;
+  const endpoint = context.snapshot?.market_endpoint;
   const address =
     endpoint && "host" in endpoint
       ? `${endpoint.host}:${endpoint.port}/${endpoint.fingerprint}`

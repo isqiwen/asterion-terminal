@@ -1,6 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { afterEach, expect, test } from "vitest";
-import { CatalogContractSchema } from "../generated/asterion/quotes_pb";
+import { CatalogContractSchema } from "../generated/asterion/market_pb";
 import { setLocale } from "../i18n";
 import { catalogName, identityName } from "./contract-names";
 

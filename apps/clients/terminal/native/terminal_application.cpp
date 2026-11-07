@@ -123,7 +123,7 @@ Application::Impl::invoke(const std::string& method, const json& params)
         // Selection must remain bound to the same market operation while preparation
         // suspends. Read-only queries do not acquire this gate.
         std::optional<ResetFlag> market_admission;
-        if (method == "quotes.open" || method == "quotes.close") {
+        if (method == "market.open" || method == "market.close") {
             if (market_busy)
                 throw Error(
                     ErrorCode::conflict,
@@ -236,8 +236,8 @@ json Application::Impl::Publication::render() const
     result["lab"] = lab;
     result["trading_connections"] = settings->trading;
     result["client_fingerprint"] = settings->client_fingerprint;
-    result["quotes_endpoint"] = settings->quotes_endpoint;
-    result["history_endpoint"] = settings->history_endpoint;
+    result["market_endpoint"] = settings->market_endpoint;
+    result["warehouse_endpoint"] = settings->warehouse_endpoint;
     result["revision"] = revision;
     result["refreshed_at_ms"] = refreshed_at_ms;
     return result;

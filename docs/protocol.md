@@ -1,21 +1,21 @@
 # 通信协议设计
 
-本文规定 Terminal、Lab、History、Trading 和策略进程之间消息的格式和命名规则，并列出各服务提供的操作。消息定义在 [protocol/proto/asterion/](../protocol/proto/asterion/)，C++、Python 和 TypeScript 代码都从这些定义生成。
+本文规定 Terminal、Lab、Warehouse、Trading 和策略进程之间消息的格式和命名规则，并列出各服务提供的操作。消息定义在 [protocol/proto/asterion/](../protocol/proto/asterion/)，C++、Python 和 TypeScript 代码都从这些定义生成。
 
 ## 1. 传输
 
 | 连接 | 传输 | 身份 |
 | --- | --- | --- |
-| Terminal → History、Lab → History | TCP + TLS 1.3 双向认证 | 双方证书指纹固定；History 按客户端证书授予 `read` 或 `manage` 权限 |
+| Terminal → Warehouse、Lab → Warehouse | TCP + TLS 1.3 双向认证 | 双方证书指纹固定；Warehouse 按客户端证书授予 `read` 或 `manage` 权限 |
 | Terminal → Trading | TCP + TLS 1.3 双向认证 | 同上；交易主机登记 Terminal 的证书 |
 | Terminal → Lab | 本机 Unix 套接字 | 套接字目录只有当前用户可读写 |
 | Trading → 策略进程 | 本机私有 Unix 套接字 | 由 Trading 启动的子进程 |
 
-每条消息是 4 字节大端长度加 Protobuf 字节。Terminal 的 History、Trading 请求经原生层发送，TLS 私钥不进入页面；Lab 请求由 Electron 主进程通过本机套接字转发。
+每条消息是 4 字节大端长度加 Protobuf 字节。Terminal 的 Warehouse、Trading 请求经原生层发送，TLS 私钥不进入页面；Lab 请求由 Electron 主进程通过本机套接字转发。
 
 ## 2. 消息封套
 
-History、Lab 和 Trading 的 RPC 使用各自的 `Request` 和 `Response`：
+Warehouse、Lab 和 Trading 的 RPC 使用各自的 `Request` 和 `Response`：
 
 ```proto
 message Request {
@@ -35,7 +35,7 @@ message Response {
 - **请求和结果同名同号**：请求的 `call` 是 `get_dataset_version = 21`，成功的结果就是 `get_dataset_version = 21`。调用方不需要另外的对照表。
 - 失败时 `result` 是 `error`，不会同时有结果。
 - 封套里没有版本号和服务名。理由：逐包携带是重复的，连接本身已经确定了对方是哪个服务。
-- **协议核对**：Terminal 和服务分开安装，可能版本不一致。Quotes、History 的 `get_status` 和 Trading 的 `get_health` 带 `protocol`，即构建时该服务 `.proto` 的哈希。Quotes 和 History 不一致时，这次读取报错并提示安装同一版本。Trading 不一致时只提醒，不阻止操作。理由：拒绝连接会让使用者无法撤单和平仓。
+- **协议核对**：Terminal 和服务分开安装，可能版本不一致。Market、Warehouse 的 `get_status` 和 Trading 的 `get_health` 带 `protocol`，即构建时该服务 `.proto` 的哈希。Market 和 Warehouse 不一致时，这次读取报错并提示安装同一版本。Trading 不一致时只提醒，不阻止操作。理由：拒绝连接会让使用者无法撤单和平仓。
 
 ## 3. 命名
 
@@ -93,9 +93,9 @@ message Response {
 - **分页**：请求带 `after_*`，第一页为空；回复带 `next_*`，为空表示最后一页。每页大小由服务决定。版本分区、版本历史和采集任务使用游标分页；`get_table_rows` 使用 `offset` 和回复中的 `total` 读取参考表。
 - **流**：只有 `stream_quotes` 连续回复，同一个 `id` 返回多帧，直到连接关闭。第一帧是 `full`，之后是 `changed` 或新的 `full`。断线后重新开流，首帧又是 `full`。理由：TCP 保证顺序不丢帧，所以帧上不需要序号。
 
-## 7. Quotes
+## 7. Market
 
-定义在 [quotes.proto](../protocol/proto/asterion/quotes.proto)。行为说明见 [Quotes](quotes/README.md)。登记的客户端都能调用。
+定义在 [market.proto](../protocol/proto/asterion/market.proto)。行为说明见 [Market](market/README.md)。登记的客户端都能调用。
 
 | 操作 | 参数 | 结果 |
 | --- | --- | --- |
@@ -109,20 +109,20 @@ message Response {
 ```mermaid
 sequenceDiagram
     participant Client as 客户端
-    participant Quotes
-    Client->>Quotes: stream_quotes(instruments)
-    Quotes-->>Client: QuoteFrame.full：连接状态、全部所选行、完整目录
+    participant Market
+    Client->>Market: stream_quotes(instruments)
+    Market-->>Client: QuoteFrame.full：连接状态、全部所选行、完整目录
     loop 连接保持期间
-        Quotes-->>Client: QuoteFrame.changed：连接状态、变化的行、变化时的目录
+        Market-->>Client: QuoteFrame.changed：连接状态、变化的行、变化时的目录
     end
-    Note over Client,Quotes: 断线或重开 → 新的 full
+    Note over Client,Market: 断线或重开 → 新的 full
 ```
 
-客户端收到 `full` 时替换全部内容；收到 `changed` 时按 `Instrument` 替换整行，带目录时替换目录。合约集合变化时 Quotes 发送新的 `full`。
+客户端收到 `full` 时替换全部内容；收到 `changed` 时按 `Instrument` 替换整行，带目录时替换目录。合约集合变化时 Market 发送新的 `full`。
 
-## 8. History
+## 8. Warehouse
 
-定义在 [history.proto](../protocol/proto/asterion/history.proto)。行为说明见 [History](history/README.md)。除标明 `manage` 的操作外，只需要 `read` 权限。
+定义在 [warehouse.proto](../protocol/proto/asterion/warehouse.proto)。行为说明见 [Warehouse](warehouse/README.md)。除标明 `manage` 的操作外，只需要 `read` 权限。
 
 | 操作 | 参数 | 结果 |
 | --- | --- | --- |
@@ -149,7 +149,7 @@ sequenceDiagram
 | 操作 | 参数 | 结果 |
 | --- | --- | --- |
 | `get_health` | — | 是否已启动完成；Terminal 的 Lab 看护模块用它判断服务是否可用 |
-| `get_dataset_summary` | — | 研究数据当前版本的摘要，与 History 的 `DatasetSummary` 相同 |
+| `get_dataset_summary` | — | 研究数据当前版本的摘要，与 Warehouse 的 `DatasetSummary` 相同 |
 | `list_stored_contracts` | 合约，不填表示全部 | 每个合约的日线和分钟线范围 |
 | `get_chart_bars` | 合约、周期、版本 | K 线与 MACD |
 | `get_dominant_series` | 品种、起止日、是否按交易换月、复权方式 | 主力连续的逐日价格和换月 |

@@ -4,7 +4,7 @@
 
 namespace asterion::terminal {
 
-// A service's saved address and, for Quotes, this Terminal's watchlist. No broker credentials.
+// A service's saved address and, for Market, this Terminal's watchlist. No broker credentials.
 class SavedEndpoint
 {
 public:

@@ -16,9 +16,9 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "support"))
 from trading_installation import install, Programs
-from history_installation import quotes_host
+from warehouse_installation import market_host
 from trading_requests import account_policy, decimal, market_catalog, submit
-import history_tls
+import warehouse_tls
 if sys.platform != "linux":
     raise SystemExit(77)
 
@@ -87,12 +87,12 @@ def stop(process):
     assert SECRET not in stdout + stderr and AUTH not in stdout + stderr
 
 
-with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=True) as folder, quotes_host(build, Path(folder) / "market") as market_port:
+with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=True) as folder, market_host(build, Path(folder) / "market") as market_port:
     # The application owns the log path; inherited logger settings cannot split
     # Terminal events from its services.
     env["ASTERION_LOG_DIRECTORY"] = str(Path(folder) / "terminal-logs")
     tls = Path(folder) / "market/config/tls"
-    history_tls.install_client(tls, env["ASTERION_ROOT"])
+    warehouse_tls.install_client(tls, env["ASTERION_ROOT"])
     process = launch()
     host = install(Path(os.environ["ASTERION_ROOT"]) / "independent-trading", Programs(
         str(build / "asterion_trading"), str(build / "asterion_test_certificates"),
@@ -106,8 +106,8 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
             children[name] = host.start(name)
             call(process, "trading.connections.save", dict(id=name, revision="",
                 host="127.0.0.1", port=port, instance=name, fingerprint=host.server))
-        call(process, "quotes.endpoint.save", dict(host="127.0.0.1", port=market_port, fingerprint=history_tls.fingerprint(tls)))
-        call(process, "quotes.open")
+        call(process, "market.endpoint.save", dict(host="127.0.0.1", port=market_port, fingerprint=warehouse_tls.fingerprint(tls)))
+        call(process, "market.open")
         create = account_policy(market_catalog(lambda *a: call(process, *a)), working_orders=1)
         opened = trading(process, create)["openAccount"]
         assert opened["id"] == "account"

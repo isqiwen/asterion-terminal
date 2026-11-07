@@ -31,7 +31,7 @@ report = {'host':args.host,'port':args.port,'instruments':args.instrument,'passe
 def step(name, ok, detail=''):
     report['steps'].append({'step':name,'ok':ok,'detail':detail})
     print(('ok: ' if ok else 'FAIL: ')+name+' '+detail)
-with tempfile.TemporaryDirectory(prefix='asterion-history-acceptance-') as root:
+with tempfile.TemporaryDirectory(prefix='asterion-warehouse-acceptance-') as root:
     target = Path(root) / 'terminal/data/tls'
     target.mkdir(parents=True, mode=0o700)
     for name in ('client.crt', 'client.key'):
@@ -46,14 +46,14 @@ with tempfile.TemporaryDirectory(prefix='asterion-history-acceptance-') as root:
         if 'error' in response:raise RuntimeError(response['error']['message'])
         return response['result']
     try:
-        call('quotes.endpoint.save',{'host':args.host,'port':args.port,'fingerprint':args.fingerprint})
+        call('market.endpoint.save',{'host':args.host,'port':args.port,'fingerprint':args.fingerprint})
         def instance():
-            return call('quotes.call',{'request':{'getStatus':{}}})['quotes']['getStatus']['startedMs']
-        call('quotes.open')
+            return call('market.call',{'request':{'getStatus':{}}})['market']['getStatus']['startedMs']
+        call('market.open')
         original=instance()
         seen=set();deadline=time.monotonic()+args.timeout
         while time.monotonic()<deadline:
-            for frame in call('quotes.watch',{'restart':False})['quotes_watch']['frames']:
+            for frame in call('market.watch',{'restart':False})['market_watch']['frames']:
                 value = frame.get('full', frame.get('changed', {}))
                 for row in value.get('rows',[]):
                     key=row['instrument']['exchange']+':'+row['instrument']['symbol']
@@ -62,9 +62,9 @@ with tempfile.TemporaryDirectory(prefix='asterion-history-acceptance-') as root:
             if wanted<=seen:break
             time.sleep(.2)
         step('requested instruments quoted',wanted<=seen,','.join(sorted(seen)))
-        call('quotes.close')
-        step('client closes',call('quotes.watch',{'restart':False})['quotes_watch'] is None)
-        call('quotes.open')
+        call('market.close')
+        step('client closes',call('market.watch',{'restart':False})['market_watch'] is None)
+        call('market.open')
         step('same service continues',instance()==original)
     except Exception as error:
         step('run',False,str(error))

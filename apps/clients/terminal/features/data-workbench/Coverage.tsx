@@ -1,4 +1,4 @@
-import { Table, TaskState } from "../../src/generated/asterion/history_pb";
+import { Table, TaskState } from "../../src/generated/asterion/warehouse_pb";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ContractPicker } from "./ContractPicker";
 import { DatasetHistory, changeText } from "./DatasetHistory";
@@ -9,7 +9,7 @@ import {
   ErrorNotice,
   asDisplayError,
   getLocale,
-  historyData,
+  warehouseData,
   translate,
   type DisplayError,
   type MarketChange,
@@ -55,10 +55,10 @@ const size = (bytes: bigint) =>
 const tableName = (table: Table) => t(tables[table] ?? Table[table]);
 const exchanges = ["SHFE", "INE", "DCE", "CZCE", "CFFEX", "GFEX"];
 
-// Every read and acquisition goes to the saved remote History service. Browsing a
+// Every read and acquisition goes to the saved remote Warehouse service. Browsing a
 // source changes only this component, never the service's collection lifecycle.
 export function Coverage(context: TerminalContext) {
-  const saved = context.snapshot?.history_endpoint;
+  const saved = context.snapshot?.warehouse_endpoint;
   const endpoint = saved && "host" in saved ? saved : null;
   return (
     <section className="data-page" aria-label={t("数据")}>
@@ -76,7 +76,7 @@ export function Coverage(context: TerminalContext) {
           context={context}
         />
       ) : (
-        <MarketUnset openSettings={context.openSettings} page="history" />
+        <MarketUnset openSettings={context.openSettings} page="warehouse" />
       )}
     </section>
   );
@@ -90,7 +90,7 @@ function DataPage({ context }: { context: TerminalContext }) {
   const [retry, setRetry] = useState(0);
   useEffect(() => {
     let active = true;
-    historyData({ case: "getAcquisitionOptions", value: {} })
+    warehouseData({ case: "getAcquisitionOptions", value: {} })
       .then(next => {
         if (!active) return;
         setOptions(next);
@@ -157,22 +157,22 @@ function DataCoverage({ options, opened }: { options: AcquisitionOptions; opened
     pending.current = true;
     try {
       const [current, status] = await Promise.all([
-        historyData({ case: "getDatasetSummary", value: {} }),
-        historyData({ case: "getStatus", value: {} }),
+        warehouseData({ case: "getDatasetSummary", value: {} }),
+        warehouseData({ case: "getStatus", value: {} }),
       ]);
       const nextLatest = current.dataset?.version ?? "";
       const nextSummary = viewed
-        ? await historyData({ case: "getDatasetSummary", value: { version: viewed } })
+        ? await warehouseData({ case: "getDatasetSummary", value: { version: viewed } })
         : current;
       const version = nextSummary.dataset?.version;
       const nextCoverage = version
-        ? await historyData({ case: "getDatasetCoverage", value: { version } })
+        ? await warehouseData({ case: "getDatasetCoverage", value: { version } })
         : undefined;
-      // History lists tasks newest first; read as many pages as shown.
+      // Warehouse lists tasks newest first; read as many pages as shown.
       const nextTasks: MarketTask[] = [];
       let afterId = "";
       do {
-        const page = await historyData({
+        const page = await warehouseData({
           case: "listAcquisitionTasks",
           value: { afterId },
         });
@@ -197,7 +197,7 @@ function DataCoverage({ options, opened }: { options: AcquisitionOptions; opened
     let active = true;
     setChange(undefined);
     if (viewed && latest && viewed !== latest)
-      void historyData({
+      void warehouseData({
         case: "compareDatasetVersions",
         value: { version: latest, base: viewed },
       })
@@ -223,7 +223,7 @@ function DataCoverage({ options, opened }: { options: AcquisitionOptions; opened
   const stored = referenceTables.filter(table =>
     summary?.tables.some(item => item.table === table && item.rows > 0n),
   );
-  // Contracts a minute task can choose from: those Quotes lists now and those
+  // Contracts a minute task can choose from: those Market lists now and those
   // the dataset already holds minutes of.
   const known = useMemo(
     () => [
@@ -256,7 +256,7 @@ function DataCoverage({ options, opened }: { options: AcquisitionOptions; opened
     const id = crypto.randomUUID();
     setSubmitted(id);
     await started.attempt(async () => {
-      await historyData({
+      await warehouseData({
         case: "startAcquisition",
         value: {
           id,
@@ -274,7 +274,7 @@ function DataCoverage({ options, opened }: { options: AcquisitionOptions; opened
         [Table.DAILY, Table.MINUTES, Table.SETTLEMENT].includes(table) &&
         options.tables.includes(Table.PRICE_TICKS)
       )
-        await historyData({
+        await warehouseData({
           case: "startAcquisition",
           value: {
             id: crypto.randomUUID(),
@@ -295,7 +295,7 @@ function DataCoverage({ options, opened }: { options: AcquisitionOptions; opened
   };
   const cancel = (id: string) =>
     cancelled.attempt(async () => {
-      await historyData({ case: "cancelAcquisition", value: { id } });
+      await warehouseData({ case: "cancelAcquisition", value: { id } });
       await refresh();
     });
   const daily = useMemo(() => coverage?.products ?? [], [coverage]);

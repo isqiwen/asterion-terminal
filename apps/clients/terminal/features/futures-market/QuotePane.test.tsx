@@ -1,7 +1,7 @@
 import { act, render, screen } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 import { beforeEach, expect, test, vi } from "vitest";
-import { quotesData } from "../../src/bridge/quotes-data";
+import { marketData } from "../../src/bridge/market-data";
 import {
   BoardSchema,
   FeedState,
@@ -9,7 +9,7 @@ import {
   QuoteRowSchema,
   Subscription,
   type Minutes,
-} from "../../src/generated/asterion/quotes_pb";
+} from "../../src/generated/asterion/market_pb";
 import { registerTerminalFeatures } from "../../src/host/feature-registry";
 import type { MarketView } from "../../src/host/market";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "../../src/host/workspace/drafts";
@@ -19,7 +19,7 @@ import { feature } from "./feature";
 
 // The chart draws on a canvas; these tests read the note beneath it.
 vi.mock("@asterion/terminal/charts/IntradayChart", () => ({ IntradayChart: () => null }));
-vi.mock("../../src/bridge/quotes-data", () => ({ quotesData: vi.fn() }));
+vi.mock("../../src/bridge/market-data", () => ({ marketData: vi.fn() }));
 registerTerminalFeatures([feature]);
 
 const row = create(QuoteRowSchema, {
@@ -61,7 +61,7 @@ const answer = (since: number): Minutes => {
 let replies: ((series: Minutes) => void)[] = [];
 beforeEach(() => {
   replies = [];
-  vi.mocked(quotesData).mockImplementation(
+  vi.mocked(marketData).mockImplementation(
     () => new Promise(resolve => replies.push(resolve as (series: Minutes) => void)),
   );
 });

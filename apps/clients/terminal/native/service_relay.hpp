@@ -12,7 +12,7 @@
 
 namespace asterion::terminal {
 
-// What Quotes and History calls share: one generated Request as ProtoJSON, on its
+// What Market and Warehouse calls share: one generated Request as ProtoJSON, on its
 // own pinned TLS connection, and its Response back as ProtoJSON.
 inline constexpr char service_protocol_differs[] =
     "the service protocol differs from this Terminal";

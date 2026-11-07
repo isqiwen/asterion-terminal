@@ -7,9 +7,9 @@ import sys
 import tempfile
 TESTS = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(TESTS / "terminal")]
-from history_installation import history_host, quotes_host
-from history_tls import fingerprint
-# timeout and kill send SIGTERM; exiting through the with blocks stops the Market.
+from warehouse_installation import warehouse_host, market_host
+from warehouse_tls import fingerprint
+# timeout and kill send SIGTERM; exiting through the with blocks stops the services.
 signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
 BUILD = Path(os.environ.get("ASTERION_CPP_BUILD", str(TESTS.parent / "build/Debug")))
 with tempfile.TemporaryDirectory(prefix="asterion-e2e-", ignore_cleanup_errors=True) as folder:
@@ -19,12 +19,12 @@ with tempfile.TemporaryDirectory(prefix="asterion-e2e-", ignore_cleanup_errors=T
     env.pop("ELECTRON_RUN_AS_NODE", None)
     # The fixture strategies are the built-in ones, never the project's research/.
     env["ASTERION_BUILTIN_RESEARCH"] = str(TESTS / "lab/strategies")
-    with history_host(BUILD, root / "history", exchanges=("SHFE", "GFEX")) as history, quotes_host(BUILD, root / "quotes", also_trust=root / "history/config/tls") as quotes:
-        env["ASTERION_TEST_HISTORY_PORT"] = str(history)
-        env["ASTERION_TEST_HISTORY_TLS"] = str(root / "history/config/tls")
-        env["ASTERION_TEST_HISTORY_FINGERPRINT"] = fingerprint(root / "history/config/tls")
-        env["ASTERION_TEST_QUOTES_PORT"] = str(quotes)
-        env["ASTERION_TEST_QUOTES_TLS"] = str(root / "quotes/config/tls")
-        env["ASTERION_TEST_QUOTES_FINGERPRINT"] = fingerprint(root / "quotes/config/tls")
+    with warehouse_host(BUILD, root / "warehouse", exchanges=("SHFE", "GFEX")) as warehouse, market_host(BUILD, root / "market", also_trust=root / "warehouse/config/tls") as market:
+        env["ASTERION_TEST_WAREHOUSE_PORT"] = str(warehouse)
+        env["ASTERION_TEST_WAREHOUSE_TLS"] = str(root / "warehouse/config/tls")
+        env["ASTERION_TEST_WAREHOUSE_FINGERPRINT"] = fingerprint(root / "warehouse/config/tls")
+        env["ASTERION_TEST_MARKET_PORT"] = str(market)
+        env["ASTERION_TEST_MARKET_TLS"] = str(root / "market/config/tls")
+        env["ASTERION_TEST_MARKET_FINGERPRINT"] = fingerprint(root / "market/config/tls")
         result = subprocess.run([sys.executable, str(Path(__file__).with_name("isolated_node.py")), *sys.argv[1:]], env=env)
     sys.exit(result.returncode)

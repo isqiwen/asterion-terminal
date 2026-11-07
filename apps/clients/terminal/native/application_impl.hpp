@@ -4,8 +4,8 @@
 #include "terminal_application.hpp"
 #include <asterion/futures/account.hpp>
 #include <asterion/futures/history_identity.hpp>
-#include "history_client.hpp"
-#include "quotes_client.hpp"
+#include "warehouse_client.hpp"
+#include "market_client.hpp"
 #include "lab_supervisor.hpp"
 #include "program_paths.hpp"
 #include "trading_connections.hpp"
@@ -71,12 +71,12 @@ struct Application::Impl
     bool refresh_failed = false, settings_failed = false;
     void record_refresh_failure(ErrorCode code) noexcept;
     TradingConnections trading_connections{program_directory("terminal") / "data"};
-    SavedEndpoint quotes_endpoint{program_directory("terminal") / "data" / "quotes.json"};
-    SavedEndpoint history_endpoint{program_directory("terminal") / "data" / "history.json"};
+    SavedEndpoint market_endpoint{program_directory("terminal") / "data" / "market.json"};
+    SavedEndpoint warehouse_endpoint{program_directory("terminal") / "data" / "warehouse.json"};
     // A saved address for display, or a mark that it is unreadable.
     json endpoint_settings(const SavedEndpoint&) const;
     // The open quotes watch the market pages read.
-    std::shared_ptr<QuotesWatch> watch;
+    std::shared_ptr<MarketWatch> watch;
     PolledTask<ServiceEndpoint> address_of(const SavedEndpoint&, const char* name);
 
     struct ResetFlag
@@ -143,8 +143,8 @@ struct Application::Impl
     {
         json trading = json::array();
         std::string client_fingerprint;
-        json quotes_endpoint = nullptr;
-        json history_endpoint = nullptr;
+        json market_endpoint = nullptr;
+        json warehouse_endpoint = nullptr;
         bool operator==(const SettingsView&) const = default;
     };
 

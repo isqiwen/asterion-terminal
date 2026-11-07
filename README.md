@@ -6,18 +6,18 @@ C++20 核心与独立服务进程，Electron + React 界面。目标是用 Pytho
 
 ## 架构
 
-远程 Market 是一个纯 C++ 服务进程，统一实时行情、录制、历史采集与正式仓库读写；
-本机 Lab 用 Python 做研究并按版本读取 Market；Terminal 发布策略代码包；Trading 在交易主机直接连接行情与柜台，
+远程 Market 是纯 C++ 服务，分发实时行情；远程 Warehouse 是纯 C++ 服务，负责历史采集与带版本的数据仓库；
+本机 Lab 用 Python 做研究并按版本读取 Warehouse；Terminal 发布策略代码包；Trading 在交易主机直接连接行情与柜台，
 策略使用 Trading 自行聚合的 K 线现场预热。关闭 Terminal 不影响已授权交易。策略目标经账户统一执行路径处理，见[架构](docs/architecture.md)。
 
 ## 当前能力
 
 - **行情**：CTP 实时行情、合约目录、自选、五档、分时与分钟 K 线。
-- **历史数据**：Market C++ 采集 Tushare 日线、分钟线、合约与日历，以及交易所日线和结算参数；录制分钟可发布为固定研究版本。部分在线来源待验收。
+- **历史数据**：Warehouse 采集 Tushare 日线、分钟线、合约与日历，以及交易所日线和结算参数。部分在线来源待验收。
 - **研究**：固定策略目录中的 Python 策略与因子；日线/分钟线回测、参数扫描、滚动验证、因子评价、图表与研究记录。
 - **策略部署**：Terminal 发布小型源码包；Trading 从主机离线运行时加载、现场预热，目标经账户的唯一执行路径报单。
 - **交易**：CTP 账户（柜台仿真或实盘）：授权、合约白名单、限额与价格风控、先记录后发送、断线不重发。
-- **部署**：Market（行情与录制）和 Trading 在 Linux 独立部署；Terminal 只看护本机 Lab。历史采集与仓库由 Market C++ 管理，Lab 只读固定版本并缓存；录制分钟可由 Market 发布为固定研究版本。
+- **部署**：Market、Warehouse 和 Trading 在 Linux 独立部署；Terminal 只看护本机 Lab。Lab 只读 Warehouse 的固定版本并缓存。
 
 能力边界与已知限制见[现状](docs/status.md)，先做什么见[开发计划](docs/plan.md)。
 
@@ -52,7 +52,8 @@ pnpm desktop                       # 自动准备 Python 运行时、构建并�
 | --- | --- |
 | `core/` | 基础（Decimal、时间、错误）、内核（IPC、进程、日志、持久文件）、期货领域模型 |
 | `apps/services/` | 各服务拥有自己的实现；跨服务复用在 `common/`，共享 SQLite 和订单限额在 `core/` |
-| `apps/services/history/` | C++ 实时行情、录制、历史采集、正式仓库与固定版本读取 |
+| `apps/services/market/` | C++ 实时行情与合约目录 |
+| `apps/services/warehouse/` | C++ 历史采集、数据仓库与固定版本读取 |
 | `apps/services/lab/` | Python 研究服务与 C++ 回测扩展 |
 | `apps/services/trading/` | 独立账户进程、内置风控与交易主机策略运行器 |
 | `protocol/` | Protobuf 契约与边界校验 |

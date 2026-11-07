@@ -2,8 +2,8 @@
 #include <asterion/system/durable_file.hpp>
 #include "../apps/clients/terminal/native/application_impl.hpp"
 #include "support/timing.hpp"
-#include "support/history_host.hpp"
-#include "support/quotes_host.hpp"
+#include "support/warehouse_host.hpp"
+#include "support/market_host.hpp"
 #include <fstream>
 #include <asterion/system/environment.hpp>
 #include <asterion/protocol/trading.hpp>
@@ -161,10 +161,10 @@ TEST(TerminalCommands, TracesContainOnlyMetadata)
     log::init(installation, "terminal");
     const std::string outer = "fixture.outer";
     TraceScope trace(outer);
-    EXPECT_TRUE(app.dispatch(request("quotes.endpoint.clear")).at("quotes_endpoint").is_null());
+    EXPECT_TRUE(app.dispatch(request("market.endpoint.clear")).at("market_endpoint").is_null());
     EXPECT_THROW(app.dispatch(request("missing", {{"password", "fixture-secret"}})), Error);
     EXPECT_THROW(
-        app.dispatch(request("quotes.endpoint.clear", {{"token", "fixture-secret"}})),
+        app.dispatch(request("market.endpoint.clear", {{"token", "fixture-secret"}})),
         std::invalid_argument);
     EXPECT_EQ(current_trace_id(), outer);
     std::vector<std::string> lines;
@@ -186,7 +186,7 @@ TEST(TerminalCommands, TracesContainOnlyMetadata)
     }
     EXPECT_NE(lines[0].find(" completed: "), std::string::npos);
     EXPECT_TRUE(lines[1].starts_with("terminal.unknown failed: ")) << lines[1];
-    EXPECT_TRUE(app.dispatch(request("quotes.endpoint.clear")).at("quotes_endpoint").is_null());
+    EXPECT_TRUE(app.dispatch(request("market.endpoint.clear")).at("market_endpoint").is_null());
     const auto diagnostics = app.dispatch(request("runtime.snapshot")).at("diagnostics");
     EXPECT_EQ(diagnostics.at("version"), build::version);
     EXPECT_EQ(diagnostics.at("commit"), build::commit);
@@ -421,7 +421,7 @@ TEST(TerminalApplication, ClosingDrainsAdmittedRequestsBeforeReleasingApplicatio
     entered.get_future().wait();
     std::atomic<unsigned> completions{0};
     auto pending = app->request(
-        request("quotes.endpoint.clear").dump(),
+        request("market.endpoint.clear").dump(),
         [&](Payload, std::exception_ptr) noexcept {
             ++completions;
         });
@@ -473,7 +473,7 @@ TEST(TerminalApplication, WireResponsesCompleteWhileReadWorkersAreBlocked)
     ASSERT_EQ(pending.back().wait_for(testing_support::bound(1s)), std::future_status::ready);
     EXPECT_FALSE(failure);
     EXPECT_TRUE(parse_json(*response).contains("result"));
-    pending.push_back(app.request(request("quotes.endpoint.clear").dump(), complete));
+    pending.push_back(app.request(request("market.endpoint.clear").dump(), complete));
     ASSERT_EQ(pending.back().wait_for(testing_support::bound(1s)), std::future_status::ready);
     EXPECT_FALSE(failure);
     EXPECT_TRUE(parse_json(*response).contains("result"));
@@ -578,42 +578,42 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
         }
     } cleanup{root};
 
-    testing_support::HistoryHost host(root / "history");
-    testing_support::QuotesHost quotes(root / "quotes");
+    testing_support::WarehouseHost host(root / "warehouse");
+    testing_support::MarketHost market(root / "market");
     terminal::Application app;
     const auto identity = app.dispatch(request("runtime.snapshot"));
     {
-        std::ifstream input(host.root / "config/history.json");
+        std::ifstream input(host.root / "config/warehouse.json");
         auto config = Json::parse(input);
         config["clients"].push_back(
             {{"fingerprint", identity.at("client_fingerprint")}, {"role", "read"}});
         config["acquisition"]["exchanges"] = {"SHFE", "GFEX"};
-        replace_file_durably(host.root / "config/history.json", config.dump());
+        replace_file_durably(host.root / "config/warehouse.json", config.dump());
     }
     {
-        std::ifstream input(quotes.root / "config/quotes.json");
+        std::ifstream input(market.root / "config/market.json");
         auto config = Json::parse(input);
         config["clients"].push_back({{"fingerprint", identity.at("client_fingerprint")}});
-        replace_file_durably(quotes.root / "config/quotes.json", config.dump());
+        replace_file_durably(market.root / "config/market.json", config.dump());
     }
     host.start();
-    quotes.start();
+    market.start();
     {
         auto ready = host.open();
-        auto live = quotes.open();
+        auto live = market.open();
     }
     app.dispatch(request(
-        "history.endpoint.save",
+        "warehouse.endpoint.save",
         {{"host", "127.0.0.1"},
             {"port", static_cast<unsigned>(host.port)},
             {"fingerprint", host.server_pin}}));
     app.dispatch(request(
-        "quotes.endpoint.save",
+        "market.endpoint.save",
         {{"host", "127.0.0.1"},
-            {"port", static_cast<unsigned>(quotes.port)},
-            {"fingerprint", quotes.server_pin}}));
+            {"port", static_cast<unsigned>(market.port)},
+            {"fingerprint", market.server_pin}}));
     const auto call = [](Json operation) {
-        return request("history.call", {{"request", std::move(operation)}});
+        return request("warehouse.call", {{"request", std::move(operation)}});
     };
     auto first = terminal::ApplicationTestAccess::submit(
         app,
@@ -621,13 +621,13 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
     auto second =
         terminal::ApplicationTestAccess::submit(app, call({{"getDatasetVersion", Json::object()}}));
     const auto catalog = first.get();
-    const auto& options = catalog.at("history").at("getAcquisitionOptions");
+    const auto& options = catalog.at("warehouse").at("getAcquisitionOptions");
     EXPECT_FALSE(options.value("canManage", false));
     EXPECT_EQ(
         options.at("tables"),
         Json::array({"TABLE_DAILY", "TABLE_MINUTES", "TABLE_SETTLEMENT", "TABLE_PRICE_TICKS"}));
     EXPECT_EQ(options.at("exchanges"), Json::array({"GFEX", "SHFE"}));
-    EXPECT_TRUE(second.get().at("history").contains("getDatasetVersion"));
+    EXPECT_TRUE(second.get().at("warehouse").contains("getDatasetVersion"));
     try {
         app.dispatch(call(
             {{"startAcquisition",
@@ -640,17 +640,17 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
         EXPECT_EQ(error.code(), ErrorCode::permission_denied);
     }
     EXPECT_THROW(
-        app.dispatch(request("quotes.call", {{"request", {{"streamQuotes", Json::object()}}}})),
+        app.dispatch(request("market.call", {{"request", {{"streamQuotes", Json::object()}}}})),
         std::invalid_argument);
     EXPECT_TRUE(
-        app.dispatch(request("quotes.watch", {{"restart", false}})).at("quotes_watch").is_null());
+        app.dispatch(request("market.watch", {{"restart", false}})).at("market_watch").is_null());
     // An open watch hands the page its frames in order, the first one complete.
-    app.dispatch(request("quotes.open"));
+    app.dispatch(request("market.open"));
     Json frames = Json::array();
     const auto until = std::chrono::steady_clock::now() + testing_support::bound(5s);
     while (frames.empty() && std::chrono::steady_clock::now() < until) {
-        frames = app.dispatch(request("quotes.watch", {{"restart", false}}))
-                     .at("quotes_watch")
+        frames = app.dispatch(request("market.watch", {{"restart", false}}))
+                     .at("market_watch")
                      .at("frames");
         std::this_thread::sleep_for(50ms);
     }
@@ -659,12 +659,12 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
     EXPECT_TRUE(frames[0].at("full").contains("catalog"));
     for (std::size_t i = 1; i < frames.size(); ++i)
         EXPECT_TRUE(frames[i].contains("changed"));
-    EXPECT_FALSE(app.dispatch(request("runtime.snapshot")).contains("quotes"));
+    EXPECT_FALSE(app.dispatch(request("runtime.snapshot")).contains("market"));
     const auto read_watch = [&](bool restart) {
-        return app.dispatch(request("quotes.watch", {{"restart", restart}})).at("quotes_watch");
+        return app.dispatch(request("market.watch", {{"restart", restart}})).at("market_watch");
     };
     // A paused watch collects nothing, and the page's next stream starts complete.
-    app.dispatch(request("quotes.pause"));
+    app.dispatch(request("market.pause"));
     std::this_thread::sleep_for(testing_support::bound(1s));
     read_watch(false);
     std::this_thread::sleep_for(testing_support::bound(1s));
@@ -679,7 +679,7 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
     EXPECT_TRUE(frames[0].contains("full"));
     EXPECT_EQ(read_watch(false).at("error"), "");
     // A stream that cannot come back says why.
-    quotes.process.reset();
+    market.process.reset();
     const auto gone = std::chrono::steady_clock::now() + testing_support::bound(10s);
     auto failed = read_watch(false);
     while (failed.at("error") == "" && std::chrono::steady_clock::now() < gone) {
@@ -688,9 +688,9 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
     }
     EXPECT_NE(failed.at("error"), "");
     EXPECT_FALSE(failed.at("online"));
-    app.dispatch(request("quotes.close"));
+    app.dispatch(request("market.close"));
     EXPECT_FALSE(std::filesystem::exists(host.root / "data/acquisition/forbidden.pb"));
-    app.dispatch(request("quotes.endpoint.clear"));
+    app.dispatch(request("market.endpoint.clear"));
 }
 
 TEST(StrategyDirectory, BuiltInModulesAreReadOnlyCopiesThatFollowTheShippedVersion)

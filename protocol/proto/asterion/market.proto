@@ -1,0 +1,176 @@
+syntax = "proto3";
+package market;
+
+import "asterion/common.proto";
+
+// Market: live quotes and today's minutes of every listed contract.
+
+message Request {
+  uint64 id = 1;
+  oneof call {
+    common.Empty get_status = 10;
+    StreamQuotes stream_quotes = 11;
+    common.Instrument get_minutes = 12;
+    common.Empty get_board = 13;
+  }
+}
+
+message Response {
+  uint64 id = 1;
+  oneof result {
+    common.Error error = 2;
+    Status get_status = 10;
+    QuoteFrame stream_quotes = 11;
+    Minutes get_minutes = 12;
+    Board get_board = 13;
+  }
+}
+
+// ---- Status
+
+message Status {
+  string version = 1;
+  int64 started_ms = 2;
+  Feed feed = 3;
+  CatalogStatus catalog = 4;
+  uint32 subscribed = 5;
+  optional int64 last_quote_ms = 6;
+  uint64 out_of_order_quotes = 7;
+  // Listed contracts the provider refused to subscribe; retried every few minutes.
+  uint32 failed_subscriptions = 8;
+  // Hash of this service's schemas; Terminal compares it with its own.
+  string protocol = 9;
+}
+
+enum FeedState {
+  FEED_STATE_UNSPECIFIED = 0;
+  FEED_STATE_NO_SDK = 1;
+  FEED_STATE_DISCONNECTED = 2;
+  FEED_STATE_CONNECTING = 3;
+  FEED_STATE_LOGGING_IN = 4;
+  FEED_STATE_CONNECTED = 5;
+  FEED_STATE_RECONNECTING = 6;
+  FEED_STATE_FAILED = 7;
+}
+
+message Feed {
+  FeedState state = 1;
+  int32 ctp_error = 2;
+}
+
+enum CatalogState {
+  CATALOG_STATE_UNSPECIFIED = 0;
+  CATALOG_STATE_NONE = 1;
+  CATALOG_STATE_LOADING = 2;
+  CATALOG_STATE_CACHED = 3;
+  CATALOG_STATE_READY = 4;
+  CATALOG_STATE_FAILED = 5;
+}
+
+message CatalogStatus {
+  CatalogState state = 1;
+  string trading_day = 2;
+  string error = 3;
+}
+
+// ---- Live quotes
+
+// No instruments streams every contract.
+message StreamQuotes {
+  repeated common.Instrument instruments = 1;
+}
+
+// The first frame is full; a later frame is full again or holds changes.
+message QuoteFrame {
+  oneof frame {
+    Board full = 1;
+    Board changed = 2;
+  }
+}
+
+// In a changed frame, rows replace the rows of the same instrument and a
+// catalog, when present, replaces the catalog.
+message Board {
+  Feed feed = 1;
+  repeated QuoteRow rows = 2;
+  Catalog catalog = 3;
+}
+
+enum Subscription {
+  SUBSCRIPTION_UNSPECIFIED = 0;
+  SUBSCRIPTION_PENDING = 1;
+  SUBSCRIPTION_ACTIVE = 2;
+  SUBSCRIPTION_FAILED = 3;
+}
+
+message QuoteRow {
+  common.Instrument instrument = 1;
+  Subscription subscription = 2;
+  int32 ctp_error = 3;
+  Quote quote = 4;
+  common.Decimal change_1m_percent = 5;
+}
+
+message Quote {
+  common.Decimal last = 1;
+  common.Decimal open = 2;
+  common.Decimal high = 3;
+  common.Decimal low = 4;
+  common.Decimal average_price = 5;
+  common.Decimal previous_close = 6;
+  common.Decimal previous_settlement = 7;
+  common.Decimal upper_limit = 8;
+  common.Decimal lower_limit = 9;
+  int64 volume = 10;
+  common.Decimal open_interest = 11;
+  common.Decimal open_interest_change = 12;
+  // Five levels, best first; a level nobody quotes has no price.
+  repeated Level bids = 13;
+  repeated Level asks = 14;
+  string trading_day = 15;
+  optional int64 exchange_ms = 16;
+  int64 received_ms = 17;
+}
+
+message Level {
+  common.Decimal price = 1;
+  optional int64 lots = 2;
+}
+
+message Catalog {
+  CatalogStatus status = 1;
+  repeated CatalogContract contracts = 2;
+}
+
+message CatalogContract {
+  common.Instrument instrument = 1;
+  string contract = 2;
+  string product = 3;
+  string name = 4;
+  string expiry_day = 5;
+  int32 multiplier = 6;
+  common.Decimal price_tick = 7;
+}
+
+// ---- Minutes
+
+message Minutes {
+  common.Instrument instrument = 1;
+  string trading_day = 2;
+  common.Decimal previous_settlement = 3;
+  optional int64 observed_from_ms = 4;
+  bool interrupted = 5;
+  repeated MinuteBar bars = 6;
+}
+
+message MinuteBar {
+  int64 start_ms = 1;
+  common.Decimal open = 2;
+  common.Decimal high = 3;
+  common.Decimal low = 4;
+  common.Decimal close = 5;
+  int64 volume = 6;
+  common.Decimal average_price = 7;
+  common.Decimal open_interest = 8;
+  bool partial = 9;
+}

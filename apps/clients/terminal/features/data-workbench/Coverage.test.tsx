@@ -1,14 +1,14 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 import { afterEach, expect, test, vi } from "vitest";
-import { AcquisitionTaskSchema, Table, TaskState } from "../../src/generated/asterion/history_pb";
+import { AcquisitionTaskSchema, Table, TaskState } from "../../src/generated/asterion/warehouse_pb";
 import type { TerminalContext } from "../contract";
 import { Coverage } from "./Coverage";
 
 const request = vi.hoisted(() => vi.fn());
 vi.mock("../contract", async importOriginal => ({
   ...(await importOriginal<typeof import("../contract")>()),
-  historyData: request,
+  warehouseData: request,
   translate: (_namespace: string, key: string, values?: Record<string, unknown>) =>
     key.replace(/\{(\w+)\}/g, (_, name: string) => String(values?.[name])),
 }));
@@ -24,7 +24,7 @@ const context = () =>
     trade: vi.fn(),
     query: vi.fn(),
     snapshot: {
-      history_endpoint: { host: "market", port: 7450, fingerprint: "f", instruments: [] },
+      warehouse_endpoint: { host: "market", port: 7450, fingerprint: "f", instruments: [] },
     },
   }) as unknown as TerminalContext;
 const task = (id: string) =>

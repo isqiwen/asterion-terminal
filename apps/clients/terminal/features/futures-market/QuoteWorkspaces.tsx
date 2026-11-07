@@ -1,5 +1,5 @@
 import { selectQuote, useSelectedQuote } from "./selected-quote";
-import { FeedState, type QuoteRow } from "../../src/generated/asterion/quotes_pb";
+import { FeedState, type QuoteRow } from "../../src/generated/asterion/market_pb";
 import { rowKey, useMarket, type MarketView } from "../../src/host/market";
 import { useEffect, type ReactNode } from "react";
 import { contractName, translate, useWorkspaceDraft, type TerminalContext } from "../contract";
@@ -74,7 +74,7 @@ export function ContractWorkspace(context: TerminalContext) {
     if (context.workspacePage) selectQuote(context.workspacePage);
   }, [context.workspacePage]);
   const market = useMarket();
-  const saved = context.snapshot?.quotes_endpoint;
+  const saved = context.snapshot?.market_endpoint;
   const watchlist = saved && "instruments" in saved ? saved.instruments : [];
   const rows: Listed[] = (market?.board.rows ?? []).map(row => ({
     ...row,

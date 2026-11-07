@@ -40,8 +40,8 @@ export const test = base.extend<{
             `isolated node reset failed: ${response.status()} ${await response.text()}`,
           );
         process.env.ASTERION_ROOT = (await response.json()).root;
-        // Attach the new Terminal to the independently supervised Market.
-        // This creates no local Market and changes no provider state.
+        // Attach the new Terminal to the independently supervised services.
+        // This creates no local service and changes no provider state.
         const call = async (method: string, params: object = {}) => {
           const reply = await request.post("/__asterion/api", {
             data: { version: 1, method, params },
@@ -50,17 +50,17 @@ export const test = base.extend<{
           if (body.error) throw new Error(`${method} after reset: ${body.error.message}`);
           return body.result;
         };
-        await call("history.endpoint.save", {
+        await call("warehouse.endpoint.save", {
           host: "127.0.0.1",
-          port: Number(process.env.ASTERION_TEST_HISTORY_PORT),
-          fingerprint: process.env.ASTERION_TEST_HISTORY_FINGERPRINT!,
+          port: Number(process.env.ASTERION_TEST_WAREHOUSE_PORT),
+          fingerprint: process.env.ASTERION_TEST_WAREHOUSE_FINGERPRINT!,
         });
-        await call("quotes.endpoint.save", {
+        await call("market.endpoint.save", {
           host: "127.0.0.1",
-          port: Number(process.env.ASTERION_TEST_QUOTES_PORT),
-          fingerprint: process.env.ASTERION_TEST_QUOTES_FINGERPRINT!,
+          port: Number(process.env.ASTERION_TEST_MARKET_PORT),
+          fingerprint: process.env.ASTERION_TEST_MARKET_FINGERPRINT!,
         });
-        await call("quotes.open");
+        await call("market.open");
         for (const deadline = Date.now() + 60000; ;) {
           const { lab } = await call("runtime.snapshot");
           if (!lab || lab.state === "ready") break;

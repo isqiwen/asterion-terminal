@@ -7,8 +7,8 @@ Application::Impl::Settings Application::Impl::inspect_settings(const Settings& 
     SettingsView next{
         trading_connections.snapshot(),
         trading_connections.fingerprint(),
-        endpoint_settings(quotes_endpoint),
-        endpoint_settings(history_endpoint)
+        endpoint_settings(market_endpoint),
+        endpoint_settings(warehouse_endpoint)
     };
     return next == *previous ? previous : std::make_shared<const SettingsView>(std::move(next));
 }
@@ -56,8 +56,8 @@ void Application::Impl::register_connection_commands()
                     co_return snapshot();
                 });
         };
-    saved_commands("quotes", quotes_endpoint, true);
-    saved_commands("history", history_endpoint, false);
+    saved_commands("market", market_endpoint, true);
+    saved_commands("warehouse", warehouse_endpoint, false);
     // One trading.proto Request to the account's saved service, relayed unchanged.
     command("trading.call", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"account", "request"});

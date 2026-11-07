@@ -1,4 +1,4 @@
-import type { CatalogContract, Catalog } from "../generated/asterion/quotes_pb";
+import type { CatalogContract, Catalog } from "../generated/asterion/market_pb";
 import { getLocale } from "../i18n";
 
 type Id = { exchange: string; symbol: string };

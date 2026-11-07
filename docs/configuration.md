@@ -7,16 +7,16 @@
 | Terminal | [logging.json](../apps/clients/terminal/config/logging.json) | 桌面打包，首次启动写入 `terminal/config/logging.json` |
 | Terminal | [futures-sessions.json](../apps/clients/terminal/config/futures-sessions.json) | 界面构建时导入，用于分时图横轴 |
 | Lab | [logging.json](../apps/services/lab/config/logging.json) | 桌面携带为 `config/lab-logging.json`，首次启动写入 `lab/config/logging.json` |
-| Quotes | [quotes.example.json](../apps/services/quotes/config/quotes.example.json) | 展示安装脚本生成的 `config/quotes.json` |
-| Quotes | [logging.json](../apps/services/quotes/config/logging.json) | 随服务安装包发布，首次安装复制为 `config/logging.json`，升级保留已有配置 |
-| History | [history.example.json](../apps/services/history/config/history.example.json) | 展示安装脚本生成的 `config/history.json` |
-| History | [logging.json](../apps/services/history/config/logging.json) | 随服务安装包发布，首次安装复制为 `config/logging.json`，升级保留已有配置 |
+| Market | [market.example.json](../apps/services/market/config/market.example.json) | 展示安装脚本生成的 `config/market.json` |
+| Market | [logging.json](../apps/services/market/config/logging.json) | 随服务安装包发布，首次安装复制为 `config/logging.json`，升级保留已有配置 |
+| Warehouse | [warehouse.example.json](../apps/services/warehouse/config/warehouse.example.json) | 展示安装脚本生成的 `config/warehouse.json` |
+| Warehouse | [logging.json](../apps/services/warehouse/config/logging.json) | 随服务安装包发布，首次安装复制为 `config/logging.json`，升级保留已有配置 |
 | Trading | [account.example.json](../apps/services/trading/config/accounts/account.example.json) | 展示安装脚本生成的 `config/accounts/<账户>.json` |
 | Trading | [logging.json](../apps/services/trading/config/logging.json) | 随服务安装包发布，首次安装复制为 `config/logging.json`，升级保留已有配置 |
 
 Lab 的研究任务通过通信协议提交，没有单独的研究或任务配置文件。日志字段见[运行日志](services.md#运行日志)，两个输出都支持可选的 `pattern`。
 
-## History
+## Warehouse
 
 | 字段 | 含义 |
 | --- | --- |
@@ -29,7 +29,7 @@ Lab 的研究任务通过通信协议提交，没有单独的研究或任务配�
 | `acquisition.exchanges` | 开启日线采集的交易所列表，可为空 |
 | `acquisition.tushare` | `null` 表示关闭；开启时填写 `requests_per_minute`（1–500） |
 
-密码、授权码和 Tushare token 不属于 JSON 字段。服务从 systemd 提供的凭据目录读取 `asterion.ctp.password`、非空 `app_id` 对应的 `asterion.ctp.auth_code`，以及开启 Tushare 后的 `asterion.history.tushare.token`。
+密码、授权码和 Tushare token 不属于 JSON 字段。服务从 systemd 提供的凭据目录读取 `asterion.ctp.password`、非空 `app_id` 对应的 `asterion.ctp.auth_code`，以及开启 Tushare 后的 `asterion.warehouse.tushare.token`。
 
 ## Trading
 

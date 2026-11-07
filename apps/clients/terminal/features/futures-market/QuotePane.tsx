@@ -2,13 +2,13 @@ import { useEffect, useState, type ReactNode } from "react";
 import { IntradayChart } from "@asterion/terminal/charts/IntradayChart";
 import { PriceChart, type Candle } from "@asterion/terminal/charts/PriceChart";
 import { timestamp } from "../../src/bridge/client";
-import type { Minutes, QuoteRow } from "../../src/generated/asterion/quotes_pb";
+import type { Minutes, QuoteRow } from "../../src/generated/asterion/market_pb";
 import type { MarketView } from "../../src/host/market";
 import {
   ErrorNotice,
   asDisplayError,
   getLocale,
-  quotesData,
+  marketData,
   translate,
   useWorkspaceDraft,
   type DisplayError,
@@ -53,7 +53,7 @@ function useIntraday(market: MarketView, row: Row) {
     const load = () => {
       if (pending) return;
       pending = true;
-      void quotesData({ case: "getMinutes", value: { exchange, symbol } })
+      void marketData({ case: "getMinutes", value: { exchange, symbol } })
         .then(next => {
           if (!current) return;
           setSeries(next);

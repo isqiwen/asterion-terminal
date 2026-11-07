@@ -5,7 +5,7 @@ import { QuotePane } from "./QuotePane";
 import { WatchlistToggle } from "./WatchlistToggle";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { FeedState, type QuoteRow } from "../../src/generated/asterion/quotes_pb";
+import { FeedState, type QuoteRow } from "../../src/generated/asterion/market_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
 import {
   contractName,
@@ -39,7 +39,7 @@ export function MarketBoard({
   const [scope, setScope] = useWorkspaceDraft("market-scope", "products");
   const [venue] = useWorkspaceDraft("market-venue", "");
   const [section] = useWorkspaceDraft("market-section", "期货全景");
-  const saved = context.snapshot?.quotes_endpoint;
+  const saved = context.snapshot?.market_endpoint;
   const watchlist =
     section === "自选" && saved && "instruments" in saved ? saved.instruments : null;
   const selected = useSelectedQuote();

@@ -5,7 +5,7 @@ import { test, expect, type Page } from "./test";
 
 const source = join(__dirname, "../../../..");
 
-// Lab's fixture warehouse in the independent fixture Market directory, once
+// Lab's fixture warehouse in the independent fixture Warehouse directory, once
 // for the tests of this file.
 let prepared = false;
 function prepare() {
@@ -16,7 +16,7 @@ function prepare() {
     "-B",
     join(source, "tests/lab/warehouse_fixture.py"),
     join(source, "apps/services/lab"),
-    join(process.env.ASTERION_TEST_HISTORY_TLS!, "../../data"),
+    join(process.env.ASTERION_TEST_WAREHOUSE_TLS!, "../../data"),
   ]);
 }
 

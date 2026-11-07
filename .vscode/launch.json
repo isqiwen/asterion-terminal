@@ -4,10 +4,10 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Market: debug installation",
+      "name": "Warehouse: debug installation",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${input:serviceInstallation}/bin/asterion_history",
+      "program": "${input:serviceInstallation}/bin/asterion_warehouse",
       "args": [],
       "cwd": "${input:serviceInstallation}",
       "linux": { "MIMode": "gdb" }

@@ -5,7 +5,7 @@ import { test, expect } from "./test";
 const source = join(__dirname, "../../../..");
 
 test(
-  "the market page draws a contract's stored Market days through Lab",
+  "the market page draws a contract's stored Warehouse days through Lab",
   { tag: "@journey" },
   async ({ page }) => {
     test.setTimeout(45000);
@@ -14,7 +14,7 @@ test(
       "-B",
       join(source, "tests/lab/warehouse_fixture.py"),
       join(source, "apps/services/lab"),
-      join(process.env.ASTERION_TEST_HISTORY_TLS!, "../../data"),
+      join(process.env.ASTERION_TEST_WAREHOUSE_TLS!, "../../data"),
     ]);
     await page.goto("/");
     await page

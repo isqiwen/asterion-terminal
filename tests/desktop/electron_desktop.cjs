@@ -25,12 +25,12 @@ async function closeDesktop(application) {
 }
 (async () => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), "asterion-electron-"));
-  // The test Market tests/support/e2e.py runs: this Terminal reads it with its reader identity.
+  // The test Warehouse tests/support/e2e.py runs: this Terminal reads it with its reader identity.
   const identity = path.join(temp, "node/terminal/data/tls");
   await fs.mkdir(identity, { recursive: true });
   for (const extension of ["crt", "key"])
     await fs.copyFile(
-      path.join(process.env.ASTERION_TEST_HISTORY_TLS, `reader.${extension}`),
+      path.join(process.env.ASTERION_TEST_WAREHOUSE_TLS, `reader.${extension}`),
       path.join(identity, `client.${extension}`),
     );
   let application;
@@ -135,17 +135,17 @@ async function closeDesktop(application) {
       assert.equal(reply.error, undefined, JSON.stringify(reply.error));
       return reply.result;
     };
-    await call("history.endpoint.save", {
+    await call("warehouse.endpoint.save", {
       host: "127.0.0.1",
-      port: Number(process.env.ASTERION_TEST_HISTORY_PORT),
-      fingerprint: process.env.ASTERION_TEST_HISTORY_FINGERPRINT,
+      port: Number(process.env.ASTERION_TEST_WAREHOUSE_PORT),
+      fingerprint: process.env.ASTERION_TEST_WAREHOUSE_FINGERPRINT,
     });
-    await call("quotes.endpoint.save", {
+    await call("market.endpoint.save", {
       host: "127.0.0.1",
-      port: Number(process.env.ASTERION_TEST_QUOTES_PORT),
-      fingerprint: process.env.ASTERION_TEST_QUOTES_FINGERPRINT,
+      port: Number(process.env.ASTERION_TEST_MARKET_PORT),
+      fingerprint: process.env.ASTERION_TEST_MARKET_FINGERPRINT,
     });
-    await call("quotes.open");
+    await call("market.open");
     for (const [name, selector] of [
       ["contract", ".contract-workspace"],
       ["market", ".market-workspace"],
@@ -154,7 +154,7 @@ async function closeDesktop(application) {
       await expect(page.locator(selector)).toBeVisible();
     }
 
-    await call("quotes.watchlist", { instruments: [{ exchange: "SHFE", symbol: "rb2610" }] });
+    await call("market.watchlist", { instruments: [{ exchange: "SHFE", symbol: "rb2610" }] });
     await openMarketSection(page, "自选");
     const priceHeading = page
       .locator(".market-quote-table table th")
@@ -291,9 +291,9 @@ async function closeDesktop(application) {
       // The public settings helper selects reused windows through this storage event.
       localStorage.setItem(
         "asterion.settings.category",
-        JSON.stringify({ page: "history", nonce: Date.now() }),
+        JSON.stringify({ page: "warehouse", nonce: Date.now() }),
       );
-      return window.asterionDesktop.openSettings("history");
+      return window.asterionDesktop.openSettings("warehouse");
     });
     await expect(settings.getByRole("heading", { name: "数据服务", exact: true })).toBeVisible();
     await settings.getByRole("button", { name: "偏好设置", exact: true }).click();

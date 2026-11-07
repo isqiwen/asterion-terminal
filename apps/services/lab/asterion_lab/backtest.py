@@ -38,7 +38,7 @@ import polars as pl
 from asterion_lab import chart, dominant, repository
 from asterion_lab.runs import AMOUNT, TABLES, Plan, Runs
 from asterion_strategy import Bar, Context, step
-from asterion_lab.history import Dataset
+from asterion_lab.warehouse_client import Dataset
 
 R = 10 ** 8
 BEIJING = datetime.timezone(datetime.timedelta(hours=8))
