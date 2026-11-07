@@ -25,7 +25,7 @@ Lab 是 Terminal 的子进程（`apps/clients/terminal/native/lab_supervisor.*`�
 - 本机：Unix socket，位于每次运行私有的 `/tmp/ast-<实例>/`。
 - Quotes、History 和 Trading：TLS，双方各用自签证书，只接受事先登记的对方证书指纹（SHA-256），同一台机器上也一样。
 - 断线后重新连接并读取服务端的状态；交易命令不自动重发。
-- 状态栏显示 Quotes、Lab 和各 Trading 连接的状态；读取中断或服务处理停滞进入通知中心，账户页保留最后一次读取的状态并标记失联。
+- 状态栏显示 Lab、Quotes、History 和各 Trading 连接的状态；读取中断或服务处理停滞进入通知中心，账户页保留最后一次读取的状态并标记失联。
 
 ## 桌面安装与升级
 

@@ -1,23 +1,30 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 import { FeedState } from "../../generated/asterion/quotes_pb";
+import { historyData } from "../../bridge/history-data";
 import { readySnapshot } from "../../testing/core";
 import { useMarket, type MarketView } from "../market";
 import { StatusIndicators } from "./StatusIndicators";
 
 vi.mock("../market", () => ({ useMarket: vi.fn(() => null) }));
+vi.mock("../../bridge/history-data", () => ({ historyData: vi.fn(() => new Promise(() => {})) }));
 
-const show = (snapshot = readySnapshot(), openMarketSettings = vi.fn()) => (
+const show = (
+  snapshot = readySnapshot(),
+  openMarketSettings = vi.fn(),
+  openHistorySettings = vi.fn(),
+) => (
   <StatusIndicators
     snapshot={snapshot}
     openMarketSettings={openMarketSettings}
     openMarket={() => {}}
+    openHistorySettings={openHistorySettings}
     openTradingSettings={() => {}}
     openTrading={() => {}}
   />
 );
 
-test("indicators show research first, then market and each trading connection", () => {
+test("indicators show research first, then market, history and each trading connection", () => {
   const snapshot = readySnapshot();
   snapshot.trading_connections = [
     {
@@ -33,6 +40,7 @@ test("indicators show research first, then market and each trading connection", 
   expect([...view.container.children].map(item => item.textContent)).toEqual([
     "● 研究",
     "● 行情 未连接",
+    "● 历史 连接中",
     "● 交易·simnow 连接中",
   ]);
   expect(screen.getByText("● 研究").className).toContain("good");
@@ -72,4 +80,24 @@ test("the market indicator shows the service's own link to the broker and why it
   view.rerender(show());
   expect(screen.getByText("● 行情 中断").title).toBe("connection refused");
   vi.mocked(useMarket).mockReturnValue(null);
+});
+
+test("the history indicator reads the service and says why it failed", async () => {
+  vi.mocked(historyData).mockResolvedValueOnce({} as never);
+  const view = render(show());
+  await waitFor(() => expect(screen.getByText("● 历史").className).toContain("good"));
+  view.unmount();
+
+  vi.mocked(historyData).mockRejectedValueOnce(new Error("connection refused"));
+  render(show());
+  await waitFor(() => expect(screen.getByText("● 历史 中断").title).toBe("connection refused"));
+});
+
+test("an unset History opens its settings", () => {
+  const snapshot = readySnapshot();
+  snapshot.history_endpoint = null;
+  const openHistorySettings = vi.fn();
+  render(show(snapshot, vi.fn(), openHistorySettings));
+  fireEvent.click(screen.getByRole("button", { name: "● 历史 未设置" }));
+  expect(openHistorySettings).toHaveBeenCalled();
 });

@@ -1,20 +1,62 @@
+import { useEffect, useState } from "react";
 import type { Snapshot, TradingConnection } from "../../bridge/client";
+import { historyData } from "../../bridge/history-data";
 import { translate, useLocale } from "../../i18n";
+import { asDisplayError, errorSummary } from "../../i18n/errors";
 import { useMarket } from "../market";
 import { stalled, useTradingAccounts } from "../trading-accounts";
 import { FeedState } from "../../generated/asterion/quotes_pb";
 import { BrokerState } from "../../generated/asterion/trading_pb";
 
+const label = (name: string, state: string) =>
+  `● ${name}${state && ` ${translate("host", state)}`}`;
+
+// History has no stream to watch, so its light comes from reading its status.
+function HistoryIndicator() {
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    let active = true;
+    let pending = false;
+    const read = async () => {
+      if (pending || document.hidden) return;
+      pending = true;
+      try {
+        await historyData({ case: "getStatus", value: {} });
+        if (active) setError("");
+      } catch (failure) {
+        if (active) setError(errorSummary(asDisplayError(failure)));
+      } finally {
+        pending = false;
+      }
+    };
+    void read();
+    const timer = window.setInterval(() => void read(), 5000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+  const [tone, state] =
+    error === undefined ? ["", "连接中"] : error ? ["bad", "中断"] : ["good", ""];
+  return (
+    <span className={`status-item ${tone}`} title={error || undefined}>
+      {label(translate("host", "历史"), state)}
+    </span>
+  );
+}
+
 export function StatusIndicators({
   snapshot,
   openMarketSettings,
   openMarket,
+  openHistorySettings,
   openTradingSettings,
   openTrading,
 }: {
   snapshot: Snapshot | null;
   openMarketSettings: () => void;
   openMarket: () => void;
+  openHistorySettings: () => void;
   openTradingSettings: () => void;
   openTrading: () => void;
 }) {
@@ -38,7 +80,7 @@ export function StatusIndicators({
           feed?.state === FeedState.RECONNECTING
         ? ["", "连接柜台中"]
         : ["bad", "柜台未连接"];
-  const label = (name: string, state: string) => `● ${name}${state && ` ${t(state)}`}`;
+  const history = snapshot.history_endpoint;
   return (
     <>
       {lab &&
@@ -71,6 +113,13 @@ export function StatusIndicators({
         >
           {label(t("行情"), quotesState)}
         </span>
+      )}
+      {history && "host" in history ? (
+        <HistoryIndicator key={`${history.host}:${history.port}/${history.fingerprint}`} />
+      ) : (
+        <button className="status-item" onClick={openHistorySettings}>
+          {label(t("历史"), "未设置")}
+        </button>
       )}
       {!connections.length && (
         <button className="status-item" onClick={openTradingSettings}>

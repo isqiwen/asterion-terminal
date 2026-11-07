@@ -330,6 +330,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                     snapshot={snapshot}
                     openMarketSettings={() => showSettings("market")}
                     openMarket={() => context.navigate("workspace.market")}
+                    openHistorySettings={() => showSettings("history")}
                     openTradingSettings={() => showSettings("trading")}
                     openTrading={() => context.navigate("workspace.trading")}
                   />
