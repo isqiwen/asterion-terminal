@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# /// script
+# dependencies = ["packaging==25.0"]
+# ///
 """The Python runtime the Terminal installs at its first launch (M1.11).
 
 Writes build/electron-resources/runtime/: manifest.json, naming the
@@ -7,7 +10,7 @@ its SHA-256 and size, grouped into the modules the first launch shows.
 The Terminal downloads them from a mirror or the official source and
 installs nothing it cannot verify against this file.
 
-    python3 scripts/desktop/runtime_manifest.py
+    uv run --script scripts/desktop/runtime_manifest.py
 """
 import hashlib
 import json
@@ -20,7 +23,6 @@ import tempfile
 import tomllib
 import urllib.request
 from pathlib import Path
-from packaging.markers import Marker
 
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT = ROOT / "apps/services/lab"
@@ -56,6 +58,8 @@ def normal(name: str) -> str:
 def applies(marker: str | None, target: dict) -> bool:
     if not marker:
         return True
+    # Only write_manifest needs packaging; desktop.py imports this file for verify().
+    from packaging.markers import Marker
     return Marker(marker).evaluate({
         "sys_platform": target["sys_platform"], "platform_machine": target["platform_machine"],
         "implementation_name": "cpython", "python_version": "3.12", "python_full_version": PYTHON,
@@ -134,6 +138,10 @@ def verify(directory=DESTINATION):
 
 
 def main():
+    subprocess.run(["uv", "run", "--script", __file__], check=True)
+
+
+def write_manifest():
     target = TARGETS.get((sys.platform, platform.machine()))
     if target is None:
         raise SystemExit("The runtime manifest is built on macOS arm64 or Linux x86_64")
@@ -205,4 +213,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    write_manifest()

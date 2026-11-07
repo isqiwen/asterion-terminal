@@ -3,7 +3,7 @@
 ## 环境
 
 - macOS（Apple Silicon）配 Xcode 26 及以上的 Command Line Tools，或 Linux x86_64 配 GCC 13 及以上。
-- Node.js 22+、pnpm 10、Python 3（安装 `packaging==25.0`）、uv 0.12.9+、Conan 2、CMake 3.25+、Ninja。
+- Node.js 22+、pnpm 10、Python 3、uv 0.12.9+、Conan 2、CMake 3.25+、Ninja。
 - clang-format 23.1.1（与 CI 相同；其他版本排版结果不同）。
 - 可选：Docker 或 OrbStack，用于构建 Quotes、History 和 Trading 主机的安装脚本。Linux 上当前用户要能不经 `sudo` 运行 `docker`（加入 `docker` 组后重新登录，此前可用 `sg docker -c '<命令>'`）。
 - Linux 桌面需要图形会话。Electron 沙箱需要非特权用户命名空间：Ubuntu 24.04 起要放开 AppArmor 限制（例如 `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`），不要用 `--no-sandbox`。具体权限取决于系统的 AppArmor 配置。
