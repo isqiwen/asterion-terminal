@@ -232,4 +232,5 @@ M4.2 之前评估多合约执行耗时：当前按分支依次发送并等待持
 - 郑商所 2022-01-04 的结算参数旧表没有“手续费收取方式”列，现有结算适配器读取失败；需核对旧格式并恢复这类历史费用采集。
 - 端到端场景 `research-lab` 偶尔在全量运行时找不到两次运行的对比列，单独运行稳定通过（M3.6 之前查明）。
 - 测试结束后残留 Lab 进程：本机发现 17 个，父进程已退出，最早的已运行十几小时，`--owner-pid` 没让它们退出；需查明真实 Terminal 异常退出时是否同样残留。
+- 在 GitHub 的 Ubuntu runner 上，渲染进程崩溃后，内核把 core 管道给 systemd-coredump 时进程一直不退出，Terminal 也就不退出；CI 已改掉 `core_pattern`。还不清楚普通 Linux 桌面是否同样会卡，需要在装了 systemd-coredump 的机器上试一次。
 - 桌面测试偶尔在关闭 Electron 时超时（“did not release its process channels”），约一成，功能步骤都已通过；未抓到现场，可能与上一条同源。

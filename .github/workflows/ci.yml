@@ -120,6 +120,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xvfb
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          # A crashed renderer never exits while the kernel pipes its core to
+          # systemd-coredump, and RLIMIT_CORE does not apply to a pipe.
+          sudo sysctl -w kernel.core_pattern=core
       - name: Build acceptance installer and native desktop
         run: python scripts/desktop/desktop.py package-test --prepare-python
       - *conan-save
@@ -168,7 +171,9 @@ jobs:
       - name: Trading browser tests
         run: pnpm run test:e2e --grep @trading
       - name: Exercise native Electron host
-        run: xvfb-run -a pnpm test:desktop
+        run: |
+          ulimit -c 0
+          xvfb-run -a pnpm test:desktop
       - name: Validate complete recovery gate
         run: python tests/support/recovery_gate.py --build build/Release
       - name: Exercise packaged Linux desktop
