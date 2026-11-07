@@ -1,4 +1,6 @@
 #include "quotes_client.hpp"
+#include "service_relay.hpp"
+#include <asterion/quotes.pb.h>
 #include <asterion/system/ipc/tcp_channel.hpp>
 #include <asterion/protocol/quotes.hpp>
 #include <chrono>
@@ -57,6 +59,19 @@ int main(int argc, char** argv)
         if (status.at("feed").at("state") != "FEED_STATE_CONNECTED" || status.at("subscribed") != 1
             || std::stoi(status.at("outOfOrderQuotes").get<std::string>()) < 1)
             return 11;
+        try {
+            asterion::terminal::relay_call<::quotes::Request, ::quotes::Response>(
+                io,
+                endpoint,
+                {{"getStatus", asterion::Json::object()}},
+                [](const ::quotes::Request&) {},
+                "another protocol")
+                .get();
+            return 12;
+        } catch (const asterion::Error& error) {
+            if (std::string(error.what()) != asterion::terminal::service_protocol_differs)
+                return 13;
+        }
         watch.reset();
         auto again = asterion::terminal::QuotesWatch::open(io, endpoint).get();
         return call({{"getStatus", asterion::Json::object()}}).contains("getStatus") ? 0 : 5;

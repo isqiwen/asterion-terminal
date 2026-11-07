@@ -160,6 +160,7 @@ void answer_reader(
         case wire::Request::kGetStatus: {
             auto* status = response.mutable_get_status();
             status->set_version(asterion::build::description);
+            status->set_protocol(asterion::build::history_protocol);
             status->set_started_ms(started_ms);
             status->set_disk_free_bytes(std::filesystem::space(directory).available);
             break;

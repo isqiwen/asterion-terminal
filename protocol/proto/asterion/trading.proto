@@ -57,6 +57,8 @@ message Health {
   Progress state = 6;
   Progress persistence = 7;
   Progress command = 8;
+  // Hash of this service's schemas; Terminal compares it with its own.
+  string protocol = 9;
 }
 
 // How long one loop of the service has gone without progress.

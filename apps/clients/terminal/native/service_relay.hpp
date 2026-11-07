@@ -14,6 +14,9 @@ namespace asterion::terminal {
 
 // What Quotes and History calls share: one generated Request as ProtoJSON, on its
 // own pinned TLS connection, and its Response back as ProtoJSON.
+inline constexpr char service_protocol_differs[] =
+    "the service protocol differs from this Terminal";
+
 template <class Request>
 void relay_identify(Request& request)
 {
@@ -57,12 +60,16 @@ inline std::unique_ptr<ipc::RpcClient> relay_connect(ServiceIo& io, const Servic
 }
 
 template <class Request, class Response, class Check>
-std::future<Json> relay_call(ServiceIo& io, ServiceEndpoint endpoint, Json payload, Check check)
+std::future<Json>
+relay_call(ServiceIo& io, ServiceEndpoint endpoint, Json payload, Check check, std::string protocol)
 {
     using namespace std::chrono_literals;
     return io.submit<Json>(
-        [&io, endpoint = std::move(endpoint), payload = std::move(payload), check](
-            std::stop_token stop) -> PolledTask<Json> {
+        [&io,
+            endpoint = std::move(endpoint),
+            payload = std::move(payload),
+            check,
+            protocol = std::move(protocol)](std::stop_token stop) -> PolledTask<Json> {
             auto request = co_await io.read<Request>([&] {
                 Request request;
                 if (!google::protobuf::util::JsonStringToMessage(payload.dump(), &request).ok())
@@ -82,8 +89,11 @@ std::future<Json> relay_call(ServiceIo& io, ServiceEndpoint endpoint, Json paylo
                     transport->poll();
                 co_await std::suspend_always{};
             }
-            co_return co_await io.read<Json>([raw = reply.get(), &request] {
-                return relay_json(relay_decode<Response>(*raw, request));
+            co_return co_await io.read<Json>([raw = reply.get(), &request, &protocol] {
+                auto response = relay_decode<Response>(*raw, request);
+                if (response.has_get_status() && response.get_status().protocol() != protocol)
+                    throw Error(ErrorCode::conflict, service_protocol_differs);
+                return relay_json(response);
             });
         });
 }

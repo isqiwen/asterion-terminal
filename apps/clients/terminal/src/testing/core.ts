@@ -36,6 +36,7 @@ export function readySnapshot(): Snapshot {
     quotes_endpoint: { host: "research", port: 7451, fingerprint: "a".repeat(64), instruments: [] },
     lab: { state: "ready", pid: 1, restarts: 0, error: "" },
     protocol: 1,
+    trading_protocol: "test",
     product: "Asterion Terminal",
     core: "test",
     phase: "ready",

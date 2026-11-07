@@ -33,6 +33,7 @@
   "异常": "Degraded",
   "当前使用": "In use",
   "技术详情": "Technical details",
+  "这个交易服务和 Terminal 的协议不一致，部分内容可能显示不对，请安装同一版本。撤单和平仓仍可操作。": "This Trading service and Terminal use different protocols, so some details may look wrong. Install the same release on both. Cancelling and closing still work.",
   "操作与当前状态冲突": "The operation conflicts with the current state.",
   "操作失败": "Operation failed.",
   "操作已取消": "Operation cancelled.",

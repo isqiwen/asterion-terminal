@@ -249,6 +249,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
             "error" in item ? [] : [item.id],
           )}
           active={visible}
+          protocol={snapshot?.trading_protocol}
         >
           <MarketProvider active={visible}>
             <Workbench

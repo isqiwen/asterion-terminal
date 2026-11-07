@@ -53,6 +53,8 @@ message Status {
   string version = 1;
   int64 started_ms = 2;
   uint64 disk_free_bytes = 3;
+  // Hash of this service's schemas; Terminal compares it with its own.
+  string protocol = 4;
 }
 
 // ---- Datasets

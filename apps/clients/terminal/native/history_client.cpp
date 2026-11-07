@@ -1,6 +1,7 @@
 #include "history_client.hpp"
 #include "service_relay.hpp"
 #include <asterion/history.pb.h>
+#include <asterion/version.hpp>
 
 namespace asterion::terminal {
 
@@ -10,7 +11,8 @@ std::future<Json> call_history(ServiceIo& io, ServiceEndpoint endpoint, Json pay
         io,
         std::move(endpoint),
         std::move(payload),
-        [](const ::history::Request&) {});
+        [](const ::history::Request&) {},
+        build::history_protocol);
 }
 
 } // namespace asterion::terminal

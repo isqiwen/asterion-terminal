@@ -1,4 +1,5 @@
 {
+  "the service protocol differs from this Terminal": "这个服务和 Terminal 的协议不一致，请安装同一版本。",
   "insufficient available funds": "可用资金不足。",
   "monthly contributions require a positive deposit and settlements": "按月收益贡献要求正数初始资金和逐日结算记录。",
   "settlement dates must ascend and cumulative fees must not decrease": "结算交易日必须严格递增，累计手续费不能减少。",

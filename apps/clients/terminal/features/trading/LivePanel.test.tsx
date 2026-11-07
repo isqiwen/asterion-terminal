@@ -84,7 +84,7 @@ const button = (name: string) => screen.getByRole("button", { name }) as HTMLBut
 const show = (namespace: string) =>
   render(
     <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace={namespace}>
-      <TradingAccountsProvider ids={["account"]} active>
+      <TradingAccountsProvider ids={["account"]} active protocol="">
         <LivePanel
           snapshot={snapshot}
           busy={false}

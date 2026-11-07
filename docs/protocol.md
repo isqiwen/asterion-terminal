@@ -34,13 +34,14 @@ message Response {
 - `id` 由调用方选择，回复带回同一个值。原生层为每个连接递增编号。
 - **请求和结果同名同号**：请求的 `call` 是 `get_dataset_version = 21`，成功的结果就是 `get_dataset_version = 21`。调用方不需要另外的对照表。
 - 失败时 `result` 是 `error`，不会同时有结果。
-- 封套里没有版本号和服务名。理由：服务和客户端一起发布；连接本身已经确定了对方是哪个服务。
+- 封套里没有版本号和服务名。理由：逐包携带是重复的，连接本身已经确定了对方是哪个服务。
+- **协议核对**：Terminal 和服务分开安装，可能版本不一致。Quotes、History 的 `get_status` 和 Trading 的 `get_health` 带 `protocol`，即构建时该服务 `.proto` 的哈希。Quotes 和 History 不一致时，这次读取报错并提示安装同一版本。Trading 不一致时只提醒，不阻止操作。理由：拒绝连接会让使用者无法撤单和平仓。
 
 ## 3. 命名
 
 | 对象 | 规则 | 例子 |
 | --- | --- | --- |
-| 包 | 服务名，或 `common` | `market`、`lab`、`trading`、`strategy` |
+| 包 | 服务名，或 `common` | `quotes`、`history`、`lab`、`trading`、`strategy` |
 | 操作 | 动词_名词 | `get_status`、`get_dataset_version`、`start_acquisition` |
 | 动词 | `get` 读一项，`list` 读一组，`read` 读字节，`start`/`cancel` 改变任务，`stream` 持续接收 | |
 | 参数消息 | 操作名的 PascalCase；无参数用 `common.Empty`；只有一个标识用 `TaskId` 这类消息 | `GetDatasetVersion` |
@@ -98,7 +99,7 @@ message Response {
 
 | 操作 | 参数 | 结果 |
 | --- | --- | --- |
-| `get_status` | — | 服务版本、启动时间、行情连接、目录、订阅数、最后报价时间、乱序报价数、订阅失败数 |
+| `get_status` | — | 服务版本、协议哈希、启动时间、行情连接、目录、订阅数、最后报价时间、乱序报价数、订阅失败数 |
 | `get_board` | — | 当前全部合约行与完整目录，与报价流首帧相同 |
 | `stream_quotes` | 要看的合约，不填表示全部，最多 50 个 | 连续的 `QuoteFrame` |
 | `get_minutes` | `Instrument` | 本进程观测到的当前交易日分钟线 |
@@ -125,7 +126,7 @@ sequenceDiagram
 
 | 操作 | 参数 | 结果 |
 | --- | --- | --- |
-| `get_status` | — | 服务版本、启动时间、磁盘余量 |
+| `get_status` | — | 服务版本、协议哈希、启动时间、磁盘余量 |
 | `get_dataset_version` | 版本（不填为当前）、表、交易所、分页游标 | 版本信息与一页分区 |
 | `read_dataset_file` | 版本、分区、偏移 | 一块原始 Parquet 字节、整个文件的大小和 SHA-256 |
 | `get_dataset_summary` | 版本（不填为当前） | 各表的分区数、行数和日期范围 |
@@ -171,7 +172,7 @@ sequenceDiagram
 
 | 操作 | 参数 | 结果 |
 | --- | --- | --- |
-| `get_health` | — | 账户是否已开通、是否需要恢复、是否可以交易，及各工作环节多久没有进展 |
+| `get_health` | — | 协议哈希，账户是否已开通、是否需要恢复、是否可以交易，及各工作环节多久没有进展 |
 | `get_account` | — | `Account` |
 | `open_account` | `Policy` | `Account`，开通后自动连接柜台 |
 | `connect_broker` / `disconnect_broker` | — | `Account` |

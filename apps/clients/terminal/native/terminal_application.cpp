@@ -186,6 +186,7 @@ Application::Impl::Publication Application::Impl::capture()
     next.lab = lab.view();
     next.metadata = {
         {"protocol", 1},
+        {"trading_protocol", build::trading_protocol},
         {"product", "Asterion Terminal"},
         {"core", "C++20"},
         {"phase", "ready"},

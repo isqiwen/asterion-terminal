@@ -38,6 +38,8 @@ message Status {
   uint64 out_of_order_quotes = 7;
   // Listed contracts the provider refused to subscribe; retried every few minutes.
   uint32 failed_subscriptions = 8;
+  // Hash of this service's schemas; Terminal compares it with its own.
+  string protocol = 9;
 }
 
 enum FeedState {

@@ -5,6 +5,7 @@
 #include <asterion/protocol/trading.hpp>
 #include <asterion/system/ipc/rpc_client.hpp>
 #include <asterion/system/trace.hpp>
+#include <asterion/version.hpp>
 #include <google/protobuf/util/json_util.h>
 #include <atomic>
 #include <deque>
@@ -23,7 +24,8 @@ std::future<Json> call_quotes(ServiceIo& io, ServiceEndpoint endpoint, Json payl
             // A watch is a stream; the page reads it through quotes.watch.
             if (request.has_stream_quotes())
                 throw std::invalid_argument("unsupported Quotes operation");
-        });
+        },
+        build::quotes_protocol);
 }
 
 struct QuotesWatch::Impl

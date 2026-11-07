@@ -77,6 +77,7 @@ export type Snapshot = {
   // Null until Lab was first started.
   lab: LabStatus | null;
   protocol: 1;
+  trading_protocol: string;
   product: string;
   core: string;
   phase: "ready";

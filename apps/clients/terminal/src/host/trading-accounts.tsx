@@ -64,10 +64,13 @@ function merge(view: TradingView, response: Response): TradingView {
 export function TradingAccountsProvider({
   ids,
   active,
+  protocol,
   children,
 }: {
   ids: readonly string[];
   active: boolean;
+  // The Trading protocol this Terminal was built with.
+  protocol: string | undefined;
   children: ReactNode;
 }) {
   const [views, setViews] = useState<Record<string, TradingView>>({});
@@ -85,6 +88,8 @@ export function TradingAccountsProvider({
     // once, when it begins.
     const failing = new Set<string>();
     const stalling = new Set<string>();
+    // Only a notice: refusing the connection would also take away cancelling and closing.
+    const outdated = new Set<string>();
     let ticks = 0;
     let stopped = false;
     const read = async (id: string, health: boolean) => {
@@ -96,6 +101,10 @@ export function TradingAccountsProvider({
         if (health) {
           const beat = await tradingRequest(id, { case: "getHealth", value: {} });
           responses.push(beat);
+          if (beat.result.case === "getHealth" && beat.result.value.protocol !== protocol) {
+            if (!outdated.has(id)) notify(new BackendError("trading_protocol", id));
+            outdated.add(id);
+          } else outdated.delete(id);
           if (beat.result.case !== "getHealth" || !stalled(beat.result.value)) stalling.delete(id);
           else if (!stalling.has(id)) {
             stalling.add(id);
@@ -128,7 +137,7 @@ export function TradingAccountsProvider({
       stopped = true;
       window.clearInterval(timer);
     };
-  }, [key, active, accept]);
+  }, [key, active, protocol, accept]);
   const send = useCallback<TradingAccounts["send"]>(
     async (id, operation) => {
       const next = () => (commands.current[id] = (commands.current[id] ?? 0) + 1);

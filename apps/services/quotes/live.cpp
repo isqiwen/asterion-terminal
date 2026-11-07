@@ -128,6 +128,7 @@ wire::Feed Live::feed_state() const
 void Live::status(wire::Status& out) const
 {
     out.set_version(asterion::build::description);
+    out.set_protocol(asterion::build::quotes_protocol);
     out.set_started_ms(started_ms_);
     *out.mutable_feed() = feed_state();
     *out.mutable_catalog() = catalog_.state().status();
