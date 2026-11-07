@@ -12,7 +12,7 @@ export function HeaderSearch(context: TerminalContext & { target?: string }) {
       value={search}
       onChange={event => {
         setSearch(event.target.value);
-        context.navigate(context.target ?? "workspace.market", { marketMode: "live" });
+        context.navigate(context.target ?? "workspace.market");
       }}
     />
   );

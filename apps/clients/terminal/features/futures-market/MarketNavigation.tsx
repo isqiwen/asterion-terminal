@@ -1,5 +1,4 @@
-import { translate, useWorkspaceDraft, type TerminalContext } from "../contract";
-import { MarketModes } from "./Navigation";
+import { translate, useWorkspaceDraft } from "../contract";
 import { useMarket } from "../../src/host/market";
 import { useEffect, useRef } from "react";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
@@ -23,7 +22,7 @@ export const sectionVenues: Record<string, string> = {
   广期所: "GFEX",
   上能源: "INE",
 };
-export function MarketNavigation({ context }: { context: TerminalContext }) {
+export function MarketNavigation() {
   const [menuOpen, setMenuOpen] = useWorkspaceDraft("market-menu", false);
   const menu = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -50,9 +49,8 @@ export function MarketNavigation({ context }: { context: TerminalContext }) {
   const [, setVenue] = useWorkspaceDraft("market-venue", "");
   const [, setScope] = useWorkspaceDraft("market-scope", "products");
   const [, setSearch] = useWorkspaceDraft("quote-search", "");
-  // Categories and the settings menu act on the live board only.
   const market = useMarket();
-  const board = context.marketMode !== "history" && !!market;
+  const board = !!market;
   return (
     <div className="market-navigation">
       {board && (
@@ -73,7 +71,6 @@ export function MarketNavigation({ context }: { context: TerminalContext }) {
           ))}
         </nav>
       )}
-      <MarketModes {...context} />
       {board && (
         <div className="market-menu-anchor" ref={menu}>
           <button

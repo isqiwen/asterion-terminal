@@ -1,11 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
+import { openView } from "./navigation-helper";
 import { test, expect } from "./test";
 
 const source = join(__dirname, "../../../..");
 
 test(
-  "the market page draws a contract's stored Warehouse days through Lab",
+  "the data page draws a contract's stored Warehouse days through Lab",
   { tag: "@journey" },
   async ({ page }) => {
     test.setTimeout(45000);
@@ -17,12 +18,8 @@ test(
       join(process.env.ASTERION_TEST_WAREHOUSE_TLS!, "../../data"),
     ]);
     await page.goto("/");
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "行情", exact: true })
-      .click();
-    await page.getByRole("tab", { name: "历史" }).click();
-    const contracts = page.getByRole("group", { name: "历史合约" });
+    await openView(page, "coverage");
+    const contracts = page.getByRole("group", { name: "已采集合约" });
     // Includes Lab startup and the first remote cache download.
     await expect(contracts.getByRole("button")).toHaveCount(2, { timeout: 30000 });
     await expect(contracts.getByRole("button").first()).toContainText("日线 30 天");

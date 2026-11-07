@@ -43,13 +43,9 @@ export type TerminalContext = {
   snapshot: Snapshot | null;
   busy: boolean;
   error: DisplayError;
-  marketMode?: "live" | "history";
   workspacePage?: string;
   workspaceParams?: Readonly<Record<string, string>>;
-  navigate: (
-    id: string,
-    options?: { marketMode?: "live" | "history"; page?: string; params?: Record<string, string> },
-  ) => void;
+  navigate: (id: string, options?: { page?: string; params?: Record<string, string> }) => void;
   openSettings: (page?: "preferences" | "market" | "warehouse" | "trading") => void;
   trade: CommandHandler;
 };

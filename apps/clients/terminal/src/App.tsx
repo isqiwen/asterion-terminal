@@ -215,7 +215,6 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     snapshot,
     busy,
     error,
-    marketMode: route.options.marketMode ?? "live",
     workspacePage: route.options.page,
     workspaceParams: route.options.params,
     navigate: (id, options) => setNavigation(previous => selectView(previous, id, options)),

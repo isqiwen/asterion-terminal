@@ -29,7 +29,6 @@ export const modules = [
   },
 ] satisfies { id: string; title: string; icon: IconName; views: string[] }[];
 export type NavigationOptions = {
-  marketMode?: "live" | "history";
   page?: string;
   params?: Record<string, string>;
 };

@@ -130,5 +130,12 @@
   "更早的任务": "Earlier tasks",
   "历史报价单位": "Historical price ticks",
   "{days} 天": "{days} days",
-  "数据服务以 Tushare 为准，缺的部分从公开来源补齐；关闭此页面不会停止采集。": "Data takes Tushare as authoritative and fills gaps from public sources; closing this page does not stop acquisition."
+  "数据服务以 Tushare 为准，缺的部分从公开来源补齐；关闭此页面不会停止采集。": "Data takes Tushare as authoritative and fills gaps from public sources; closing this page does not stop acquisition.",
+  "已采集合约": "Acquired contracts",
+  "搜索已采集合约": "Search acquired contracts",
+  "仓库里还没有合约。": "The warehouse has no contracts yet.",
+  "没有匹配的合约": "No matching contracts",
+  "日线 {days} 天": "Daily bars on {days} days",
+  "分钟线 {days} 天": "Minutes on {days} days",
+  "另有 {count} 个合约，请用搜索缩小范围": "{count} more contracts; narrow them with the search"
 }

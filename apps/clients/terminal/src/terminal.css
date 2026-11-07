@@ -96,16 +96,6 @@
   min-height: 0;
   overflow: auto;
 }
-.market-modes {
-  display: flex;
-  gap: 8px;
-  padding: 8px 16px;
-  border-bottom: 1px solid var(--line);
-}
-.market-modes [aria-selected="true"] {
-  color: var(--accent);
-  border-color: var(--accent);
-}
 /* One indicator per service, shared by all workspaces. */
 .status-bar {
   position: relative;
@@ -208,19 +198,6 @@
 }
 .strategy-panel form {
   max-width: 1080px;
-}
-.market-modes {
-  padding: 16px 24px;
-  border-bottom: 1px solid var(--line);
-}
-.market-modes button {
-  border-color: transparent;
-  background: transparent;
-  padding-inline: 16px;
-}
-.market-modes [aria-selected="true"] {
-  border-color: transparent;
-  background: var(--accent-surface);
 }
 .futures-chart {
   flex: none;

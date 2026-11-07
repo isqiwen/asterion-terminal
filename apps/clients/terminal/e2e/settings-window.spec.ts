@@ -5,12 +5,11 @@ import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
 test("settings reuses its window and preserves workbench drafts", async ({ page }) => {
   await page.goto("/");
   await openView(page, "market");
-  await page.getByRole("tab", { name: "历史行情", exact: true }).click();
-  await page.getByLabel("搜索历史合约").fill("rb17");
+  await page.getByRole("searchbox", { name: "搜索市场合约" }).fill("rb17");
   const settings = await openSettingsWindow(page);
   await settings.setViewportSize({ width: 820, height: 540 });
   await expect(settings.getByRole("heading", { name: "偏好设置", exact: true })).toBeVisible();
-  await expect(page.getByLabel("搜索历史合约")).toHaveValue("rb17");
+  await expect(page.getByRole("searchbox", { name: "搜索市场合约" })).toHaveValue("rb17");
   await settings.getByLabel("语言", { exact: true }).selectOption("en-US");
   await expect(page.locator("html")).toHaveAttribute("lang", "en-US");
   await settings.getByLabel("Display Density").selectOption("comfortable");
@@ -20,7 +19,7 @@ test("settings reuses its window and preserves workbench drafts", async ({ page 
   await expect(settings.getByRole("heading", { name: "About", exact: true })).toBeVisible();
   await settings.keyboard.press("Control+,");
   await expect(settings.getByRole("heading", { name: "About", exact: true })).toBeVisible();
-  await page.getByLabel("Search historical contracts", { exact: true }).fill("rb19");
+  await page.getByRole("searchbox", { name: "Search market contracts" }).fill("rb19");
   await settings.getByRole("button", { name: "Preferences", exact: true }).click();
   expect(page.context().pages()).toHaveLength(2);
   await settings.getByLabel("Language").selectOption("zh-CN");
@@ -34,7 +33,7 @@ test("settings reuses its window and preserves workbench drafts", async ({ page 
     true,
   );
   await closeSettingsWindow(settings);
-  await expect(page.getByLabel("搜索历史合约")).toHaveValue("rb19");
+  await expect(page.getByRole("searchbox", { name: "搜索市场合约" })).toHaveValue("rb19");
   const reopened = await openSettingsWindow(page);
   await expect(reopened.getByRole("heading", { name: "交易服务", exact: true })).toBeVisible();
   await reopened.setViewportSize({ width: 640, height: 440 });

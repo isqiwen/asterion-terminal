@@ -324,16 +324,6 @@
 .market-contract-time {
   font-size: 12px;
 }
-.market-workspace .market-modes {
-  gap: 2px;
-  padding: 2px 8px;
-}
-.market-workspace .market-modes button {
-  min-height: 25px;
-  border-radius: 0;
-  font-size: 12px;
-  padding: 2px 10px;
-}
 .market-workspace .market-session > .panel-heading {
   min-height: 26px;
   padding: 2px 10px;
@@ -470,10 +460,6 @@
   align-items: start;
   border-bottom: 1px solid var(--grid);
 }
-.market-toolbar .market-modes {
-  border: 0;
-  flex-shrink: 0;
-}
 .market-toolbar .market-session {
   flex: 1;
   min-width: 260px;
@@ -553,53 +539,6 @@
   flex-wrap: wrap;
 }
 
-.history-market-board {
-  display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  flex: 1;
-  min-height: 0;
-}
-.history-market-contracts {
-  overflow: auto;
-  border-right: 1px solid var(--grid);
-  padding: 8px;
-}
-.history-market-contracts header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-}
-.history-market-contracts > input {
-  width: 100%;
-  min-width: 0;
-  margin-block: 8px;
-  font-size: 12px;
-}
-.history-market-contracts [role="group"] > button {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  width: 100%;
-  text-align: left;
-  border: 0;
-  border-bottom: 1px solid var(--grid);
-  border-radius: 0;
-  padding: 8px;
-  font-size: 12px;
-  background: transparent;
-}
-.history-market-contracts [role="group"] > button[aria-pressed="true"] {
-  background: var(--accent-surface);
-  outline: 1px solid var(--accent-line);
-  outline-offset: -1px;
-}
-.history-market-contracts small,
-.history-market-contracts p {
-  font-size: 12px;
-  color: var(--muted);
-}
 .daily-market-selection {
   display: grid;
   gap: 8px;
@@ -614,37 +553,7 @@
   width: 100%;
   min-width: 0;
 }
-.history-market-detail {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  overflow: auto;
-}
-.history-market-detail .price-chart[data-fit-height] {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-}
-.history-market-detail .price-chart[data-fit-height] > :not(.price-chart-canvas) {
-  flex-shrink: 0;
-}
-.history-market-detail .price-chart[data-fit-height] .price-chart-canvas {
-  flex: 1;
-  height: 0;
-  min-height: 240px;
-  max-height: none;
-}
 @media (max-width: 900px) {
-  .history-market-board {
-    grid-template-columns: minmax(0, 1fr);
-    overflow: auto;
-  }
-  .history-market-contracts {
-    max-height: 220px;
-    border-right: 0;
-    border-bottom: 1px solid var(--grid);
-  }
   .daily-market-selection {
     display: grid;
     gap: 8px;
@@ -658,14 +567,6 @@
   .daily-market-selection select {
     width: 100%;
     min-width: 0;
-  }
-  .history-market-detail {
-    min-height: 500px;
-  }
-  .history-market-detail .market-history-chart {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
   }
 }
 
@@ -698,16 +599,6 @@
   order: 3;
   flex-basis: 100%;
 }
-.workbench-context .market-modes {
-  border: 0;
-  padding: 0;
-}
-.workbench-context .market-modes button {
-  min-height: 24px;
-  padding: 2px 8px;
-  font-size: 12px;
-}
-
 .market-chart-unavailable {
   --price-line: var(--accent);
 }
@@ -909,9 +800,6 @@
   box-shadow: 0 12px 32px var(--overlay);
   padding: 6px 0;
 }
-.market-menu .market-modes {
-  border-bottom: 1px solid var(--grid);
-}
 .market-menu .market-board-tools {
   flex-wrap: wrap;
 }
@@ -1112,26 +1000,6 @@
 .market-periods[hidden] {
   display: none;
 }
-.market-navigation .market-modes {
-  margin-left: auto;
-  padding: 0 8px;
-  gap: 0;
-  border: 0;
-}
-.market-navigation .market-modes button {
-  font-size: 12px;
-  min-height: 21px;
-  padding: 1px 10px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--muted);
-}
-.market-navigation .market-modes [aria-selected="true"] {
-  color: var(--accent);
-  background: var(--raised);
-}
-
 /* Market connection: one compact panel under the board navigation. */
 .market-config {
   padding: 0 12px;

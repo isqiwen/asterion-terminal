@@ -34,11 +34,11 @@ test("first launch opens data and module switching retains each view's location"
 });
 
 test("market and contract routes retain independent parameters", () => {
-  let state = selectView(initialNavigation(), "workspace.market", { marketMode: "history" });
+  let state = selectView(initialNavigation(), "workspace.market", { page: "quotes" });
   state = selectView(state, "workspace.contract", { params: { symbol: "rb2610" } });
   expect(currentRoute(state).options).toEqual({ params: { symbol: "rb2610" } });
   state = selectView(state, "workspace.market");
-  expect(currentRoute(state).options.marketMode).toBe("history");
+  expect(currentRoute(state).options.page).toBe("quotes");
   expect(() => selectView(state, "unknown")).toThrow("Unknown view");
 });
 

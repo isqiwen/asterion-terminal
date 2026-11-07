@@ -5,6 +5,7 @@ import { DatasetHistory, changeText } from "./DatasetHistory";
 import { MinuteCoverage } from "./MinuteCoverage";
 import { useMarket } from "../../src/host/market";
 import { ReferenceTables, referenceTables } from "./ReferenceTables";
+import { StoredContracts } from "./StoredContracts";
 import {
   ErrorNotice,
   asDisplayError,
@@ -118,13 +119,22 @@ function DataPage({ context }: { context: TerminalContext }) {
           key={`${options.tables.join()}/${options.exchanges.join()}/${opened?.version}`}
           options={options}
           opened={opened?.version ?? ""}
+          context={context}
         />
       )}
     </div>
   );
 }
 
-function DataCoverage({ options, opened }: { options: AcquisitionOptions; opened: string }) {
+function DataCoverage({
+  options,
+  opened,
+  context,
+}: {
+  options: AcquisitionOptions;
+  opened: string;
+  context: TerminalContext;
+}) {
   const canManage = options.canManage;
   // The version shown; empty for the current one.
   const [viewed, setViewed] = useState(opened);
@@ -577,6 +587,7 @@ function DataCoverage({ options, opened }: { options: AcquisitionOptions; opened
             : undefined
         }
       />
+      {latest && <StoredContracts key={latest} context={context} />}
     </>
   );
 }
