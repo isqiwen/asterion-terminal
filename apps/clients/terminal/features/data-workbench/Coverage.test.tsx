@@ -14,7 +14,6 @@ vi.mock("../contract", async importOriginal => ({
 }));
 // The comparison has its own test.
 vi.mock("./MinuteComparison", () => ({ MinuteComparison: () => null }));
-vi.mock("./RecordedDays", () => ({ RecordedDays: () => null }));
 vi.mock("./DatasetHistory", async importOriginal => ({
   ...(await importOriginal<typeof import("./DatasetHistory")>()),
   DatasetHistory: () => null,

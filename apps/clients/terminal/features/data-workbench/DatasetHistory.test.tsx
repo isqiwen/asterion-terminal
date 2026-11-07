@@ -12,7 +12,6 @@ vi.mock("../contract", async importOriginal => ({
     key.replace(/\{(\w+)\}/g, (_, name: string) => String(values?.[name])),
 }));
 vi.mock("./MinuteComparison", () => ({ MinuteComparison: () => null }));
-vi.mock("./RecordedDays", () => ({ RecordedDays: () => null }));
 
 const older = "a".repeat(64);
 const current = "b".repeat(64);

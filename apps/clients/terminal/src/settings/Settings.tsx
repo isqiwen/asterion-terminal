@@ -16,7 +16,7 @@ import type { Snapshot } from "@asterion/desktop-bridge/client";
 const pages: [SettingsPage, string, IconName][] = [
   ["preferences", "偏好设置", "sliders"],
   ["market", "行情服务", "data"],
-  ["history", "历史数据服务", "data"],
+  ["history", "历史服务", "data"],
   ["trading", "交易服务", "trading"],
   ["about", "关于", "info"],
 ];
@@ -158,9 +158,7 @@ export function Settings({
                 {version.trim()}
                 {snapshot && ` (${snapshot.diagnostics.commit})`}
               </dd>
-              <dt title={t("在行情服务、历史数据服务和交易主机登记这个指纹")}>
-                {t("本机证书指纹")}
-              </dt>
+              <dt title={t("在行情服务、历史服务和交易主机登记这个指纹")}>{t("本机证书指纹")}</dt>
               <dd>
                 <code className="client-fingerprint">{snapshot?.client_fingerprint}</code>
               </dd>

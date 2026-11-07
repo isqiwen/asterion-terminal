@@ -2,16 +2,19 @@ import type { Snapshot, TradingConnection } from "../../bridge/client";
 import { translate, useLocale } from "../../i18n";
 import { useMarket } from "../market";
 import { stalled, useTradingAccounts } from "../trading-accounts";
+import { FeedState } from "../../generated/asterion/quotes_pb";
 import { BrokerState } from "../../generated/asterion/trading_pb";
 
 export function StatusIndicators({
   snapshot,
   openMarketSettings,
+  openMarket,
   openTradingSettings,
   openTrading,
 }: {
   snapshot: Snapshot | null;
   openMarketSettings: () => void;
+  openMarket: () => void;
   openTradingSettings: () => void;
   openTrading: () => void;
 }) {
@@ -24,6 +27,17 @@ export function StatusIndicators({
   const connections = (snapshot.trading_connections ?? []).filter(
     (item): item is TradingConnection => !("error" in item),
   );
+  const feed = market?.board.feed;
+  // The link to Quotes first, then Quotes' own link to the broker.
+  const [quotesTone, quotesState] = !market?.online
+    ? ["bad", "中断"]
+    : feed?.state === FeedState.CONNECTED
+      ? ["good", ""]
+      : feed?.state === FeedState.CONNECTING ||
+          feed?.state === FeedState.LOGGING_IN ||
+          feed?.state === FeedState.RECONNECTING
+        ? ["", "连接柜台中"]
+        : ["bad", "柜台未连接"];
   const label = (name: string, state: string) => `● ${name}${state && ` ${t(state)}`}`;
   return (
     <>
@@ -46,9 +60,16 @@ export function StatusIndicators({
         <button className="status-item" onClick={openMarketSettings}>
           {label(t("行情"), "未设置")}
         </button>
+      ) : !market ? (
+        <button className="status-item" onClick={openMarket}>
+          {label(t("行情"), "未连接")}
+        </button>
       ) : (
-        <span className={`status-item ${market ? (market.online ? "good" : "bad") : ""}`}>
-          {label(t("行情"), !market ? "未连接" : market.online ? "" : "中断")}
+        <span
+          className={`status-item ${quotesTone}`}
+          title={market.error || (feed?.ctpError ? `CTP ${feed.ctpError}` : undefined)}
+        >
+          {label(t("行情"), quotesState)}
         </span>
       )}
       {!connections.length && (

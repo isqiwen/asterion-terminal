@@ -23,9 +23,7 @@ export function MinuteCoverage({
     <section className="data-card" aria-label={t("分钟线覆盖")}>
       <header>
         <h3>{t("分钟线覆盖")}</h3>
-        <span className="subtle">
-          {t("每格为该合约当月有分钟线的交易日数；标出的格子含自录的天数。")}
-        </span>
+        <span className="subtle">{t("每格为该合约当月有分钟线的交易日数。")}</span>
       </header>
       {rows.length ? (
         <>

@@ -62,9 +62,9 @@ export function Coverage(context: TerminalContext) {
   const saved = context.snapshot?.history_endpoint;
   const endpoint = saved && "host" in saved ? saved : null;
   return (
-    <section className="data-page" aria-label={t("行情数据")}>
+    <section className="data-page" aria-label={t("历史数据")}>
       <div className="panel-heading">
-        <h2>{t("行情数据")}</h2>
+        <h2>{t("历史数据")}</h2>
         {endpoint && (
           <span className="subtle">
             {endpoint.host}:{endpoint.port}
@@ -105,7 +105,7 @@ function DataPage({ context }: { context: TerminalContext }) {
   if (error)
     return (
       <div className="workspace-empty" role="alert">
-        <strong>{t("读取行情数据失败")}</strong>
+        <strong>{t("读取历史数据失败")}</strong>
         <ErrorNotice error={error} />
         <button className="primary" onClick={() => setRetry(value => value + 1)}>
           {t("重试")}
@@ -362,7 +362,7 @@ function DataCoverage({ options, opened }: { options: AcquisitionOptions; opened
           </header>
           <p className="subtle">
             {t("采集按交易所保存，分钟线按合约保存；已入库分区跳过。")}{" "}
-            {t("历史数据服务以 Tushare 为准，缺的部分从公开来源补齐；关闭此页面不会停止采集。")}
+            {t("历史服务以 Tushare 为准，缺的部分从公开来源补齐；关闭此页面不会停止采集。")}
           </p>
           <div className="data-fields">
             <label>

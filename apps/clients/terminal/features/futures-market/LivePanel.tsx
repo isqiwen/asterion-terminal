@@ -57,7 +57,7 @@ export function LivePanel({ context }: { context: TerminalContext }) {
           <span className="subtle">{endpoint && `${endpoint.host}:${endpoint.port}`}</span>
           <button
             disabled={context.busy}
-            title={t("关闭此连接不影响服务录制或其他客户端。")}
+            title={t("关闭此连接不影响服务或其他客户端。")}
             onClick={() => void attempt(() => context.trade("quotes.close"))}
           >
             {t("关闭行情连接")}

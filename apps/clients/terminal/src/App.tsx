@@ -329,6 +329,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                   <StatusIndicators
                     snapshot={snapshot}
                     openMarketSettings={() => showSettings("market")}
+                    openMarket={() => context.navigate("workspace.market")}
                     openTradingSettings={() => showSettings("trading")}
                     openTrading={() => context.navigate("workspace.trading")}
                   />
