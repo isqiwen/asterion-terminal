@@ -40,7 +40,7 @@ test("indicators show research first, then market, history and each trading conn
   expect([...view.container.children].map(item => item.textContent)).toEqual([
     "● 研究",
     "● 行情 未连接",
-    "● 历史 连接中",
+    "● 数据 连接中",
     "● 交易·simnow 连接中",
   ]);
   expect(screen.getByText("● 研究").className).toContain("good");
@@ -85,12 +85,12 @@ test("the market indicator shows the service's own link to the broker and why it
 test("the history indicator reads the service and says why it failed", async () => {
   vi.mocked(historyData).mockResolvedValueOnce({} as never);
   const view = render(show());
-  await waitFor(() => expect(screen.getByText("● 历史").className).toContain("good"));
+  await waitFor(() => expect(screen.getByText("● 数据").className).toContain("good"));
   view.unmount();
 
   vi.mocked(historyData).mockRejectedValueOnce(new Error("connection refused"));
   render(show());
-  await waitFor(() => expect(screen.getByText("● 历史 中断").title).toBe("connection refused"));
+  await waitFor(() => expect(screen.getByText("● 数据 中断").title).toBe("connection refused"));
 });
 
 test("an unset History opens its settings", () => {
@@ -98,6 +98,6 @@ test("an unset History opens its settings", () => {
   snapshot.history_endpoint = null;
   const openHistorySettings = vi.fn();
   render(show(snapshot, vi.fn(), openHistorySettings));
-  fireEvent.click(screen.getByRole("button", { name: "● 历史 未设置" }));
+  fireEvent.click(screen.getByRole("button", { name: "● 数据 未设置" }));
   expect(openHistorySettings).toHaveBeenCalled();
 });

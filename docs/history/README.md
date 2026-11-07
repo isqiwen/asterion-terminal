@@ -1,4 +1,4 @@
-# History 历史服务
+# History 数据服务
 
 `asterion_history` 是 Linux 上的一个 C++ 服务，只做一件事：采集并整理历史数据，用固定接口提供一份带版本的数据。它不连接柜台，不持有任何柜台凭据。多个 Terminal 和 Lab 共享它的数据。安装和配置见 [History 部署](deployment.md)。
 

@@ -4,7 +4,6 @@ import { ContractPicker } from "./ContractPicker";
 import { DatasetHistory, changeText } from "./DatasetHistory";
 import { MinuteCoverage } from "./MinuteCoverage";
 import { useMarket } from "../../src/host/market";
-import { MarketStatus } from "./MarketStatus";
 import { ReferenceTables, referenceTables } from "./ReferenceTables";
 import {
   ErrorNotice,
@@ -62,9 +61,9 @@ export function Coverage(context: TerminalContext) {
   const saved = context.snapshot?.history_endpoint;
   const endpoint = saved && "host" in saved ? saved : null;
   return (
-    <section className="data-page" aria-label={t("历史数据")}>
+    <section className="data-page" aria-label={t("数据")}>
       <div className="panel-heading">
-        <h2>{t("历史数据")}</h2>
+        <h2>{t("数据")}</h2>
         {endpoint && (
           <span className="subtle">
             {endpoint.host}:{endpoint.port}
@@ -114,7 +113,6 @@ function DataPage({ context }: { context: TerminalContext }) {
     );
   return (
     <div className="page-body data-body">
-      <MarketStatus context={context} />
       {options && (
         <DataCoverage
           key={`${options.tables.join()}/${options.exchanges.join()}/${opened?.version}`}
@@ -362,7 +360,7 @@ function DataCoverage({ options, opened }: { options: AcquisitionOptions; opened
           </header>
           <p className="subtle">
             {t("采集按交易所保存，分钟线按合约保存；已入库分区跳过。")}{" "}
-            {t("历史服务以 Tushare 为准，缺的部分从公开来源补齐；关闭此页面不会停止采集。")}
+            {t("数据服务以 Tushare 为准，缺的部分从公开来源补齐；关闭此页面不会停止采集。")}
           </p>
           <div className="data-fields">
             <label>

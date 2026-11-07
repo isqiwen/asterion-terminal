@@ -1,5 +1,6 @@
 import { MarketBoard } from "./MarketBoard";
 import { MarketUnavailable } from "./MarketUnavailable";
+import { QuotesStatus } from "./QuotesStatus";
 import { CatalogState, FeedState } from "../../src/generated/asterion/quotes_pb";
 import { useMarket } from "../../src/host/market";
 import { useState } from "react";
@@ -63,6 +64,7 @@ export function LivePanel({ context }: { context: TerminalContext }) {
             {t("关闭行情连接")}
           </button>
         </div>
+        <QuotesStatus />
         {failed}
         {!!market?.error && (
           <p role="alert">

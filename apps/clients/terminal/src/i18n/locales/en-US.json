@@ -110,7 +110,6 @@
   "CTP 仿真": "CTP Simulation",
   "credentials": "Account passwords and authentication codes",
   "行情": "Market",
-  "历史": "History",
   "编辑连接": "Edit connection",
   "确认删除连接": "Confirm deletion",
   "删除连接": "Delete connection",
@@ -187,12 +186,12 @@
   "复制失败": "Copy failed",
   "交易服务": "Trading",
   "连接": "Connection",
-  "添加历史连接": "Add History connection",
-  "编辑历史连接": "Edit History connection",
-  "历史服务设置文件无法读取，已保留原文件供检查。": "The History settings file cannot be read; the original file is kept for inspection.",
-  "历史服务证书指纹": "History server certificate fingerprint",
-  "历史服务": "History",
-  "尚未设置历史服务": "History is not set up",
-  "在设置里填写历史服务的地址和证书指纹后即可使用。": "Enter the History address and certificate fingerprint in Settings to use it.",
-  "在行情服务、历史服务和交易主机登记这个指纹": "Register this fingerprint with Quotes, History and the trading host"
+  "添加数据服务": "Add History connection",
+  "编辑数据服务": "Edit History connection",
+  "数据服务设置文件无法读取，已保留原文件供检查。": "The History settings file cannot be read; the original file is kept for inspection.",
+  "数据服务证书指纹": "History server certificate fingerprint",
+  "数据服务": "History",
+  "尚未设置数据服务": "History is not set up",
+  "在设置里填写数据服务的地址和证书指纹后即可使用。": "Enter the History address and certificate fingerprint in Settings to use it.",
+  "在行情服务、数据服务和交易主机登记这个指纹": "Register this fingerprint with Quotes, History and the trading host"
 }

@@ -40,7 +40,7 @@ function HistoryIndicator() {
     error === undefined ? ["", "连接中"] : error ? ["bad", "中断"] : ["good", ""];
   return (
     <span className={`status-item ${tone}`} title={error || undefined}>
-      {label(translate("host", "历史"), state)}
+      {label(translate("host", "数据"), state)}
     </span>
   );
 }
@@ -118,7 +118,7 @@ export function StatusIndicators({
         <HistoryIndicator key={`${history.host}:${history.port}/${history.fingerprint}`} />
       ) : (
         <button className="status-item" onClick={openHistorySettings}>
-          {label(t("历史"), "未设置")}
+          {label(t("数据"), "未设置")}
         </button>
       )}
       {!connections.length && (

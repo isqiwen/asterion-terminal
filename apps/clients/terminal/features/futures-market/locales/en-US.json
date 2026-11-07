@@ -215,5 +215,8 @@
   "还没有自选合约。在市场页选中合约，点图表标题旁的“加入自选”。": "No watchlist contracts yet. Select a contract on the Market page and click “Add to watchlist” next to the chart title.",
   "还没有自选合约。选中合约后，点图表标题旁的“加入自选”。": "No watchlist contracts yet. Select a contract and click “Add to watchlist” next to the chart title.",
   "读取历史合约失败": "Could not read historical contracts",
-  "在数据页采集日线或分钟线后，这里可以查看历史 K 线。": "Acquire daily or minute bars on the Data page to view historical charts here."
+  "在数据页采集日线或分钟线后，这里可以查看历史 K 线。": "Acquire daily or minute bars on the Data page to view historical charts here.",
+  "订阅合约": "Subscribed contracts",
+  "最后收到行情（北京时间）": "Last quote (Beijing time)",
+  "合约订阅失败，每 5 分钟重试": "Contracts refused by the feed, retried every 5 minutes"
 }

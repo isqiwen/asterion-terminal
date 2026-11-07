@@ -10,9 +10,7 @@ import {
 } from "../../src/generated/asterion/quotes_pb";
 import { registerTerminalFeatures } from "../../src/host/feature-registry";
 import { useMarket, type MarketView } from "../../src/host/market";
-import { readySnapshot } from "../../src/testing/core";
-import type { TerminalContext } from "../contract";
-import { MarketStatus } from "./MarketStatus";
+import { QuotesStatus } from "./QuotesStatus";
 import { feature } from "./feature";
 
 vi.mock("../../src/bridge/quotes-data", () => ({ quotesData: vi.fn() }));
@@ -20,7 +18,6 @@ vi.mock("../../src/host/market", () => ({ useMarket: vi.fn() }));
 registerTerminalFeatures([feature]);
 afterEach(() => vi.useRealTimers());
 
-// The open Market stream, as the page holds it.
 const market = (online = true): MarketView => ({
   board: create(BoardSchema, { feed: { state: FeedState.CONNECTED } }),
   online,
@@ -45,22 +42,14 @@ beforeEach(() => {
 
 function mount(view: MarketView | null) {
   vi.mocked(useMarket).mockReturnValue(view);
-  const context: TerminalContext = {
-    snapshot: readySnapshot(),
-    busy: false,
-    error: "",
-    trade: async () => {},
-    navigate: () => {},
-    openSettings: () => {},
-  };
-  const rendered = render(<MarketStatus context={context} />);
+  const rendered = render(<QuotesStatus />);
   return (next: MarketView | null) => {
     vi.mocked(useMarket).mockReturnValue(next);
-    rendered.rerender(<MarketStatus context={{ ...context }} />);
+    rendered.rerender(<QuotesStatus />);
   };
 }
 
-test("status reads do not overlap, and reconnecting or closing a Market discards pending replies", async () => {
+test("status reads do not overlap, and reconnecting or closing discards pending replies", async () => {
   vi.useFakeTimers();
   const select = mount(market());
   expect(quotesData).toHaveBeenCalledWith({ case: "getStatus", value: {} });
@@ -78,7 +67,6 @@ test("status reads do not overlap, and reconnecting or closing a Market discards
   select(null);
   await act(async () => replies[2]!(reply()));
   expect(screen.queryByText("1,234")).toBeNull();
-  expect(screen.getByText("连接行情服务后查看状态。")).toBeDefined();
   await act(async () => vi.advanceTimersByTime(9000));
   expect(replies).toHaveLength(3);
 });
@@ -87,9 +75,9 @@ test("a lost service stops showing its status", async () => {
   vi.useFakeTimers();
   const select = mount(market());
   await act(async () => replies[0]!(reply()));
-  expect(screen.getByText("行情已连接")).toBeDefined();
+  expect(screen.getByText("1,234")).toBeDefined();
   select(market(false));
-  expect(screen.getByText("行情服务失联，状态未知。")).toBeDefined();
+  expect(screen.queryByText("1,234")).toBeNull();
   await act(async () => vi.advanceTimersByTime(9000));
   expect(replies).toHaveLength(1);
 });

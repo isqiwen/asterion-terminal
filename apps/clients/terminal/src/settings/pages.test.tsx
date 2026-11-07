@@ -56,11 +56,11 @@ test("the two data pages each configure their own service without counter creden
   render(
     <Settings snapshot={snapshot} error="" busy={false} trade={trade} initialPage="history" />,
   );
-  expect(screen.getByRole("heading", { name: "历史服务", level: 1 })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "数据服务", level: 1 })).toBeTruthy();
   const history = screen.getByRole("region", { name: "连接" });
-  fireEvent.click(within(history).getByRole("button", { name: "添加历史连接" }));
+  fireEvent.click(within(history).getByRole("button", { name: "添加数据服务" }));
   fireEvent.change(within(history).getByLabelText("主机地址"), { target: { value: "h" } });
-  fireEvent.change(within(history).getByLabelText("历史服务证书指纹"), {
+  fireEvent.change(within(history).getByLabelText("数据服务证书指纹"), {
     target: { value: "b".repeat(64) },
   });
   fireEvent.click(within(history).getByRole("button", { name: "保存连接" }));

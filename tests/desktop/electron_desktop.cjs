@@ -295,7 +295,7 @@ async function closeDesktop(application) {
       );
       return window.asterionDesktop.openSettings("history");
     });
-    await expect(settings.getByRole("heading", { name: "历史服务", exact: true })).toBeVisible();
+    await expect(settings.getByRole("heading", { name: "数据服务", exact: true })).toBeVisible();
     await settings.getByRole("button", { name: "偏好设置", exact: true }).click();
     await capture(settings, "native-settings");
     await settings.getByLabel("语言", { exact: true }).selectOption("en-US");

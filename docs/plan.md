@@ -136,7 +136,7 @@ Terminal 和服务分开安装。每个服务报告自己 `.proto` 的哈希，T
 
 ### M3.85 拆分 Quotes 与 History
 
-三类服务各管一件事：Quotes 分发实时行情，History 采集、整理和提供历史数据，Trading 执行交易。理由：行情进程不含下单代码，不接触实盘账户和实盘资金；历史服务不连接柜台，不持有任何柜台凭据。
+三类服务各管一件事：Quotes 分发实时行情，History 采集、整理和提供历史数据，Trading 执行交易。理由：行情进程不含下单代码，不接触实盘账户和实盘资金；History 不连接柜台，不持有任何柜台凭据。
 
 1. **改名**：Market 改名为 History，行为不变。
 2. **拆出 Quotes**：行情连接、合约目录和报价流移到 `apps/services/quotes/`，使用单独的行情账户；History 不再连接 CTP。两者之间没有任何通信，Terminal 分别连接两个服务。

@@ -33,9 +33,9 @@ test(
     await rpc(page.request, "quotes.watchlist", { instruments: [] });
     // The saved watchlist is the desktop's own; Market still collects the contract.
     expect((await marketState(page.request)).rows).toHaveLength(1);
-    await openView(page, "coverage");
-    const state = page.getByRole("region", { name: "行情状态" });
-    await expect(state.getByText("行情已连接", { exact: true })).toBeVisible();
-    await expect(state.getByText("订阅合约", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "行情设置" }).click();
+    await expect(
+      page.getByRole("dialog", { name: "行情设置" }).getByText("订阅合约", { exact: true }),
+    ).toBeVisible();
   },
 );

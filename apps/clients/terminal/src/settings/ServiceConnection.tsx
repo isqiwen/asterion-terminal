@@ -15,10 +15,10 @@ const words = {
     port: 7451,
   },
   history: {
-    edit: "编辑历史连接",
-    add: "添加历史连接",
-    unreadable: "历史服务设置文件无法读取，已保留原文件供检查。",
-    fingerprint: "历史服务证书指纹",
+    edit: "编辑数据服务",
+    add: "添加数据服务",
+    unreadable: "数据服务设置文件无法读取，已保留原文件供检查。",
+    fingerprint: "数据服务证书指纹",
     port: 7450,
   },
 };
