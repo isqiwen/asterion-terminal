@@ -21,9 +21,12 @@ public:
     ~QuotesWatch();
     QuotesWatch(const QuotesWatch&) = delete;
     QuotesWatch& operator=(const QuotesWatch&) = delete;
-    // {frames, online}; called on the I/O owner. restart starts a new stream at
-    // once, for a page that has no complete frame to apply deltas to.
+    // {frames, online, error}; called on the I/O owner. restart starts a new stream
+    // at once, for a page that has no complete frame to apply deltas to. error is
+    // why the stream last failed, until a frame arrives.
     Json take(bool restart);
+    // Ends the stream for a page nobody can see, until take(true); called on the I/O owner.
+    void pause();
     ServiceEndpoint endpoint() const;
 
 private:

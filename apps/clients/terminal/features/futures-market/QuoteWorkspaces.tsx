@@ -112,8 +112,7 @@ export function ContractWorkspace(context: TerminalContext) {
         </div>
         {listed.map((row, index) => {
           const points = historyAvailable
-            ? market.ticks
-                .filter(p => p.exchange === row.exchange && p.symbol === row.symbol)
+            ? (market.ticks.get(quoteId(row)) ?? [])
                 .map(p => Number(p.price))
                 .filter(Number.isFinite)
             : [];

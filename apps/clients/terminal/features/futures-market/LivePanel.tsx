@@ -64,6 +64,11 @@ export function LivePanel({ context }: { context: TerminalContext }) {
           </button>
         </div>
         {failed}
+        {!!market?.error && (
+          <p role="alert">
+            {t("行情连接失败")}: {market.error}
+          </p>
+        )}
         {!!feed?.ctpError && (
           <p role="alert">
             {t("行情连接异常，请检查配置或服务时段。")} CTP {feed.ctpError}

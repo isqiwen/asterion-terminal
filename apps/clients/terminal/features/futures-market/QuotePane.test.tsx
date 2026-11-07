@@ -30,7 +30,7 @@ const row = create(QuoteRowSchema, {
 const service = (generation: number): MarketView => ({
   board: create(BoardSchema, { feed: { state: FeedState.CONNECTED }, rows: [row] }),
   online: true,
-  ticks: [],
+  ticks: new Map(),
   generation,
   interrupted: false,
 });

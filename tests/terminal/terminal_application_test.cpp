@@ -660,6 +660,34 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
     for (std::size_t i = 1; i < frames.size(); ++i)
         EXPECT_TRUE(frames[i].contains("changed"));
     EXPECT_FALSE(app.dispatch(request("runtime.snapshot")).contains("quotes"));
+    const auto read_watch = [&](bool restart) {
+        return app.dispatch(request("quotes.watch", {{"restart", restart}})).at("quotes_watch");
+    };
+    // A paused watch collects nothing, and the page's next stream starts complete.
+    app.dispatch(request("quotes.pause"));
+    std::this_thread::sleep_for(testing_support::bound(1s));
+    read_watch(false);
+    std::this_thread::sleep_for(testing_support::bound(1s));
+    EXPECT_TRUE(read_watch(false).at("frames").empty());
+    frames = read_watch(true).at("frames");
+    const auto resumed = std::chrono::steady_clock::now() + testing_support::bound(5s);
+    while (frames.empty() && std::chrono::steady_clock::now() < resumed) {
+        std::this_thread::sleep_for(50ms);
+        frames = read_watch(false).at("frames");
+    }
+    ASSERT_FALSE(frames.empty());
+    EXPECT_TRUE(frames[0].contains("full"));
+    EXPECT_EQ(read_watch(false).at("error"), "");
+    // A stream that cannot come back says why.
+    quotes.process.reset();
+    const auto gone = std::chrono::steady_clock::now() + testing_support::bound(10s);
+    auto failed = read_watch(false);
+    while (failed.at("error") == "" && std::chrono::steady_clock::now() < gone) {
+        std::this_thread::sleep_for(50ms);
+        failed = read_watch(false);
+    }
+    EXPECT_NE(failed.at("error"), "");
+    EXPECT_FALSE(failed.at("online"));
     app.dispatch(request("quotes.close"));
     EXPECT_FALSE(std::filesystem::exists(host.root / "data/acquisition/forbidden.pb"));
     app.dispatch(request("quotes.endpoint.clear"));

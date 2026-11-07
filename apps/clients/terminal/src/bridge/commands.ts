@@ -26,6 +26,7 @@ export type CommandParams = {
   "quotes.close": Record<string, never>;
   "quotes.watchlist": { instruments: InstrumentKey[] };
   "quotes.watch": { restart: boolean };
+  "quotes.pause": Record<string, never>;
   "trading.call": { account: string; request: JsonValue };
   "quotes.call": { request: JsonValue };
   "history.call": { request: JsonValue };

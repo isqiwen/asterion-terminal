@@ -27,10 +27,7 @@ test("changed frames replace whole rows and keep the catalog they leave out", ()
   expect(restart).toBe(false);
   expect(view!.board.rows.map(item => item.quote?.last?.text)).toEqual(["3500", "3511"]);
   expect(view!.board.catalog?.contracts).toHaveLength(1);
-  expect(view!.ticks.filter(tick => tick.symbol === "rb2611").map(tick => tick.price)).toEqual([
-    "3510",
-    "3511",
-  ]);
+  expect(view!.ticks.get("SHFE.rb2611")!.map(tick => tick.price)).toEqual(["3510", "3511"]);
   const cleared = frame({
     case: "changed",
     value: {
@@ -62,6 +59,15 @@ test("a new full frame replaces membership and resets the tick curve", () => {
   const after = applyFrames(view, [reset], true);
   expect(after.restart).toBe(false);
   expect(after.view!.board.rows.map(item => item.instrument!.symbol)).toEqual(["au2612"]);
-  expect(after.view!.ticks).toHaveLength(1);
+  expect(after.view!.ticks.size).toBe(1);
   expect(after.view!.interrupted).toBe(true);
+});
+
+test("a busy contract does not push out another contract's recent quotes", () => {
+  const busy = Array.from({ length: 600 }, (_, i) =>
+    frame({ case: "changed", value: { rows: [row("rb2611", "3511", BigInt(2000 + i))] } }),
+  );
+  const { view } = applyFrames(null, [full, ...busy], true);
+  expect(view!.ticks.get("SHFE.rb2610")!.map(tick => tick.price)).toEqual(["3500"]);
+  expect(view!.ticks.get("SHFE.rb2611")).toHaveLength(512);
 });

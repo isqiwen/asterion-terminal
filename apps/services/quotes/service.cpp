@@ -82,7 +82,7 @@ struct QuoteStream
     {}
 
     const wire::Request request;
-    // History thread only.
+    // Market thread only.
     Sent sent;
     Clock::time_point due{};
 

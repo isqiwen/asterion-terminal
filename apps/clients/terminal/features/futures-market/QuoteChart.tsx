@@ -6,8 +6,7 @@ import { translate } from "../contract";
 import { chartTime } from "./chart-time";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 export function QuoteChart({ market, row }: { market: MarketView; row: QuoteRow }) {
-  const { exchange, symbol } = row.instrument!;
-  const points = market.ticks.filter(p => p.exchange === exchange && p.symbol === symbol);
+  const points = market.ticks.get(rowKey(row)) ?? [];
   const reference = row.quote?.previousSettlement?.text;
   const available = market.online && market.board.feed?.state === FeedState.CONNECTED;
   return (
@@ -56,7 +55,7 @@ export function QuoteChart({ market, row }: { market: MarketView; row: QuoteRow 
         <summary>{t("数据说明")}</summary>
         <p>
           {t(
-            "最近最多 512 条跨合约报价，取自每 0.25 秒一帧的行情；非完整分时，不代表逐笔成交或分钟 K 线。",
+            "每个合约最近最多 512 条报价，取自每 0.25 秒一帧的行情；非完整分时，不代表逐笔成交或分钟 K 线。",
           )}
         </p>
       </details>

@@ -12,8 +12,6 @@ import { notify } from "./notifications";
 // One recent quote for the Tick chart. volume is the contracts traded since
 // the contract's previous point of the same trading day.
 export type TickPoint = {
-  exchange: string;
-  symbol: string;
   timestamp_ns: string;
   price: string;
   volume?: string;
@@ -21,11 +19,14 @@ export type TickPoint = {
   total: bigint;
 };
 // The open Market stream as the page keeps it: every row and the catalog as
-// the latest frame left them, and recent quotes. null when none is open.
+// the latest frame left them, and each contract's recent quotes. null when none is open.
 export type MarketView = {
   board: Board;
   online: boolean;
-  ticks: TickPoint[];
+  // Why the stream last failed, until a frame arrives.
+  error?: string;
+  // By rowKey.
+  ticks: Map<string, TickPoint[]>;
   // Changes whenever ticks stop continuing the previous curve.
   generation: number;
   // A new stream started after an earlier one, and its ticks were dropped.
@@ -39,42 +40,37 @@ export const rowKey = (row: QuoteRow) => `${row.instrument?.exchange}.${row.inst
 function tick(view: MarketView, row: QuoteRow) {
   const quote = row.quote;
   if (!quote?.last || quote.exchangeMs === undefined) return;
-  const exchange = row.instrument!.exchange;
-  const symbol = row.instrument!.symbol;
-  const same = (point: TickPoint) => point.exchange === exchange && point.symbol === symbol;
-  let previous: TickPoint | undefined;
-  for (let i = view.ticks.length - 1; i >= 0 && !previous; --i)
-    if (same(view.ticks[i]!)) previous = view.ticks[i];
-  if (previous?.timestamp_ns === String(quote.exchangeMs * 1_000_000n)) return;
+  const key = rowKey(row);
+  let points = view.ticks.get(key) ?? [];
+  const previous = points.at(-1);
+  const timestamp_ns = String(quote.exchangeMs * 1_000_000n);
+  if (previous?.timestamp_ns === timestamp_ns) return;
   let volume: string | undefined;
   if (previous) {
     // A new session or counter never joins the old price curve.
     if (previous.day !== quote.tradingDay || quote.volume < previous.total) {
-      view.ticks = view.ticks.filter(point => !same(point));
+      points = [];
       view.generation++;
     } else volume = String(quote.volume - previous.total);
   }
-  view.ticks.push({
-    exchange,
-    symbol,
-    timestamp_ns: String(quote.exchangeMs * 1_000_000n),
-    price: quote.last.text,
-    volume,
-    day: quote.tradingDay,
-    total: quote.volume,
-  });
-  if (view.ticks.length > 512) view.ticks.shift();
+  view.ticks.set(
+    key,
+    [
+      ...points,
+      { timestamp_ns, price: quote.last.text, volume, day: quote.tradingDay, total: quote.volume },
+    ].slice(-512),
+  );
 }
 
 // A full frame replaces the view; a changed frame replaces the rows it holds.
 export function applyFrames(previous: MarketView | null, frames: QuoteFrame[], online: boolean) {
-  let view: MarketView | null = previous && { ...previous, ticks: [...previous.ticks], online };
+  let view: MarketView | null = previous && { ...previous, ticks: new Map(previous.ticks), online };
   for (const { frame } of frames) {
     if (frame.case === "full") {
       view = {
         board: frame.value,
         online,
-        ticks: [],
+        ticks: new Map(),
         generation: (view?.generation ?? 0) + 1,
         interrupted: !!view,
       };
@@ -93,11 +89,15 @@ export function applyFrames(previous: MarketView | null, frames: QuoteFrame[], o
   return { view, restart: false };
 }
 
-// While the window is visible, the open watch's frames are read twice a second.
+// While the window is visible, the open watch's frames are read twice a second;
+// while it is hidden, the watch is paused and the next read starts a new stream.
 export function MarketProvider({ active, children }: { active: boolean; children: ReactNode }) {
   const [view, setView] = useState<MarketView | null>(null);
   useEffect(() => {
-    if (!active) return;
+    if (!active) {
+      void call("quotes.pause", {});
+      return;
+    }
     let reading = false;
     let stopped = false;
     // This page has no complete frame yet.
@@ -118,7 +118,7 @@ export function MarketProvider({ active, children }: { active: boolean; children
       reading = true;
       try {
         const { quotes_watch: watch } = (await call("quotes.watch", { restart })) as {
-          quotes_watch: null | { frames: JsonValue[]; online: boolean };
+          quotes_watch: null | { frames: JsonValue[]; online: boolean; error?: string };
         };
         if (stopped) return;
         restart = false;
@@ -126,6 +126,7 @@ export function MarketProvider({ active, children }: { active: boolean; children
         else {
           const frames = watch.frames.map(frame => fromJson(QuoteFrameSchema, frame));
           ({ view: current, restart } = applyFrames(current, frames, watch.online));
+          current = current && { ...current, error: watch.error };
         }
         report(current);
         setView(current);

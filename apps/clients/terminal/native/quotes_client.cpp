@@ -33,7 +33,8 @@ struct QuotesWatch::Impl
     std::unique_ptr<ipc::RpcClient> transport;
     std::stop_source lifetime;
     std::deque<Json> frames;
-    bool online = false, restarting = false;
+    bool online = false, restarting = false, paused = false;
+    std::string error;
     std::chrono::steady_clock::time_point seen{};
 
     Impl(ServiceIo& owner, ServiceEndpoint value)
@@ -77,24 +78,31 @@ struct QuotesWatch::Impl
                         frame.reset();
                         frames.push_back(std::move(value));
                         online = true;
+                        error.clear();
                         seen = std::chrono::steady_clock::now();
                         // About 16 s of frames: the page stopped reading, so start over.
-                        if (frames.size() > 64)
+                        if (frames.size() > 64) {
+                            restarting = true;
                             transport->cancel();
+                        }
                     }
                     co_await std::suspend_always{};
                 }
                 watching.get();
-            } catch (const std::exception&) {
+            } catch (const std::exception& failure) {
                 transport->cancel();
                 online = false;
+                // Ending the stream here on purpose is not a failure to report.
+                if (!restarting && !paused)
+                    error = failure.what();
             }
             frames.clear();
-            const auto next = std::chrono::steady_clock::now() + (restarting ? 0s : 2s);
-            restarting = false;
+            const auto next = std::chrono::steady_clock::now() + 2s;
             co_await PollUntil{[&] {
-                return stopped(stop) || std::chrono::steady_clock::now() >= next;
+                return stopped(stop) || restarting
+                    || (!paused && std::chrono::steady_clock::now() >= next);
             }};
+            restarting = false;
         }
     }
 };
@@ -132,6 +140,7 @@ Json QuotesWatch::take(bool restart)
 {
     if (restart) {
         impl_->frames.clear();
+        impl_->paused = false;
         impl_->restarting = true;
         impl_->transport->cancel();
     }
@@ -141,8 +150,17 @@ Json QuotesWatch::take(bool restart)
     impl_->frames.clear();
     return {
         {"frames", std::move(frames)},
-        {"online", impl_->online && std::chrono::steady_clock::now() - impl_->seen < 5s}
+        {"online", impl_->online && std::chrono::steady_clock::now() - impl_->seen < 5s},
+        {"error", impl_->error}
     };
+}
+
+void QuotesWatch::pause()
+{
+    impl_->paused = true;
+    // A window hidden right after it returned must not get the stream it asked for.
+    impl_->restarting = false;
+    impl_->transport->cancel();
 }
 
 ServiceEndpoint QuotesWatch::endpoint() const

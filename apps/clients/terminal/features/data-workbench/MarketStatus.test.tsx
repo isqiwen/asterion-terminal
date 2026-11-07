@@ -24,7 +24,7 @@ afterEach(() => vi.useRealTimers());
 const market = (online = true): MarketView => ({
   board: create(BoardSchema, { feed: { state: FeedState.CONNECTED } }),
   online,
-  ticks: [],
+  ticks: new Map(),
   generation: 1,
   interrupted: false,
 });
