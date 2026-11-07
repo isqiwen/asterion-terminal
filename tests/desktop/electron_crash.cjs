@@ -86,18 +86,18 @@ const { testNode } = require("./electron_startup.cjs");
     assert.match(await text(), /uncaughtException[\s\S]*fixture main failure[\s\S]*mainFailure/);
     const build = path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug");
     const fixture = path.join(build, "asterion_native_crash_fixture.node");
-    let source = fixture;
+    const sources = [fixture];
     if (process.platform === "darwin") {
-      source = path.join(root, "fixture.dSYM");
-      execFileSync("dsymutil", [fixture, "-o", source]);
-      source = path.join(source, "Contents/Resources/DWARF", path.basename(fixture));
+      const bundle = path.join(root, "fixture.dSYM");
+      execFileSync("dsymutil", [fixture, "-o", bundle]);
+      sources.push(path.join(bundle, "Contents/Resources/DWARF", path.basename(fixture)));
     }
     const dumper = path.resolve(
       "build/crash-tools/dump_syms/2.3.9",
       process.platform === "darwin" ? "aarch64-apple-darwin" : "x86_64-unknown-linux-gnu",
       "dump_syms",
     );
-    const symbols = execFileSync(dumper, [source], {
+    const symbols = execFileSync(dumper, ["--check-cfi", "--verbose", "off", ...sources], {
       encoding: "utf8",
       maxBuffer: 16 * 1024 * 1024,
     });

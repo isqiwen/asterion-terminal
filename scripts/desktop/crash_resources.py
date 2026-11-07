@@ -71,11 +71,12 @@ def prepare(build):
         for license in walker.parent.glob("LICENSE*"):
             shutil.copy2(license, staged / license.name)
         symbols = Path(temporary) / "native.sym"
-        source = binary
+        sources = [binary]
+        # A dSYM holds functions and lines; its unwind sections are empty, so they come from the binary.
         if sys.platform == "darwin":
-            source = ROOT / "build/electron-resources/symbols" / (binary.name + ".dSYM") / "Contents/Resources/DWARF" / binary.name
+            sources.append(ROOT / "build/electron-resources/symbols" / (binary.name + ".dSYM") / "Contents/Resources/DWARF" / binary.name)
         with symbols.open("wb") as output:
-            subprocess.run([str(dumper), str(source)], stdout=output, check=True)
+            subprocess.run([str(dumper), "--check-cfi", "--verbose", "off", *map(str, sources)], stdout=output, check=True)
         with symbols.open() as stream:
             record, _, _, identifier, name = stream.readline().strip().split(" ", 4)
         if record != "MODULE" or Path(name).name != name:
