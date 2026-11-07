@@ -21,7 +21,7 @@ export function MarketUnset({
         )}
       </p>
       <button className="primary" onClick={() => openSettings(page)}>
-        {t(page === "market" ? "添加行情连接" : "添加数据服务")}
+        {t(page === "market" ? "添加行情连接" : "添加数据连接")}
       </button>
     </div>
   );

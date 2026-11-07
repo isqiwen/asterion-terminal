@@ -58,7 +58,7 @@ test("the two data pages each configure their own service without counter creden
   );
   expect(screen.getByRole("heading", { name: "数据服务", level: 1 })).toBeTruthy();
   const history = screen.getByRole("region", { name: "连接" });
-  fireEvent.click(within(history).getByRole("button", { name: "添加数据服务" }));
+  fireEvent.click(within(history).getByRole("button", { name: "添加数据连接" }));
   fireEvent.change(within(history).getByLabelText("主机地址"), { target: { value: "h" } });
   fireEvent.change(within(history).getByLabelText("数据服务证书指纹"), {
     target: { value: "b".repeat(64) },
