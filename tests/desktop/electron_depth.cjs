@@ -166,7 +166,6 @@ const { createInterface } = require("node:readline");
     assert.equal(full.catalog.contracts[0].name, "螺纹钢");
     assert.equal((await call("runtime.snapshot")).market_endpoint.instruments.length, 0);
     await openView(page, "market");
-    await page.getByRole("tab", { name: "实时行情", exact: true }).click();
     await expect(page.getByRole("button", { name: "期货全景", exact: true })).toBeVisible();
     await expect(page.locator(".quote-select").filter({ hasText: "螺纹钢" })).toHaveCount(1);
     await expect(page.getByRole("cell", { name: "3510", exact: true })).toBeVisible();

@@ -8,7 +8,6 @@ test(
   async ({ page }) => {
     await page.goto("/");
     await openView(page, "market");
-    await page.getByRole("tab", { name: "实时行情", exact: true }).click();
     const panel = page.getByRole("region", { name: "实时期货行情" });
     await expect(panel.getByRole("cell", { name: "3510", exact: true })).toBeVisible();
     const saved = async () => (await rpc(page.request, "runtime.snapshot")).market_endpoint;

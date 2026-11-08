@@ -18,7 +18,6 @@ async function openView(page, view) {
 }
 async function openMarketSection(page, section) {
   await openView(page, "market");
-  await page.getByRole("tab", { name: "实时行情", exact: true }).click();
   await page
     .getByRole("navigation", { name: "期货分类", exact: true })
     .getByRole("button", { name: section, exact: true })

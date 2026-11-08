@@ -74,7 +74,7 @@ def running(root, port):
             assert process.poll() is None, (root / 'container.log').read_text()
             processes = subprocess.check_output(['docker', 'top', name, '-eo', 'pid,comm'], text=True)
             # The kernel keeps 15 characters of a process name.
-            assert [line.split()[1] for line in processes.splitlines()[1:]] == ['asterion_histor'], processes
+            assert [line.split()[1] for line in processes.splitlines()[1:]] == ['asterion_warehouse'[:15]], processes
         finally:
             subprocess.run(['docker', 'stop', '-t', '30', name], stdout=subprocess.DEVNULL,
                            stderr=subprocess.DEVNULL, check=False)
