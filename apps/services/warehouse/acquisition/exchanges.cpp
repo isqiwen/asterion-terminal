@@ -214,7 +214,10 @@ Rows shanghai(
     const std::string& raw)
 {
     const auto root = values::parse(raw);
-    if (text(root.at("report_date")) != compact(day) || text(root.at("o_code")) != "0000")
+    // Until 2024-03-20 the status is the number 0, then the text "0000".
+    const auto& code = root.at("o_code");
+    const auto status = code.is_string() ? text(code) : values::numeric(code);
+    if (text(root.at("report_date")) != compact(day) || (status != "0000" && status != "0"))
         throw std::invalid_argument("wrong date or refused exchange file");
     Rows result;
     std::set<std::string> seen;

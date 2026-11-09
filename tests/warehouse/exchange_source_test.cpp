@@ -82,6 +82,13 @@ TEST_F(ExchangeSources, ExactDecimalsMissingPricesAndFeeBasesReachParquet)
                 store.read(version, std::string("daily/") + exchange + "/2026-10-30")[0][11]),
             "12345678901234567890.000000");
     }
+    // Until 2024-03-20 the status is the number 0.
+    auto older = shfe_daily;
+    older.replace(older.find(R"("0000")"), 6, "0");
+    ac::Exchange shfe("SHFE", {}, [&](const auto&, auto) {
+        return ac::HttpReply{200, older};
+    });
+    EXPECT_EQ(shfe.daily("SHFE", "2026-10-30").size(), 1);
     ac::Exchange czce("CZCE", {}, [](const auto&, auto) {
         return ac::HttpReply{200, czce_settlement};
     });
