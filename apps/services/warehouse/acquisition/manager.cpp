@@ -97,10 +97,10 @@ wire::AcquisitionOptions Manager::options() const
 Manager::Manager(
     fs::path directory,
     std::map<std::string, Factory> sources,
-    std::function<void()> committed)
+    std::function<void()> finished)
     : directory_(std::move(directory) / "acquisition"),
       sources_(std::move(sources)),
-      committed_(std::move(committed))
+      finished_(std::move(finished))
 {
     create_directories_durably(directory_);
     for (const auto& [provider, factory] : sources_) {
@@ -122,6 +122,8 @@ Manager::Manager(
                 task.mutable_error()->set_code(::common::ERROR_CODE_UNAVAILABLE);
                 task.mutable_error()->set_message("Warehouse stopped before acquisition completed");
                 task.set_finished_ms(now_ms());
+    if (finished_)
+        finished_();
                 persist(task);
             }
         } catch (const std::exception& error) {
@@ -290,6 +292,8 @@ void Manager::work(
         *task.mutable_error() = protocol::error(error);
     }
     task.set_finished_ms(now_ms());
+    if (finished_)
+        finished_();
     // The source may have committed data immediately before a status write
     // failed. The warehouse remains authoritative; never roll it back.
     publish(task, active);
@@ -399,8 +403,6 @@ void Manager::run(
     auto version = store.current();
     const auto commit = [&] {
         version = writer.commit();
-        if (committed_)
-            committed_();
         task.set_requests_sent(previous_requests + source.requests());
         publish(task, active);
     };
