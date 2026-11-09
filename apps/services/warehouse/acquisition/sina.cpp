@@ -22,12 +22,6 @@ std::string symbol(const std::string& contract)
     return product + contract.substr(last + 3, 2) + contract.substr(last + 6, 2);
 }
 
-std::string product_of(const std::string& contract)
-{
-    const auto first = contract.find('/'), last = contract.rfind('/');
-    return contract.substr(first + 1, last - first - 1);
-}
-
 // `var _x=([...]);` after a comment line, or `(null)` for an unknown contract.
 Json rows_of(const std::string& body)
 {
@@ -110,42 +104,38 @@ Sina::get(const std::string& service, const std::string& contract, const std::st
     return reply.body;
 }
 
-Rows Sina::daily(const std::string& exchange, const std::string& day)
+std::vector<DailyBar> Sina::daily(const std::string& exchange, const std::string& day)
 {
     if (!listed_.contains(exchange)) {
         const warehouse::Store tushare(warehouse::source_directory(data_, "tushare"), "tushare");
         const auto version = tushare.current();
         const auto key = "contracts/" + exchange;
-        listed_[exchange] = version.partitions.contains(key) ? tushare.read(version, key) : Rows{};
+        auto& listed = listed_[exchange];
+        if (version.partitions.contains(key))
+            for (const auto& row : tushare.read(version, key))
+                listed.push_back(warehouse::read_contract(row));
     }
-    Rows rows;
+    std::vector<DailyBar> rows;
     for (const auto& item : listed_.at(exchange)) {
-        const auto* listed = std::get_if<std::string>(&item[6]);
-        const auto* delisted = std::get_if<std::string>(&item[7]);
-        if (!listed || !delisted || day < *listed || day > *delisted)
+        if (day < item.list_date || day > item.delist_date)
             continue;
-        const auto& contract = std::get<std::string>(item[1]);
+        const auto& contract = item.contract;
         if (!daily_.contains(contract)) {
             auto& days = daily_[contract];
             for (const auto& row : rows_of(get("getDailyKLine", contract))) {
                 const auto date = text(row, "d");
                 days[date] = {
-                    exchange,
-                    product_of(contract),
-                    contract,
-                    date,
-                    text(row, "o"),
-                    text(row, "h"),
-                    text(row, "l"),
-                    text(row, "c"),
-                    text(row, "s"),
-                    {},
-                    {},
-                    text(row, "v"),
-                    {},
-                    text(row, "p"),
-                    {},
-                    {}
+                    .exchange = exchange,
+                    .product = product_of(contract),
+                    .contract = contract,
+                    .day = date,
+                    .open = text(row, "o"),
+                    .high = text(row, "h"),
+                    .low = text(row, "l"),
+                    .close = text(row, "c"),
+                    .settlement = text(row, "s"),
+                    .volume = text(row, "v"),
+                    .open_interest = text(row, "p")
                 };
             }
         }
@@ -155,7 +145,7 @@ Rows Sina::daily(const std::string& exchange, const std::string& day)
     return rows;
 }
 
-Rows Sina::minutes(const std::string& contract, const std::string& day)
+std::vector<MinuteBar> Sina::minutes(const std::string& contract, const std::string& day)
 {
     require_contract(contract);
     if (!minutes_.contains(contract)) {
@@ -175,26 +165,24 @@ Rows Sina::minutes(const std::string& contract, const std::string& day)
                                    .count();
             const auto traded = trading_day(stamp);
             days[traded].push_back(
-                {exchange,
-                    product_of(contract),
-                    contract,
-                    traded,
-                    static_cast<std::int64_t>(start),
-                    false,
-                    text(row, "o"),
-                    text(row, "h"),
-                    text(row, "l"),
-                    text(row, "c"),
-                    text(row, "v"),
-                    {},
-                    text(row, "p")});
+                {.exchange = exchange,
+                    .product = product_of(contract),
+                    .contract = contract,
+                    .day = traded,
+                    .start_ms = static_cast<std::int64_t>(start),
+                    .open = text(row, "o"),
+                    .high = text(row, "h"),
+                    .low = text(row, "l"),
+                    .close = text(row, "c"),
+                    .volume = text(row, "v"),
+                    .open_interest = text(row, "p")});
         }
         if (answer.size() >= minute_limit && !days.empty())
             for (auto& bar : days.begin()->second)
-                bar[5] = true;
+                bar.partial = true;
     }
     const auto at = minutes_[contract].find(day);
-    return at == minutes_[contract].end() ? Rows{} : at->second;
+    return at == minutes_[contract].end() ? std::vector<MinuteBar>{} : at->second;
 }
 
 } // namespace asterion::warehouse::acquisition

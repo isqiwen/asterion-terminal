@@ -1,35 +1,12 @@
 #pragma once
-#include <asterion/base/decimal.hpp>
+#include "records.hpp"
 #include <filesystem>
 #include <map>
 #include <mutex>
 #include <span>
-#include <variant>
 #include <vector>
 
 namespace asterion::warehouse {
-
-enum class Kind
-{
-    text,
-    date,
-    boolean,
-    integer,
-    number,
-    price
-};
-
-struct Column
-{
-    std::string_view name;
-    Kind kind;
-};
-
-std::span<const Column> columns(std::string_view table);
-// Storage numbers have the existing DECIMAL(28,6) range. Decimal is accepted
-// for prices; exact decimal text also preserves wider provider quantities.
-using Cell = std::variant<std::monostate, std::string, bool, std::int64_t, Decimal>;
-using Row = std::vector<Cell>;
 
 struct Partition
 {

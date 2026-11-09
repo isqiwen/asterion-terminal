@@ -32,17 +32,16 @@ protected:
     void listed(const std::string& exchange, const std::vector<std::string>& contracts)
     {
         wh::Store store(wh::source_directory(root, "tushare"), "tushare");
-        std::vector<wh::Row> rows;
-        for (const auto& contract : contracts) {
-            wh::Row row(wh::columns("contracts").size());
-            row[0] = exchange;
-            row[1] = contract;
-            row[6] = std::string("2026-01-01");
-            row[7] = std::string("2026-12-31");
-            rows.push_back(std::move(row));
-        }
+        std::vector<wh::Contract> rows;
+        for (const auto& contract : contracts)
+            rows.push_back(
+                {.exchange = exchange,
+                    .contract = contract,
+                    .product = ac::product_of(contract),
+                    .list_date = "2026-01-01",
+                    .delist_date = "2026-12-31"});
         auto writer = store.writer();
-        writer.put("contracts/" + exchange, rows);
+        writer.put("contracts/" + exchange, wh::rows(rows));
         writer.commit();
     }
 
@@ -72,12 +71,12 @@ TEST_F(SinaSource, ADaysDailyBarsCoverTheContractsListedThatDayAndOtherwiseStayM
     auto fresh = source();
     const auto rows = fresh.daily("SHFE", "2026-11-02");
     ASSERT_EQ(rows.size(), 1);
-    EXPECT_EQ(std::get<std::string>(rows[0][2]), "SHFE/rb/2027-01");
-    EXPECT_EQ(std::get<std::string>(rows[0][7]), "3242.000");
-    EXPECT_EQ(std::get<std::string>(rows[0][8]), "3246.000");
-    EXPECT_EQ(std::get<std::string>(rows[0][11]), "377");
-    EXPECT_EQ(std::get<std::string>(rows[0][13]), "321");
-    EXPECT_TRUE(std::holds_alternative<std::monostate>(rows[0][12]));
+    EXPECT_EQ(rows[0].contract, "SHFE/rb/2027-01");
+    EXPECT_EQ(std::get<std::string>(rows[0].close), "3242.000");
+    EXPECT_EQ(std::get<std::string>(rows[0].settlement), "3246.000");
+    EXPECT_EQ(std::get<std::string>(rows[0].volume), "377");
+    EXPECT_EQ(std::get<std::string>(rows[0].open_interest), "321");
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(rows[0].amount));
     ASSERT_EQ(asked.size(), 1);
     EXPECT_NE(asked[0].find("symbol=RB2701"), std::string::npos);
     fresh.daily("CZCE", "2026-11-02");
@@ -92,8 +91,8 @@ TEST_F(SinaSource, NightMinutesBelongToTheNextTradingDayAndAreLabelledByTheirSta
     auto sina = source();
     const auto rows = sina.minutes("SHFE/rb/2027-01", "2026-11-09");
     ASSERT_EQ(rows.size(), 3);
-    EXPECT_EQ(std::get<std::int64_t>(rows[0][4]), 1793970000000); // 21:00 Beijing.
-    EXPECT_FALSE(std::get<bool>(rows[0][5]));
+    EXPECT_EQ(rows[0].start_ms, 1793970000000); // 21:00 Beijing.
+    EXPECT_FALSE(rows[0].partial);
     EXPECT_TRUE(sina.minutes("SHFE/rb/2027-01", "2026-11-06").empty());
     EXPECT_EQ(asked.size(), 1);
 }
@@ -107,8 +106,8 @@ TEST_F(SinaSource, AFullAnswersOldestDayIsMarkedPartial)
             + R"(","o":"1","h":"2","l":"1","c":"2","v":"3","p":"4"})";
     body = "var _x=([" + rows + "])";
     auto sina = source();
-    EXPECT_TRUE(std::get<bool>(sina.minutes("SHFE/rb/2027-01", "2026-11-04")[0][5]));
-    EXPECT_FALSE(std::get<bool>(sina.minutes("SHFE/rb/2027-01", "2026-11-05")[0][5]));
+    EXPECT_TRUE(sina.minutes("SHFE/rb/2027-01", "2026-11-04")[0].partial);
+    EXPECT_FALSE(sina.minutes("SHFE/rb/2027-01", "2026-11-05")[0].partial);
 }
 
 TEST_F(SinaSource, UnknownContractsAreEmptyAndRefusalsFailAndCffexIsNotOffered)
@@ -129,7 +128,7 @@ TEST_F(SinaSource, RealMinutesAndDailyBarsParse)
 {
     const auto* contract = std::getenv("ASTERION_SINA_ACCEPTANCE");
     if (!contract)
-        GTEST_SKIP() << "set ASTERION_SINA_ACCEPTANCE=SHFE/rb/2701-style contract to fetch";
+        GTEST_SKIP() << "set ASTERION_SINA_ACCEPTANCE=SHFE/rb/2027-01-style contract to fetch";
     const auto* day = std::getenv("ASTERION_SINA_ACCEPTANCE_DAY");
     ASSERT_NE(day, nullptr);
     ac::Sina sina(
@@ -140,13 +139,13 @@ TEST_F(SinaSource, RealMinutesAndDailyBarsParse)
     const auto minutes = sina.minutes(contract, day);
     ASSERT_FALSE(minutes.empty());
     std::cout << contract << " " << day << ": " << minutes.size() << " minutes, first close "
-              << std::get<std::string>(minutes[0][9]) << "\n";
+              << std::get<std::string>(minutes[0].close) << "\n";
     const auto exchange = std::string(contract).substr(0, std::string(contract).find('/'));
     listed(exchange, {contract});
     const auto bars = sina.daily(exchange, day);
     ASSERT_EQ(bars.size(), 1);
-    std::cout << "daily close " << std::get<std::string>(bars[0][7]) << " settle "
-              << std::get<std::string>(bars[0][8]) << "\n";
+    std::cout << "daily close " << std::get<std::string>(bars[0].close) << " settle "
+              << std::get<std::string>(bars[0].settlement) << "\n";
     // The whole way: no Tushare here, so the task falls through to Sina.
     const auto data = root / "market";
     ac::Manager manager(data, {{"sina", [&](std::stop_token stop) {

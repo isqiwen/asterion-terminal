@@ -220,26 +220,26 @@ TEST_F(Acquisition, ExactProviderNumbersAndDeliveryIdentitiesReachParquet)
     auto source = factory(vendor)({});
     const auto listing = source->contracts("SHFE");
     ASSERT_EQ(listing.size(), 1);
-    EXPECT_EQ(std::get<std::string>(listing[0][1]), "SHFE/rb/2026-05");
-    EXPECT_EQ(std::get<std::string>(listing[0][5]), "铜 合约");
+    EXPECT_EQ(listing[0].contract, "SHFE/rb/2026-05");
+    EXPECT_EQ(std::get<std::string>(listing[0].name), "铜 合约");
     auto rows = source->daily("SHFE", "2026-01-05");
     ASSERT_EQ(rows.size(), 1);
-    EXPECT_EQ(std::get<std::string>(rows[0][7]), "1500");
-    EXPECT_EQ(std::get<std::string>(rows[0][12]), "12345678901234561234.56");
-    EXPECT_TRUE(std::holds_alternative<std::monostate>(rows[0][15]));
+    EXPECT_EQ(std::get<std::string>(rows[0].close), "1500");
+    EXPECT_EQ(std::get<std::string>(rows[0].amount), "12345678901234561234.56");
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(rows[0].delivery_settlement));
     wh::Store store(root, "tushare");
     auto writer = store.writer();
-    writer.put("daily/SHFE/2026-01-05", rows, {"2026-01-05"});
+    writer.put("daily/SHFE/2026-01-05", wh::rows(rows), {"2026-01-05"});
     const auto version = writer.commit();
     EXPECT_EQ(
         std::get<std::string>(store.read(version, "daily/SHFE/2026-01-05")[0][12]),
         "12345678901234561234.560000");
     const auto czce = source->daily("CZCE", "2020-01-05");
     ASSERT_EQ(czce.size(), 1);
-    EXPECT_EQ(std::get<std::string>(czce[0][2]), "CZCE/ap/2020-03");
+    EXPECT_EQ(czce[0].contract, "CZCE/ap/2020-03");
     const auto calendar = source->calendar("SHFE", 2026);
     ASSERT_EQ(calendar.size(), 3);
-    EXPECT_FALSE(std::get<bool>(calendar[2][2]));
+    EXPECT_FALSE(calendar[2].open);
     vendor->amount = "0e2147483647";
     EXPECT_THROW(source->daily("SHFE", "2026-01-05"), ac::SourceError);
 }
@@ -250,16 +250,13 @@ TEST_F(Acquisition, SettlementFeesKeepTheirUnitsAndCloseTodayFeesStayMissing)
     auto source = factory(vendor)({});
     const auto rows = source->settlement("SHFE", "2018-11-14");
     ASSERT_EQ(rows.size(), 2);
-    const auto cell = [&](std::size_t row, std::size_t column) {
-        return std::get<std::string>(rows[row][column]);
-    };
-    EXPECT_EQ(cell(0, 2), "SHFE/cu/2018-11");
-    EXPECT_EQ(cell(0, 4), "0.2");
-    EXPECT_EQ(cell(0, 6), "0.00005");
-    EXPECT_EQ(cell(1, 1), "al");
-    EXPECT_EQ(cell(1, 7), "3");
-    for (auto column : {8, 9})
-        EXPECT_TRUE(std::holds_alternative<std::monostate>(rows[0][column]));
+    EXPECT_EQ(rows[0].contract, "SHFE/cu/2018-11");
+    EXPECT_EQ(std::get<std::string>(rows[0].long_margin_rate), "0.2");
+    EXPECT_EQ(std::get<std::string>(rows[0].fee_rate), "0.00005");
+    EXPECT_EQ(rows[1].product, "al");
+    EXPECT_EQ(std::get<std::string>(rows[1].fee_per_lot), "3");
+    EXPECT_EQ(rows[0].close_today_fee_rate, wh::Cell{});
+    EXPECT_EQ(rows[0].close_today_fee_per_lot, wh::Cell{});
     vendor->settle_margin = 7;
     EXPECT_THROW(source->settlement("SHFE", "2018-11-14"), ac::SourceError);
 }
@@ -282,8 +279,8 @@ TEST_F(Acquisition, UntradedPricesAreMissingAndRepliesNeverExposeCredentials)
     };
     ac::Tushare source(token, std::make_shared<ac::Budget>(500), {}, post);
     const auto rows = source.daily("SHFE", "2026-01-05");
-    for (auto c : {4, 5, 6, 7})
-        EXPECT_TRUE(std::holds_alternative<std::monostate>(rows[0][c]));
+    for (const auto& price : {rows[0].open, rows[0].high, rows[0].low, rows[0].close})
+        EXPECT_EQ(price, wh::Cell{});
     for (const auto& [reply, code] : std::vector<std::pair<std::string, std::string>>{
              {Json{{"code", 40001}, {"msg", "token " + token + " 不正确"}}.dump(),
                  "invalid_credential"},
@@ -516,19 +513,17 @@ TEST_F(Acquisition, ALaterSourceFillsOnlyWhatTheOneBeforeItLacksAndAFailureKeeps
             return table == "daily" && exchange == "SHFE";
         }
 
-        ac::Rows daily(const std::string& exchange, const std::string& day) override
+        std::vector<wh::DailyBar>
+        daily(const std::string& exchange, const std::string& day) override
         {
             asked.push_back(day);
             if (fails)
                 throw ac::SourceError("unavailable", "fixture refused");
             if (!holds.contains(day))
                 return {};
-            auto cells = ac::Rows{wh::Row(wh::columns("daily").size())};
-            cells[0][0] = exchange;
-            cells[0][1] = std::string("rb");
-            cells[0][2] = std::string("SHFE/rb/2026-05");
-            cells[0][3] = day;
-            return cells;
+            return {
+                {.exchange = exchange, .product = "rb", .contract = "SHFE/rb/2026-05", .day = day}
+            };
         }
     };
 
@@ -747,7 +742,7 @@ TEST_F(Acquisition, FullMinutePagesAdvanceAndRepeatedPagesFail)
     ASSERT_FALSE(rows.empty());
     EXPECT_EQ(vendor->minute_offsets, (std::vector<std::size_t>{0, 8000}));
     EXPECT_TRUE(std::is_sorted(rows.begin(), rows.end(), [](const auto& a, const auto& b) {
-        return a[4] < b[4];
+        return a.start_ms < b.start_ms;
     }));
     source->minutes("SHFE/rb/2026-05", "2026-01-06");
     EXPECT_EQ(vendor->minute_offsets.size(), 2);

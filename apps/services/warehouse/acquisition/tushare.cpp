@@ -226,7 +226,7 @@ bool Tushare::supports(std::string_view table, std::string_view exchange) const
         || table == "settlement";
 }
 
-Rows Tushare::settlement(const std::string& exchange, const std::string& day)
+std::vector<Settlement> Tushare::settlement(const std::string& exchange, const std::string& day)
 {
     require_exchange(exchange);
     auto compact = day;
@@ -236,7 +236,7 @@ Rows Tushare::settlement(const std::string& exchange, const std::string& day)
             {{"exchange", exchange}, {"trade_date", compact}},
             "ts_code,trade_date,trading_fee_rate,trading_fee,long_margin_rate,short_margin_rate",
             1600);
-    Rows rows;
+    std::vector<Settlement> rows;
     std::set<std::string> seen;
     try {
         for (const auto& item : table.rows) {
@@ -258,19 +258,16 @@ Rows Tushare::settlement(const std::string& exchange, const std::string& day)
                     throw std::invalid_argument("margin rate is not a fraction");
                 return number(at(field));
             };
-            const auto begin = contract.find('/') + 1;
+            // offset_today_fee does not say whether it is a rate or per lot, so close-today fees stay missing.
             rows.push_back(
-                {exchange,
-                    contract.substr(begin, contract.rfind('/') - begin),
-                    contract,
-                    day,
-                    margin("long_margin_rate"),
-                    margin("short_margin_rate"),
-                    number(at("trading_fee_rate"), -3),
-                    number(at("trading_fee")),
-                    // offset_today_fee does not say whether it is a rate or per lot.
-                    Cell{},
-                    Cell{}});
+                {.exchange = exchange,
+                    .product = product_of(contract),
+                    .contract = contract,
+                    .day = day,
+                    .long_margin_rate = margin("long_margin_rate"),
+                    .short_margin_rate = margin("short_margin_rate"),
+                    .fee_rate = number(at("trading_fee_rate"), -3),
+                    .fee_per_lot = number(at("trading_fee"))});
         }
     } catch (...) {
         throw SourceError("failed", "Tushare returned invalid settlement data");
@@ -278,7 +275,7 @@ Rows Tushare::settlement(const std::string& exchange, const std::string& day)
     return rows;
 }
 
-Rows Tushare::contracts(const std::string& exchange)
+std::vector<Contract> Tushare::contracts(const std::string& exchange)
 {
     require_exchange(exchange);
     check_stop(stop_);
@@ -289,7 +286,7 @@ Rows Tushare::contracts(const std::string& exchange)
         {{"exchange", exchange}, {"fut_type", "1"}},
         "ts_code,exchange,name,fut_code,multiplier,trade_unit,per_unit,quote_unit,quote_unit_desc,d_mode_desc,list_date,delist_date,d_month,last_ddate,trade_time_desc",
         10000);
-    Rows rows;
+    std::vector<Contract> rows;
     std::set<std::string> identities;
     try {
         for (const auto& item : table.rows) {
@@ -323,22 +320,22 @@ Rows Tushare::contracts(const std::string& exchange)
             if (!identities.insert(identity).second)
                 throw std::invalid_argument("duplicate contract");
             rows.push_back(
-                {exchange,
-                    identity,
-                    product,
-                    delivery,
-                    code,
-                    label(at("name")),
-                    dashed(at("list_date")),
-                    dashed(at("delist_date")),
-                    optional_date(at("last_ddate")),
-                    number(at("multiplier")),
-                    number(at("per_unit")),
-                    label(at("trade_unit")),
-                    label(at("quote_unit")),
-                    label(at("quote_unit_desc")),
-                    label(at("d_mode_desc")),
-                    label(at("trade_time_desc"))});
+                {.exchange = exchange,
+                    .contract = identity,
+                    .product = product,
+                    .delivery_month = delivery,
+                    .source_instrument = code,
+                    .name = label(at("name")),
+                    .list_date = dashed(at("list_date")),
+                    .delist_date = dashed(at("delist_date")),
+                    .last_delivery_date = optional_date(at("last_ddate")),
+                    .multiplier = number(at("multiplier")),
+                    .per_unit = number(at("per_unit")),
+                    .trade_unit = label(at("trade_unit")),
+                    .quote_unit = label(at("quote_unit")),
+                    .tick_description = label(at("quote_unit_desc")),
+                    .delivery_description = label(at("d_mode_desc")),
+                    .trading_hours = label(at("trade_time_desc"))});
         }
     } catch (...) {
         throw SourceError("failed", "Tushare returned invalid contract data");
@@ -347,7 +344,7 @@ Rows Tushare::contracts(const std::string& exchange)
     return rows;
 }
 
-Rows Tushare::calendar(const std::string& exchange, int year)
+std::vector<CalendarDay> Tushare::calendar(const std::string& exchange, int year)
 {
     require_exchange(exchange);
     if (year < 1990 || year > 9999)
@@ -359,7 +356,7 @@ Rows Tushare::calendar(const std::string& exchange, int year)
                 {"end_date", std::to_string(year) + "1231"}},
             "exchange,cal_date,is_open,pretrade_date",
             2000);
-    Rows rows;
+    std::vector<CalendarDay> rows;
     std::set<std::string> seen;
     try {
         for (const auto& item : table.rows) {
@@ -369,7 +366,10 @@ Rows Tushare::calendar(const std::string& exchange, int year)
                 || !seen.insert(day).second || (open != "0" && open != "1"))
                 throw std::invalid_argument("invalid calendar row");
             rows.push_back(
-                {exchange, day, open == "1", optional_date(table.at(item, "pretrade_date"))});
+                {.exchange = exchange,
+                    .day = day,
+                    .open = open == "1",
+                    .previous_trading_day = optional_date(table.at(item, "pretrade_date"))});
         }
     } catch (...) {
         throw SourceError("failed", "Tushare returned invalid calendar data");
@@ -377,7 +377,7 @@ Rows Tushare::calendar(const std::string& exchange, int year)
     return rows;
 }
 
-Rows Tushare::daily(const std::string& exchange, const std::string& day)
+std::vector<DailyBar> Tushare::daily(const std::string& exchange, const std::string& day)
 {
     require_exchange(exchange);
     day_of(day);
@@ -389,7 +389,7 @@ Rows Tushare::daily(const std::string& exchange, const std::string& day)
         {{"exchange", exchange}, {"trade_date", compact}},
         "ts_code,trade_date,pre_close,pre_settle,open,high,low,close,settle,vol,amount,oi,oi_chg,delv_settle",
         2000);
-    Rows rows;
+    std::vector<DailyBar> rows;
     std::set<std::string> seen;
     try {
         for (const auto& item : table.rows) {
@@ -402,23 +402,22 @@ Rows Tushare::daily(const std::string& exchange, const std::string& day)
             if (!dated(code, exchange))
                 continue;
             auto found = std::find_if(catalogue.begin(), catalogue.end(), [&](const auto& row) {
-                return std::get<std::string>(row[4]) == code;
+                return row.source_instrument == code;
             });
-            const auto live = [&](const auto& row) {
-                return std::get<std::string>(row[6]) <= day && day <= std::get<std::string>(row[7]);
+            const auto live = [&](const Contract& row) {
+                return row.list_date <= day && day <= row.delist_date;
             };
             if (exchange == "CZCE" && (found == catalogue.end() || !live(*found))) {
                 const auto active =
                     std::find_if(catalogue.begin(), catalogue.end(), [&](const auto& row) {
-                        return live(row)
-                            && czce_code(std::get<std::string>(row[4])) == czce_code(code);
+                        return live(row) && czce_code(row.source_instrument) == czce_code(code);
                     });
                 if (active != catalogue.end())
                     found = active;
             }
             if (found == catalogue.end())
                 throw std::invalid_argument("unlisted contract");
-            const auto identity = std::get<std::string>((*found)[1]);
+            const auto& identity = found->contract;
             if (!seen.insert(identity).second)
                 throw std::invalid_argument("duplicate daily row");
             const auto price = [&](const char* field) {
@@ -432,22 +431,22 @@ Rows Tushare::daily(const std::string& exchange, const std::string& day)
                 ? Cell{}
                 : price("close");
             rows.push_back(
-                {exchange,
-                    (*found)[2],
-                    identity,
-                    day,
-                    open,
-                    high,
-                    low,
-                    close,
-                    number(at("settle")),
-                    number(at("pre_close")),
-                    number(at("pre_settle")),
-                    number(at("vol")),
-                    number(at("amount"), 4),
-                    number(at("oi")),
-                    number(at("oi_chg")),
-                    number(at("delv_settle"))});
+                {.exchange = exchange,
+                    .product = found->product,
+                    .contract = identity,
+                    .day = day,
+                    .open = open,
+                    .high = high,
+                    .low = low,
+                    .close = close,
+                    .settlement = number(at("settle")),
+                    .previous_close = number(at("pre_close")),
+                    .previous_settlement = number(at("pre_settle")),
+                    .volume = number(at("vol")),
+                    .amount = number(at("amount"), 4),
+                    .open_interest = number(at("oi")),
+                    .open_interest_change = number(at("oi_chg")),
+                    .delivery_settlement = number(at("delv_settle"))});
         }
     } catch (...) {
         throw SourceError("failed", "Tushare returned invalid daily data");
@@ -455,16 +454,13 @@ Rows Tushare::daily(const std::string& exchange, const std::string& day)
     return rows;
 }
 
-warehouse::Row Tushare::calendar_day(const std::string& exchange, const std::string& day)
+const CalendarDay& Tushare::calendar_day(const std::string& exchange, const std::string& day)
 {
     const auto key = std::pair{exchange, std::stoi(day.substr(0, 4))};
     if (!calendars_.contains(key)) {
-        auto rows = calendar(exchange, key.second);
         auto& dates = calendars_[key];
-        for (auto& row : rows) {
-            auto date = std::get<std::string>(row[1]);
-            dates.emplace(std::move(date), std::move(row));
-        }
+        for (auto& row : calendar(exchange, key.second))
+            dates.emplace(row.day, std::move(row));
     }
     const auto& dates = calendars_.at(key);
     if (!dates.contains(day))
@@ -478,7 +474,7 @@ std::string Tushare::trading_day(const std::string& exchange, std::chrono::sys_s
     const auto day = floor<days>(end);
     const auto hour = duration_cast<hours>(end - day).count();
     const auto open = [&](sys_days value) {
-        return std::get<bool>(calendar_day(exchange, day_text(value))[2]);
+        return calendar_day(exchange, day_text(value)).open;
     };
     if (hour >= 6 && hour < 18) {
         if (!open(day))
@@ -494,7 +490,7 @@ std::string Tushare::trading_day(const std::string& exchange, std::chrono::sys_s
     throw std::invalid_argument("no trading day after night session");
 }
 
-Rows Tushare::minutes(const std::string& contract, const std::string& day)
+std::vector<MinuteBar> Tushare::minutes(const std::string& contract, const std::string& day)
 {
     using namespace std::chrono;
     require_contract(contract);
@@ -502,26 +498,24 @@ Rows Tushare::minutes(const std::string& contract, const std::string& day)
     check_stop(stop_);
     if (window_.contract == contract && day >= window_.first && day <= window_.last) {
         const auto at = window_.rows.find(day);
-        return at == window_.rows.end() ? Rows{} : at->second;
+        return at == window_.rows.end() ? std::vector<MinuteBar>{} : at->second;
     }
     const auto exchange = contract.substr(0, contract.find('/'));
     const auto entry = calendar_day(exchange, day);
     const auto catalogue = contracts(exchange);
     const auto listing = std::find_if(catalogue.begin(), catalogue.end(), [&](const auto& row) {
-        return std::get<std::string>(row[1]) == contract;
+        return row.contract == contract;
     });
     if (listing == catalogue.end())
         throw SourceError("invalid_data", "Tushare does not list the requested contract");
-    if (!std::get<bool>(entry[2]) || day < std::get<std::string>((*listing)[6])
-        || day > std::get<std::string>((*listing)[7]))
+    if (!entry.open || day < listing->list_date || day > listing->delist_date)
         return {};
-    const auto last = std::min(first + days(27), day_of(std::get<std::string>((*listing)[7])));
-    const auto begin = std::holds_alternative<std::monostate>(entry[3])
-        ? first - days(1)
-        : day_of(std::get<std::string>(entry[3]));
+    const auto last = std::min(first + days(27), day_of(listing->delist_date));
+    const auto* previous = std::get_if<std::string>(&entry.previous_trading_day);
+    const auto begin = previous ? day_of(*previous) : first - days(1);
     const sys_seconds start = begin + hours(18),
                       finish = last + hours(15) + std::chrono::minutes(30);
-    const auto code = std::get<std::string>((*listing)[4]);
+    const auto code = listing->source_instrument;
     constexpr std::size_t page_size = 8000;
     Json params{
         {"ts_code", code},
@@ -565,19 +559,17 @@ Rows Tushare::minutes(const std::string& contract, const std::string& day)
                         (end - hours(8) - std::chrono::minutes(1)).time_since_epoch())
                                                .count();
                     pending.rows[traded].push_back(
-                        {exchange,
-                            (*listing)[2],
-                            contract,
-                            traded,
-                            static_cast<std::int64_t>(timestamp),
-                            false,
-                            number(at("open")),
-                            number(at("high")),
-                            number(at("low")),
-                            number(at("close")),
-                            volume,
-                            Cell{},
-                            number(at("oi"))});
+                        {.exchange = exchange,
+                            .product = listing->product,
+                            .contract = contract,
+                            .day = traded,
+                            .start_ms = static_cast<std::int64_t>(timestamp),
+                            .open = number(at("open")),
+                            .high = number(at("high")),
+                            .low = number(at("low")),
+                            .close = number(at("close")),
+                            .volume = volume,
+                            .open_interest = number(at("oi"))});
                 }
             }
         } catch (const SourceError&) {
@@ -590,11 +582,11 @@ Rows Tushare::minutes(const std::string& contract, const std::string& day)
     }
     for (auto& [date, rows] : pending.rows)
         std::sort(rows.begin(), rows.end(), [](const auto& left, const auto& right) {
-            return std::get<std::int64_t>(left[4]) < std::get<std::int64_t>(right[4]);
+            return left.start_ms < right.start_ms;
         });
     window_ = std::move(pending);
     const auto found = window_.rows.find(day);
-    return found == window_.rows.end() ? Rows{} : found->second;
+    return found == window_.rows.end() ? std::vector<MinuteBar>{} : found->second;
 }
 
 } // namespace asterion::warehouse::acquisition

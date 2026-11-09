@@ -32,11 +32,19 @@ ac::HttpReply fetch(const ac::HttpRequest& request, std::stop_token)
     return {200, fixture(request.path.substr(request.path.find('=') + 1))};
 }
 
-wh::Row product(const ac::Rows& rows, const std::string& name)
+wh::Row product(const std::vector<wh::Row>& rows, const std::string& name)
 {
     for (const auto& row : rows)
         if (row[1] == wh::Cell{name})
             return row;
+    throw std::runtime_error("missing product " + name);
+}
+
+std::string tick(const std::vector<wh::PriceTick>& rows, const std::string& name)
+{
+    for (const auto& row : rows)
+        if (row.product == name)
+            return row.price_tick.str();
     throw std::runtime_error("missing product " + name);
 }
 
@@ -81,25 +89,25 @@ TEST_F(GuotaiSource, DatedReportsCoverFiveExchangesAndKeepHistoricalChanges)
             const auto rows = source.price_ticks(exchange, day);
             ASSERT_FALSE(rows.empty());
             for (const auto& row : rows) {
-                EXPECT_EQ(row[0], wh::Cell{exchange});
-                EXPECT_EQ(row[2], wh::Cell{});
-                EXPECT_EQ(row[3], wh::Cell{day});
-                EXPECT_EQ(row[4], wh::Cell{ac::day_text(ac::day_of(day) + std::chrono::days(1))});
+                EXPECT_EQ(row.exchange, exchange);
+                EXPECT_EQ(row.contract, wh::Cell{});
+                EXPECT_EQ(row.effective_from, day);
+                EXPECT_EQ(
+                    row.effective_until,
+                    ac::day_text(ac::day_of(day) + std::chrono::days(1)));
                 auto date = day;
                 std::erase(date, '-');
-                EXPECT_EQ(row[6], wh::Cell{"https://www.gtjaqh.com/pc/calendar?date=" + date});
-                EXPECT_EQ(std::get<std::string>(row[1]).find('_'), std::string::npos);
+                EXPECT_EQ(row.source_url, "https://www.gtjaqh.com/pc/calendar?date=" + date);
+                EXPECT_EQ(row.product.find('_'), std::string::npos);
             }
             if (exchange == "CFFEX")
-                EXPECT_EQ(product(rows, "ts")[5], wh::Cell{bond_tick});
+                EXPECT_EQ(tick(rows, "ts"), bond_tick);
             if (exchange == "GFEX") {
                 EXPECT_EQ(rows.size(), 2);
-                EXPECT_EQ(
-                    product(rows, "lc")[5],
-                    wh::Cell{std::string(day < "2024-12-18" ? "50" : "20")});
+                EXPECT_EQ(tick(rows, "lc"), day < "2024-12-18" ? "50" : "20");
             }
             if (exchange == "SHFE")
-                EXPECT_EQ(product(rows, "au")[5], wh::Cell{std::string("0.02")});
+                EXPECT_EQ(tick(rows, "au"), "0.02");
         }
     }
     EXPECT_EQ(source.requests(), dates.size());
@@ -166,8 +174,6 @@ TEST_F(GuotaiSource, PublicReportsPublishHistoricalChangesThroughMarket)
     ac::Manager manager(root, {{"gtja", [](auto stop) {
                                     return std::make_unique<ac::Guotai>(exchanges, stop);
                                 }}});
-    wh::Store research(wh::source_directory(root, "research"), "research");
-    wh::compose(root, research);
     for (const auto* first : {"2023-11-06", "2024-12-17"}) {
         ac::wire::StartAcquisition request;
         request.set_id(first);
@@ -180,7 +186,8 @@ TEST_F(GuotaiSource, PublicReportsPublishHistoricalChangesThroughMarket)
         EXPECT_EQ(task.requests_sent(), 2);
         EXPECT_EQ(task.items_empty(), 0);
     }
-    const auto fixed = research.current();
+    wh::Store research(wh::source_directory(root, "research"), "research");
+    const auto fixed = wh::compose(root, research);
     ASSERT_EQ(fixed.partitions.size(), 20);
     const auto tick =
         [&](const std::string& exchange, const std::string& name, const std::string& day) {

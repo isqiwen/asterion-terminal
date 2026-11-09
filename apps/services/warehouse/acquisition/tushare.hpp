@@ -29,11 +29,11 @@ class Tushare final : public Source
 public:
     Tushare(std::string token, std::shared_ptr<Budget>, std::stop_token, Post = tushare_post);
     bool supports(std::string_view table, std::string_view exchange) const override;
-    Rows calendar(const std::string&, int year) override;
-    Rows contracts(const std::string&) override;
-    Rows daily(const std::string&, const std::string&) override;
-    Rows minutes(const std::string&, const std::string&) override;
-    Rows settlement(const std::string&, const std::string&) override;
+    std::vector<CalendarDay> calendar(const std::string&, int year) override;
+    std::vector<Contract> contracts(const std::string&) override;
+    std::vector<DailyBar> daily(const std::string&, const std::string&) override;
+    std::vector<MinuteBar> minutes(const std::string&, const std::string&) override;
+    std::vector<Settlement> settlement(const std::string&, const std::string&) override;
 
 private:
     struct Table;
@@ -46,15 +46,15 @@ private:
     std::shared_ptr<Budget> budget_;
     std::stop_token stop_;
     Post post_;
-    std::map<std::string, Rows> contracts_;
-    std::map<std::pair<std::string, int>, std::map<std::string, warehouse::Row>> calendars_;
-    warehouse::Row calendar_day(const std::string& exchange, const std::string& day);
+    std::map<std::string, std::vector<Contract>> contracts_;
+    std::map<std::pair<std::string, int>, std::map<std::string, CalendarDay>> calendars_;
+    const CalendarDay& calendar_day(const std::string& exchange, const std::string& day);
     std::string trading_day(const std::string& exchange, std::chrono::sys_seconds end);
 
     struct Window
     {
         std::string contract, first, last;
-        std::map<std::string, Rows> rows;
+        std::map<std::string, std::vector<MinuteBar>> rows;
     } window_;
 };
 

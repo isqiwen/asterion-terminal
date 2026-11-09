@@ -19,84 +19,6 @@ namespace {
 using K = Kind;
 using Json = nlohmann::json;
 constexpr std::size_t manifest_limit = 32 * 1024 * 1024;
-constexpr Column daily[] = {
-    {"exchange", K::text},
-    {"product", K::text},
-    {"contract", K::text},
-    {"day", K::date},
-    {"open", K::number},
-    {"high", K::number},
-    {"low", K::number},
-    {"close", K::number},
-    {"settlement", K::number},
-    {"previous_close", K::number},
-    {"previous_settlement", K::number},
-    {"volume", K::number},
-    {"amount", K::number},
-    {"open_interest", K::number},
-    {"open_interest_change", K::number},
-    {"delivery_settlement", K::number}
-};
-constexpr Column calendar[] = {
-    {"exchange", K::text},
-    {"day", K::date},
-    {"open", K::boolean},
-    {"previous_trading_day", K::date}
-};
-constexpr Column contracts[] = {
-    {"exchange", K::text},
-    {"contract", K::text},
-    {"product", K::text},
-    {"delivery_month", K::text},
-    {"source_instrument", K::text},
-    {"name", K::text},
-    {"list_date", K::date},
-    {"delist_date", K::date},
-    {"last_delivery_date", K::date},
-    {"multiplier", K::number},
-    {"per_unit", K::number},
-    {"trade_unit", K::text},
-    {"quote_unit", K::text},
-    {"tick_description", K::text},
-    {"delivery_description", K::text},
-    {"trading_hours", K::text}
-};
-constexpr Column minutes[] = {
-    {"exchange", K::text},
-    {"product", K::text},
-    {"contract", K::text},
-    {"day", K::date},
-    {"start_ms", K::integer},
-    {"partial", K::boolean},
-    {"open", K::number},
-    {"high", K::number},
-    {"low", K::number},
-    {"close", K::number},
-    {"volume", K::number},
-    {"average_price", K::number},
-    {"open_interest", K::number}
-};
-constexpr Column settlement[] = {
-    {"exchange", K::text},
-    {"product", K::text},
-    {"contract", K::text},
-    {"day", K::date},
-    {"long_margin_rate", K::number},
-    {"short_margin_rate", K::number},
-    {"fee_rate", K::number},
-    {"fee_per_lot", K::number},
-    {"close_today_fee_rate", K::number},
-    {"close_today_fee_per_lot", K::number}
-};
-constexpr Column price_ticks[] = {
-    {"exchange", K::text},
-    {"product", K::text},
-    {"contract", K::text},
-    {"effective_from", K::date},
-    {"effective_until", K::date},
-    {"price_tick", K::price},
-    {"source_url", K::text}
-};
 
 duckdb::LogicalType logical(Kind kind)
 {
@@ -232,23 +154,6 @@ void require_day(std::string_view day)
     };
     if (!date.ok() || date.year() == std::chrono::year(0))
         throw std::invalid_argument("invalid warehouse date");
-}
-
-std::span<const Column> columns(std::string_view table)
-{
-    if (table == "daily")
-        return daily;
-    if (table == "calendar")
-        return calendar;
-    if (table == "contracts")
-        return contracts;
-    if (table == "minutes")
-        return minutes;
-    if (table == "settlement")
-        return settlement;
-    if (table == "price_ticks")
-        return price_ticks;
-    throw std::invalid_argument("unknown warehouse table");
 }
 
 void require_provider(std::string_view provider)

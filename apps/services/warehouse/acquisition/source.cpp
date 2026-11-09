@@ -59,6 +59,12 @@ void require_contract(std::string_view contract)
     day_of(value.substr(value.rfind('/') + 1) + "-01");
 }
 
+std::string product_of(const std::string& contract)
+{
+    const auto first = contract.find('/'), last = contract.rfind('/');
+    return contract.substr(first + 1, last - first - 1);
+}
+
 std::optional<std::string>
 contract_of(const std::string& exchange, const std::string& code, const std::string& day)
 {
@@ -84,32 +90,32 @@ contract_of(const std::string& exchange, const std::string& code, const std::str
     return identity;
 }
 
-Rows Source::calendar(const std::string&, int)
+std::vector<CalendarDay> Source::calendar(const std::string&, int)
 {
     throw SourceError("unsupported", "source does not provide calendars");
 }
 
-Rows Source::contracts(const std::string&)
+std::vector<Contract> Source::contracts(const std::string&)
 {
     throw SourceError("unsupported", "source does not provide contracts");
 }
 
-Rows Source::daily(const std::string&, const std::string&)
+std::vector<DailyBar> Source::daily(const std::string&, const std::string&)
 {
     throw SourceError("unsupported", "source does not provide daily bars");
 }
 
-Rows Source::minutes(const std::string&, const std::string&)
+std::vector<MinuteBar> Source::minutes(const std::string&, const std::string&)
 {
     throw SourceError("unsupported", "source does not provide minutes");
 }
 
-Rows Source::settlement(const std::string&, const std::string&)
+std::vector<Settlement> Source::settlement(const std::string&, const std::string&)
 {
     throw SourceError("unsupported", "source does not provide settlement parameters");
 }
 
-Rows Source::price_ticks(const std::string&, const std::string&)
+std::vector<PriceTick> Source::price_ticks(const std::string&, const std::string&)
 {
     throw SourceError("unsupported", "source does not provide historical price ticks");
 }

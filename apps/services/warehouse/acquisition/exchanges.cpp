@@ -14,7 +14,7 @@ namespace {
 
 using values::Json;
 using warehouse::Cell;
-using warehouse::Row;
+using Parsed = Exchange::Parsed;
 
 std::string trim(std::string text)
 {
@@ -108,7 +108,7 @@ std::vector<std::vector<std::string>> cells(const std::string& raw, char separat
     return rows;
 }
 
-Row daily_row(
+DailyBar daily_row(
     const std::string& exchange,
     const std::string& contract,
     const std::string& day,
@@ -128,24 +128,19 @@ Row daily_row(
     high = price(std::move(high));
     low = price(std::move(low));
     close = open == Cell{} && high == Cell{} && low == Cell{} ? Cell{} : price(std::move(close));
-    const auto begin = contract.find('/') + 1;
     return {
-        exchange,
-        contract.substr(begin, contract.rfind('/') - begin),
-        contract,
-        day,
-        open,
-        high,
-        low,
-        close,
-        settle,
-        Cell{},
-        previous,
-        volume,
-        Cell{},
-        interest,
-        Cell{},
-        Cell{}
+        .exchange = exchange,
+        .product = product_of(contract),
+        .contract = contract,
+        .day = day,
+        .open = open,
+        .high = high,
+        .low = low,
+        .close = close,
+        .settlement = settle,
+        .previous_settlement = previous,
+        .volume = volume,
+        .open_interest = interest
     };
 }
 
@@ -155,7 +150,8 @@ void unique(std::set<std::string>& seen, const std::string& contract)
         throw std::invalid_argument("duplicate exchange contract");
 }
 
-Rows czce_price_ticks(const std::string& day, const std::string& raw, const std::string& url)
+std::vector<PriceTick>
+czce_price_ticks(const std::string& day, const std::string& raw, const std::string& url)
 {
     tinyxml2::XMLDocument document;
     if (document.Parse(raw.data(), raw.size()) != tinyxml2::XML_SUCCESS)
@@ -166,7 +162,7 @@ Rows czce_price_ticks(const std::string& day, const std::string& raw, const std:
     const auto observation = day_of(day);
     const auto until = day_text(observation + std::chrono::days(1));
     constexpr std::string_view unit = "元/吨";
-    Rows result;
+    std::vector<PriceTick> result;
     std::set<std::string> seen;
     for (const auto* row = root->FirstChildElement(); row; row = row->NextSiblingElement()) {
         if (std::string_view(row->Name()) != "Contract")
@@ -200,14 +196,21 @@ Rows czce_price_ticks(const std::string& day, const std::string& raw, const std:
         if (tick <= Decimal{})
             throw std::invalid_argument("CZCE reference price tick must be positive");
         unique(seen, identity);
-        result.push_back({"CZCE", product, identity, day, until, tick.str(), url});
+        result.push_back(
+            {.exchange = "CZCE",
+                .product = product,
+                .contract = identity,
+                .effective_from = day,
+                .effective_until = until,
+                .price_tick = tick,
+                .source_url = url});
     }
     if (result.empty())
         throw std::invalid_argument("CZCE reference contains no futures contracts");
     return result;
 }
 
-Rows shanghai(
+Parsed shanghai(
     const std::string& exchange,
     const std::string& day,
     const std::string& table,
@@ -219,7 +222,7 @@ Rows shanghai(
     const auto status = code.is_string() ? text(code) : values::numeric(code);
     if (text(root.at("report_date")) != compact(day) || (status != "0000" && status != "0"))
         throw std::invalid_argument("wrong date or refused exchange file");
-    Rows result;
+    Parsed result;
     std::set<std::string> seen;
     const auto& rows = root.at(table == "daily" ? "o_curinstrument" : "o_cursor");
     if (!rows.is_array())
@@ -242,7 +245,7 @@ Rows shanghai(
             return number(row.at(key), shift);
         };
         if (table == "daily")
-            result.push_back(daily_row(
+            result.daily.push_back(daily_row(
                 exchange,
                 *contract,
                 day,
@@ -255,28 +258,27 @@ Rows shanghai(
                 n("VOLUME"),
                 n("OPENINTEREST")));
         else {
-            const auto begin = contract->find('/') + 1;
             // Published since 2024-07-22; missing before, never guessed.
             const auto today = [&](const char* key, int shift = 0) {
                 return row.contains(key) ? n(key, shift) : Cell{};
             };
-            result.push_back(
-                {exchange,
-                    contract->substr(begin, contract->rfind('/') - begin),
-                    *contract,
-                    day,
-                    n("SPECLONGMARGINRATIO"),
-                    n("SPECSHORTMARGINRATIO"),
-                    n("TRADEFEERATIO", -3),
-                    n("TRADEFEEUNIT"),
-                    today("TTRADEFEERATIO", -3),
-                    today("TTRADEFEEUNIT")});
+            result.settlement.push_back(
+                {.exchange = exchange,
+                    .product = product_of(*contract),
+                    .contract = *contract,
+                    .day = day,
+                    .long_margin_rate = n("SPECLONGMARGINRATIO"),
+                    .short_margin_rate = n("SPECSHORTMARGINRATIO"),
+                    .fee_rate = n("TRADEFEERATIO", -3),
+                    .fee_per_lot = n("TRADEFEEUNIT"),
+                    .close_today_fee_rate = today("TTRADEFEERATIO", -3),
+                    .close_today_fee_per_lot = today("TTRADEFEEUNIT")});
         }
     }
     return result;
 }
 
-Rows text_rows(
+Parsed text_rows(
     const std::string& exchange,
     const std::string& day,
     const std::string& table,
@@ -291,7 +293,7 @@ Rows text_rows(
         && (rows.empty() || rows[0].empty() || rows[0][0].find(day) == std::string::npos))
         throw std::invalid_argument("wrong CZCE report date");
     if (old_daily) {
-        Rows result;
+        Parsed result;
         std::set<std::string> seen;
         for (const auto& row : rows) {
             if (row.empty())
@@ -305,7 +307,7 @@ Rows text_rows(
             const auto n = [&](std::size_t at) {
                 return number(Json(row.at(at)));
             };
-            result.push_back(daily_row(
+            result.daily.push_back(daily_row(
                 exchange,
                 *contract,
                 day,
@@ -331,7 +333,7 @@ Rows text_rows(
     for (std::size_t i = 0; i < header->size(); ++i)
         if (!columns.emplace((*header)[i], i).second)
             throw std::invalid_argument("duplicate exchange table header");
-    Rows result;
+    Parsed result;
     std::set<std::string> seen;
     for (auto item = std::next(header); item != rows.end(); ++item) {
         if (item->empty())
@@ -354,7 +356,7 @@ Rows text_rows(
             return number(Json(value(key)), shift);
         };
         if (table == "daily")
-            result.push_back(daily_row(
+            result.daily.push_back(daily_row(
                 exchange,
                 *contract,
                 day,
@@ -373,7 +375,6 @@ Rows text_rows(
             const bool ratio = basis == "比例值";
             if (!ratio && basis != "绝对值")
                 throw std::invalid_argument("unknown fee basis");
-            const auto begin = contract->find('/') + 1;
             // Until 2019 CZCE gave buy and sell margins apart.
             const bool one_margin = columns.contains("交易保证金率(%)");
             const auto long_margin = n(one_margin ? "交易保证金率(%)" : "买交易保证金率(%)", -2);
@@ -391,23 +392,24 @@ Rows text_rows(
                 close_today = columns.contains("日内平今仓交易手续费") ? n("日内平今仓交易手续费")
                                                                        : n("平今仓手续费");
             const Cell zero{std::string("0")};
-            result.push_back(
-                {exchange,
-                    contract->substr(begin, contract->rfind('/') - begin),
-                    *contract,
-                    day,
-                    long_margin,
-                    short_margin,
-                    ratio ? n("交易手续费", -4) : zero,
-                    ratio ? zero : n("交易手续费"),
-                    ratio ? n("日内平今仓交易手续费", -4) : zero,
-                    ratio ? zero : close_today});
+            result.settlement.push_back(
+                {.exchange = exchange,
+                    .product = product_of(*contract),
+                    .contract = *contract,
+                    .day = day,
+                    .long_margin_rate = long_margin,
+                    .short_margin_rate = short_margin,
+                    .fee_rate = ratio ? n("交易手续费", -4) : zero,
+                    .fee_per_lot = ratio ? zero : n("交易手续费"),
+                    .close_today_fee_rate = ratio ? n("日内平今仓交易手续费", -4) : zero,
+                    .close_today_fee_per_lot = ratio ? zero : close_today});
         }
     }
     return result;
 }
 
-Rows portal(const std::string& exchange, const std::string& day, const std::string& raw)
+std::vector<DailyBar>
+portal(const std::string& exchange, const std::string& day, const std::string& raw)
 {
     const auto root = values::parse(raw);
     const auto& code = root.at("code");
@@ -419,7 +421,7 @@ Rows portal(const std::string& exchange, const std::string& day, const std::stri
     const auto& rows = root.at("data");
     if (!rows.is_array())
         throw std::invalid_argument("expected portal rows");
-    Rows result;
+    std::vector<DailyBar> result;
     std::set<std::string> seen;
     for (const auto& row : rows) {
         const auto label = text(row.at("variety"));
@@ -495,22 +497,23 @@ bool Exchange::supports(std::string_view table, std::string_view exchange) const
                 && (exchange == "SHFE" || exchange == "INE" || exchange == "CZCE")));
 }
 
-Rows Exchange::daily(const std::string& exchange, const std::string& day)
+std::vector<DailyBar> Exchange::daily(const std::string& exchange, const std::string& day)
 {
-    return read("daily", exchange, day);
+    return read("daily", exchange, day).daily;
 }
 
-Rows Exchange::settlement(const std::string& exchange, const std::string& day)
+std::vector<Settlement> Exchange::settlement(const std::string& exchange, const std::string& day)
 {
-    return read("settlement", exchange, day);
+    return read("settlement", exchange, day).settlement;
 }
 
-Rows Exchange::price_ticks(const std::string& exchange, const std::string& day)
+std::vector<PriceTick> Exchange::price_ticks(const std::string& exchange, const std::string& day)
 {
-    return read("price_ticks", exchange, day);
+    return read("price_ticks", exchange, day).price_ticks;
 }
 
-Rows Exchange::read(const std::string& table, const std::string& exchange, const std::string& day)
+Exchange::Parsed
+Exchange::read(const std::string& table, const std::string& exchange, const std::string& day)
 {
     day_of(day);
     if (!supports(table, exchange))
@@ -519,7 +522,7 @@ Rows Exchange::read(const std::string& table, const std::string& exchange, const
     const bool archived = exchange == "CZCE" && table == "daily" && day <= "2010-08-24";
     if (archived && archive_year_ == day.substr(0, 4)) {
         try {
-            return archive_.empty() ? Rows{} : text_rows(exchange, day, table, archive_, true);
+            return archive_.empty() ? Parsed{} : text_rows(exchange, day, table, archive_, true);
         } catch (const std::exception& error) {
             throw SourceError(
                 "invalid_data",
@@ -594,7 +597,9 @@ Rows Exchange::read(const std::string& table, const std::string& exchange, const
         if (reply.body.size() > values::response_limit)
             throw std::invalid_argument("exchange file too large");
         if (table == "price_ticks")
-            return czce_price_ticks(day, reply.body, request.origin + request.path);
+            return {
+                .price_ticks = czce_price_ticks(day, reply.body, request.origin + request.path)
+            };
         if (exchange == "SHFE" || exchange == "INE")
             return shanghai(exchange, day, table, reply.body);
         if (archived) {
@@ -607,7 +612,7 @@ Rows Exchange::read(const std::string& table, const std::string& exchange, const
         }
         if (exchange == "CZCE" || exchange == "CFFEX")
             return text_rows(exchange, day, table, reply.body);
-        return portal(exchange, day, reply.body);
+        return {.daily = portal(exchange, day, reply.body)};
     } catch (const std::exception& error) {
         // Public files carry no credentials; name the broken field or invariant
         // so an upstream format change can be diagnosed without saving raw replies.

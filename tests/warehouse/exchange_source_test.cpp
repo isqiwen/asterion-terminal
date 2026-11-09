@@ -65,17 +65,17 @@ TEST_F(ExchangeSources, ExactDecimalsMissingPricesAndFeeBasesReachParquet)
         });
         auto daily = source.daily(exchange, "2026-10-30");
         ASSERT_EQ(daily.size(), 1);
-        EXPECT_EQ(daily[0][7], wh::Cell{});
-        EXPECT_EQ(std::get<std::string>(daily[0][8]), "3399.123456");
-        EXPECT_EQ(std::get<std::string>(daily[0][11]), "12345678901234567890");
-        EXPECT_EQ(daily[0][12], wh::Cell{}); // Preserve unverified turnover units as absent.
+        EXPECT_EQ(daily[0].close, wh::Cell{});
+        EXPECT_EQ(std::get<std::string>(daily[0].settlement), "3399.123456");
+        EXPECT_EQ(std::get<std::string>(daily[0].volume), "12345678901234567890");
+        EXPECT_EQ(daily[0].amount, wh::Cell{}); // Preserve unverified turnover units as absent.
         const auto fees = source.settlement(exchange, "2026-10-30");
-        EXPECT_EQ(std::get<std::string>(fees[0][6]), "0.00005");
-        EXPECT_EQ(std::get<std::string>(fees[0][8]), "0.000025");
+        EXPECT_EQ(std::get<std::string>(fees[0].fee_rate), "0.00005");
+        EXPECT_EQ(std::get<std::string>(fees[0].close_today_fee_rate), "0.000025");
         wh::Store store(root / exchange, "exchange");
         auto writer = store.writer();
-        writer.put(std::string("daily/") + exchange + "/2026-10-30", daily);
-        writer.put(std::string("settlement/") + exchange + "/2026-10-30", fees);
+        writer.put(std::string("daily/") + exchange + "/2026-10-30", wh::rows(daily));
+        writer.put(std::string("settlement/") + exchange + "/2026-10-30", wh::rows(fees));
         auto version = writer.commit();
         EXPECT_EQ(
             std::get<std::string>(
@@ -97,12 +97,12 @@ TEST_F(ExchangeSources, ExactDecimalsMissingPricesAndFeeBasesReachParquet)
     EXPECT_EQ(shfe.daily("SHFE", "2026-10-30").size(), 1);
     const auto fees = shfe.settlement("SHFE", "2026-10-30");
     ASSERT_EQ(fees.size(), 1);
-    EXPECT_EQ(std::get<std::string>(fees[0][6]), "0.00005");
-    EXPECT_EQ(fees[0][8], wh::Cell{});
-    EXPECT_EQ(fees[0][9], wh::Cell{});
+    EXPECT_EQ(std::get<std::string>(fees[0].fee_rate), "0.00005");
+    EXPECT_EQ(fees[0].close_today_fee_rate, wh::Cell{});
+    EXPECT_EQ(fees[0].close_today_fee_per_lot, wh::Cell{});
     wh::Store store(root / "older", "exchange");
     auto writer = store.writer();
-    writer.put("settlement/SHFE/2026-10-30", fees);
+    writer.put("settlement/SHFE/2026-10-30", wh::rows(fees));
     const auto stored = store.read(writer.commit(), "settlement/SHFE/2026-10-30");
     EXPECT_EQ(stored[0][8], wh::Cell{});
     ac::Exchange czce("CZCE", {}, [](const auto&, auto) {
@@ -110,12 +110,12 @@ TEST_F(ExchangeSources, ExactDecimalsMissingPricesAndFeeBasesReachParquet)
     });
     auto rows = czce.settlement("CZCE", "2026-10-30");
     ASSERT_EQ(rows.size(), 2);
-    EXPECT_EQ(std::get<std::string>(rows[0][2]), "CZCE/ma/2027-01");
-    EXPECT_EQ(std::get<std::string>(rows[0][4]), "0.08");
-    EXPECT_EQ(std::get<std::string>(rows[0][6]), "0.00005");
-    EXPECT_EQ(std::get<std::string>(rows[0][9]), "0");
-    EXPECT_EQ(std::get<std::string>(rows[1][7]), "5");
-    EXPECT_EQ(std::get<std::string>(rows[1][9]), "10");
+    EXPECT_EQ(rows[0].contract, "CZCE/ma/2027-01");
+    EXPECT_EQ(std::get<std::string>(rows[0].long_margin_rate), "0.08");
+    EXPECT_EQ(std::get<std::string>(rows[0].fee_rate), "0.00005");
+    EXPECT_EQ(std::get<std::string>(rows[0].close_today_fee_per_lot), "0");
+    EXPECT_EQ(std::get<std::string>(rows[1].fee_per_lot), "5");
+    EXPECT_EQ(std::get<std::string>(rows[1].close_today_fee_per_lot), "10");
     // Before 2022-11-07 the table has no fee basis; every fee is per lot.
     ac::Exchange before("CZCE", {}, [](const auto&, auto) {
         return ac::HttpReply{
@@ -125,10 +125,10 @@ TEST_F(ExchangeSources, ExactDecimalsMissingPricesAndFeeBasesReachParquet)
     });
     rows = before.settlement("CZCE", "2022-01-04");
     ASSERT_EQ(rows.size(), 1);
-    EXPECT_EQ(std::get<std::string>(rows[0][2]), "CZCE/ap/2022-01");
-    EXPECT_EQ(std::get<std::string>(rows[0][6]), "0");
-    EXPECT_EQ(std::get<std::string>(rows[0][7]), "5");
-    EXPECT_EQ(std::get<std::string>(rows[0][9]), "20");
+    EXPECT_EQ(rows[0].contract, "CZCE/ap/2022-01");
+    EXPECT_EQ(std::get<std::string>(rows[0].fee_rate), "0");
+    EXPECT_EQ(std::get<std::string>(rows[0].fee_per_lot), "5");
+    EXPECT_EQ(std::get<std::string>(rows[0].close_today_fee_per_lot), "20");
     // Older tables give buy and sell margins and name the close-today fee differently;
     // in 2016 only a flag says whether it is half the fee.
     ac::Exchange oldest("CZCE", {}, [](const ac::HttpRequest& request, auto) {
@@ -145,15 +145,15 @@ TEST_F(ExchangeSources, ExactDecimalsMissingPricesAndFeeBasesReachParquet)
     });
     rows = oldest.settlement("CZCE", "2016-01-05");
     ASSERT_EQ(rows.size(), 2);
-    EXPECT_EQ(std::get<std::string>(rows[0][4]), "0.2");
-    EXPECT_EQ(std::get<std::string>(rows[0][5]), "0.2");
-    EXPECT_EQ(std::get<std::string>(rows[0][7]), "4.3");
-    EXPECT_EQ(std::get<std::string>(rows[0][9]), "2.15");
-    EXPECT_EQ(std::get<std::string>(rows[1][9]), "3");
+    EXPECT_EQ(std::get<std::string>(rows[0].long_margin_rate), "0.2");
+    EXPECT_EQ(std::get<std::string>(rows[0].short_margin_rate), "0.2");
+    EXPECT_EQ(std::get<std::string>(rows[0].fee_per_lot), "4.3");
+    EXPECT_EQ(std::get<std::string>(rows[0].close_today_fee_per_lot), "2.15");
+    EXPECT_EQ(std::get<std::string>(rows[1].close_today_fee_per_lot), "3");
     rows = oldest.settlement("CZCE", "2018-08-24");
     ASSERT_EQ(rows.size(), 1);
-    EXPECT_EQ(std::get<std::string>(rows[0][4]), "0.11");
-    EXPECT_EQ(std::get<std::string>(rows[0][9]), "20");
+    EXPECT_EQ(std::get<std::string>(rows[0].long_margin_rate), "0.11");
+    EXPECT_EQ(std::get<std::string>(rows[0].close_today_fee_per_lot), "20");
 }
 
 TEST_F(ExchangeSources, CffexEncodingAndCzceDailyColumnsExcludeOptions)
@@ -167,7 +167,7 @@ TEST_F(ExchangeSources, CffexEncodingAndCzceDailyColumnsExcludeOptions)
     });
     const auto rows = cffex.daily("CFFEX", "2026-10-30");
     ASSERT_EQ(rows.size(), 1);
-    EXPECT_EQ(std::get<std::string>(rows[0][2]), "CFFEX/ic/2026-11");
+    EXPECT_EQ(rows[0].contract, "CFFEX/ic/2026-11");
     ac::Exchange czce("CZCE", {}, [](const auto&, auto) {
         return ac::HttpReply{
             200,
@@ -176,9 +176,9 @@ TEST_F(ExchangeSources, CffexEncodingAndCzceDailyColumnsExcludeOptions)
     });
     const auto daily = czce.daily("CZCE", "2026-10-30");
     ASSERT_EQ(daily.size(), 1);
-    EXPECT_EQ(daily[0][7], wh::Cell{});
-    EXPECT_EQ(std::get<std::string>(daily[0][10]), "2100.5");
-    EXPECT_EQ(std::get<std::string>(daily[0][11]), "3000");
+    EXPECT_EQ(daily[0].close, wh::Cell{});
+    EXPECT_EQ(std::get<std::string>(daily[0].previous_settlement), "2100.5");
+    EXPECT_EQ(std::get<std::string>(daily[0].volume), "3000");
 }
 
 TEST_F(ExchangeSources, PortalsKeepSourceIdentityAndDoNotRequestUnsupportedTables)
@@ -198,8 +198,8 @@ TEST_F(ExchangeSources, PortalsKeepSourceIdentityAndDoNotRequestUnsupportedTable
         });
         const auto rows = source.daily(exchange, "2026-10-30");
         ASSERT_EQ(rows.size(), 1);
-        EXPECT_EQ(std::get<std::string>(rows[0][0]), exchange);
-        EXPECT_EQ(rows[0][12], wh::Cell{});
+        EXPECT_EQ(rows[0].exchange, exchange);
+        EXPECT_EQ(rows[0].amount, wh::Cell{});
         EXPECT_THROW(source.settlement(exchange, "2026-10-30"), ac::SourceError);
         EXPECT_EQ(source.requests(), 1);
     }
@@ -253,20 +253,17 @@ TEST_F(ExchangeSources, HistoricalPriceTicksKeepExactValuesAndOneDayOfEvidence)
     });
     const auto rows = source.price_ticks("CZCE", "2022-01-04");
     ASSERT_EQ(rows.size(), 4);
-    EXPECT_EQ(rows[0][2], wh::Cell{std::string("CZCE/ap/2022-01")});
-    EXPECT_EQ(rows[0][5], wh::Cell{std::string("1")});
-    EXPECT_EQ(rows[1][5], wh::Cell{std::string("5")});
-    EXPECT_EQ(rows[2][5], wh::Cell{std::string("2")});
-    EXPECT_EQ(rows[3][5], wh::Cell{std::string("0.2")});
+    EXPECT_EQ(rows[0].contract, wh::Cell{std::string("CZCE/ap/2022-01")});
+    EXPECT_EQ(rows[0].price_tick.str(), "1");
+    EXPECT_EQ(rows[1].price_tick.str(), "5");
+    EXPECT_EQ(rows[2].price_tick.str(), "2");
+    EXPECT_EQ(rows[3].price_tick.str(), "0.2");
     for (const auto& row : rows) {
-        EXPECT_EQ(row[3], wh::Cell{std::string("2022-01-04")});
-        EXPECT_EQ(row[4], wh::Cell{std::string("2022-01-05")});
+        EXPECT_EQ(row.effective_from, "2022-01-04");
+        EXPECT_EQ(row.effective_until, "2022-01-05");
         EXPECT_EQ(
-            row[6],
-            wh::Cell{
-                std::string(
-                    "https://www.czce.com.cn/cn/DFSStaticFiles/Future/2022/20220104/FutureDataReferenceData.xml")
-            });
+            row.source_url,
+            "https://www.czce.com.cn/cn/DFSStaticFiles/Future/2022/20220104/FutureDataReferenceData.xml");
     }
 }
 
@@ -480,18 +477,18 @@ TEST_F(ExchangeSources, HistoricalCzceFormatsKeepDatesAndReuseTheYearlyDownload)
     });
     const auto old = source.daily("CZCE", "2015-01-05");
     ASSERT_EQ(old.size(), 1);
-    EXPECT_EQ(std::get<std::string>(old[0][2]), "CZCE/cf/2015-01");
-    EXPECT_EQ(std::get<std::string>(old[0][10]), "13185");
+    EXPECT_EQ(old[0].contract, "CZCE/cf/2015-01");
+    EXPECT_EQ(std::get<std::string>(old[0].previous_settlement), "13185");
     const auto middle = source.daily("CZCE", "2016-12-27");
     ASSERT_EQ(middle.size(), 1);
-    EXPECT_EQ(std::get<std::string>(middle[0][13]), "24980");
+    EXPECT_EQ(std::get<std::string>(middle[0].open_interest), "24980");
     const auto first = source.daily("CZCE", "2010-01-04");
     const auto second = source.daily("CZCE", "2010-01-05");
     ASSERT_EQ(first.size(), 1);
     ASSERT_EQ(second.size(), 1);
-    EXPECT_EQ(first[0][3], wh::Cell{std::string("2010-01-04")});
-    EXPECT_EQ(second[0][3], wh::Cell{std::string("2010-01-05")});
-    EXPECT_EQ(std::get<std::string>(first[0][10]), "1100.25");
+    EXPECT_EQ(first[0].day, "2010-01-04");
+    EXPECT_EQ(second[0].day, "2010-01-05");
+    EXPECT_EQ(std::get<std::string>(first[0].previous_settlement), "1100.25");
     EXPECT_EQ(source.requests(), 3);
     for (const bool truncated : {false, true}) {
         auto raw = file("czce_2010.zip");

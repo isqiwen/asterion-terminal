@@ -8,7 +8,12 @@
 
 namespace asterion::warehouse::acquisition {
 
-using Rows = std::vector<warehouse::Row>;
+using warehouse::CalendarDay;
+using warehouse::Contract;
+using warehouse::DailyBar;
+using warehouse::MinuteBar;
+using warehouse::PriceTick;
+using warehouse::Settlement;
 
 struct SourceError : std::runtime_error
 {
@@ -25,6 +30,8 @@ std::chrono::sys_days day_of(std::string_view);
 std::string day_text(std::chrono::sys_days);
 void require_exchange(std::string_view);
 void require_contract(std::string_view);
+// The product of an EXCHANGE/product/YYYY-MM identity.
+std::string product_of(const std::string& contract);
 std::optional<std::string>
 contract_of(const std::string& exchange, const std::string& code, const std::string& day);
 
@@ -35,12 +42,13 @@ public:
     virtual ~Source() = default;
     virtual bool supports(std::string_view table, std::string_view exchange) const = 0;
 
-    virtual Rows calendar(const std::string& exchange, int year);
-    virtual Rows contracts(const std::string& exchange);
-    virtual Rows daily(const std::string& exchange, const std::string& day);
-    virtual Rows minutes(const std::string& contract, const std::string& day);
-    virtual Rows settlement(const std::string& exchange, const std::string& day);
-    virtual Rows price_ticks(const std::string& exchange, const std::string& day);
+    // Each call returns one whole partition; a source overrides only what it supports.
+    virtual std::vector<CalendarDay> calendar(const std::string& exchange, int year);
+    virtual std::vector<Contract> contracts(const std::string& exchange);
+    virtual std::vector<DailyBar> daily(const std::string& exchange, const std::string& day);
+    virtual std::vector<MinuteBar> minutes(const std::string& contract, const std::string& day);
+    virtual std::vector<Settlement> settlement(const std::string& exchange, const std::string& day);
+    virtual std::vector<PriceTick> price_ticks(const std::string& exchange, const std::string& day);
 
     std::uint64_t requests() const
     {

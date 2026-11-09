@@ -421,10 +421,10 @@ void Manager::run(
                     const auto key = "calendar/" + exchange + "/" + std::to_string(year);
                     if (request.refetch() || !version.partitions.contains(key)
                         || year == int(std::chrono::year_month_day(today).year()))
-                        writer.put(key, source.calendar(exchange, year));
+                        writer.put(key, warehouse::rows(source.calendar(exchange, year)));
                 }
             if (table(request) != "calendar")
-                writer.put("contracts/" + exchange, source.contracts(exchange));
+                writer.put("contracts/" + exchange, warehouse::rows(source.contracts(exchange)));
         }
         check_stop(stop);
         commit();
@@ -436,10 +436,9 @@ void Manager::run(
                 ++year)
                 for (const auto& row :
                     store.read(version, "calendar/" + exchange + "/" + std::to_string(year))) {
-                    const auto day = std::get<std::string>(row[1]);
-                    if (std::get<bool>(row[2]) && day >= request.first_day()
-                        && day <= day_text(last))
-                        plan.emplace_back(exchange, day, "");
+                    const auto day = warehouse::read_calendar_day(row);
+                    if (day.open && day.day >= request.first_day() && day.day <= day_text(last))
+                        plan.emplace_back(exchange, day.day, "");
                 }
         std::sort(plan.begin(), plan.end());
     } else {
@@ -469,15 +468,17 @@ void Manager::run(
                 key += "/" + contract.substr(exchange.size() + 1);
             if (!covered.contains(key)
                 && (request.refetch() || !version.partitions.contains(key))) {
-                const auto rows = table(request) == "minutes" ? source.minutes(contract, day)
-                    : table(request) == "settlement"          ? source.settlement(exchange, day)
-                    : table(request) == "price_ticks"         ? source.price_ticks(exchange, day)
-                                                              : source.daily(exchange, day);
+                using warehouse::rows;
+                const auto fetched = table(request) == "minutes"
+                    ? rows(source.minutes(contract, day))
+                    : table(request) == "settlement"  ? rows(source.settlement(exchange, day))
+                    : table(request) == "price_ticks" ? rows(source.price_ticks(exchange, day))
+                                                      : rows(source.daily(exchange, day));
                 check_stop(stop);
-                if (rows.empty())
+                if (fetched.empty())
                     task.set_items_empty(task.items_empty() + 1);
                 else {
-                    writer.put(key, rows, {day});
+                    writer.put(key, fetched, {day});
                     ++unpublished;
                 }
             }

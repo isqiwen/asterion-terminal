@@ -37,7 +37,7 @@ RPC 接入负责收发帧；`Composer` 在自己的线程里更新统一数据�
 | 摘要、覆盖、参考表、版本历史与比较 | 分析线程 | `read` |
 | 其余调用 | 读取线程 | `read` |
 
-来源适配器负责供应商数据转换，`Manager` 负责任务与提交，`Store` 负责固定版本。客户端看不到来源：协议只有一份数据集。
+来源适配器负责供应商数据转换，`Manager` 负责任务与提交，`Store` 负责固定版本。客户端看不到来源：协议只有一份数据集。来源按表返回记录（`records.hpp` 的 `DailyBar`、`Settlement` 等），每张表的列顺序只在 `records.cpp` 定义一次；`Manager` 写入前把记录转成行。理由：按位置拼行时字段写错位置，编译和入库都发现不了。
 
 ```mermaid
 classDiagram
@@ -45,8 +45,11 @@ classDiagram
     class Source {
         <<abstract>>
         supports()
+        calendar()
+        contracts()
         daily()
         minutes()
+        settlement()
         price_ticks()
     }
     class Tushare
@@ -91,7 +94,7 @@ sequenceDiagram
     Manager-->>Client: 经 RPC 返回已接纳任务
     loop 按优先级每个来源，只取前面没有的分区
         Manager->>Source: 后台读取供应商数据
-        Source-->>Manager: 标准化行
+        Source-->>Manager: 按表的记录
     end
     Manager->>Writer: put()
     Manager->>Writer: commit()
@@ -125,7 +128,7 @@ sequenceDiagram
 | 1 | [main.cpp](../../apps/services/warehouse/main.cpp)、[settings.cpp](../../apps/services/warehouse/settings.cpp) | 配置、数据目录锁、TLS 身份、权限和停止流程 |
 | 2 | [service.cpp](../../apps/services/warehouse/service.cpp) | 调用路径表 |
 | 3 | [manager.cpp](../../apps/services/warehouse/acquisition/manager.cpp)、[source.hpp](../../apps/services/warehouse/acquisition/source.hpp) | 来源扩展、任务生命周期与批量提交 |
-| 4 | [store.cpp](../../apps/services/warehouse/store.cpp)、[composition.cpp](../../apps/services/warehouse/composition.cpp)、[composer.cpp](../../apps/services/warehouse/composer.cpp) | 不可变版本、月度分片、来源合成 |
+| 4 | [records.hpp](../../apps/services/warehouse/records.hpp)、[store.cpp](../../apps/services/warehouse/store.cpp)、[composition.cpp](../../apps/services/warehouse/composition.cpp)、[composer.cpp](../../apps/services/warehouse/composer.cpp) | 表结构、不可变版本、月度分片、来源合成 |
 | 5 | [通信协议](../protocol.md)、[warehouse.proto](../../protocol/proto/asterion/warehouse.proto) | 客户端契约与固定版本读取 |
 
 模块测试见 [tests/history](../../tests/warehouse)；跨客户端与重启行为看 [concurrency_process.py](../../tests/warehouse/concurrency_process.py)。

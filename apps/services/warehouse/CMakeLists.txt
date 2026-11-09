@@ -1,4 +1,4 @@
-add_library(asterion_warehouse_store STATIC store.cpp reader.cpp composition.cpp composer.cpp)
+add_library(asterion_warehouse_store STATIC records.cpp store.cpp reader.cpp composition.cpp composer.cpp)
 target_include_directories(asterion_warehouse_store PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(asterion_warehouse_store PUBLIC asterion_protocol PRIVATE asterion_bar_parquet duckdb::duckdb)
 asterion_target_defaults(asterion_warehouse_store)

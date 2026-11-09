@@ -22,14 +22,22 @@ HttpReply exchange_fetch(const HttpRequest&, std::stop_token);
 class Exchange final : public Source
 {
 public:
+    // One file holds one table's rows.
+    struct Parsed
+    {
+        std::vector<DailyBar> daily;
+        std::vector<Settlement> settlement;
+        std::vector<PriceTick> price_ticks;
+    };
+
     Exchange(std::string exchange, std::stop_token, Fetch = exchange_fetch);
     bool supports(std::string_view table, std::string_view exchange) const override;
-    Rows daily(const std::string&, const std::string&) override;
-    Rows settlement(const std::string&, const std::string&) override;
-    Rows price_ticks(const std::string&, const std::string&) override;
+    std::vector<DailyBar> daily(const std::string&, const std::string&) override;
+    std::vector<Settlement> settlement(const std::string&, const std::string&) override;
+    std::vector<PriceTick> price_ticks(const std::string&, const std::string&) override;
 
 private:
-    Rows read(const std::string& table, const std::string& exchange, const std::string& day);
+    Parsed read(const std::string& table, const std::string& exchange, const std::string& day);
     std::string exchange_;
     std::stop_token stop_;
     Fetch fetch_;

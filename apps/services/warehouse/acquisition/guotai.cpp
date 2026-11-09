@@ -26,7 +26,7 @@ std::string text(const tinyxml2::XMLNode* node)
         : result.substr(begin, result.find_last_not_of(" \t\r\n") - begin + 1);
 }
 
-Rows parse(const std::string& day, const std::string& raw, const std::string& url)
+std::vector<PriceTick> parse(const std::string& day, const std::string& raw, const std::string& url)
 {
     const auto script = raw.find("id=\"__NEXT_DATA__\"");
     const auto begin = raw.find('>', script), end = raw.find("</script>", begin);
@@ -50,7 +50,7 @@ Rows parse(const std::string& day, const std::string& raw, const std::string& ur
     };
     const std::regex future("[A-Z]+");
     std::set<std::pair<std::string, std::string>> seen;
-    Rows rows;
+    std::vector<PriceTick> rows;
     for (const auto& event : data.at("events")) {
         if (event.at("event_date") != date)
             throw invalid_report("wrong price tick event date");
@@ -111,7 +111,12 @@ Rows parse(const std::string& day, const std::string& raw, const std::string& ur
                 if (!seen.emplace(exchange->second, product).second)
                     throw invalid_report("duplicate historical product price tick: " + product);
                 rows.push_back(
-                    {exchange->second, product, warehouse::Cell{}, day, until, tick.str(), url});
+                    {.exchange = exchange->second,
+                        .product = product,
+                        .effective_from = day,
+                        .effective_until = until,
+                        .price_tick = tick,
+                        .source_url = url});
             }
         }
     }
@@ -132,7 +137,7 @@ bool Guotai::supports(std::string_view table, std::string_view exchange) const
         && std::find(exchanges_.begin(), exchanges_.end(), exchange) != exchanges_.end();
 }
 
-Rows Guotai::price_ticks(const std::string& exchange, const std::string& day)
+std::vector<PriceTick> Guotai::price_ticks(const std::string& exchange, const std::string& day)
 {
     check_stop(stop_);
     if (day_ != day) {
@@ -146,13 +151,13 @@ Rows Guotai::price_ticks(const std::string& exchange, const std::string& day)
             throw SourceError(
                 "unavailable",
                 "Guotai report refused (HTTP " + std::to_string(reply.status) + ")");
-        rows_ =
-            reply.status == 404 ? Rows{} : parse(day, reply.body, request.origin + request.path);
+        rows_ = reply.status == 404 ? std::vector<PriceTick>{}
+                                    : parse(day, reply.body, request.origin + request.path);
         day_ = day;
     }
-    Rows result;
+    std::vector<PriceTick> result;
     for (const auto& row : rows_)
-        if (std::get<std::string>(row[0]) == exchange)
+        if (row.exchange == exchange)
             result.push_back(row);
     return result;
 }
