@@ -137,7 +137,6 @@ configure() {
     ((port >= 1 && port <= 65535)) || fail "The port must be between 1 and 65535"
     previous=$(current data)
     data=$(ask data "Data directory" '^/[^[:space:]]*$')
-    echo "Terminal shows its certificate fingerprint under Settings > About. Give each read or manage."
     clients=$(ask clients "Terminal fingerprints as <fingerprint>=read or <fingerprint>=manage (space separated)" '^[0-9A-Fa-f:=[:space:]readmng]+$')
     exchanges=$(ask acquisition.exchanges "Public exchanges (- for none)" '^[A-Z[:space:]-]+$')
     budget=$(ask acquisition.tushare "Tushare requests per minute (1-500)" '^[0-9]{1,3}$')

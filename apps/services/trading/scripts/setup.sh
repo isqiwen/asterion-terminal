@@ -200,7 +200,6 @@ configure_account() {
             fail "Port $port is already configured for account $other"
         fi
     done
-    echo "Terminal shows its certificate fingerprint under Settings > About."
     terminals=$(ask "Terminal fingerprints (space separated)" "$(value "$name" terminals)" \
         '^([0-9A-Fa-f:]{64,95})( [0-9A-Fa-f:]{64,95})*$')
     environment=$(ask "Counter environment (real/simulation)" "$(value "$name" environment)" '^(real|simulation)$')

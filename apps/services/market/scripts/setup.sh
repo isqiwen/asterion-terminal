@@ -182,7 +182,6 @@ configure() {
     ((port >= 1 && port <= 65535)) || fail "The port must be between 1 and 65535"
     previous=$(current data)
     data=$(ask data "Data directory" '^/[^[:space:]]*$')
-    echo "Terminal shows its certificate fingerprint under Settings > About."
     clients=$(ask clients "Terminal fingerprints (space separated)" '^[0-9A-Fa-f:[:space:]]+$')
     echo "Use a CTP account of its own for quotes, never a live trading account."
     market_front=$(ask counter.market_front "CTP market front" "$front")
