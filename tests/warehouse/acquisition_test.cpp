@@ -1,5 +1,5 @@
 #include "acquisition/tushare.hpp"
-#include "research.hpp"
+#include "composition.hpp"
 #include "acquisition/manager.hpp"
 #include "support/warehouse_host.hpp"
 #include "support/timing.hpp"
@@ -550,7 +550,7 @@ TEST_F(Acquisition, ALaterSourceFillsOnlyWhatTheOneBeforeItLacksAndAFailureKeeps
     EXPECT_EQ(first, (std::vector<std::string>{"2026-01-05", "2026-01-06"}));
     EXPECT_EQ(second, std::vector<std::string>{"2026-01-06"});
     wh::Store research(wh::source_directory(root, "research"), "research");
-    const auto version = wh::compose_research(root, research);
+    const auto version = wh::compose(root, research);
     EXPECT_EQ(version.partitions.at("daily/SHFE/2026-01-05").source, "shfe");
     EXPECT_EQ(version.partitions.at("daily/SHFE/2026-01-06").source, "sina");
 

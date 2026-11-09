@@ -180,7 +180,7 @@ class Service:
             if self.warehouse is None:
                 raise ValueError("configure the remote Warehouse address first")
             with Client(self.warehouse.selected()) as client:
-                return client.call("get_dataset_summary", provider=Dataset.provider)
+                return client.call("get_dataset_summary")
         result.CopyFrom(await self.read(read_summary))
 
     def chart_bars(self, request):

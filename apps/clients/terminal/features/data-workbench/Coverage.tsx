@@ -370,7 +370,7 @@ function DataCoverage({
           </header>
           <p className="subtle">
             {t("采集按交易所保存，分钟线按合约保存；已入库分区跳过。")}{" "}
-            {t("数据服务以 Tushare 为准，缺的部分从公开来源补齐；关闭此页面不会停止采集。")}
+            {t("关闭此页面不会停止采集。")}
           </p>
           <div className="data-fields">
             <label>
@@ -479,7 +479,7 @@ function DataCoverage({
                   <td>
                     {task.itemsDone.toString()} / {task.items.toString()}
                     {task.itemsEmpty > 0n
-                      ? ` · ${t("{count} 天来源尚无数据", { count: Number(task.itemsEmpty) })}`
+                      ? ` · ${t("{count} 天尚无数据", { count: Number(task.itemsEmpty) })}`
                       : ""}
                   </td>
                   <td className="numeric">{task.requestsSent.toString()}</td>
@@ -508,9 +508,7 @@ function DataCoverage({
       <section className="data-card" aria-label={t("日线覆盖")}>
         <header>
           <h3>{t("日线覆盖")}</h3>
-          <span className="subtle">
-            {t("每格为该来源已存日线的天数；没有交易日历时，完整性未知。")}
-          </span>
+          <span className="subtle">{t("每格为已存日线的天数；没有交易日历时，完整性未知。")}</span>
         </header>
         {daily.length ? (
           <div className="coverage-matrix">

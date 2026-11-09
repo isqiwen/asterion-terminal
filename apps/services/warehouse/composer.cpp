@@ -1,5 +1,5 @@
 #include "composer.hpp"
-#include "research.hpp"
+#include "composition.hpp"
 #include <asterion/system/log.hpp>
 
 namespace asterion::warehouse {
@@ -42,7 +42,7 @@ void Composer::run(std::stop_token stop)
             requested_ = false;
         }
         try {
-            compose_research(data_, research_);
+            compose(data_, research_);
         } catch (const std::exception& error) {
             // The sources are intact; a damaged or full disk may recover.
             log::error("market research dataset not composed: {}", error.what());

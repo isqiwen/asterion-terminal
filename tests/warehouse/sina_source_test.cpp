@@ -1,6 +1,6 @@
 #include "acquisition/manager.hpp"
 #include "acquisition/sina.hpp"
-#include "research.hpp"
+#include "composition.hpp"
 #include <asterion/system/process/child.hpp>
 #include <gtest/gtest.h>
 #include <cstdlib>
@@ -175,7 +175,7 @@ TEST_F(SinaSource, RealMinutesAndDailyBarsParse)
     asterion::warehouse::Store research(
         asterion::warehouse::source_directory(data, "research"),
         "research");
-    const auto version = asterion::warehouse::compose_research(data, research);
+    const auto version = asterion::warehouse::compose(data, research);
     ASSERT_EQ(version.partitions.size(), 1);
     EXPECT_EQ(version.partitions.begin()->second.source, "sina");
     std::cout << version.partitions.begin()->first << " from "

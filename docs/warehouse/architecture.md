@@ -125,7 +125,7 @@ sequenceDiagram
 | 1 | [main.cpp](../../apps/services/warehouse/main.cpp)、[settings.cpp](../../apps/services/warehouse/settings.cpp) | 配置、数据目录锁、TLS 身份、权限和停止流程 |
 | 2 | [service.cpp](../../apps/services/warehouse/service.cpp) | 调用路径表 |
 | 3 | [manager.cpp](../../apps/services/warehouse/acquisition/manager.cpp)、[source.hpp](../../apps/services/warehouse/acquisition/source.hpp) | 来源扩展、任务生命周期与批量提交 |
-| 4 | [store.cpp](../../apps/services/warehouse/store.cpp)、[research.cpp](../../apps/services/warehouse/research.cpp)、[composer.cpp](../../apps/services/warehouse/composer.cpp) | 不可变版本、月度分片、来源合成 |
+| 4 | [store.cpp](../../apps/services/warehouse/store.cpp)、[composition.cpp](../../apps/services/warehouse/composition.cpp)、[composer.cpp](../../apps/services/warehouse/composer.cpp) | 不可变版本、月度分片、来源合成 |
 | 5 | [通信协议](../protocol.md)、[warehouse.proto](../../protocol/proto/asterion/warehouse.proto) | 客户端契约与固定版本读取 |
 
 模块测试见 [tests/history](../../tests/warehouse)；跨客户端与重启行为看 [concurrency_process.py](../../tests/warehouse/concurrency_process.py)。

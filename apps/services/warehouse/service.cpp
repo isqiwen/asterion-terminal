@@ -6,7 +6,7 @@
 #include "acquisition/tushare.hpp"
 #include "composer.hpp"
 #include "reader.hpp"
-#include "research.hpp"
+#include "composition.hpp"
 #include <asterion/version.hpp>
 #include <asterion/protocol/common.hpp>
 #include <asterion/protocol/rpc_diagnostics.hpp>

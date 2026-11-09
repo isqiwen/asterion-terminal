@@ -99,8 +99,6 @@ message Partition {
   string sha256 = 3;
   uint64 rows = 4;
   repeated string days = 5;
-  // Where it came from, for tracing only.
-  string taken_from = 6;
 }
 
 message ReadDatasetFile {

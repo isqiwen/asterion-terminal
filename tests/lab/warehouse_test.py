@@ -130,6 +130,15 @@ class RemoteResearch(unittest.TestCase):
         self.assertNotEqual(Warehouse(self.lab).current().identity, self.original.identity)
         self.assertEqual(self.dataset.current().identity, self.original.identity)
 
+    def test_the_research_page_reads_the_current_dataset_summary(self):
+        async def scenario():
+            service = Service('lab', self.lab, Log(), self.warehouse)
+            request = Request(id=1)
+            request.get_dataset_summary.SetInParent()
+            return await service.reply(request)
+        answer = asyncio.run(scenario())
+        self.assertEqual(answer.get_dataset_summary.dataset.version, self.original.identity, answer)
+
     def test_price_tick_history_downloads_with_its_exact_value_and_fixed_version(self):
         symbol = 'SHFE/rb/2026-05'
         writer = Warehouse(self.data).writer()

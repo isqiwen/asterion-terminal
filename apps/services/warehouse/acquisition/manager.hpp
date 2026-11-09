@@ -1,6 +1,6 @@
 #pragma once
 #include "source.hpp"
-#include "research.hpp"
+#include "composition.hpp"
 #include <asterion/warehouse.pb.h>
 #include <asterion/system/thread_pool.hpp>
 #include <functional>

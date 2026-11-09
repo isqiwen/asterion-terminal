@@ -172,8 +172,7 @@ class Dataset(ParquetTables):
                         raise WarehouseError("invalid_data", "invalid Warehouse partition page")
                     after = part.key
                     partitions[part.key] = dict(file=f"files/{part.sha256}.parquet",
-                                               sha256=part.sha256, rows=part.rows, days=list(part.days),
-                                               source=part.taken_from)
+                                               sha256=part.sha256, rows=part.rows, days=list(part.days))
                 if not page.next_key:
                     break
                 if not page.partitions or page.next_key != after:

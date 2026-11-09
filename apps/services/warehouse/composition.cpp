@@ -1,4 +1,4 @@
-#include "research.hpp"
+#include "composition.hpp"
 #include <map>
 #include <memory>
 #include <set>
@@ -18,11 +18,11 @@ const std::vector<std::string>& sources_of(std::string_view table)
     return order.at(table);
 }
 
-Version compose_research(const std::filesystem::path& data, Store& research)
+Version compose(const std::filesystem::path& data, Store& unified)
 {
     // Sources are read under the writer's lock, so a later composition never
     // publishes older source versions than an earlier one.
-    auto writer = research.writer();
+    auto writer = unified.writer();
     writer.clear();
     std::map<std::string, std::pair<std::unique_ptr<Store>, Version>> sources;
     for (const auto* table :

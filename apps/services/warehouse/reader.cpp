@@ -90,7 +90,6 @@ wire::DatasetVersion Reader::version(const wire::GetDatasetVersion& query) const
             item->set_rows(part.rows);
             for (const auto& day : part.days)
                 item->add_days(day);
-            item->set_taken_from(part.source);
         }
         if (!result.next_key().empty())
             break;

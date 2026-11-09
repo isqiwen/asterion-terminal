@@ -1,5 +1,5 @@
 #include "reader.hpp"
-#include "research.hpp"
+#include "composition.hpp"
 #include "support/warehouse_host.hpp"
 #include "parquet_engine.hpp"
 #include <asterion/base/error.hpp>
@@ -213,7 +213,7 @@ TEST_F(Warehouse, ResearchTakesTushareFirstAndOthersFillWhatItLacks)
     publish(*gtja, tick, 2);
     publish(*gtja, "price_ticks/SHFE/2026-10-29");
     wh::Store composed(wh::source_directory(root, "research"), "research");
-    const auto research = wh::compose_research(root, composed);
+    const auto research = wh::compose(root, composed);
     std::map<std::string, std::string> sources;
     for (const auto& [key, part] : research.partitions)
         sources[key] = part.source;
@@ -232,9 +232,9 @@ TEST_F(Warehouse, ResearchTakesTushareFirstAndOthersFillWhatItLacks)
     const wh::Store reader(wh::source_directory(root, "research"), "research");
     EXPECT_TRUE(fs::equivalent(reader.file(research, tick), gtja->file(gtja->current(), tick)));
     EXPECT_EQ(reader.read(research, mine).size(), 2U);
-    EXPECT_EQ(wh::compose_research(root, composed).identity, research.identity);
+    EXPECT_EQ(wh::compose(root, composed).identity, research.identity);
     publish(*tushare, mine, 4);
-    const auto later = wh::compose_research(root, composed);
+    const auto later = wh::compose(root, composed);
     EXPECT_EQ(reader.read(later, mine).size(), 4U);
     EXPECT_EQ(reader.read(research, mine).size(), 2U) << "earlier versions are unchanged";
 }
@@ -251,7 +251,7 @@ TEST_F(Warehouse, MinuteCoverageCountsDaysPerContractAndMonth)
     publish(*tushare, "minutes/SHFE/2026-10-30/cu/2026-12", 2);
     wh::Store composed(wh::source_directory(root, "research"), "research");
     wire::DatasetRef query;
-    query.set_version(wh::compose_research(root, composed).identity);
+    query.set_version(wh::compose(root, composed).identity);
     const auto coverage = wh::Reader(root).coverage(query);
     ASSERT_EQ(coverage.contracts_size(), 2);
     EXPECT_EQ(coverage.contracts(0).contract(), "SHFE/cu/2026-12");

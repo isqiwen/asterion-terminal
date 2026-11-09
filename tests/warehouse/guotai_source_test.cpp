@@ -1,4 +1,4 @@
-#include "research.hpp"
+#include "composition.hpp"
 #include <asterion/protocol/warehouse.hpp>
 #include "acquisition/guotai.hpp"
 #include "acquisition/manager.hpp"
@@ -140,7 +140,7 @@ TEST_F(GuotaiSource, MarketPublishesFiveExchangesAndSkipsStoredDays)
     EXPECT_EQ(task.requests_sent(), 2);
     EXPECT_EQ(task.items_done(), 10);
     wh::Store research(wh::source_directory(root, "research"), "research");
-    wh::compose_research(root, research);
+    wh::compose(root, research);
     const auto fixed = research.current();
     ASSERT_EQ(fixed.partitions.size(), 10);
     for (const auto& [key, part] : fixed.partitions)
@@ -156,7 +156,7 @@ TEST_F(GuotaiSource, MarketPublishesFiveExchangesAndSkipsStoredDays)
     task = wait(manager, request.id());
     EXPECT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
     EXPECT_EQ(task.requests_sent(), 0);
-    EXPECT_EQ(wh::compose_research(root, research).identity, fixed.identity);
+    EXPECT_EQ(wh::compose(root, research).identity, fixed.identity);
 }
 
 TEST_F(GuotaiSource, PublicReportsPublishHistoricalChangesThroughMarket)
@@ -167,7 +167,7 @@ TEST_F(GuotaiSource, PublicReportsPublishHistoricalChangesThroughMarket)
                                     return std::make_unique<ac::Guotai>(exchanges, stop);
                                 }}});
     wh::Store research(wh::source_directory(root, "research"), "research");
-    wh::compose_research(root, research);
+    wh::compose(root, research);
     for (const auto* first : {"2023-11-06", "2024-12-17"}) {
         ac::wire::StartAcquisition request;
         request.set_id(first);
