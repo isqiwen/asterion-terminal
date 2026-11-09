@@ -61,14 +61,12 @@ async def run(service: Service, owner: int, endpoints):
 
     async def watch_owner():
         # The Terminal's death ends its services; nothing else would stop this one.
-        while True:
-            try:
-                os.kill(owner, 0)
-            except ProcessLookupError:
-                service.log.write("warning", MODULE, "owner.lost", owner_pid=owner)
-                stopping.set()
-                return
+        # The parent changes as soon as it exits, even while nobody has reaped it.
+        while os.getppid() == owner:
             await asyncio.sleep(1)
+        # Before logging: a removed log directory must not keep this process alive.
+        stopping.set()
+        service.log.write("warning", MODULE, "owner.lost", owner_pid=owner)
 
     watcher = asyncio.create_task(watch_owner())
     await stopping.wait()

@@ -74,10 +74,11 @@ try:
     second = wait(process, lambda s: ready(s) and s["pid"] != first["pid"])
     assert second["restarts"] >= 1, second
 finally:
-    close(process)
+    process.kill()
 # The lab watches the Terminal's process and exits with it, even when the
-# Terminal is killed.
+# Terminal is killed and nobody has reaped it yet.
 assert gone(second["pid"]), "the lab outlived the Terminal"
+process.wait(timeout=10)
 
 # The next Terminal starts a fresh lab; a first start is not a restart.
 process = launch()
