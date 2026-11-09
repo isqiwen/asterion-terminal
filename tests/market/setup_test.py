@@ -206,10 +206,11 @@ with tempfile.TemporaryDirectory() as folder:
     assert (host.root / 'config/market.json').read_bytes() == before
     assert staged_files() == [], staged_files()
 
-    # The installed copy shows the fingerprint alone, in the form Terminal accepts, and restarts nothing.
+    # The installed copy shows the fingerprint, labelled and in the form Terminal accepts, and restarts nothing.
     calls, result = host.run(host.root / 'bin/setup.sh', [], args=['fingerprint'])
     der = ssl.PEM_cert_to_DER_cert((host.root / 'config/tls/server.crt').read_text())
-    assert result.stdout == ':'.join(f'{b:02X}' for b in hashlib.sha256(der).digest()) + '\n', result.stdout
+    value = ':'.join(f'{b:02X}' for b in hashlib.sha256(der).digest())
+    assert result.stdout.splitlines() == ["This host's certificate fingerprint, to enter in Terminal:", '  ' + value], result.stdout
     assert calls == [], calls
 
     # The plain script elsewhere carries no programs.

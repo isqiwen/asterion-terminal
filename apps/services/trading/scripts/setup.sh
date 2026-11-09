@@ -159,6 +159,11 @@ fingerprint() {
     openssl x509 -noout -fingerprint -sha256 -in "$ROOT/config/tls/server.crt" | sed 's/^.*=//'
 }
 
+show_fingerprint() {
+    echo "This host's certificate fingerprint, to enter in Terminal:"
+    echo "  $(fingerprint)"
+}
+
 # ask PROMPT DEFAULT PATTERN: reads a value, offering the default.
 ask() {
     local value
@@ -303,7 +308,7 @@ menu() {
     case ${choice:-1} in
         1) configure_account ;;
         2) disable_account ;;
-        3) fingerprint ;;
+        3) show_fingerprint ;;
         4) list_accounts ;;
         *) fail "Unknown choice" ;;
     esac
@@ -400,7 +405,7 @@ place() {
 main() {
     [[ $EUID -eq 0 ]] || fail "Run it with sudo"
     if [[ ${1:-} == fingerprint ]]; then
-        fingerprint
+        show_fingerprint
         return
     fi
     local source line

@@ -260,7 +260,7 @@ with tempfile.TemporaryDirectory() as folder:
     _, result = host.run(host.root / 'bin/setup.sh', ['3'])
     assert fingerprint in result.stdout
     _, result = host.run(host.root / 'bin/setup.sh', [], tail=False, args=['fingerprint'])
-    assert result.stdout == fingerprint + '\n', result.stdout
+    assert result.stdout.splitlines() == ["This host's certificate fingerprint, to enter in Terminal:", '  ' + fingerprint], result.stdout
 
     # New accounts use script defaults without any installed default configuration file.
     host.run(host.root / 'bin/setup.sh', ['1', 'three', '', '', TERMINAL,

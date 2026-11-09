@@ -327,7 +327,8 @@ place() {
 }
 
 fingerprint() {
-    openssl x509 -noout -fingerprint -sha256 -in "$ROOT/config/tls/server.crt" | sed 's/^.*=//'
+    echo "This host's certificate fingerprint, to enter in Terminal:"
+    echo "  $(openssl x509 -noout -fingerprint -sha256 -in "$ROOT/config/tls/server.crt" | sed 's/^.*=//')"
 }
 
 main() {
