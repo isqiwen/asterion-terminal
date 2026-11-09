@@ -256,6 +256,10 @@ Rows shanghai(
                 n("OPENINTEREST")));
         else {
             const auto begin = contract->find('/') + 1;
+            // Published since 2024-07-22; missing before, never guessed.
+            const auto today = [&](const char* key, int shift = 0) {
+                return row.contains(key) ? n(key, shift) : Cell{};
+            };
             result.push_back(
                 {exchange,
                     contract->substr(begin, contract->rfind('/') - begin),
@@ -265,8 +269,8 @@ Rows shanghai(
                     n("SPECSHORTMARGINRATIO"),
                     n("TRADEFEERATIO", -3),
                     n("TRADEFEEUNIT"),
-                    n("TTRADEFEERATIO", -3),
-                    n("TTRADEFEEUNIT")});
+                    today("TTRADEFEERATIO", -3),
+                    today("TTRADEFEEUNIT")});
         }
     }
     return result;

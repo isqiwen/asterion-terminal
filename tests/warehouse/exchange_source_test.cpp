@@ -82,13 +82,29 @@ TEST_F(ExchangeSources, ExactDecimalsMissingPricesAndFeeBasesReachParquet)
                 store.read(version, std::string("daily/") + exchange + "/2026-10-30")[0][11]),
             "12345678901234567890.000000");
     }
-    // Until 2024-03-20 the status is the number 0.
+    // Until 2024-03-20 the status is the number 0; until 2024-07-19 there is no close-today fee.
     auto older = shfe_daily;
     older.replace(older.find(R"("0000")"), 6, "0");
-    ac::Exchange shfe("SHFE", {}, [&](const auto&, auto) {
-        return ac::HttpReply{200, older};
+    auto older_fees = shfe_settlement;
+    const std::string today_fees = R"(,"TTRADEFEERATIO":0.025,"TTRADEFEEUNIT":0)";
+    older_fees.erase(older_fees.find(today_fees), today_fees.size());
+    ac::Exchange shfe("SHFE", {}, [&](const ac::HttpRequest& request, auto) {
+        return ac::HttpReply{
+            200,
+            request.path.find("/js") != std::string::npos ? older_fees : older
+        };
     });
     EXPECT_EQ(shfe.daily("SHFE", "2026-10-30").size(), 1);
+    const auto fees = shfe.settlement("SHFE", "2026-10-30");
+    ASSERT_EQ(fees.size(), 1);
+    EXPECT_EQ(std::get<std::string>(fees[0][6]), "0.00005");
+    EXPECT_EQ(fees[0][8], wh::Cell{});
+    EXPECT_EQ(fees[0][9], wh::Cell{});
+    wh::Store store(root / "older", "exchange");
+    auto writer = store.writer();
+    writer.put("settlement/SHFE/2026-10-30", fees);
+    const auto stored = store.read(writer.commit(), "settlement/SHFE/2026-10-30");
+    EXPECT_EQ(stored[0][8], wh::Cell{});
     ac::Exchange czce("CZCE", {}, [](const auto&, auto) {
         return ac::HttpReply{200, czce_settlement};
     });
