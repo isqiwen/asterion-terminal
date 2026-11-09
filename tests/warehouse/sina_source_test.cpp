@@ -158,7 +158,7 @@ TEST_F(SinaSource, RealMinutesAndDailyBarsParse)
     ac::wire::StartAcquisition request;
     request.set_id("real");
     request.set_table(::warehouse::TABLE_MINUTES);
-    request.add_contracts(contract);
+    request.add_instruments(contract);
     request.set_first_day(day);
     request.set_last_day(day);
     manager.submit(request);

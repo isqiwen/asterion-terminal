@@ -183,22 +183,49 @@ function serveCoverage() {
 const submitted = () =>
   request.mock.calls.map(([body]) => body).find(body => body.case === "startAcquisition")?.value;
 
-test("a minute acquisition covers every contract chosen for a product", async () => {
+test("a minute acquisition of a whole product spans its contracts' listed lives", async () => {
   serveCoverage();
   render(<Coverage {...context()} />);
   await screen.findByRole("table", { name: "分钟线覆盖" });
   fireEvent.change(screen.getByLabelText("表"), { target: { value: String(Table.MINUTES) } });
-  const picker = screen.getByRole("group", { name: "合约（分钟线必填）" });
+  const picker = screen.getByRole("group", { name: "品种或合约" });
   fireEvent.change(within(picker).getByLabelText("品种"), { target: { value: "SHFE/rb" } });
-  fireEvent.click(within(picker).getByRole("button", { name: "选中本品种全部合约" }));
+  fireEvent.click(within(picker).getByRole("button", { name: "整个品种" }));
   fireEvent.click(screen.getByRole("button", { name: "开始采集" }));
   await waitFor(() =>
     expect(submitted()).toMatchObject({
       table: Table.MINUTES,
       exchanges: [],
-      contracts: ["SHFE/rb/2027-01", "SHFE/rb/2027-02"],
+      instruments: ["SHFE/rb"],
+      firstDay: "",
+      lastDay: "",
     }),
   );
+});
+
+test("daily bars of one contract ask for it and its price ticks, not its exchange", async () => {
+  serve(true, [Table.DAILY, Table.PRICE_TICKS]);
+  render(<Coverage {...context()} />);
+  fireEvent.change(await screen.findByLabelText("范围"), { target: { value: "instruments" } });
+  const picker = screen.getByRole("group", { name: "品种或合约" });
+  fireEvent.change(within(picker).getByLabelText("其他品种或合约"), {
+    target: { value: "SHFE/rb/2027-01" },
+  });
+  fireEvent.click(within(picker).getByRole("button", { name: "添加" }));
+  fireEvent.click(screen.getByRole("button", { name: "开始采集" }));
+  const sent = () =>
+    request.mock.calls
+      .map(([body]) => body)
+      .filter(body => body.case === "startAcquisition")
+      .map(body => body.value);
+  await waitFor(() => expect(sent()).toHaveLength(2));
+  for (const value of sent())
+    expect(value).toMatchObject({
+      exchanges: [],
+      instruments: ["SHFE/rb/2027-01"],
+      firstDay: "",
+      lastDay: "",
+    });
 });
 
 test("a coverage gap fills the acquisition with its month", async () => {
@@ -210,7 +237,7 @@ test("a coverage gap fills the acquisition with its month", async () => {
     expect(submitted()).toMatchObject({
       table: Table.DAILY,
       exchanges: ["SHFE"],
-      contracts: [],
+      instruments: [],
       firstDay: "2026-09-01",
       lastDay: "2026-09-30",
     }),
@@ -223,7 +250,7 @@ test("a coverage gap fills the acquisition with its month", async () => {
   await waitFor(() =>
     expect(submitted()).toMatchObject({
       table: Table.MINUTES,
-      contracts: ["SHFE/rb/2027-01"],
+      instruments: ["SHFE/rb/2027-01"],
       firstDay: "2026-10-01",
       lastDay: "2026-10-31",
     }),

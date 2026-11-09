@@ -662,7 +662,8 @@ TEST_F(Acquisition, MinutesKeepNightTradingDatesAndContractScopedPartitions)
     ac::Manager manager(root, {{"tushare", factory(vendor)}});
     auto task = request("minutes");
     task.set_table(::warehouse::TABLE_MINUTES);
-    task.add_contracts("SHFE/rb/2026-05");
+    task.clear_exchanges();
+    task.add_instruments("SHFE/rb/2026-05");
     task.set_first_day("2026-01-05");
     task.set_last_day("2026-01-07");
     manager.submit(task);
@@ -684,9 +685,72 @@ TEST_F(Acquisition, MinutesKeepNightTradingDatesAndContractScopedPartitions)
     manager.submit(task);
     EXPECT_EQ(finished(manager, "repeat").state(), ac::wire::TASK_STATE_SUCCEEDED);
     EXPECT_EQ(vendor->minute_offsets.size(), 1);
-    task.clear_contracts();
+    task.clear_instruments();
     task.set_id("no-contract");
     EXPECT_THROW(manager.submit(task), std::invalid_argument);
+}
+
+TEST_F(Acquisition, AProductWithoutDaysCoversTheListedLivesOfItsContracts)
+{
+    auto vendor = std::make_shared<Vendor>();
+    vendor->full_calendar = true;
+    ac::Manager manager(root, {{"tushare", factory(vendor)}});
+    auto task = request("product");
+    task.clear_exchanges();
+    task.clear_first_day();
+    task.clear_last_day();
+    task.add_instruments("SHFE/rb");
+    manager.submit(task);
+    const auto done = finished(manager, "product");
+    ASSERT_EQ(done.state(), ac::wire::TASK_STATE_SUCCEEDED) << done.error().message();
+    // The fixture lists RB2605 from 2025-05-16 to 2026-05-15.
+    ASSERT_FALSE(vendor->days.empty());
+    EXPECT_EQ(vendor->days.front(), "20250516");
+    EXPECT_EQ(vendor->days.back(), "20260515");
+
+    auto unknown = task;
+    unknown.set_id("unknown");
+    unknown.set_instruments(0, "SHFE/cu");
+    manager.submit(unknown);
+    EXPECT_EQ(finished(manager, "unknown").state(), ac::wire::TASK_STATE_FAILED);
+    auto both = request("both");
+    both.add_instruments("SHFE/rb");
+    EXPECT_THROW(manager.submit(both), std::invalid_argument);
+    auto open = request("open");
+    open.clear_last_day();
+    EXPECT_THROW(manager.submit(open), std::invalid_argument);
+}
+
+TEST_F(Acquisition, AContractWithoutDaysTakesTheMinutesOfItsListedLife)
+{
+    auto vendor = std::make_shared<Vendor>();
+    vendor->full_calendar = true;
+    vendor->minutes = {
+        minute_row("2025-05-15 09:01:00"),
+        minute_row("2025-05-16 09:01:00"),
+        minute_row("2026-05-15 09:01:00"),
+        minute_row("2026-05-18 09:01:00")
+    };
+    ac::Manager manager(root, {{"tushare", factory(vendor)}});
+    auto task = request("life");
+    task.set_table(::warehouse::TABLE_MINUTES);
+    task.clear_exchanges();
+    task.clear_first_day();
+    task.clear_last_day();
+    task.add_instruments("SHFE/rb/2026-05");
+    manager.submit(task);
+    const auto done = finished(manager, "life");
+    ASSERT_EQ(done.state(), ac::wire::TASK_STATE_SUCCEEDED) << done.error().message();
+    std::set<std::string> minutes;
+    for (const auto& [key, part] : wh::Store(root, "tushare").current().partitions)
+        if (key.starts_with("minutes/"))
+            minutes.insert(key);
+    EXPECT_EQ(
+        minutes,
+        (std::set<std::string>{
+            "minutes/SHFE/2025-05-16/rb/2026-05",
+            "minutes/SHFE/2026-05-15/rb/2026-05"
+        }));
 }
 
 TEST_F(Acquisition, ADayByDayTaskPublishesVersionsInBatches)
@@ -705,7 +769,8 @@ TEST_F(Acquisition, ADayByDayTaskPublishesVersionsInBatches)
     ac::Manager manager(root, {{"tushare", factory(vendor)}});
     auto task = request("year");
     task.set_table(::warehouse::TABLE_MINUTES);
-    task.add_contracts("SHFE/rb/2026-05");
+    task.clear_exchanges();
+    task.add_instruments("SHFE/rb/2026-05");
     task.set_first_day("2025-05-19");
     task.set_last_day("2026-05-15");
     manager.submit(task);

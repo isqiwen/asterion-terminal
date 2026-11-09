@@ -37,13 +37,21 @@ private:
         std::shared_future<void> finished;
     };
 
+    // What a task covers once its instruments are resolved: days of whole
+    // exchanges or, for minutes, days of each contract.
+    struct Scope
+    {
+        std::vector<std::string> exchanges;
+        std::chrono::sys_days first, last;
+        std::vector<std::tuple<std::string, std::chrono::sys_days, std::chrono::sys_days>>
+            contracts;
+    };
+
     void work(Active&, const wire::StartAcquisition&, const std::vector<std::string>& providers);
-    void run(
-        Active&,
-        Source&,
-        warehouse::Store&,
-        const wire::StartAcquisition&,
-        const std::set<std::string>& covered);
+    Scope scope(Active&, const wire::StartAcquisition&);
+    std::vector<Contract> listed(Active&, const std::string& exchange);
+    void
+    run(Active&, Source&, warehouse::Store&, const Scope&, const std::set<std::string>& covered);
     void persist(const wire::AcquisitionTask&) const;
     void publish(const wire::AcquisitionTask&, Active&);
     void reap();

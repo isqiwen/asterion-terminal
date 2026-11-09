@@ -4,6 +4,7 @@
 #include <asterion/system/log.hpp>
 #include <asterion/system/durable_file.hpp>
 #include <fstream>
+#include <ranges>
 #include <regex>
 #include <set>
 
@@ -36,33 +37,47 @@ bool pending(const wire::AcquisitionTask& task)
     return task.state() == wire::TASK_STATE_RUNNING || task.state() == wire::TASK_STATE_QUEUED;
 }
 
-void validate(wire::StartAcquisition& request)
+// EXCHANGE/product, a whole product, rather than one of its contracts.
+bool product(const std::string& instrument)
+{
+    return std::count(instrument.begin(), instrument.end(), '/') == 1;
+}
+
+void validate(const wire::StartAcquisition& request)
 {
     require_id(request.id());
-    const auto first = day_of(request.first_day()), last = day_of(request.last_day());
-    if (first > last || request.first_day() < "1990-01-01")
-        throw std::invalid_argument("acquisition needs a range of days from 1990 on");
-    if (table(request) == "minutes") {
-        if (request.contracts().empty())
-            throw std::invalid_argument("a minute acquisition names its contracts");
-        std::set<std::string> contracts, exchanges;
-        for (const auto& contract : request.contracts()) {
-            require_contract(contract);
-            if (!contracts.insert(contract).second)
-                throw std::invalid_argument("duplicate acquisition contract");
-            exchanges.insert(contract.substr(0, contract.find('/')));
-        }
-        request.clear_exchanges();
-        for (const auto& exchange : exchanges)
-            request.add_exchanges(exchange);
-    } else if (!request.contracts().empty())
-        throw std::invalid_argument("a contract filter is only supported for minutes");
+    for (const auto* day : {&request.first_day(), &request.last_day()})
+        if (!day->empty() && day_of(*day) < day_of("1990-01-01"))
+            throw std::invalid_argument("acquisition days start in 1990");
+    if (!request.first_day().empty() && !request.last_day().empty()
+        && request.first_day() > request.last_day())
+        throw std::invalid_argument("acquisition ends before it starts");
     std::set<std::string> seen;
     for (const auto& exchange : request.exchanges()) {
         require_exchange(exchange);
         if (!seen.insert(exchange).second)
             throw std::invalid_argument("duplicate acquisition exchange");
     }
+    for (const auto& instrument : request.instruments()) {
+        static const std::regex products("[A-Z]+/[a-z]{1,3}");
+        if (!product(instrument))
+            require_contract(instrument);
+        else if (!std::regex_match(instrument, products))
+            throw std::invalid_argument("a product must be EXCHANGE/product");
+        else
+            require_exchange(instrument.substr(0, instrument.find('/')));
+        if (!seen.insert(instrument).second)
+            throw std::invalid_argument("duplicate acquisition instrument");
+    }
+    if (request.instruments().empty()) {
+        if (request.first_day().empty() || request.last_day().empty())
+            throw std::invalid_argument("an exchange acquisition needs its first and last day");
+        if (table(request) == "minutes")
+            throw std::invalid_argument("a minute acquisition names its products or contracts");
+    } else if (!request.exchanges().empty())
+        throw std::invalid_argument("an acquisition names exchanges or instruments, not both");
+    else if (table(request) == "calendar" || table(request) == "contracts")
+        throw std::invalid_argument("calendars and contracts are acquired by exchange");
 }
 
 constexpr const char* all_exchanges[] = {"SHFE", "INE", "DCE", "CZCE", "CFFEX", "GFEX"};
@@ -122,8 +137,6 @@ Manager::Manager(
                 task.mutable_error()->set_code(::common::ERROR_CODE_UNAVAILABLE);
                 task.mutable_error()->set_message("Warehouse stopped before acquisition completed");
                 task.set_finished_ms(now_ms());
-    if (finished_)
-        finished_();
                 persist(task);
             }
         } catch (const std::exception& error) {
@@ -220,26 +233,28 @@ void Manager::work(
         check_stop(active.cancel.get_token());
         task.set_state(wire::TASK_STATE_RUNNING);
         publish(task, active);
+        const auto whole = scope(active, request);
         // A source that fails leaves the next ones to fill what it lacks.
         std::set<std::string> covered;
         std::optional<wire::AcquisitionTask> failure;
         bool offered = false;
         for (const auto& provider : providers) {
             auto source = sources_.at(provider)(active.cancel.get_token());
-            auto query = request;
-            query.clear_exchanges();
-            for (const auto* exchange : all_exchanges) {
-                const auto& named = request.exchanges();
-                if ((named.empty()
-                        || std::find(named.begin(), named.end(), exchange) != named.end())
-                    && source->supports(table(request), exchange))
-                    query.add_exchanges(exchange);
-            }
+            auto part = whole;
+            std::erase_if(part.exchanges, [&](const auto& exchange) {
+                return !source->supports(table(request), exchange);
+            });
+            std::erase_if(part.contracts, [&](const auto& contract) {
+                const auto& name = std::get<0>(contract);
+                return !source->supports(table(request), name.substr(0, name.find('/')));
+            });
             auto& store = *stores_.at(provider);
-            offered = offered || !query.exchanges().empty();
-            if (!query.exchanges().empty())
+            const bool any =
+                table(request) == "minutes" ? !part.contracts.empty() : !part.exchanges.empty();
+            offered = offered || any;
+            if (any)
                 try {
-                    run(active, *source, store, query, covered);
+                    run(active, *source, store, part, covered);
                 } catch (const SourceError& error) {
                     if (error.code == "cancelled")
                         throw;
@@ -376,11 +391,95 @@ void Manager::stop()
     workers_.shutdown();
 }
 
+std::vector<Contract> Manager::listed(Active& active, const std::string& exchange)
+{
+    // Refreshed on each use, so a product includes its newly listed contracts.
+    for (const auto& provider : warehouse::sources_of("contracts")) {
+        if (!sources_.contains(provider))
+            continue;
+        const auto source = sources_.at(provider)(active.cancel.get_token());
+        if (!source->supports("contracts", exchange))
+            continue;
+        auto contracts = source->contracts(exchange);
+        auto writer = stores_.at(provider)->writer();
+        writer.put("contracts/" + exchange, warehouse::rows(contracts));
+        writer.commit();
+        wire::AcquisitionTask task;
+        {
+            std::lock_guard lock(mutex_);
+            task = active.task;
+        }
+        task.set_requests_sent(task.requests_sent() + source->requests());
+        publish(task, active);
+        return contracts;
+    }
+    throw SourceError("unavailable", "no source lists the contracts of " + exchange);
+}
+
+Manager::Scope Manager::scope(Active& active, const wire::StartAcquisition& request)
+{
+    Scope result;
+    if (request.instruments().empty()) {
+        for (const auto* exchange : all_exchanges) {
+            const auto& named = request.exchanges();
+            if (named.empty() || std::find(named.begin(), named.end(), exchange) != named.end())
+                result.exchanges.push_back(exchange);
+        }
+        result.first = day_of(request.first_day());
+        result.last = day_of(request.last_day());
+        return result;
+    }
+    // A contract with both days given needs no listing; products and open
+    // ends take each contract's listed life.
+    const bool lookup = request.first_day().empty() || request.last_day().empty()
+        || std::any_of(request.instruments().begin(), request.instruments().end(), product);
+    std::map<std::string, std::vector<Contract>> exchanges;
+    for (const auto& instrument : request.instruments())
+        exchanges[instrument.substr(0, instrument.find('/'))];
+    if (lookup)
+        for (auto& [exchange, contracts] : exchanges)
+            contracts = listed(active, exchange);
+    std::map<std::string, std::pair<std::chrono::sys_days, std::chrono::sys_days>> spans;
+    const auto add = [&](const std::string& contract, std::string first, std::string last) {
+        if (!request.first_day().empty())
+            first = std::max(first, request.first_day());
+        if (!request.last_day().empty())
+            last = std::min(last, request.last_day());
+        if (first <= last)
+            spans[contract] = {day_of(first), day_of(last)};
+    };
+    for (const auto& instrument : request.instruments()) {
+        bool found = false;
+        for (const auto& c : exchanges.at(instrument.substr(0, instrument.find('/'))))
+            if (product(instrument) ? c.exchange + "/" + c.product == instrument
+                                    : c.contract == instrument) {
+                add(c.contract, c.list_date, c.delist_date);
+                found = true;
+            }
+        if (found)
+            continue;
+        if (lookup)
+            throw SourceError("not_found", instrument + " is not in the contracts table");
+        add(instrument, request.first_day(), request.last_day());
+    }
+    if (spans.empty())
+        throw SourceError("not_found", "no contract of these instruments is listed in these days");
+    std::set<std::string> named;
+    for (const auto& [contract, days] : spans) {
+        named.insert(contract.substr(0, contract.find('/')));
+        result.contracts.emplace_back(contract, days.first, days.second);
+    }
+    result.exchanges.assign(named.begin(), named.end());
+    result.first = std::ranges::min(spans | std::views::values | std::views::keys);
+    result.last = std::ranges::max(spans | std::views::values | std::views::elements<1>);
+    return result;
+}
+
 void Manager::run(
     Active& active,
     Source& source,
     warehouse::Store& store,
-    const wire::StartAcquisition& request,
+    const Scope& scope,
     const std::set<std::string>& covered)
 {
     wire::AcquisitionTask task;
@@ -388,6 +487,7 @@ void Manager::run(
         std::lock_guard lock(mutex_);
         task = active.task;
     }
+    const auto& request = task.request();
     const auto previous_requests = task.requests_sent();
     const auto stop = active.cancel.get_token();
     // Provider trading dates use Beijing's civil day, independent of host TZ.
@@ -395,8 +495,7 @@ void Manager::run(
         std::chrono::system_clock::now() + std::chrono::hours(8));
     // A provider's day so far would be stored as the whole day and never taken
     // again: other sources stop at yesterday.
-    const auto first = day_of(request.first_day()),
-               last = std::min(day_of(request.last_day()), today - std::chrono::days{1});
+    const auto first = scope.first, last = std::min(scope.last, today - std::chrono::days{1});
     if (last < first)
         return;
     auto writer = store.writer();
@@ -409,12 +508,12 @@ void Manager::run(
     // Exchange, day and, for minutes, contract of each partition.
     std::vector<std::tuple<std::string, std::string, std::string>> plan;
     if (table(request) == "minutes") {
-        for (const auto& contract : request.contracts())
-            for (auto day = first; day <= last; day += std::chrono::days(1))
+        for (const auto& [contract, from, to] : scope.contracts)
+            for (auto day = from; day <= std::min(to, last); day += std::chrono::days(1))
                 plan.emplace_back(contract.substr(0, contract.find('/')), day_text(day), contract);
     } else if (table(request) == "calendar" || table(request) == "contracts"
-        || (table(request) == "daily" && source.supports("calendar", request.exchanges(0)))) {
-        for (const auto& exchange : request.exchanges()) {
+        || (table(request) == "daily" && source.supports("calendar", scope.exchanges[0]))) {
+        for (const auto& exchange : scope.exchanges) {
             check_stop(stop);
             if (table(request) != "contracts")
                 for (int year = int(std::chrono::year_month_day(first).year());
@@ -432,20 +531,20 @@ void Manager::run(
         commit();
         if (table(request) != "daily")
             return;
-        for (const auto& exchange : request.exchanges())
+        for (const auto& exchange : scope.exchanges)
             for (int year = int(std::chrono::year_month_day(first).year());
                 year <= int(std::chrono::year_month_day(last).year());
                 ++year)
                 for (const auto& row :
                     store.read(version, "calendar/" + exchange + "/" + std::to_string(year))) {
                     const auto day = warehouse::read_calendar_day(row);
-                    if (day.open && day.day >= request.first_day() && day.day <= day_text(last))
+                    if (day.open && day.day >= day_text(first) && day.day <= day_text(last))
                         plan.emplace_back(exchange, day.day, "");
                 }
         std::sort(plan.begin(), plan.end());
     } else {
         for (auto day = first; day <= last; day += std::chrono::days(1))
-            for (const auto& exchange : request.exchanges())
+            for (const auto& exchange : scope.exchanges)
                 if (std::chrono::weekday(day).iso_encoding() < 6)
                     plan.emplace_back(exchange, day_text(day), "");
     }

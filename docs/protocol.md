@@ -135,7 +135,7 @@ sequenceDiagram
 | `compare_dataset_versions` | 两个版本 | 前者相比后者新增、替换、删除的分区数 |
 | `get_dataset_coverage` | 版本 | 品种 × 月份的日线天数和开市天数；合约 × 月份的分钟线天数 |
 | `get_acquisition_options` | — | 可采集的表和交易所，及当前证书能否管理 |
-| `start_acquisition` | 任务参数（`manage`） | 已接纳的任务 |
+| `start_acquisition` | 表，交易所和区间，或品种、合约和可选区间（`manage`） | 已接纳的任务 |
 | `get_acquisition_task` | 任务 ID | 任务现状 |
 | `list_acquisition_tasks` | 分页游标 | 一页任务，新的在前，每页 20 个 |
 | `cancel_acquisition` | 任务 ID（`manage`） | 取消请求发出时的任务现状 |

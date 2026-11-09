@@ -54,6 +54,8 @@ const tables: Partial<Record<Table, string>> = {
 const size = (bytes: bigint) =>
   `${(Number(bytes / 1024n) / 1024).toLocaleString(getLocale(), { maximumFractionDigits: 1 })} MiB`;
 const tableName = (table: Table) => t(tables[table] ?? Table[table]);
+// Tables a task can name products or contracts for; minutes name nothing else.
+const byInstrument = [Table.DAILY, Table.MINUTES, Table.SETTLEMENT, Table.PRICE_TICKS];
 const exchanges = ["SHFE", "INE", "DCE", "CZCE", "CFFEX", "GFEX"];
 
 // Every read and acquisition goes to the saved remote Warehouse service. Browsing a
@@ -142,7 +144,8 @@ function DataCoverage({
   const [change, setChange] = useState<MarketChange>();
   const [table, setTable] = useState(options.tables[0] ?? Table.UNSPECIFIED);
   const [exchange, setExchange] = useState(options.exchanges[0] ?? "");
-  const [contracts, setContracts] = useState<string[]>([]);
+  const [instruments, setInstruments] = useState<string[]>([]);
+  const [target, setTarget] = useState<"exchange" | "instruments">("exchange");
   const catalog = useMarket()?.board.catalog?.contracts;
   const [replace, setReplace] = useState(false);
   const [summary, setSummary] = useState<MarketSummary | null>(null);
@@ -248,19 +251,29 @@ function DataCoverage({
   const fillsDaily = canManage && options.tables.includes(Table.DAILY);
   // Fills the form with one coverage gap; stored partitions are skipped, so the
   // whole month can be asked for.
-  const fill = (
-    next: Table,
-    month: string,
-    target: { exchange?: string; contracts?: string[] },
-  ) => {
+  const fill = (next: Table, month: string, gap: { exchange?: string; contracts?: string[] }) => {
     const [first, last] = monthRange(month);
     setTable(next);
-    if (target.exchange) setExchange(target.exchange);
-    if (target.contracts) setContracts(target.contracts);
+    if (gap.exchange) {
+      setExchange(gap.exchange);
+      setTarget("exchange");
+    }
+    if (gap.contracts) setInstruments(gap.contracts);
     setBegin(first);
     setEnd(last);
     form.current?.scrollIntoView({ block: "nearest" });
   };
+  // Instruments without days span each contract's listed life.
+  const named =
+    table === Table.MINUTES || (target === "instruments" && byInstrument.includes(table));
+  const choose = (next: "exchange" | "instruments") => {
+    setTarget(next);
+    if (next === "instruments") {
+      setBegin("");
+      setEnd("");
+    }
+  };
+  const scope = named ? { exchanges: [], instruments } : { exchanges: [exchange], instruments: [] };
   const acquire = async () => {
     setSubmitting(true);
     const id = crypto.randomUUID();
@@ -272,9 +285,7 @@ function DataCoverage({
           id,
           table,
           refetch: replace,
-          // A minute task's exchanges follow from its contracts.
-          exchanges: table === Table.MINUTES ? [] : [exchange],
-          contracts: table === Table.MINUTES ? contracts : [],
+          ...scope,
           firstDay: begin,
           lastDay: end,
         },
@@ -290,11 +301,7 @@ function DataCoverage({
             id: crypto.randomUUID(),
             table: Table.PRICE_TICKS,
             refetch: replace,
-            exchanges:
-              table === Table.MINUTES
-                ? [...new Set(contracts.map(contract => contract.split("/")[0]!))]
-                : [exchange],
-            contracts: [],
+            ...scope,
             firstDay: begin,
             lastDay: end,
           },
@@ -369,13 +376,20 @@ function DataCoverage({
             <h3>{t("采集")}</h3>
           </header>
           <p className="subtle">
-            {t("采集按交易所保存，分钟线按合约保存；已入库分区跳过。")}{" "}
+            {t("已入库分区跳过。品种或合约不填日期时，采它们的整个上市期。")}{" "}
             {t("关闭此页面不会停止采集。")}
           </p>
           <div className="data-fields">
             <label>
               {t("表")}
-              <select value={table} onChange={event => setTable(Number(event.target.value))}>
+              <select
+                value={table}
+                onChange={event => {
+                  const next = Number(event.target.value);
+                  setTable(next);
+                  if (next === Table.MINUTES) choose("instruments");
+                }}
+              >
                 {options.tables.map(item => (
                   <option key={item} value={item}>
                     {tableName(item)}
@@ -383,7 +397,19 @@ function DataCoverage({
                 ))}
               </select>
             </label>
-            {table !== Table.MINUTES && (
+            {table !== Table.MINUTES && byInstrument.includes(table) && (
+              <label>
+                {t("范围")}
+                <select
+                  value={target}
+                  onChange={event => choose(event.target.value as "exchange" | "instruments")}
+                >
+                  <option value="exchange">{t("整个交易所")}</option>
+                  <option value="instruments">{t("品种或合约")}</option>
+                </select>
+              </label>
+            )}
+            {!named && (
               <label>
                 {t("交易所")}
                 <select value={exchange} onChange={event => setExchange(event.target.value)}>
@@ -402,9 +428,7 @@ function DataCoverage({
               <input type="date" value={end} onChange={event => setEnd(event.target.value)} />
             </label>
           </div>
-          {table === Table.MINUTES && (
-            <ContractPicker known={known} value={contracts} onChange={setContracts} />
-          )}
+          {named && <ContractPicker known={known} value={instruments} onChange={setInstruments} />}
           <label>
             <input
               type="checkbox"
@@ -420,11 +444,9 @@ function DataCoverage({
               disabled={
                 !canManage ||
                 submitting ||
-                !begin ||
-                !end ||
-                begin > end ||
+                (begin !== "" && end !== "" && begin > end) ||
                 !table ||
-                (table === Table.MINUTES ? !contracts.length : !exchange)
+                (named ? !instruments.length : !exchange || !begin || !end)
               }
               onClick={() => void acquire()}
             >
@@ -455,6 +477,7 @@ function DataCoverage({
               <tr>
                 <th>{t("任务编号")}</th>
                 <th>{t("表")}</th>
+                <th>{t("范围")}</th>
                 <th>{t("区间")}</th>
                 <th>{t("状态")}</th>
                 <th>{t("进度")}</th>
@@ -470,7 +493,11 @@ function DataCoverage({
                   </td>
                   <td>{tableName(task.request!.table)}</td>
                   <td>
-                    {task.request!.firstDay} – {task.request!.lastDay}
+                    {[...task.request!.exchanges, ...task.request!.instruments].join("、") ||
+                      t("全部交易所")}
+                  </td>
+                  <td>
+                    {task.request!.firstDay || t("上市日")} – {task.request!.lastDay || t("摘牌日")}
                   </td>
                   <td title={task.error?.message} data-state={TaskState[task.state].toLowerCase()}>
                     {t(states[task.state] ?? String(task.state))}

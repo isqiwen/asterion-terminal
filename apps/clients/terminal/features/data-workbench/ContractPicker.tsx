@@ -5,8 +5,8 @@ const t = (key: string) => translate("asterion.terminal.data-workbench", key);
 // EXCHANGE/product/YYYY-MM → EXCHANGE/product
 export const productOf = (contract: string) => contract.slice(0, contract.lastIndexOf("/"));
 
-// The contracts one minute acquisition covers: any of `known` (by product, or
-// a whole product at once), plus contracts typed in that no list holds.
+// The products and contracts one acquisition covers: a whole product, any of
+// `known` by product, or products and contracts typed in that no list holds.
 export function ContractPicker({
   known,
   value,
@@ -14,7 +14,7 @@ export function ContractPicker({
 }: {
   known: string[];
   value: string[];
-  onChange: (contracts: string[]) => void;
+  onChange: (instruments: string[]) => void;
 }) {
   const products = [...new Set(known.map(productOf))].sort();
   const [chosen, setChosen] = useState("");
@@ -25,7 +25,7 @@ export function ContractPicker({
     onChange(on ? [...value, contract] : value.filter(item => item !== contract));
   return (
     <fieldset className="contract-picker">
-      <legend>{t("合约（分钟线必填）")}</legend>
+      <legend>{t("品种或合约")}</legend>
       {products.length > 0 && (
         <div className="data-fields">
           <label>
@@ -36,8 +36,14 @@ export function ContractPicker({
               ))}
             </select>
           </label>
-          <button type="button" onClick={() => onChange([...new Set([...value, ...listed])])}>
-            {t("选中本品种全部合约")}
+          <button
+            type="button"
+            disabled={value.includes(product)}
+            onClick={() =>
+              onChange([...value.filter(item => productOf(item) !== product), product])
+            }
+          >
+            {t("整个品种")}
           </button>
         </div>
       )}
@@ -46,7 +52,8 @@ export function ContractPicker({
           <label key={contract}>
             <input
               type="checkbox"
-              checked={value.includes(contract)}
+              disabled={value.includes(product)}
+              checked={value.includes(contract) || value.includes(product)}
               onChange={event => toggle(contract, event.target.checked)}
             />
             {contract}
@@ -55,16 +62,16 @@ export function ContractPicker({
       </div>
       <div className="data-fields">
         <label>
-          {t("其他合约")}
+          {t("其他品种或合约")}
           <input
             value={typed}
-            placeholder="SHFE/rb/2027-01"
+            placeholder="SHFE/rb, SHFE/rb/2027-01"
             onChange={event => setTyped(event.target.value.trim())}
           />
         </label>
         <button
           type="button"
-          disabled={!/^[A-Z]+\/[A-Za-z]+\/\d{4}-\d{2}$/.test(typed) || value.includes(typed)}
+          disabled={!/^[A-Z]+\/[a-z]{1,3}(\/\d{4}-\d{2})?$/.test(typed) || value.includes(typed)}
           onClick={() => {
             onChange([...value, typed]);
             setTyped("");
@@ -75,7 +82,7 @@ export function ContractPicker({
       </div>
       {value.length > 0 && (
         <p className="subtle">
-          {t("已选合约")}: {value.join("、")}{" "}
+          {t("已选")}: {value.join("、")}{" "}
           <button type="button" onClick={() => onChange([])}>
             {t("清空")}
           </button>

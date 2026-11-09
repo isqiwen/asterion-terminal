@@ -216,15 +216,18 @@ message AcquisitionOptions {
 }
 
 // The client chooses the id. Warehouse takes what it lacks from its sources in order
-// of priority. No exchanges means all of them. Minutes name their contracts.
+// of priority. A task names exchanges (none means all of them) and both days, or
+// instruments: products (EXCHANGE/product) and contracts (EXCHANGE/product/YYYY-MM),
+// where a missing day means each contract's listing or delisting day. Daily,
+// settlement and price ticks of instruments cover their exchanges' whole days.
+// Minutes take instruments only; calendar and contracts take exchanges only.
 message StartAcquisition {
   string id = 1;
   Table table = 2;
   string first_day = 3;
   string last_day = 4;
   repeated string exchanges = 5;
-  // Minutes only: EXCHANGE/product/YYYY-MM each.
-  repeated string contracts = 6;
+  repeated string instruments = 6;
   bool refetch = 7;
 }
 
