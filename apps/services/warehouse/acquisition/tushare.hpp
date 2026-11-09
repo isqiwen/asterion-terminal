@@ -33,6 +33,7 @@ public:
     Rows contracts(const std::string&) override;
     Rows daily(const std::string&, const std::string&) override;
     Rows minutes(const std::string&, const std::string&) override;
+    Rows settlement(const std::string&, const std::string&) override;
 
 private:
     struct Table;

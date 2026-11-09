@@ -1,5 +1,6 @@
 #include "tushare.hpp"
 #include "values.hpp"
+#include <asterion/base/decimal.hpp>
 #include <httplib.h>
 #include <algorithm>
 #include <regex>
@@ -221,7 +222,60 @@ Tushare::Table Tushare::ask(
 bool Tushare::supports(std::string_view table, std::string_view exchange) const
 {
     require_exchange(exchange);
-    return table == "calendar" || table == "contracts" || table == "daily" || table == "minutes";
+    return table == "calendar" || table == "contracts" || table == "daily" || table == "minutes"
+        || table == "settlement";
+}
+
+Rows Tushare::settlement(const std::string& exchange, const std::string& day)
+{
+    require_exchange(exchange);
+    auto compact = day;
+    std::erase(compact, '-');
+    const auto table =
+        ask("fut_settle",
+            {{"exchange", exchange}, {"trade_date", compact}},
+            "ts_code,trade_date,trading_fee_rate,trading_fee,long_margin_rate,short_margin_rate",
+            1600);
+    Rows rows;
+    std::set<std::string> seen;
+    try {
+        for (const auto& item : table.rows) {
+            const auto at = [&](const char* field) -> const Json& {
+                return table.at(item, field);
+            };
+            const auto code = text(at("ts_code"));
+            if (!code.ends_with(suffix(exchange)) || at("trade_date") != compact)
+                throw std::invalid_argument("foreign day or exchange");
+            if (!dated(code, exchange))
+                continue;
+            const auto contract =
+                *contract_of(exchange, code.substr(0, code.size() - suffix(exchange).size()), day);
+            if (!seen.insert(contract).second)
+                throw std::invalid_argument("duplicate settlement row");
+            // Fractions, as in Tushare's own example; an exchange's percent copied through would not be.
+            const auto margin = [&](const char* field) {
+                if (Decimal::parse(numeric(at(field))) >= Decimal::parse("1"))
+                    throw std::invalid_argument("margin rate is not a fraction");
+                return number(at(field));
+            };
+            const auto begin = contract.find('/') + 1;
+            rows.push_back(
+                {exchange,
+                    contract.substr(begin, contract.rfind('/') - begin),
+                    contract,
+                    day,
+                    margin("long_margin_rate"),
+                    margin("short_margin_rate"),
+                    number(at("trading_fee_rate"), -3),
+                    number(at("trading_fee")),
+                    // offset_today_fee does not say whether it is a rate or per lot.
+                    Cell{},
+                    Cell{}});
+        }
+    } catch (...) {
+        throw SourceError("failed", "Tushare returned invalid settlement data");
+    }
+    return rows;
 }
 
 Rows Tushare::contracts(const std::string& exchange)

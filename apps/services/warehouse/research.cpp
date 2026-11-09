@@ -12,7 +12,7 @@ const std::vector<std::string>& sources_of(std::string_view table)
         {"calendar", {"tushare"}},
         {"daily", {"tushare", "shfe", "ine", "czce", "dce", "cffex", "gfex", "sina"}},
         {"minutes", {"tushare", "sina"}},
-        {"settlement", {"shfe", "ine", "czce"}},
+        {"settlement", {"shfe", "ine", "czce", "tushare"}},
         {"price_ticks", {"czce", "gtja"}},
     };
     return order.at(table);

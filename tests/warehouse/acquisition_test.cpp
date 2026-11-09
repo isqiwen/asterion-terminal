@@ -71,6 +71,7 @@ struct Vendor
 {
     std::vector<std::string> calls, days;
     std::string close = "1.5e3", amount = "1234567890123456.123456";
+    double settle_margin = 0.07;
     std::set<std::string> empty;
     Json minutes = Json::array();
     bool full_calendar = false;
@@ -139,6 +140,13 @@ struct Vendor
                 + ",\"items\":[[\"" + code + "\",\"" + day + "\",3089.0,3090,3091,3100.5,3080,"
                 + close + ",3095,100," + amount + ",2000,-1,null]]}}";
         }
+        if (api == "fut_settle")
+            // Rows of Tushare's own fut_settle example, plus a continuous code.
+            return table(
+                "ts_code,trade_date,trading_fee_rate,trading_fee,long_margin_rate,short_margin_rate",
+                {{"CU1811.SHF", "20181114", 0.050, 0.0, 0.20, 0.20},
+                    {"AL1901.SHF", "20181114", 0.000, 3.0, 0.07, settle_margin},
+                    {"CU.SHF", "20181114", 0.050, 0.0, 0.07, 0.07}});
         if (api == "ft_mins") {
             const auto offset = p.at("offset").get<std::size_t>();
             minute_offsets.push_back(offset);
@@ -234,6 +242,26 @@ TEST_F(Acquisition, ExactProviderNumbersAndDeliveryIdentitiesReachParquet)
     EXPECT_FALSE(std::get<bool>(calendar[2][2]));
     vendor->amount = "0e2147483647";
     EXPECT_THROW(source->daily("SHFE", "2026-01-05"), ac::SourceError);
+}
+
+TEST_F(Acquisition, SettlementFeesKeepTheirUnitsAndCloseTodayFeesStayMissing)
+{
+    auto vendor = std::make_shared<Vendor>();
+    auto source = factory(vendor)({});
+    const auto rows = source->settlement("SHFE", "2018-11-14");
+    ASSERT_EQ(rows.size(), 2);
+    const auto cell = [&](std::size_t row, std::size_t column) {
+        return std::get<std::string>(rows[row][column]);
+    };
+    EXPECT_EQ(cell(0, 2), "SHFE/cu/2018-11");
+    EXPECT_EQ(cell(0, 4), "0.2");
+    EXPECT_EQ(cell(0, 6), "0.00005");
+    EXPECT_EQ(cell(1, 1), "al");
+    EXPECT_EQ(cell(1, 7), "3");
+    for (auto column : {8, 9})
+        EXPECT_TRUE(std::holds_alternative<std::monostate>(rows[0][column]));
+    vendor->settle_margin = 7;
+    EXPECT_THROW(source->settlement("SHFE", "2018-11-14"), ac::SourceError);
 }
 
 TEST_F(Acquisition, UntradedPricesAreMissingAndRepliesNeverExposeCredentials)
@@ -783,7 +811,7 @@ TEST_F(Acquisition, RemoteManagementRequiresItsVerifiedCertificateAndSurvivesDis
     const auto catalog = call("reader", query);
     ASSERT_TRUE(catalog.has_get_acquisition_options()) << catalog.DebugString();
     EXPECT_FALSE(catalog.get_acquisition_options().can_manage());
-    EXPECT_EQ(catalog.get_acquisition_options().tables_size(), 4);
+    EXPECT_EQ(catalog.get_acquisition_options().tables_size(), 5);
     EXPECT_TRUE(call("manager", query).get_acquisition_options().can_manage());
     auto* start = query.mutable_start_acquisition();
     *start = request("remote");
