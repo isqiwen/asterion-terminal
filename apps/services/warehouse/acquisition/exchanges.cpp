@@ -370,19 +370,34 @@ Rows text_rows(
             if (!ratio && basis != "绝对值")
                 throw std::invalid_argument("unknown fee basis");
             const auto begin = contract->find('/') + 1;
-            const auto margin = n("交易保证金率(%)", -2);
+            // Until 2019 CZCE gave buy and sell margins apart.
+            const bool one_margin = columns.contains("交易保证金率(%)");
+            const auto long_margin = n(one_margin ? "交易保证金率(%)" : "买交易保证金率(%)", -2);
+            const auto short_margin = n(one_margin ? "交易保证金率(%)" : "卖交易保证金率(%)", -2);
+            // Until 2020-07-31 "平今仓手续费"; before that a flag that halves the fee.
+            Cell close_today;
+            if (columns.contains("平今手续费减半")) {
+                const auto& halved = value("平今手续费减半");
+                if (halved != "Y" && halved != "N")
+                    throw std::invalid_argument("unknown close-today fee flag");
+                const auto fee = Decimal::parse(value("交易手续费"));
+                close_today =
+                    number(Json((halved == "Y" ? fee * Decimal::parse("0.5") : fee).str()));
+            } else
+                close_today = columns.contains("日内平今仓交易手续费") ? n("日内平今仓交易手续费")
+                                                                       : n("平今仓手续费");
             const Cell zero{std::string("0")};
             result.push_back(
                 {exchange,
                     contract->substr(begin, contract->rfind('/') - begin),
                     *contract,
                     day,
-                    margin,
-                    margin,
+                    long_margin,
+                    short_margin,
                     ratio ? n("交易手续费", -4) : zero,
                     ratio ? zero : n("交易手续费"),
                     ratio ? n("日内平今仓交易手续费", -4) : zero,
-                    ratio ? zero : n("日内平今仓交易手续费")});
+                    ratio ? zero : close_today});
         }
     }
     return result;

@@ -113,6 +113,31 @@ TEST_F(ExchangeSources, ExactDecimalsMissingPricesAndFeeBasesReachParquet)
     EXPECT_EQ(std::get<std::string>(rows[0][6]), "0");
     EXPECT_EQ(std::get<std::string>(rows[0][7]), "5");
     EXPECT_EQ(std::get<std::string>(rows[0][9]), "20");
+    // Older tables give buy and sell margins and name the close-today fee differently;
+    // in 2016 only a flag says whether it is half the fee.
+    ac::Exchange oldest("CZCE", {}, [](const ac::HttpRequest& request, auto) {
+        if (request.path.find("20160105") != std::string::npos) {
+            std::ifstream input(
+                fs::path(ASTERION_EXCHANGE_FIXTURES) / "czce_settlement_2016.txt",
+                std::ios::binary);
+            return ac::HttpReply{200, {std::istreambuf_iterator<char>(input), {}}};
+        }
+        return ac::HttpReply{
+            200,
+            "郑州商品交易所期货结算参数表(2018-08-24)\n" "合约代码|当日结算价|是否单边市|连续单边市天数|买交易保证金率(%)|卖交易保证金率(%)|" "交易手续费|交割手续费|平今仓手续费\n" "AP810 |10,886.00 |N |0 |11.00 |11.00 |20.00 |10.00 |20.00 \n"
+        };
+    });
+    rows = oldest.settlement("CZCE", "2016-01-05");
+    ASSERT_EQ(rows.size(), 2);
+    EXPECT_EQ(std::get<std::string>(rows[0][4]), "0.2");
+    EXPECT_EQ(std::get<std::string>(rows[0][5]), "0.2");
+    EXPECT_EQ(std::get<std::string>(rows[0][7]), "4.3");
+    EXPECT_EQ(std::get<std::string>(rows[0][9]), "2.15");
+    EXPECT_EQ(std::get<std::string>(rows[1][9]), "3");
+    rows = oldest.settlement("CZCE", "2018-08-24");
+    ASSERT_EQ(rows.size(), 1);
+    EXPECT_EQ(std::get<std::string>(rows[0][4]), "0.11");
+    EXPECT_EQ(std::get<std::string>(rows[0][9]), "20");
 }
 
 TEST_F(ExchangeSources, CffexEncodingAndCzceDailyColumnsExcludeOptions)
