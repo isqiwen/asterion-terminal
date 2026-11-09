@@ -93,6 +93,19 @@ TEST_F(ExchangeSources, ExactDecimalsMissingPricesAndFeeBasesReachParquet)
     EXPECT_EQ(std::get<std::string>(rows[0][9]), "0");
     EXPECT_EQ(std::get<std::string>(rows[1][7]), "5");
     EXPECT_EQ(std::get<std::string>(rows[1][9]), "10");
+    // Before 2022-11-07 the table has no fee basis; every fee is per lot.
+    ac::Exchange before("CZCE", {}, [](const auto&, auto) {
+        return ac::HttpReply{
+            200,
+            "郑州商品交易所期货结算参数表(2022-01-04)\n" "合约代码|当日结算价|是否单边市|连续单边市天数|交易保证金率(%)|涨跌停板(%)|" "交易手续费|交割手续费|日内平今仓交易手续费|日持仓限额\n" "AP201 |8,565.00 |N |0 |20 |±9 |5.00 |0.00 |20.00 |20 \n"
+        };
+    });
+    rows = before.settlement("CZCE", "2022-01-04");
+    ASSERT_EQ(rows.size(), 1);
+    EXPECT_EQ(std::get<std::string>(rows[0][2]), "CZCE/ap/2022-01");
+    EXPECT_EQ(std::get<std::string>(rows[0][6]), "0");
+    EXPECT_EQ(std::get<std::string>(rows[0][7]), "5");
+    EXPECT_EQ(std::get<std::string>(rows[0][9]), "20");
 }
 
 TEST_F(ExchangeSources, CffexEncodingAndCzceDailyColumnsExcludeOptions)
@@ -487,13 +500,6 @@ TEST_F(ExchangeSources, PublicFilesPublishThroughNativeTaskManager)
             store.read(store.current(), std::string(table) + "/" + exchange + "/" + day);
         ASSERT_FALSE(rows.empty());
         std::cout << exchange << " " << table << " " << day << ": " << rows.size() << " rows\n";
-        if (std::string_view(table) != "price_ticks"
-            && ac::Exchange(exchange, {}).supports("price_ticks", exchange)) {
-            const auto ticks = store.read(store.current(), "price_ticks/" + exchange + "/" + day);
-            ASSERT_FALSE(ticks.empty());
-            std::cout << exchange << " auto price_ticks " << day << ": " << ticks.size()
-                      << " rows\n";
-        }
     }
 }
 

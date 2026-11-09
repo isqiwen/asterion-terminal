@@ -360,8 +360,11 @@ Rows text_rows(
                 n(exchange == "CZCE" ? "成交量(手)" : "成交量"),
                 n(columns.contains("持仓量") ? "持仓量" : "空盘量")));
         else {
-            const bool ratio = value("手续费收取方式") == "比例值";
-            if (!ratio && value("手续费收取方式") != "绝对值")
+            // CZCE added the fee basis on 2022-11-07, all per lot; its first ratio came on 2023-07-20.
+            const std::string basis =
+                exchange == "CZCE" && day < "2022-11-07" ? "绝对值" : value("手续费收取方式");
+            const bool ratio = basis == "比例值";
+            if (!ratio && basis != "绝对值")
                 throw std::invalid_argument("unknown fee basis");
             const auto begin = contract->find('/') + 1;
             const auto margin = n("交易保证金率(%)", -2);
