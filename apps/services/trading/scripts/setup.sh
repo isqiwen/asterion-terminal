@@ -261,7 +261,7 @@ with open(path, "w") as output:
     echo "Saved $file"
     echo "In Terminal, give account $name the address of this host and port $port."
     fingerprint
-    echo "Account $name listens on TCP $port with TLS: allow the port only from your Terminals, e.g. ufw allow from <address> to any port $port proto tcp"
+    echo "Open TCP port $port in the firewall, e.g. sudo ufw allow $port/tcp"
     restart "$name"
 }
 

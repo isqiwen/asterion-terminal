@@ -325,7 +325,7 @@ main() {
         echo "Installed in $ROOT; Warehouse runs as $ACCOUNT. Settings:"
         configure
         port=$(current port)
-        echo "Warehouse listens on TCP $port with TLS: allow the port only from your Terminals, e.g. ufw allow from <address> to any port $port proto tcp"
+        echo "Open TCP port $port in the firewall, e.g. sudo ufw allow $port/tcp"
     fi
     fingerprint
     echo "Client roles and providers take effect after restart. Provider credentials stay on this host."
