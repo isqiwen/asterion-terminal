@@ -68,11 +68,10 @@ def symbols_of(data: Data, symbols) -> tuple:
 def config(data: Data, symbols) -> Config:
     """A replay that trades nothing: costs and limits play no part, but the
     account accepts only valid ones."""
-    products = {"/".join(symbol.split("/")[:2]) for symbol in symbols}
     costs = [Decimal(1) if name == "margin_per_lot" else Decimal(0) for name in COSTS]
     return Config(repository="", strategy="", params={}, symbols=tuple(symbols),
                   begin_day=data.begin, end_day=data.end, deposit=Decimal(1),
-                  costs=dict.fromkeys(products, costs),
+                  costs=costs,
                   slippage_ticks=0, max_order_lots=Decimal(0), max_gross_lots=Decimal(0),
                   max_working_orders=0)
 

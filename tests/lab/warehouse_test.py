@@ -20,7 +20,6 @@ from asterion.lab_pb2 import Request
 from asterion import common_pb2 as common, warehouse_pb2 as market
 from asterion.common_pb2 import Period
 from asterion.warehouse_pb2 import Request as MarketRequest, Response as MarketResponse
-from asterion_lab.backtest import COSTS
 from asterion_lab.warehouse_client import Client, Dataset, Endpoint, WarehouseError
 from asterion_lab.service import Service
 from asterion_lab.runs import Runs
@@ -287,9 +286,6 @@ class RemoteResearch(unittest.TestCase):
         run.limits.max_order_lots.text = run.limits.max_gross_lots.text = '10'
         run.limits.max_working_orders = 10
         run.periods_per_year, run.zero_risk_free_rate = 252, True
-        costs = run.costs.add(product='SHFE/rb').costs
-        for name, value in zip(COSTS, ['0', '3', '3', '3', '0.1', '0', '0', '0']):
-            getattr(costs, name).text = value
         return request
 
     def test_real_children_sweeps_rolling_factors_and_charts_read_the_admitted_version(self):

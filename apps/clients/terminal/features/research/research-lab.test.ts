@@ -16,7 +16,6 @@ import {
   heatmap,
   monthlyReturns,
   parameterValues,
-  productsOf,
   runRequest,
 } from "./research-lab";
 
@@ -45,8 +44,6 @@ test("a field's values follow the parameter's kind, and several make a sweep", (
   );
   expect(swept.map(item => item.name)).toEqual(["fast"]);
   expect(run.params).toEqual({ slow: { value: { case: "integer", value: 20n } } });
-  expect(run.costs?.map(item => item.product)).toEqual(["SHFE/rb", "SHFE/au"]);
-  expect(productsOf("SHFE/rb, SHFE/rb/2026-05")).toEqual(["SHFE/rb"]);
 });
 
 test("monthly returns compound from the deposit, and a sweep grid fills by its two parameters", () => {

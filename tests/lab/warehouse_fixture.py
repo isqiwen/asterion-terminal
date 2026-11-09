@@ -56,6 +56,14 @@ def price_tick(contract, value="1", begin=None, end=None, source="https://exampl
                 price_tick=Decimal(value), source_url=source)
 
 
+def settlement(contract, day, fee="3", today_fee="3", margin="0.1"):
+    exchange, product, _ = contract.split("/")
+    rate = lambda value: Decimal(value) if value else None
+    return dict(exchange=exchange, product=product, contract=contract, day=day.isoformat(),
+                long_margin_rate=rate(margin), short_margin_rate=rate(margin), fee_rate=Decimal(0),
+                fee_per_lot=rate(fee), close_today_fee_rate=Decimal(0), close_today_fee_per_lot=rate(today_fee))
+
+
 def closes(count):
     """Up for a while, then down, each leg with pullbacks: rules that follow a
     trend take a side, and a price decided at a close comes back to fill."""
@@ -81,6 +89,9 @@ def warehouse(directory: Path):
                     [contract_row("SHFE/rb/2026-05"), contract_row("SHFE/rb/2026-10")])
     writer.put_rows("price_ticks/SHFE", "price_ticks",
                     [price_tick("SHFE/rb/2026-05"), price_tick("SHFE/rb/2026-10")])
+    for day in DAYS:
+        writer.put_rows(f"settlement/SHFE/{day.isoformat()}", "settlement",
+                        [settlement("SHFE/rb/2026-05", day), settlement("SHFE/rb/2026-10", day)])
     writer.add_days("SHFE", "2026-01", [row for row in rows if row["day"] < "2026-02"],
                     [day.isoformat() for day in DAYS if day.isoformat() < "2026-02"])
     writer.add_days("SHFE", "2026-02", [row for row in rows if row["day"] >= "2026-02"],

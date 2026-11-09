@@ -26,7 +26,7 @@ from asterion_strategy import Bar, FIELDS, Strategy, step  # noqa: E402
 from asterion_lab.runs import Runs  # noqa: E402
 from service_fixture import Service  # noqa: E402
 from warehouse_writer import Dataset, Warehouse  # noqa: E402
-from warehouse_fixture import DAYS, price_tick, warehouse  # noqa: E402
+from warehouse_fixture import DAYS, price_tick, settlement, warehouse  # noqa: E402
 
 EXAMPLES = Path(__file__).parent / "strategies"
 
@@ -34,10 +34,6 @@ EXAMPLES = Path(__file__).parent / "strategies"
 def git(root, *arguments):
     subprocess.run(["git", "-C", str(root), "-c", "user.name=test", "-c", "user.email=test@invalid",
                     *arguments], check=True, capture_output=True)
-
-
-COSTS = {"SHFE/rb": [Decimal(0), Decimal(3), Decimal(3), Decimal(3), Decimal("0.1"),
-                     Decimal(0), Decimal(0), Decimal(0)]}
 
 
 class Chart(unittest.TestCase):
@@ -84,7 +80,7 @@ class Backtests(unittest.TestCase):
         values = dict(repository=str(self.repository), strategy="ma_cross.MaCross",
                       params={"fast": 2, "slow": 4}, symbols=symbols,
                       begin_day=DAYS[0].isoformat(), end_day=DAYS[-1].isoformat(),
-                      deposit=Decimal(1_000_000), costs=COSTS, slippage_ticks=0,
+                      deposit=Decimal(1_000_000), costs=None, slippage_ticks=0,
                       max_order_lots=Decimal(10), max_gross_lots=Decimal(10), max_working_orders=10)
         values.update(changes)
         values.setdefault("dataset_version", Dataset(self.directory).current().identity)
@@ -471,9 +467,8 @@ class Backtests(unittest.TestCase):
         # Fees of 3.25 a lot put cents into equity; inverse-volatility weights
         # have eight places. Their product needs rounding, not a failed run.
         symbols = ("SHFE/rb/2026-05", "SHFE/rb/2026-10")
-        costs = {"SHFE/rb": [Decimal(0), Decimal("3.25"), Decimal("3.25"), Decimal("3.25"),
-                             Decimal("0.1"), Decimal(0), Decimal(0), Decimal(0)]}
-        config = self.config(symbols, strategy="momentum_rank.MomentumRank", costs=costs,
+        self.fees(DAYS, "3.25")
+        config = self.config(symbols, strategy="momentum_rank.MomentumRank",
                              params={"lookback": 2, "rebalance": 1, "weight": 0.3, "volatility": 3},
                              max_gross_weight=Decimal(1), max_net_weight=Decimal(1))
         backtest.run(self.directory, "volatility", config)
@@ -508,17 +503,31 @@ class Backtests(unittest.TestCase):
             backtest.run(self.directory, "missing", self.config(("SHFE/rb/2027-01",)))
         (row,) = Runs(self.directory).list()
         self.assertEqual((row["state"], row["error"]), ("failed", "no daily bars of SHFE/rb/2027-01"))
-        with self.assertRaisesRegex(ValueError, "no costs"):
-            backtest.run(self.directory, "costs", self.config(("SHFE/rb/2026-05",), costs={}))
 
-    def test_a_missing_limit_or_cost_is_named(self):
+    def fees(self, days, fee, today_fee=None):
+        """The exchange's fees of SHFE/rb on `days` in a new dataset version."""
+        writer = Warehouse(self.directory).writer()
+        for day in days:
+            writer.put_rows(f"settlement/SHFE/{day.isoformat()}", "settlement",
+                            [settlement(contract, day, fee, fee if today_fee is None else today_fee)
+                             for contract in ("SHFE/rb/2026-05", "SHFE/rb/2026-10")])
+        writer.commit()
+
+    def test_fees_follow_each_day_and_a_missing_one_stops_the_run(self):
+        self.fees(DAYS[15:], "5")
+        backtest.run(self.directory, "dated", self.config(("SHFE/rb/2026-05",)))
+        fills = Runs(self.directory).table("dated", "fills")
+        self.assertEqual({fee / quantity for fee, quantity in zip(fills["fee"], fills["quantity"])},
+                         {Decimal(3), Decimal(5)})
+        # SHFE published no close-today fee before 2024-07-22: never priced as zero.
+        self.fees(DAYS[3:4], "3", today_fee="")
+        with self.assertRaisesRegex(ValueError, f"missing fees of SHFE/rb/2026-05 on {DAYS[3].isoformat()}"):
+            backtest.run(self.directory, "missing", self.config(("SHFE/rb/2026-05",)))
+
+    def test_a_missing_limit_is_named(self):
         run = self.sweep_request("named", [2], [4], 1).start_sweep.base
         run.limits.max_order_lots.text = ""
         with self.assertRaisesRegex(ValueError, "max_order_lots must be a number, not ''"):
-            backtest.config_of(AdmittedRun(backtest=run))
-        run.limits.max_order_lots.text = "10"
-        run.costs[0].costs.open_fee.text = "3元"
-        with self.assertRaisesRegex(ValueError, "SHFE/rb open_fee must be a number"):
             backtest.config_of(AdmittedRun(backtest=run))
 
     def test_stored_contracts_and_their_minutes_are_listed(self):
@@ -627,15 +636,12 @@ class Backtests(unittest.TestCase):
         asyncio.run(scenario())
 
     def fill(self, run):
-        """Daily bars of every day, with the test's deposit, costs and limits."""
+        """Daily bars of every day, with the test's deposit and limits."""
         run.first_day, run.last_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
         run.period = Period.PERIOD_DAY
         run.deposit.text = "1000000"
         run.limits.max_order_lots.text = run.limits.max_gross_lots.text = "10"
         run.limits.max_working_orders = 10
-        costs = run.costs.add(product="SHFE/rb").costs
-        for name, value in zip(backtest.COSTS, COSTS["SHFE/rb"]):
-            getattr(costs, name).text = str(value)
 
     def sweep_request(self, identity, fast, slow, processes):
         request = Request(id=1)

@@ -10,11 +10,9 @@ import {
   type TerminalContext,
 } from "../contract";
 import {
-  costNames,
   defaultForm,
   defaultText,
   parameterKind,
-  productsOf,
   runState,
   runRequest,
   type RunForm,
@@ -96,7 +94,6 @@ export function StrategyLab(context: TerminalContext) {
   }, [shown, runs]);
 
   const strategy = strategies?.strategies.find(item => item.id === chosen);
-  const products = productsOf(form.symbols);
   const change = (patch: Partial<RunForm>) => setForm(previous => ({ ...previous, ...patch }));
   const submit = async () => {
     if (!strategy) return;
@@ -292,33 +289,6 @@ export function StrategyLab(context: TerminalContext) {
               {field("滑点（跳）", "slippage")}
               {field("单笔手数", "maxOrderLots")}
               {field("总持仓手数", "maxGrossLots")}
-              {products.map(product => (
-                <details key={product} className="wide lab-section">
-                  <summary>
-                    {t("{product} 的费用", { product })}
-                    <small>
-                      {(form.costs[product] ?? []).filter(Boolean).length
-                        ? (form.costs[product] ?? []).join(" · ")
-                        : t("未填写")}
-                    </small>
-                  </summary>
-                  <div className="lab-form">
-                    {costNames.map((name, index) => (
-                      <label key={name}>
-                        <span>{t(name)}</span>
-                        <input
-                          value={form.costs[product]?.[index] ?? ""}
-                          onChange={event => {
-                            const values = [...(form.costs[product] ?? costNames.map(() => ""))];
-                            values[index] = event.target.value;
-                            change({ costs: { ...form.costs, [product]: values } });
-                          }}
-                        />
-                      </label>
-                    ))}
-                  </div>
-                </details>
-              ))}
               <details className="wide lab-section">
                 <summary>
                   {t("更多限额与统计")}

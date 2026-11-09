@@ -20,17 +20,6 @@ const t = (key: string, values?: MessageValues) =>
 type ValueInit = MessageInitShape<typeof ParameterValueSchema>;
 export type RunInit = MessageInitShape<typeof BacktestSchema>;
 export type FactorInit = MessageInitShape<typeof EvaluateFactorSchema>;
-// common.Costs fields in the order of costNames.
-const costFields = [
-  "marginPerLot",
-  "openFee",
-  "closeTodayFee",
-  "closeYesterdayFee",
-  "marginRate",
-  "openFeeRate",
-  "closeTodayFeeRate",
-  "closeYesterdayFeeRate",
-] as const;
 const decimal = (text: string) => ({ text });
 
 // A run's state as the pages name it: running, succeeded, failed, stopped or
@@ -45,18 +34,6 @@ export function parameterKind(parameter: Parameter) {
   ]!;
 }
 
-// The eight cost values of a product, in the lab's order.
-export const costNames = [
-  "每手保证金",
-  "开仓手续费",
-  "平今手续费",
-  "平昨手续费",
-  "保证金率",
-  "开仓手续费率",
-  "平今手续费率",
-  "平昨手续费率",
-] as const;
-
 export type RunForm = {
   symbols: string;
   begin: string;
@@ -65,7 +42,6 @@ export type RunForm = {
   minutes: string;
   params: Record<string, string>;
   deposit: string;
-  costs: Record<string, string[]>;
   slippage: string;
   maxOrderLots: string;
   maxGrossLots: string;
@@ -89,7 +65,6 @@ export function defaultForm(): RunForm {
     minutes: "0",
     params: {},
     deposit: "1000000",
-    costs: {},
     slippage: "1",
     maxOrderLots: "",
     maxGrossLots: "",
@@ -111,11 +86,6 @@ export function symbolsOf(text: string) {
     .split(/[\s,，]+/)
     .map(item => item.trim())
     .filter(Boolean);
-}
-
-// A run's costs are given per product: EXCHANGE/product of every symbol.
-export function productsOf(text: string) {
-  return [...new Set(symbolsOf(text).map(symbol => symbol.split("/").slice(0, 2).join("/")))];
 }
 
 // One field's values: comma-separated, each of the parameter's kind. More
@@ -189,15 +159,6 @@ export function runRequest(
     lastDay: form.end,
     period: protocolPeriod(form.minutes === "0" ? "day" : Number(form.minutes)),
     deposit: decimal(form.deposit),
-    costs: productsOf(form.symbols).map(product => {
-      const values = form.costs[product] ?? costNames.map(() => "");
-      return {
-        product,
-        costs: Object.fromEntries(
-          costFields.map((field, index) => [field, decimal(values[index]!)]),
-        ),
-      };
-    }),
     slippageTicks: Number(form.slippage),
     limits: {
       maxOrderLots: decimal(form.maxOrderLots),

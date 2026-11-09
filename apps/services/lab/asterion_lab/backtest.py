@@ -15,8 +15,9 @@ The data are read this way:
   day and the next one. A strategy reads it adjusted as of each bar (see
   asterion_strategy.py).
 
-Costs, slippage, order limits and the weight budgets are the run's, as the
-user gives them. Lots a strategy targets stand and are placed again at every
+Margins and fees are the exchange's settlement parameters of each trading
+day in the pinned dataset; a day without them stops the run. Slippage, order
+limits and the weight budgets are the run's, as the user gives them. Lots a strategy targets stand and are placed again at every
 bar's close; weights are sized into lots once, when given.
 
 The service runs each backtest in a child process:
@@ -70,7 +71,9 @@ class Config:
     begin_day: str
     end_day: str
     deposit: Decimal
-    costs: dict  # EXCHANGE/product -> eight decimals, as COSTS names them
+    # None: each contract's exchange fees of each day from the dataset. A replay that
+    # trades nothing gives eight decimals, as COSTS names them, for every contract.
+    costs: list | None
     slippage_ticks: int
     max_order_lots: Decimal
     max_gross_lots: Decimal
@@ -183,6 +186,33 @@ class Data:
             result[day] = next(iter(ticks))
         return result
 
+    def costs(self, exchange: str, contract: str, days: list) -> list:
+        """The contract's exchange margin and fees on each of `days` (ascending), from the
+        version's settlement parameters, as the engine's dated costs. A fee the exchange
+        published for no source stops the run instead of being replaced."""
+        rows = self.warehouse.query(self.version, """
+            select day, long_margin_rate, short_margin_rate, fee_rate, fee_per_lot,
+                   close_today_fee_rate, close_today_fee_per_lot
+            from settlement where contract = ?""", ("settlement",), (contract,),
+            exchange=exchange, begin=days[0], end=days[-1])
+        published = {day.isoformat(): values for day, *values in rows}
+        schedule = []
+        for day in days:
+            values = published.get(day)
+            if values is None:
+                raise ValueError(f"no settlement parameters of {contract} on {day}")
+            if None in values:
+                raise ValueError(f"missing fees of {contract} on {day}")
+            long, short, rate, per_lot, today_rate, today_per_lot = values
+            if long != short:
+                raise ValueError(f"long and short margin rates of {contract} differ on {day}")
+            # As COSTS names them: margins are rates only; closing yesterday costs what opening does.
+            costs = [raw(value) for value in (Decimal(0), per_lot, today_per_lot, per_lot,
+                                              long, rate, today_rate, rate)]
+            if not schedule or schedule[-1]["values"] != costs:
+                schedule.append(dict(effective_from=day, source="warehouse", values=costs))
+        return schedule
+
     def multiplier(self, exchange: str, contract: str) -> Decimal:
         if contract not in self.multipliers:
             self.multipliers[contract] = self.read_multiplier(exchange, contract)
@@ -245,9 +275,6 @@ def contract_input(data: Data, config: Config, contract: str, begin: str, end: s
     days = month.bars(begin, end)
     if not days:
         raise ValueError(f"no bars of {contract} fall inside the requested trading days")
-    costs = config.costs.get(f"{exchange}/{product}")
-    if costs is None:
-        raise ValueError(f"the run gives no costs of {exchange}/{product}")
     interest = lambda value: math.nan if value is None else float(value)
     excluded = []
     if config.minutes:
@@ -276,12 +303,19 @@ def contract_input(data: Data, config: Config, contract: str, begin: str, end: s
         if increments[day] != current:
             current = increments[day]
             changes.append((day, current))
+    if config.costs is None:
+        costs = data.costs(exchange, contract, tick_days)
+        # The account prices every contract from the run's first day on; before its first
+        # bar a contract can neither fill nor be held, so its first fees are never charged early.
+        costs[0]["effective_from"] = config.begin_day
+    else:
+        # A replay that trades nothing prices every contract from its first day on.
+        costs = [dict(effective_from=config.begin_day, source="replay",
+                      values=[raw(value) for value in config.costs])]
     return dict(
         venue=exchange, symbol=contract, price_increment=increments[bars[0][0]],
         quantity_increment=R, multiplier=raw(data.multiplier(exchange, contract)),
-        # The account prices every contract from the run's first day on.
-        costs=[dict(effective_from=config.begin_day, source="run",
-                    values=[raw(value) for value in costs])],
+        costs=costs,
         increments=changes, slippage_ticks=config.slippage_ticks,
         bars=[bar[:7] for bar in bars],
         settlements=settlements,
@@ -507,7 +541,7 @@ def metrics(config: Config, engine) -> dict:
 
 
 def costs_record(config: Config) -> dict:
-    return {"by_product": {key: dict(zip(COSTS, map(str, values))) for key, values in config.costs.items()},
+    return {"fees": "exchange settlement parameters of each trading day",
             "slippage_ticks": config.slippage_ticks, "deposit": str(config.deposit)}
 
 
@@ -598,20 +632,13 @@ def config_of(admitted) -> Config:
     request = admitted.backtest
     params = {name: getattr(value, value.WhichOneof("value"))
               for name, value in request.params.items() if value.WhichOneof("value")}
-    costs = {}
-    for item in request.costs:
-        missing = [name for name in COSTS if not item.costs.HasField(name)]
-        if missing:
-            raise ValueError(f"costs of {item.product} need {', '.join(missing)}")
-        costs[item.product] = [number(f"{item.product} {name}", getattr(item.costs, name).text)
-                               for name in COSTS]
     limits = request.limits
     return Config(
         repository=request.repository, strategy=request.strategy, params=params,
         symbols=tuple(request.symbols),
         begin_day=request.first_day, end_day=request.last_day,
         deposit=number("deposit", request.deposit.text),
-        costs=costs, slippage_ticks=request.slippage_ticks,
+        costs=None, slippage_ticks=request.slippage_ticks,
         max_order_lots=number("max_order_lots", limits.max_order_lots.text),
         max_gross_lots=number("max_gross_lots", limits.max_gross_lots.text),
         max_working_orders=limits.max_working_orders,

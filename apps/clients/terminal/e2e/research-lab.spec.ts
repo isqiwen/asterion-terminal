@@ -46,18 +46,6 @@ test(
     await form.getByLabel("结束日").fill("2026-02-13");
     await form.getByLabel("单笔手数").fill("10");
     await form.getByLabel("总持仓手数").fill("10");
-    await form.getByText("SHFE/rb 的费用").click();
-    for (const [label, value] of [
-      ["每手保证金", "0"],
-      ["开仓手续费", "3"],
-      ["平今手续费", "3"],
-      ["平昨手续费", "3"],
-      ["保证金率", "0.1"],
-      ["开仓手续费率", "0"],
-      ["平今手续费率", "0"],
-      ["平昨手续费率", "0"],
-    ])
-      await form.getByLabel(label, { exact: true }).fill(value);
 
     await backtest(page, "2", "4");
     await expect(page.getByText(/^成交（[1-9]\d* 笔）$/)).toBeVisible();

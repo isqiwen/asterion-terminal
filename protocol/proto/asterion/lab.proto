@@ -338,11 +338,6 @@ message Pinned {
   string changes = 3;
 }
 
-message ProductCosts {
-  string product = 1;
-  common.Costs costs = 2;
-}
-
 // Symbols are contracts or products (their traded dominant series).
 message Backtest {
   string id = 1;
@@ -355,7 +350,6 @@ message Backtest {
   string last_day = 7;
   common.Period period = 8;
   common.Decimal deposit = 9;
-  repeated ProductCosts costs = 10;
   uint32 slippage_ticks = 11;
   common.RiskLimits limits = 12;
   // Shares of equity.

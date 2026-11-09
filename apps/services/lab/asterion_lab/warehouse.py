@@ -70,13 +70,15 @@ class Version:
     def keys(self, table: str, exchange: str = "", contract: str = "", begin: str = "", end: str = ""):
         """The partitions of `table`, of one exchange when named. A minute
         partition is one contract's trading day (minutes/<exchange>/<day>/<product>/<month>),
-        so minutes also narrow to `contract` and to days in [begin, end]."""
+        so minutes also narrow to `contract`; minutes and settlement (settlement/<exchange>/<day>)
+        narrow to days in [begin, end]."""
         for key in sorted(self.manifest["partitions"]):
             parts = key.split("/")
             if parts[0] != table or (exchange and parts[1] != exchange):
                 continue
-            if table == "minutes" and ((contract and "/".join([parts[1], *parts[3:]]) != contract)
-                                       or (begin and parts[2] < begin) or (end and parts[2] > end)):
+            if table in ("minutes", "settlement") and ((begin and parts[2] < begin) or (end and parts[2] > end)):
+                continue
+            if table == "minutes" and contract and "/".join([parts[1], *parts[3:]]) != contract:
                 continue
             yield key
 
