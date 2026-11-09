@@ -156,12 +156,8 @@ free_port() {
 }
 
 fingerprint() {
-    openssl x509 -noout -fingerprint -sha256 -in "$ROOT/config/tls/server.crt" | sed 's/^.*=//'
-}
-
-show_fingerprint() {
     echo "This host's certificate fingerprint, to enter in Terminal:"
-    echo "  $(fingerprint)"
+    echo "  $(openssl x509 -noout -fingerprint -sha256 -in "$ROOT/config/tls/server.crt" | sed 's/^.*=//')"
 }
 
 # ask PROMPT DEFAULT PATTERN: reads a value, offering the default.
@@ -204,7 +200,7 @@ configure_account() {
             fail "Port $port is already configured for account $other"
         fi
     done
-    echo "The Terminal shows its certificate fingerprint under Settings > CTP accounts."
+    echo "Terminal shows its certificate fingerprint under Settings > About."
     terminals=$(ask "Terminal fingerprints (space separated)" "$(value "$name" terminals)" \
         '^([0-9A-Fa-f:]{64,95})( [0-9A-Fa-f:]{64,95})*$')
     environment=$(ask "Counter environment (real/simulation)" "$(value "$name" environment)" '^(real|simulation)$')
@@ -264,9 +260,9 @@ with open(path, "w") as output:
     mv -f "$config" "$file"
     systemctl enable "asterion-trading@$name.service" >/dev/null 2>&1
     echo "Saved $file"
-    echo "In the Terminal, give account $name the address of this host, port $port and this host's fingerprint:"
-    echo "  $(fingerprint)"
-    echo "The instance listens on TCP $port with TLS: allow the port only from your Terminals, e.g. ufw allow from <address> to any port $port proto tcp"
+    echo "In Terminal, give account $name the address of this host and port $port."
+    fingerprint
+    echo "Account $name listens on TCP $port with TLS: allow the port only from your Terminals, e.g. ufw allow from <address> to any port $port proto tcp"
     restart "$name"
 }
 
@@ -308,7 +304,7 @@ menu() {
     case ${choice:-1} in
         1) configure_account ;;
         2) disable_account ;;
-        3) show_fingerprint ;;
+        3) fingerprint ;;
         4) list_accounts ;;
         *) fail "Unknown choice" ;;
     esac
@@ -389,7 +385,7 @@ place() {
     done
     chmod -R a+rX,go-w "$next"
     chmod 0755 "$next/bin/asterion_trading" "$next/bin/setup.sh"
-    "$next/bin/asterion_trading" --version >/dev/null 2>&1 || fail "The trading service in this release does not run on this host"
+    "$next/bin/asterion_trading" --version >/dev/null 2>&1 || fail "Trading in this release does not run on this host"
     "$next/runtime/python/bin/python3" -I -B -c \
         'import sys, numpy, google.protobuf; assert sys.version_info[:3] == (3, 12, 12); assert numpy.__version__ == "2.3.5"; assert google.protobuf.__version__ == "5.29.3"; sys.path.insert(0, sys.argv[1]); import asterion_strategy, asterion.strategy_pb2' \
         "$next/lib/strategy" || fail "The strategy runtime in this release does not run on this host"
@@ -405,7 +401,7 @@ place() {
 main() {
     [[ $EUID -eq 0 ]] || fail "Run it with sudo"
     if [[ ${1:-} == fingerprint ]]; then
-        show_fingerprint
+        fingerprint
         return
     fi
     local source line
@@ -424,7 +420,7 @@ main() {
         ACCOUNT=$(stat -c %U "$ROOT/data")
     else
         ACCOUNT=${SUDO_USER:-}
-        [[ -n $ACCOUNT && $ACCOUNT != root ]] || fail "Run it with sudo from your own account: the trading service will run as that account"
+        [[ -n $ACCOUNT && $ACCOUNT != root ]] || fail "Run it with sudo from your own account: Trading will run as that account"
     fi
     if [[ $source == "$ROOT" ]]; then
         menu
@@ -445,8 +441,8 @@ main() {
             place "$source"
             # The configured account may start only after installation completes.
             exec {program_lock}<&-
-            echo "Installed in $ROOT; the trading service runs as $ACCOUNT."
-            echo "This host's certificate fingerprint: $(fingerprint)"
+            echo "Installed in $ROOT; Trading runs as $ACCOUNT."
+            fingerprint
             configure_account
         fi
     fi

@@ -131,19 +131,25 @@ secret() {
 
 configure() {
     local bind port data previous settings
-    local clients exchanges budget token='' encrypted_token=''
+    local clients exchanges budget token='' encrypted_token='' answer=''
     bind=$(ask bind "Listen address" '^[0-9A-Fa-f.:]+$')
     port=$(ask port "Listen port" '^[0-9]{1,5}$')
     ((port >= 1 && port <= 65535)) || fail "The port must be between 1 and 65535"
     previous=$(current data)
-    data=$(ask data "Data directory (warehouse)" '^/[^[:space:]]*$')
-    echo "Register Terminal fingerprints as <fingerprint>=read or <fingerprint>=manage (space separated)."
-    clients=$(ask clients "Permitted clients" '^[0-9A-Fa-f:=[:space:]readmng]+$')
+    data=$(ask data "Data directory" '^/[^[:space:]]*$')
+    echo "Terminal shows its certificate fingerprint under Settings > About. Give each read or manage."
+    clients=$(ask clients "Terminal fingerprints as <fingerprint>=read or <fingerprint>=manage (space separated)" '^[0-9A-Fa-f:=[:space:]readmng]+$')
     exchanges=$(ask acquisition.exchanges "Public exchanges (- for none)" '^[A-Z[:space:]-]+$')
     budget=$(ask acquisition.tushare "Tushare requests per minute (1-500)" '^[0-9]{1,3}$')
     ((budget >= 1 && budget <= 500)) || fail "Tushare requests per minute must be 1-500"
-    token=$(secret "Tushare token (not shown)")
-    [[ ${#token} -le 256 && ! $token =~ [[:space:]] ]] || fail "Tushare token must be at most 256 characters without whitespace"
+    if [[ -f $CREDENTIALS/asterion.warehouse.tushare.token ]]; then
+        read -r -p "Keep the saved Tushare token? [Y/n]: " answer
+        [[ $answer == [nN]* ]] || answer=keep
+    fi
+    if [[ $answer != keep ]]; then
+        token=$(secret "Tushare token (not shown)")
+        [[ ${#token} -le 256 && ! $token =~ [[:space:]] ]] || fail "Tushare token must be at most 256 characters without whitespace"
+    fi
 
     # Replaced whole, every file staged first; only the service's account may read it.
     stage settings "$ROOT/config/warehouse.json"
@@ -171,10 +177,12 @@ with open(sys.argv[1], "w") as output:
         "$clients" "$exchanges" "$budget"
     chown "$ACCOUNT:" "$settings"
     chmod 0600 "$settings"
-    stage encrypted_token "$CREDENTIALS/asterion.warehouse.tushare.token"
-    printf '%s' "$token" | systemd-creds encrypt --name=asterion.warehouse.tushare.token - "$encrypted_token" >/dev/null
+    if [[ -n $token ]]; then
+        stage encrypted_token "$CREDENTIALS/asterion.warehouse.tushare.token"
+        printf '%s' "$token" | systemd-creds encrypt --name=asterion.warehouse.tushare.token - "$encrypted_token" >/dev/null
+    fi
     token=''
-    mv -f "$encrypted_token" "$CREDENTIALS/asterion.warehouse.tushare.token"
+    [[ -z $encrypted_token ]] || mv -f "$encrypted_token" "$CREDENTIALS/asterion.warehouse.tushare.token"
     mkdir -p "$data"
     chmod 0700 "$data"
     chown "$ACCOUNT:" "$data"
@@ -318,7 +326,7 @@ main() {
         echo "Installed in $ROOT; Warehouse runs as $ACCOUNT. Settings:"
         configure
         port=$(current port)
-        echo "Warehouse requires pinned mutual TLS on TCP $port; register its fingerprint in each Terminal."
+        echo "Warehouse listens on TCP $port with TLS: allow the port only from your Terminals, e.g. ufw allow from <address> to any port $port proto tcp"
     fi
     fingerprint
     echo "Client roles and providers take effect after restart. Provider credentials stay on this host."

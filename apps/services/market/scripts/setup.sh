@@ -175,24 +175,33 @@ secret() {
 configure() {
     local front='^tcp://[A-Za-z0-9.-]+:[0-9]{1,5}$' bind port data previous tick_days
     local market_front trade_front broker user app_id
-    local password auth_code='' settings encrypted_password encrypted_auth_code=''
-    local clients
+    local password='' auth_code='' settings encrypted_password='' encrypted_auth_code=''
+    local clients answer=''
     bind=$(ask bind "Listen address" '^[0-9A-Fa-f.:]+$')
     port=$(ask port "Listen port" '^[0-9]{1,5}$')
     ((port >= 1 && port <= 65535)) || fail "The port must be between 1 and 65535"
     previous=$(current data)
     data=$(ask data "Data directory" '^/[^[:space:]]*$')
+    echo "Terminal shows its certificate fingerprint under Settings > About."
+    clients=$(ask clients "Terminal fingerprints (space separated)" '^[0-9A-Fa-f:[:space:]]+$')
     echo "Use a CTP account of its own for quotes, never a live trading account."
-    market_front=$(ask counter.market_front "Market data front" "$front")
-    trade_front=$(ask counter.trade_front "Trading front" "$front")
-    broker=$(ask counter.broker "Broker ID" '^[A-Za-z0-9]+$')
-    user=$(ask counter.user "Investor ID" '^[A-Za-z0-9]+$')
-    app_id=$(ask counter.app_id "AppID (- for none)" '^[A-Za-z0-9_-]*$')
+    market_front=$(ask counter.market_front "CTP market front" "$front")
+    trade_front=$(ask counter.trade_front "CTP trading front" "$front")
+    broker=$(ask counter.broker "CTP broker ID" '^[A-Za-z0-9]+$')
+    user=$(ask counter.user "CTP investor ID" '^[A-Za-z0-9]+$')
+    app_id=$(ask counter.app_id "CTP AppID (- for none)" '^[A-Za-z0-9_-]*$')
     [[ $app_id == - ]] && app_id=
-    echo "Register Terminal fingerprints (space separated)."
-    clients=$(ask clients "Permitted clients" '^[0-9A-Fa-f:[:space:]]+$')
-    password=$(secret "Password (not shown)")
-    [[ -n $app_id ]] && auth_code=$(secret "Authentication code (not shown)")
+    # Credentials of the same counter account may be kept; another account needs its own.
+    if [[ -f $ROOT/config/market.json && $broker == "$(current counter.broker)" && $user == "$(current counter.user)"
+        && $app_id == "$(current counter.app_id)" && -f $CREDENTIALS/asterion.ctp.password
+        && ( -z $app_id || -f $CREDENTIALS/asterion.ctp.auth_code ) ]]; then
+        read -r -p "Keep the saved CTP password and authentication code? [Y/n]: " answer
+        [[ $answer == [nN]* ]] || answer=keep
+    fi
+    if [[ $answer != keep ]]; then
+        password=$(secret "CTP password (not shown)")
+        [[ -n $app_id ]] && auth_code=$(secret "CTP authentication code (not shown)")
+    fi
 
     # Replaced whole, every file staged first; only the market's account may read it.
     stage settings "$ROOT/config/market.json"
@@ -216,16 +225,18 @@ with open(sys.argv[1], "w") as output:
         "$broker" "$user" "$app_id" "$clients"
     chown "$ACCOUNT:" "$settings"
     chmod 0600 "$settings"
-    stage encrypted_password "$CREDENTIALS/asterion.ctp.password"
-    printf '%s' "$password" |
-        systemd-creds encrypt --name=asterion.ctp.password - "$encrypted_password" >/dev/null
+    if [[ -n $password ]]; then
+        stage encrypted_password "$CREDENTIALS/asterion.ctp.password"
+        printf '%s' "$password" |
+            systemd-creds encrypt --name=asterion.ctp.password - "$encrypted_password" >/dev/null
+    fi
     if [[ -n $auth_code ]]; then
         stage encrypted_auth_code "$CREDENTIALS/asterion.ctp.auth_code"
         printf '%s' "$auth_code" |
             systemd-creds encrypt --name=asterion.ctp.auth_code - "$encrypted_auth_code" >/dev/null
     fi
     password='' auth_code=''
-    mv -f "$encrypted_password" "$CREDENTIALS/asterion.ctp.password"
+    [[ -z $encrypted_password ]] || mv -f "$encrypted_password" "$CREDENTIALS/asterion.ctp.password"
     [[ -z $encrypted_auth_code ]] || mv -f "$encrypted_auth_code" "$CREDENTIALS/asterion.ctp.auth_code"
     mkdir -p "$data"
     chmod 0700 "$data"
@@ -370,7 +381,7 @@ main() {
         echo "Installed in $ROOT; Market runs as $ACCOUNT. Settings:"
         configure
         port=$(current port)
-        echo "Market requires pinned mutual TLS on TCP $port; register its fingerprint in each Terminal."
+        echo "Market listens on TCP $port with TLS: allow the port only from your Terminals, e.g. ufw allow from <address> to any port $port proto tcp"
     fi
     fingerprint
     echo "Registered clients take effect after restart. Credentials stay on this host."

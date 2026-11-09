@@ -106,7 +106,7 @@ with tempfile.TemporaryDirectory() as folder:
     # Install: the layout, the unit, then the settings (Enter keeps a default,
     # a bad port is asked again), then the first start.
     calls, result = host.run(release(folder, '1'),
-                             ['', 'abc', '7461', '', '', '', '', '273005', '', client_pin, 'fixture-password', 'fixture-auth'])
+                             ['', 'abc', '7461', '', client_pin, '', '', '', '273005', '', 'fixture-password', 'fixture-auth'])
     assert 'Invalid value' in result.stderr, result.stderr
     assert sorted(p.name for p in host.root.iterdir()) == ['bin', 'config', 'data', 'lib', 'logs']
     assert (host.root / 'bin/asterion_market').read_text().endswith('1"\n')
@@ -173,7 +173,7 @@ with tempfile.TemporaryDirectory() as folder:
     # made for the market and becomes writable; the old data is not moved.
     disk = host.folder / 'disk/market-data'
     calls, result = host.run(host.root / 'bin/setup.sh',
-                             ['', '', str(disk), '', '', '', '', '-', '', 'fixture-password'])
+                             ['', '', str(disk), '', '', '', '', '', '-', 'fixture-password'])
     assert host.settings()['port'] == 7999 and host.settings()['counter']['app_id'] == ''
     assert host.settings()['data'] == str(disk)
     assert disk.is_dir() and any(call.startswith('chown ') and call.endswith(f': {disk}')
@@ -185,6 +185,9 @@ with tempfile.TemporaryDirectory() as folder:
     assert host.secrets.read_text().splitlines() == ['--name=asterion.ctp.password=fixture-password']
     assert 'systemctl enable asterion-market.service' not in calls, calls
     assert calls[-1] == 'systemctl restart asterion-market.service', calls
+    # The same counter account keeps its saved password unless told otherwise.
+    host.run(host.root / 'bin/setup.sh', [''] * 10)
+    assert not host.secrets.exists()
 
     # Nothing a run stages is left behind, and an upgrade writes its unit again.
     def staged_files():
@@ -195,7 +198,7 @@ with tempfile.TemporaryDirectory() as folder:
     calls, _ = host.run(second, ['n'])
     assert 'ImportCredential=asterion.ctp.*' in (host.units / 'asterion-market.service').read_text()
     assert 'systemctl daemon-reload' in calls, calls
-    # Input that ends before the password writes no settings.
+    # Input that ends before the credentials writes no settings.
     before = (host.root / 'config/market.json').read_bytes()
     result = subprocess.run(
         namespace + ['bash', '-c', 'source "$5"; SELF=$1; ROOT=$2; UNITS=$3; CREDENTIALS=$4; main',

@@ -157,7 +157,7 @@ with tempfile.TemporaryDirectory() as folder:
     # made for the market and becomes writable; the old data is not moved.
     disk = host.folder / 'disk/market-data'
     calls, result = host.run(host.root / 'bin/setup.sh',
-                             ['', '', str(disk), '', '', '', 'second-token'])
+                             ['', '', str(disk), '', '', '', 'n', 'second-token'])
     assert host.settings()['port'] == 7999
     assert host.settings()['data'] == str(disk)
     assert disk.is_dir() and any(call.startswith('chown ') and call.endswith(f': {disk}')
@@ -168,6 +168,9 @@ with tempfile.TemporaryDirectory() as folder:
     assert (host.root / 'data/acquisition/published.pb').read_bytes() == b'fixture-task'
     assert host.settings()['acquisition']['tushare'] == {'requests_per_minute': 500}
     assert host.secrets.read_text().splitlines() == ['--name=asterion.warehouse.tushare.token=second-token']
+    # Enter keeps the saved token.
+    host.run(host.root / 'bin/setup.sh', [''] * 7)
+    assert not host.secrets.exists()
     assert 'systemctl enable asterion-warehouse.service' not in calls, calls
     assert calls[-1] == 'systemctl restart asterion-warehouse.service', calls
 
