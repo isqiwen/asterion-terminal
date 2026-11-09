@@ -22,6 +22,7 @@ add_subdirectory(ctp)
 # The release for a trading host: one self-extracting script, setup.sh with
 # the installation (bin/ lib/ runtime/ config/) appended as a tar.gz after a line
 # "__ARCHIVE__". Built only when asked for: cmake --build … --target asterion_trading_setup
+asterion_setup_script(asterion_trading_setup_script)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_dependencies(asterion_trading asterion_crash_reporter)
   set(runtime ${CMAKE_CURRENT_BINARY_DIR}/runtime/python)
@@ -41,7 +42,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     COMMAND ${CMAKE_COMMAND} -E make_directory ${layout}/bin ${layout}/lib ${layout}/config
     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:asterion_crash_reporter> ${layout}/bin/
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/config/logging.json ${layout}/config/
-    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:asterion_trading> ${CMAKE_CURRENT_SOURCE_DIR}/scripts/setup.sh ${layout}/bin/
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:asterion_trading> ${CMAKE_CURRENT_BINARY_DIR}/setup.sh ${layout}/bin/
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/ctp-trader.so ${CMAKE_BINARY_DIR}/ctp-md.so ${layout}/lib/
     COMMAND ${CMAKE_COMMAND} -E make_directory ${layout}/lib/strategy/asterion
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/python/strategy_runner.py ${PROJECT_SOURCE_DIR}/apps/services/common/python/asterion_strategy.py ${layout}/lib/strategy/
@@ -49,8 +50,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${runtime} ${layout}/runtime/python
     COMMAND ${CMAKE_COMMAND} -E chdir ${stage} ${CMAKE_COMMAND} -E tar czf payload.tar.gz asterion-trading
     COMMAND sh -c "{ cat \"$1\"; echo __ARCHIVE__; cat \"$2\"; } > \"$3\" && chmod 755 \"$3\"" setup
-      ${CMAKE_CURRENT_SOURCE_DIR}/scripts/setup.sh ${stage}/payload.tar.gz ${release}
-    DEPENDS asterion_crash_reporter ${CMAKE_CURRENT_SOURCE_DIR}/config/logging.json asterion_trading asterion_python_protocol ${CMAKE_CURRENT_SOURCE_DIR}/scripts/setup.sh
+      ${CMAKE_CURRENT_BINARY_DIR}/setup.sh ${stage}/payload.tar.gz ${release}
+    DEPENDS asterion_trading_setup_script asterion_crash_reporter ${CMAKE_CURRENT_SOURCE_DIR}/config/logging.json asterion_trading asterion_python_protocol ${CMAKE_CURRENT_BINARY_DIR}/setup.sh
       ${runtime_ready} ${runtime}/bin/python3
       ${CMAKE_CURRENT_SOURCE_DIR}/python/strategy_runner.py ${PROJECT_SOURCE_DIR}/apps/services/common/python/asterion_strategy.py
       ${CMAKE_BINARY_DIR}/generated-python/asterion/strategy_pb2.py

@@ -3,7 +3,7 @@ disables account instances. It runs as root in a user namespace against a
 temporary root, with stand-ins for the system commands (chown, systemctl,
 systemd-run, date) that record what they were asked; openssl is real.
 
-    setup_test.py <apps/services/trading/scripts/setup.sh>
+    setup_test.py <build>/apps/services/trading/setup.sh
 """
 import io
 import fcntl
@@ -18,6 +18,7 @@ import tarfile
 import tempfile
 
 setup = Path(sys.argv[1])
+logging = Path(__file__).parents[2] / 'apps/services/trading/config/logging.json'
 if not shutil.which('unshare') or subprocess.run(['unshare', '-r', 'true'], capture_output=True).returncode != 0:
     print('SKIP: unprivileged user namespaces are unavailable')
     sys.exit(77)
@@ -89,7 +90,7 @@ def release(folder, version):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('# ' + version)
     (top / 'config').mkdir()
-    shutil.copy2(setup.parent.parent / 'config/logging.json', top / 'config/logging.json')
+    shutil.copy2(logging, top / 'config/logging.json')
     payload = io.BytesIO()
     with tarfile.open(fileobj=payload, mode='w:gz') as archive:
         archive.add(top, 'asterion-trading')
@@ -144,7 +145,7 @@ with tempfile.TemporaryDirectory() as folder:
     assert sorted(p.name for p in host.root.iterdir()) == ['.program.lock', 'bin', 'config', 'data', 'lib', 'logs', 'runtime']
     assert (host.root / 'bin/asterion_trading').read_text().endswith('1"\n')
     assert os.access(host.root / 'bin/setup.sh', os.X_OK)
-    assert (host.root / 'config/logging.json').read_bytes() == (setup.parent.parent / 'config/logging.json').read_bytes()
+    assert (host.root / 'config/logging.json').read_bytes() == (logging).read_bytes()
     assert not (host.root / 'config/trading.json').exists()
     assert host.account('one') == {'bind': '0.0.0.0', 'port': 7460, 'terminals': ['ab' * 32], **IDENTITY}
     assert oct((host.root / 'config/accounts/one.json').stat().st_mode & 0o777) == '0o600'

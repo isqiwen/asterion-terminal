@@ -3,7 +3,7 @@ user namespace against a temporary root, with stand-ins for the system
 commands (chown, systemctl, systemd-creds, systemd-run, date) that
 record what they were asked.
 
-    setup_test.py <apps/services/warehouse/scripts/setup.sh>
+    setup_test.py <build>/apps/services/warehouse/setup.sh
 """
 import hashlib
 import io
@@ -18,6 +18,7 @@ import tarfile
 import tempfile
 
 setup = Path(sys.argv[1])
+logging = Path(__file__).parents[2] / 'apps/services/warehouse/config/logging.json'
 namespace = [] if os.geteuid() == 0 else ['unshare', '-r']
 if namespace and subprocess.run(namespace + ['true'], capture_output=True).returncode != 0:
     print('SKIP: unprivileged user namespaces are unavailable')
@@ -48,7 +49,7 @@ def release(folder, version):
     (top / 'bin/asterion_crash_reporter').write_text('#!/bin/sh\nexit 0\n')
     (top / 'bin/asterion_crash_reporter').chmod(0o755)
     (top / 'config').mkdir()
-    shutil.copy2(setup.parent.parent / 'config/logging.json', top / 'config/logging.json')
+    shutil.copy2(logging, top / 'config/logging.json')
     payload = io.BytesIO()
     with tarfile.open(fileobj=payload, mode='w:gz') as archive:
         archive.add(top, 'asterion-warehouse')
@@ -108,7 +109,7 @@ with tempfile.TemporaryDirectory() as folder:
     assert sorted(p.name for p in host.root.iterdir()) == ['bin', 'config', 'data', 'logs']
     assert (host.root / 'bin/asterion_warehouse').read_text().endswith('1"\n')
     assert (host.root / 'bin/setup.sh').read_bytes() == setup.read_bytes()
-    assert (host.root / 'config/logging.json').read_bytes() == (setup.parent.parent / 'config/logging.json').read_bytes()
+    assert (host.root / 'config/logging.json').read_bytes() == (logging).read_bytes()
     assert host.settings() == {**shipped, 'port': 7451, 'data': str(host.root / 'data'),
                                }
     text = (host.root / 'config/warehouse.json').read_text()

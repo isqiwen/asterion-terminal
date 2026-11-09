@@ -128,6 +128,7 @@ C++ 和 Python 的生成规则在 [protocol/CMakeLists.txt](../protocol/CMakeLis
 | Trading：`Asterion-Trading-<版本>-linux-x86_64.sh` | 同上 | Trading 主机上 `sudo bash "Asterion-Trading-<版本>-linux-x86_64.sh"`，见[交易](trading/deployment.md#安装与账户配置) |
 | Terminal：`Asterion-Terminal-<版本>-mac-arm64.dmg` 或 `…-linux-amd64.deb` | `pnpm desktop:build`，输出到 `build/desktop/` | macOS 拖进“应用程序”；Linux `sudo apt install ./Asterion-Terminal-….deb` |
 
+- 三个服务的安装脚本由各自的 `scripts/setup.sh` 加上共用的 `apps/services/common/scripts/setup.sh` 在构建时拼成，再附上安装包；询问、凭据、证书、systemd 单元和重启只写在共用部分，三台主机的安装方式因此一致。
 - Terminal 升级就是装新版本，卸载就是删除应用（Linux 用 `sudo apt remove asterion-terminal`）。用户资料在程序根目录，第一次启动时由 Terminal 创建，卸载时保留。
 - **macOS**：`pnpm desktop:build` 要求本机钥匙串里有唯一的 Developer ID Application 签名身份和 `notarytool` 保存的公证 profile（`CSC_NAME`、`APPLE_KEYCHAIN_PROFILE`）。应用和 DMG 都签名、公证；验收通过后生成 `build/desktop/distribution-acceptance.json`。
 - **Linux**：`.deb` 的依赖由打包时 `dpkg-shlibdeps` 从包内程序算出，apt 会一起安装；构建机的系统版本决定包能装在哪些系统上。

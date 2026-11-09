@@ -1,15 +1,15 @@
 #!/bin/bash
-# Installs, upgrades and configures the historical data service on a host.
+# Installs, upgrades and configures Warehouse on a service host.
 #
 #   sudo bash Asterion-Warehouse-VERSION-linux-x86_64.sh       install, or upgrade an installation
 #   sudo /opt/asterion/warehouse/bin/setup.sh   change the settings
 #   sudo /opt/asterion/warehouse/bin/setup.sh fingerprint   show this host's certificate fingerprint
 #
-# The release, Asterion-Warehouse-VERSION-linux-x86_64.sh, is this script with the
-# installation appended as a tar.gz after a line "__ARCHIVE__" (built by the
-# CMake target asterion_warehouse_setup); it unpacks that into a temporary
-# directory. The installed copy, bin/setup.sh, carries nothing and only
-# changes the settings.
+# The release, Asterion-Warehouse-VERSION-linux-x86_64.sh, is this script
+# followed by apps/services/common/scripts/setup.sh, with the installation
+# appended as a tar.gz after a line "__ARCHIVE__" (built by the CMake target
+# asterion_warehouse_setup). The installed copy, bin/setup.sh, carries nothing
+# and only changes the settings.
 #
 # The installation is /opt/asterion/warehouse: bin/ config/ logs/, and
 # data/ unless the settings name another data directory.
@@ -17,23 +17,16 @@
 # leaves config/ (warehouse.json, logging.json) as it is
 # (it offers to change the settings).
 # Settings questions offer the current values as defaults; the Tushare token
-# has none and is encrypted with systemd-creds,
-# never written to a file in the clear. Warehouse runs as the system
-# service asterion-warehouse under the account that ran the install with sudo.
-#
+# is encrypted with systemd-creds, never written to a file in the clear.
+# Warehouse runs as the system service asterion-warehouse under the account
+# that ran the install with sudo.
 set -euo pipefail
 
+NAME=Warehouse
+PACKAGE=asterion-warehouse
 ROOT=/opt/asterion/warehouse
-UNITS=/etc/systemd/system
-CREDENTIALS=/etc/credstore.encrypted
 UNIT=asterion-warehouse.service
-RESTART=asterion-warehouse-restart
-# The account Warehouse runs as: the sudo user at install, the owner of
-# config/ afterwards.
-ACCOUNT=
 PROGRAMS=(bin/asterion_warehouse bin/asterion_crash_reporter bin/setup.sh)
-# This script: the release with its archive, or the installed bin/setup.sh.
-SELF=$(readlink -f "${BASH_SOURCE[0]}")
 
 # Defaults for new configurations only; existing instances keep their own values.
 declare -Ar DEFAULTS=(
@@ -41,157 +34,63 @@ declare -Ar DEFAULTS=(
     [port]='7450'
     [clients]=''
     [acquisition.exchanges]='SHFE INE CZCE DCE CFFEX GFEX'
-    [acquisition.tushare]='500'
+    [acquisition.tushare.requests_per_minute]='500'
 )
 
-fail() {
-    echo "setup: $*" >&2
-    exit 1
+python() {
+    python3 "$@"
 }
 
-# Files this run writes before moving them into place, and the unpacked
-# release: removed however the script ends, so nothing half written stays.
-CLEANUP=()
-cleanup() {
-    ((${#CLEANUP[@]})) && rm -rf "${CLEANUP[@]}"
-    return 0
-}
-trap cleanup EXIT
-
-# stage VARIABLE PATH: sets VARIABLE to a fresh name beside PATH for its next
-# version, removed on exit unless moved into place. It runs in this shell, not
-# in a command substitution, so the name reaches CLEANUP.
-stage() {
-    local file
-    file=$(mktemp "$(dirname "$2")/.$(basename "$2").XXXXXX")
-    CLEANUP+=("$file")
-    printf -v "$1" '%s' "$file"
-}
-
-restart() {
-    systemctl restart "$UNIT"
-    echo "Warehouse has (re)started. Status: systemctl status $UNIT; logs in $ROOT/logs"
-}
-
-# The default of a key; the data directory is beside the programs.
-default() {
-    if [[ $1 == data ]]; then printf '%s' "$ROOT/data"; else printf '%s' "${DEFAULTS[$1]}"; fi
-}
-
-# The current value of a key ("port", "acquisition.tushare") in the settings, or
-# its default where the settings have none.
+# The current value of a key ("port", "acquisition.exchanges"), or its
+# default; the data directory defaults to one beside the programs.
 current() {
-    if [[ ! -f $ROOT/config/warehouse.json ]]; then
-        default "$1"
-        return
-    fi
-    python3 -I -c '
-import json, sys
-value = json.load(open(sys.argv[1]))
-for key in sys.argv[2].split("."):
-    if key not in value:
-        print(sys.argv[3])
-        raise SystemExit
-    value = value[key]
-if sys.argv[2] == "clients":
-    value = " ".join(item["fingerprint"] + "=" + item["role"] for item in value)
-elif sys.argv[2] == "acquisition.exchanges":
-    value = " ".join(value) or "-"
-elif sys.argv[2] == "acquisition.tushare":
-    value = value["requests_per_minute"] if value else sys.argv[3]
-print(value)' "$ROOT/config/warehouse.json" "$1" "$(default "$1")"
-}
-
-# ask KEY PROMPT PATTERN: reads a value, offering the current one.
-ask() {
-    local prompt=$2 pattern=$3 default value
-    default=$(current "$1")
-    while true; do
-        read -r -p "$prompt [${default}]: " value || fail "Input ended"
-        value=${value:-$default}
-        if [[ $value =~ $pattern ]]; then
-            printf '%s' "$value"
-            return
-        fi
-        echo "  Invalid value, please try again" >&2
-    done
-}
-
-# secret PROMPT: reads a value without echo; there is no default.
-secret() {
-    local value
-    while true; do
-        read -r -s -p "$1: " value || fail "Credential input ended"
-        echo >&2
-        [[ -n $value ]] && break
-        echo "  Required" >&2
-    done
-    printf '%s' "$value"
+    local default
+    if [[ $1 == data ]]; then default=$ROOT/data; else default=${DEFAULTS[$1]}; fi
+    setting "$ROOT/config/warehouse.json" "$1" "$default"
 }
 
 configure() {
-    local bind port data previous settings
-    local clients exchanges budget token='' encrypted_token='' answer=''
-    bind=$(ask bind "Listen address" '^[0-9A-Fa-f.:]+$')
-    port=$(ask port "Listen port" '^[0-9]{1,5}$')
+    local bind port data previous settings clients exchanges budget token='' encrypted_token=''
+    bind=$(ask "Listen address" "$(current bind)" '^[0-9A-Fa-f.:]+$')
+    port=$(ask "Listen port" "$(current port)" '^[0-9]{1,5}$')
     ((port >= 1 && port <= 65535)) || fail "The port must be between 1 and 65535"
     previous=$(current data)
-    data=$(ask data "Data directory" '^/[^[:space:]]*$')
-    clients=$(ask clients "Terminal fingerprints as <fingerprint>=read or <fingerprint>=manage (space separated)" '^[0-9A-Fa-f:=[:space:]readmng]+$')
-    exchanges=$(ask acquisition.exchanges "Public exchanges (- for none)" '^[A-Z[:space:]-]+$')
-    budget=$(ask acquisition.tushare "Tushare requests per minute (1-500)" '^[0-9]{1,3}$')
+    data=$(ask "Data directory" "$previous" '^/[^[:space:]]*$')
+    clients=$(ask "Terminal fingerprints as <fingerprint>=read or <fingerprint>=manage (space separated)" \
+        "$(current clients)" '^([0-9A-Fa-f:]+=(read|manage))( [0-9A-Fa-f:]+=(read|manage))*$')
+    clients=$(pins "$clients")
+    exchanges=$(current acquisition.exchanges)
+    exchanges=$(ask "Public exchanges (- for none)" "${exchanges:--}" '^[A-Z[:space:]-]+$')
+    budget=$(ask "Tushare requests per minute (1-500)" "$(current acquisition.tushare.requests_per_minute)" '^[0-9]{1,3}$')
     ((budget >= 1 && budget <= 500)) || fail "Tushare requests per minute must be 1-500"
-    if [[ -f $CREDENTIALS/asterion.warehouse.tushare.token ]]; then
-        read -r -p "Keep the saved Tushare token? [Y/n]: " answer
-        [[ $answer == [nN]* ]] || answer=keep
-    fi
-    if [[ $answer != keep ]]; then
+    if ! [[ -f $CREDENTIALS/asterion.warehouse.tushare.token ]] || ! confirm "Keep the saved Tushare token?" y; then
         token=$(secret "Tushare token (not shown)")
         [[ ${#token} -le 256 && ! $token =~ [[:space:]] ]] || fail "Tushare token must be at most 256 characters without whitespace"
     fi
 
-    # Replaced whole, every file staged first; only the service's account may read it.
+    # Everything is asked; now the files, each staged and moved into place.
     stage settings "$ROOT/config/warehouse.json"
-    python3 -I -c '
+    python -I -c '
 import json, sys
-bind, port, data, clients, exchanges, budget = sys.argv[2:]
-import re
-peers = []
-for item in clients.split():
-    pin, role = item.rsplit("=", 1)
-    pin = pin.replace(":", "").lower()
-    if not re.fullmatch("[a-f0-9]{64}", pin) or role not in ("read", "manage") or any(p["fingerprint"] == pin for p in peers):
-        raise SystemExit("Invalid or duplicate client fingerprint/role")
-    peers.append({"fingerprint": pin, "role": role})
-if not 1 <= len(peers) <= 64:
-    raise SystemExit("Register 1-64 clients")
+path, bind, port, data, clients, exchanges, budget = sys.argv[1:]
 exchanges = [] if exchanges == "-" else exchanges.split()
 if len(set(exchanges)) != len(exchanges) or set(exchanges) - {"SHFE", "INE", "CZCE", "DCE", "CFFEX", "GFEX"}:
-    raise SystemExit("Invalid or duplicate acquisition exchanges")
-settings = {"bind": bind, "port": int(port), "data": data, "clients": peers,
+    raise SystemExit("setup: invalid or duplicate acquisition exchanges")
+settings = {"bind": bind, "port": int(port), "data": data,
+    "clients": [dict(zip(("fingerprint", "role"), item.split("="))) for item in clients.split()],
     "acquisition": {"exchanges": exchanges, "tushare": {"requests_per_minute": int(budget)}}}
-with open(sys.argv[1], "w") as output:
+with open(path, "w") as output:
     json.dump(settings, output, ensure_ascii=False, indent=2)
-    output.write("\n")' "$settings" "$bind" "$port" "$data" \
-        "$clients" "$exchanges" "$budget"
-    chown "$ACCOUNT:" "$settings"
-    chmod 0600 "$settings"
-    if [[ -n $token ]]; then
-        stage encrypted_token "$CREDENTIALS/asterion.warehouse.tushare.token"
-        printf '%s' "$token" | systemd-creds encrypt --name=asterion.warehouse.tushare.token - "$encrypted_token" >/dev/null
-    fi
+    output.write("\n")' "$settings" "$bind" "$port" "$data" "$clients" "$exchanges" "$budget"
+    private "$settings"
+    [[ -z $token ]] || seal encrypted_token "$CREDENTIALS/asterion.warehouse.tushare.token" asterion.warehouse.tushare.token "$token"
     token=''
     [[ -z $encrypted_token ]] || mv -f "$encrypted_token" "$CREDENTIALS/asterion.warehouse.tushare.token"
-    mkdir -p "$data"
-    chmod 0700 "$data"
-    chown "$ACCOUNT:" "$data"
+    data_directory "$previous" "$data"
     mv -f "$settings" "$ROOT/config/warehouse.json"
     echo "Saved $ROOT/config/warehouse.json"
     # The service may write only its logs and its data directory.
     write_unit
-    if [[ $data != "$previous" && -d $previous && -n $(ls -A "$previous") ]]; then
-        echo "The existing data stays in $previous; it is not moved. To keep using it, stop Warehouse and move its contents to $data."
-    fi
 }
 
 unit_text() {
@@ -226,115 +125,9 @@ WantedBy=multi-user.target
 EOF
 }
 
-# install: the directories, the default settings and the unit.
-prepare_identity() {
-    local directory=$ROOT/config/tls
-    if [[ -f $directory/server.crt && -f $directory/server.key ]]; then return; fi
-    [[ ! -e $directory/server.crt && ! -e $directory/server.key ]] || fail "Incomplete TLS identity in $directory; preserve and inspect it"
-    local staging
-    staging=$(mktemp -d "$ROOT/config/.tls-XXXXXX")
-    CLEANUP+=("$staging")
-    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 36500 \
-        -subj "/CN=asterion-warehouse" -keyout "$staging/server.key" -out "$staging/server.crt" 2>/dev/null
-    chown -R "$ACCOUNT:" "$staging"
-    chmod 0700 "$staging"
-    chmod 0600 "$staging/server.key"
-    rmdir "$directory"
-    mv "$staging" "$directory"
-}
-
-install_once() {
-    mkdir -p "$ROOT"/{bin,config/tls,logs} "$CREDENTIALS"
-    chmod 0700 "$ROOT/config" "$ROOT/logs" "$CREDENTIALS"
-    chown "$ACCOUNT:" "$ROOT/config" "$ROOT/logs"
-    if [[ ! -f $ROOT/config/logging.json ]]; then
-        local logging
-        stage logging "$ROOT/config/logging.json"
-        cat "$1/config/logging.json" >"$logging"
-        chown "$ACCOUNT:" "$logging"
-        mv -f "$logging" "$ROOT/config/logging.json"
-    fi
-    prepare_identity
-    write_unit
-    systemctl enable "$UNIT" >/dev/null
-}
-
-# The unit of this release, on install and on every upgrade.
-write_unit() {
-    local unit
-    stage unit "$UNITS/$UNIT"
-    unit_text >"$unit"
-    chmod 0644 "$unit"
-    mv -f "$unit" "$UNITS/$UNIT"
-    systemctl daemon-reload
-}
-
-# Replaces the programs in bin/, one rename each: a running
-# service keeps the files it started with until it restarts.
-place() {
-    local name next
-    "$1/bin/asterion_warehouse" --version >/dev/null 2>&1 || fail "Warehouse in this release does not run on this host"
-    for name in "${PROGRAMS[@]}"; do
-        stage next "$ROOT/$name"
-        install -m 0755 "$1/$name" "$next"
-        mv -f "$next" "$ROOT/$name"
-    done
-}
-
-fingerprint() {
-    echo "This host's certificate fingerprint, to enter in Terminal:"
-    echo "  $(openssl x509 -noout -fingerprint -sha256 -in "$ROOT/config/tls/server.crt" | sed 's/^.*=//')"
-}
-
-main() {
-    [[ $EUID -eq 0 ]] || fail "Run it with sudo"
-    if [[ ${1:-} == fingerprint ]]; then
-        fingerprint
-        return
-    fi
-    local source line
-    line=$(LC_ALL=C awk '/^__ARCHIVE__$/ { print NR + 1; exit }' "$SELF")
-    if [[ -n $line ]]; then
-        unpacked=$(mktemp -d)
-        CLEANUP+=("$unpacked")
-        tail -n +"$line" "$SELF" | tar xz --no-same-owner -C "$unpacked"
-        source=$unpacked/asterion-warehouse
-    elif [[ $(dirname "$SELF") == "$ROOT/bin" ]]; then
-        source=$ROOT
-    else
-        fail "This copy carries no programs: install or upgrade with the released Asterion-Warehouse-VERSION-linux-x86_64.sh"
-    fi
-    if [[ -d $ROOT/config ]]; then
-        ACCOUNT=$(stat -c %U "$ROOT/config")
-    else
-        ACCOUNT=${SUDO_USER:-}
-        [[ -n $ACCOUNT && $ACCOUNT != root ]] || fail "Run it with sudo from your own account: Warehouse will run as that account"
-    fi
-    if [[ $source == "$ROOT" ]]; then
-        configure
-    elif [[ -x $ROOT/bin/asterion_warehouse ]]; then
-        place "$source"
-        write_unit
-        echo "Upgraded the programs in $ROOT; the configuration files are unchanged."
-        local answer
-        read -r -p "Change the settings? [y/N]: " answer
-        [[ $answer == [yY]* ]] && configure
-    else
-        install_once "$source"
-        place "$source"
-        echo "Installed in $ROOT; Warehouse runs as $ACCOUNT. Settings:"
-        configure
-        port=$(current port)
-        echo "Open TCP port $port in the firewall, e.g. sudo ufw allow $port/tcp"
-    fi
-    fingerprint
+setup() {
+    install_or_configure "$1"
     echo "Client roles and providers take effect after restart. Provider credentials stay on this host."
-    restart
+    systemctl restart "$UNIT"
+    echo "Restarted $UNIT. Logs in $ROOT/logs"
 }
-
-# Bash must stop here, run or sourced: the release's archive follows.
-if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
-    main "$@"
-    exit
-fi
-return

@@ -1,15 +1,15 @@
 #!/bin/bash
-# Installs, upgrades and configures the trading service on a Linux host.
+# Installs, upgrades and configures Trading on a service host.
 #
 #   sudo bash Asterion-Trading-VERSION-linux-x86_64.sh       install, or upgrade an installation
 #   sudo /opt/asterion/trading/bin/setup.sh   add, change or disable an account
 #   sudo /opt/asterion/trading/bin/setup.sh fingerprint   show this host's certificate fingerprint
 #
-# The release, Asterion-Trading-VERSION-linux-x86_64.sh, is this script with the
-# installation appended as a tar.gz after a line "__ARCHIVE__" (built by the
-# CMake target asterion_trading_setup); it unpacks that into a temporary
-# directory. The installed copy, bin/setup.sh, carries nothing and only
-# changes the accounts.
+# The release, Asterion-Trading-VERSION-linux-x86_64.sh, is this script followed
+# by apps/services/common/scripts/setup.sh, with the installation appended as
+# a tar.gz after a line "__ARCHIVE__" (built by the CMake target
+# asterion_trading_setup). The installed copy, bin/setup.sh, carries nothing
+# and only changes the accounts.
 #
 # The installation is /opt/asterion/trading: bin/ lib/ runtime/ config/ logs/ data/.
 # Each CTP account runs as its own instance, the systemd service
@@ -24,13 +24,11 @@
 # may schedule a restart after trading hours. A restart ends authorization.
 set -euo pipefail
 
+NAME=Trading
+PACKAGE=asterion-trading
 ROOT=/opt/asterion/trading
-UNITS=/etc/systemd/system
-CREDENTIALS=/etc/credstore.encrypted
-TEMPLATE=asterion-trading@.service
+UNIT=asterion-trading@.service
 RESTART=asterion-trading-restart
-ACCOUNT=
-SELF=$(readlink -f "${BASH_SOURCE[0]}")
 
 # Defaults for new configurations only; existing instances keep their own values.
 declare -Ar DEFAULTS=(
@@ -45,75 +43,10 @@ declare -Ar DEFAULTS=(
     [market_front]=''
 )
 
-NAME='^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$'
+ACCOUNT_NAME='^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$'
 
-fail() {
-    echo "setup: $*" >&2
-    exit 1
-}
-
-# Files this run writes before moving them into place, and the unpacked
-# release: removed however the script ends, so nothing half written stays.
-CLEANUP=()
-cleanup() {
-    ((${#CLEANUP[@]})) && rm -rf "${CLEANUP[@]}"
-    return 0
-}
-trap cleanup EXIT
-
-# stage VARIABLE PATH: sets VARIABLE to a fresh name beside PATH for its next
-# version, removed on exit unless moved into place. It runs in this shell, not
-# in a command substitution, so the name reaches CLEANUP.
-stage() {
-    local file
-    file=$(mktemp "$(dirname "$2")/.$(basename "$2").XXXXXX")
-    CLEANUP+=("$file")
-    printf -v "$1" '%s' "$file"
-}
-
-# restart_time_at WEEKDAY HHMM: the end of the trading window at that Beijing
-# time (1 is Monday), "+1 02:45" for tomorrow's, or "now" outside one.
-restart_time_at() {
-    local weekday=$1 minute=$((10#${2:0:2} * 60 + 10#${2:2:2}))
-    if ((weekday <= 5 && minute >= 525 && minute < 930)); then
-        echo "15:30"
-    elif ((weekday <= 5 && minute >= 1245)); then
-        echo "+1 02:45"
-    elif ((weekday >= 2 && weekday <= 6 && minute < 165)); then
-        echo "02:45"
-    else
-        echo now
-    fi
-}
-
-# Each instance owns its pending restart. Stopping a timer also removes a
-# completed transient service so the same instance can be scheduled again.
-cancel_restart() {
-    systemctl stop "$RESTART-$1.timer" "$RESTART-$1.service" 2>/dev/null || true
-}
-
-restart() {
-    local name unit at
-    for name in "$@"; do
-        unit="asterion-trading@$name.service"
-        at=now
-        if systemctl is-active --quiet "$unit"; then
-            # shellcheck disable=SC2046
-            at=$(restart_time_at $(TZ=Asia/Shanghai date +'%u %H%M'))
-        fi
-        cancel_restart "$name"
-        if [[ $at == now ]]; then
-            systemctl restart "$unit"
-            echo "Started: $unit. Logs in $ROOT/logs"
-        else
-            case $at in
-                "+1 "*) at="$(TZ=Asia/Shanghai date -d tomorrow +%F) ${at#+1 }" ;;
-                *) at="$(TZ=Asia/Shanghai date +%F) $at" ;;
-            esac
-            systemd-run --quiet --collect --unit="$RESTART-$name" --on-calendar="$at:00 Asia/Shanghai" systemctl restart "$unit"
-            echo "Account $name: saved; restart scheduled at $at Beijing time. Authorization must then be given again. To cancel: systemctl stop $RESTART-$name.timer"
-        fi
-    done
+python() {
+    "$ROOT/runtime/python/bin/python3" "$@"
 }
 
 # The accounts configured on this host.
@@ -127,21 +60,11 @@ accounts() {
 # Account values come from its own file, or the script defaults for new accounts.
 value() {
     local file="$ROOT/config/accounts/$1.json"
-    if [[ ! -f $file ]]; then
-        if [[ $2 == port ]]; then
-            free_port
-            return
-        fi
-        printf '%s' "${DEFAULTS[$2]}"
+    if [[ ! -f $file && $2 == port ]]; then
+        free_port
         return
     fi
-    "$ROOT/runtime/python/bin/python3" -I -c '
-import json, sys
-with open(sys.argv[1]) as stream:
-    value = json.load(stream)
-for key in sys.argv[2].split("."):
-    value = value[key]
-print(" ".join(value) if isinstance(value, list) else value)' "$file" "$2"
+    setting "$file" "$2" "${DEFAULTS[$2]}"
 }
 
 # The lowest unused account port, starting at the configured default.
@@ -155,40 +78,10 @@ free_port() {
     echo "$port"
 }
 
-fingerprint() {
-    echo "This host's certificate fingerprint, to enter in Terminal:"
-    echo "  $(openssl x509 -noout -fingerprint -sha256 -in "$ROOT/config/tls/server.crt" | sed 's/^.*=//')"
-}
-
-# ask PROMPT DEFAULT PATTERN: reads a value, offering the default.
-ask() {
-    local value
-    while true; do
-        read -r -p "$1 [$2]: " value || fail "Input ended"
-        value=${value:-$2}
-        if [[ $value =~ $3 ]]; then
-            printf '%s' "$value"
-            return
-        fi
-        echo "  Invalid value, please try again" >&2
-    done
-}
-
-secret() {
-    local value
-    while true; do
-        read -r -s -p "$1: " value || fail "Credential input ended"
-        echo >&2
-        [[ -n $value ]] && break
-        echo "  Required" >&2
-    done
-    printf '%s' "$value"
-}
-
 configure_account() {
-    local name bind port terminals other environment broker user app front market_front password='' auth_code='' answer=''
-    local file config identity_changed=1 credentials
-    name=$(ask "Account name (as the Terminal names its instance)" "" "$NAME")
+    local name bind port terminals other environment broker user app front market_front password='' auth_code=''
+    local file config credentials encrypted_password encrypted_auth_code
+    name=$(ask "Account name (as the Terminal names its instance)" "" "$ACCOUNT_NAME")
     file=$ROOT/config/accounts/$name.json
     credentials=$CREDENTIALS/asterion-trading-$name
     bind=$(ask "Listen address" "$(value "$name" bind)" '^[0-9A-Fa-f.:]+$')
@@ -200,32 +93,27 @@ configure_account() {
             fail "Port $port is already configured for account $other"
         fi
     done
-    terminals=$(ask "Terminal fingerprints (space separated)" "$(value "$name" terminals)" \
-        '^([0-9A-Fa-f:]{64,95})( [0-9A-Fa-f:]{64,95})*$')
+    terminals=$(ask "Terminal fingerprints (space separated)" "$(value "$name" terminals)" '^[0-9A-Fa-f:[:space:]]+$')
+    terminals=$(pins "$terminals")
     environment=$(ask "Counter environment (real/simulation)" "$(value "$name" environment)" '^(real|simulation)$')
     broker=$(ask "CTP broker ID" "$(value "$name" broker.broker_id)" '^[A-Za-z0-9_]{1,10}$')
     user=$(ask "CTP investor ID" "$(value "$name" broker.user_id)" '^[A-Za-z0-9_]{1,15}$')
     app=$(ask "CTP AppID" "$(value "$name" broker.app_id)" '^[A-Za-z0-9_.-]{1,32}$')
     front=$(ask "CTP trading front" "$(value "$name" broker.front)" '^tcp://[^[:space:]]+:[0-9]+$')
     market_front=$(ask "CTP market front" "$(value "$name" market_front)" '^tcp://[A-Za-z0-9.-]+:[0-9]+$')
-    if [[ -f $file ]] && [[ $environment == "$(value "$name" environment)" &&
-        $broker == "$(value "$name" broker.broker_id)" && $user == "$(value "$name" broker.user_id)" &&
-        $app == "$(value "$name" broker.app_id)" && $front == "$(value "$name" broker.front)" ]]; then
-        identity_changed=
-    fi
     # Credentials of the same counter account may be kept; another account needs its own.
-    if [[ -z $identity_changed && -f $credentials/password && -f $credentials/auth_code ]]; then
-        read -r -p "Keep the saved CTP password and authentication code? [Y/n]: " answer
-        [[ $answer == [nN]* ]] || answer=keep
-    fi
-    if [[ $answer != keep ]]; then
+    if ! [[ -f $file && $environment == "$(value "$name" environment)"
+        && $broker == "$(value "$name" broker.broker_id)" && $user == "$(value "$name" broker.user_id)"
+        && $app == "$(value "$name" broker.app_id)" && $front == "$(value "$name" broker.front)"
+        && -f $credentials/password && -f $credentials/auth_code ]] ||
+        ! confirm "Keep the saved CTP password and authentication code?" y; then
         password=$(secret "CTP trading password (not shown)")
         auth_code=$(secret "CTP authentication code (not shown)")
     fi
 
     # Everything is asked; now the files, each staged and moved into place.
     stage config "$file"
-    "$ROOT/runtime/python/bin/python3" -I -c '
+    python -I -c '
 import json, sys, pathlib
 path, final, bind, port, terminals, environment, broker, user, app, front, market_front = sys.argv[1:]
 identity = {"environment": environment, "broker": {"broker_id": broker, "user_id": user, "app_id": app, "front": front}}
@@ -234,24 +122,14 @@ if original.exists() and (original.parents[2] / "data" / original.stem / "journa
     previous = json.loads(original.read_text())
     if any(previous[key] != value for key, value in identity.items()):
         sys.exit("setup: account identity is fixed by its existing journal; restore its original configuration")
-prints = []
-for item in terminals.split():
-    digits = item.replace(":", "").lower()
-    if len(digits) != 64 or any(c not in "0123456789abcdef" for c in digits):
-        sys.exit("setup: a fingerprint is 64 hex digits")
-    prints.append(digits)
 with open(path, "w") as output:
-    json.dump({"bind": bind, "port": int(port), "terminals": prints, "market_front": market_front, **identity}, output, indent=2)
+    json.dump({"bind": bind, "port": int(port), "terminals": terminals.split(), "market_front": market_front, **identity}, output, indent=2)
     output.write("\n")' "$config" "$file" "$bind" "$port" "$terminals" "$environment" "$broker" "$user" "$app" "$front" "$market_front"
-    chown "$ACCOUNT:" "$config"
-    chmod 0600 "$config"
+    private "$config"
     if [[ -n $password ]]; then
-        local encrypted_password encrypted_auth_code
         install -d -m 0700 "$credentials"
-        stage encrypted_password "$credentials/password"
-        stage encrypted_auth_code "$credentials/auth_code"
-        printf '%s' "$password" | systemd-creds encrypt --name=password - "$encrypted_password" >/dev/null
-        printf '%s' "$auth_code" | systemd-creds encrypt --name=auth_code - "$encrypted_auth_code" >/dev/null
+        seal encrypted_password "$credentials/password" password "$password"
+        seal encrypted_auth_code "$credentials/auth_code" auth_code "$auth_code"
         password='' auth_code=''
         mv -f "$encrypted_password" "$credentials/password"
         mv -f "$encrypted_auth_code" "$credentials/auth_code"
@@ -261,17 +139,18 @@ with open(path, "w") as output:
     echo "Saved $file"
     echo "In Terminal, give account $name the address of this host and port $port."
     fingerprint
-    echo "Open TCP port $port in the firewall, e.g. sudo ufw allow $port/tcp"
-    restart "$name"
+    firewall "$port"
+    restart_after_trading "asterion-trading@$name.service" "$RESTART-$name"
+    echo "A restart ends authorization: authorize $name again in Terminal."
 }
 
 disable_account() {
     local name answer
-    name=$(ask "Account to stop and disable" "" "$NAME")
+    name=$(ask "Account to stop and disable" "" "$ACCOUNT_NAME")
     [[ -f $ROOT/config/accounts/$name.json ]] || fail "No account $name on this host"
     read -r -p "Stop $name now? Working orders stay at the broker and its authorization ends. [y/N]: " answer
     [[ $answer == [yY]* ]] || return 0
-    cancel_restart "$name"
+    cancel_restart "$RESTART-$name"
     systemctl disable --now "asterion-trading@$name.service" >/dev/null 2>&1
     echo "Stopped and disabled $name. Its configuration and its trading record in $ROOT/data/$name are kept."
 }
@@ -343,34 +222,11 @@ EOF
 # install: the directories, the default logging settings, this host's
 # certificate and the unit template.
 install_once() {
-    mkdir -p "$ROOT"/{bin,lib,config/accounts,config/tls,logs,data}
-    chmod 0700 "$ROOT/config" "$ROOT/config/accounts" "$ROOT/config/tls" "$ROOT/logs" "$ROOT/data"
-    chown "$ACCOUNT:" "$ROOT/config" "$ROOT/config/accounts" "$ROOT/config/tls" "$ROOT/logs" "$ROOT/data"
-    if [[ ! -f $ROOT/config/logging.json ]]; then
-        local logging
-        stage logging "$ROOT/config/logging.json"
-        cat "$1/config/logging.json" >"$logging"
-        chown "$ACCOUNT:" "$logging"
-        mv -f "$logging" "$ROOT/config/logging.json"
-    fi
-    if [[ ! -f $ROOT/config/tls/server.crt ]]; then
-        openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 36500 \
-            -subj "/CN=asterion-trading" -keyout "$ROOT/config/tls/server.key" \
-            -out "$ROOT/config/tls/server.crt" 2>/dev/null
-        chown "$ACCOUNT:" "$ROOT/config/tls/server.key" "$ROOT/config/tls/server.crt"
-        chmod 0600 "$ROOT/config/tls/server.key"
-    fi
+    install_base "$1"
+    mkdir -p "$ROOT"/{lib,config/accounts,data}
+    chmod 0700 "$ROOT/config/accounts" "$ROOT/data"
+    chown "$ACCOUNT:" "$ROOT/config/accounts" "$ROOT/data"
     write_unit
-}
-
-# The unit template of this release, on install and on every upgrade.
-write_unit() {
-    local unit
-    stage unit "$UNITS/$TEMPLATE"
-    unit_text >"$unit"
-    chmod 0644 "$unit"
-    mv -f "$unit" "$UNITS/$TEMPLATE"
-    systemctl daemon-reload
 }
 
 # The caller holds the exclusive installation lock. A failed or interrupted
@@ -397,31 +253,8 @@ place() {
     rm "$ROOT/.program-incomplete"
 }
 
-main() {
-    [[ $EUID -eq 0 ]] || fail "Run it with sudo"
-    if [[ ${1:-} == fingerprint ]]; then
-        fingerprint
-        return
-    fi
-    local source line
-    line=$(LC_ALL=C awk '/^__ARCHIVE__$/ { print NR + 1; exit }' "$SELF")
-    if [[ -n $line ]]; then
-        unpacked=$(mktemp -d)
-        CLEANUP+=("$unpacked")
-        tail -n +"$line" "$SELF" | tar xz --no-same-owner -C "$unpacked"
-        source=$unpacked/asterion-trading
-    elif [[ $(dirname "$SELF") == "$ROOT/bin" ]]; then
-        source=$ROOT
-    else
-        fail "This copy carries no programs: install or upgrade with the released Asterion-Trading-VERSION-linux-x86_64.sh"
-    fi
-    if [[ -d $ROOT/data ]]; then
-        ACCOUNT=$(stat -c %U "$ROOT/data")
-    else
-        ACCOUNT=${SUDO_USER:-}
-        [[ -n $ACCOUNT && $ACCOUNT != root ]] || fail "Run it with sudo from your own account: Trading will run as that account"
-    fi
-    if [[ $source == "$ROOT" ]]; then
+setup() {
+    if [[ $1 == "$ROOT" ]]; then
         menu
     else
         mkdir -p "$ROOT"
@@ -432,12 +265,12 @@ main() {
         exec {program_lock}<"$ROOT/.program.lock"
         flock --exclusive --nonblock "$program_lock" || fail "Stop all Trading accounts on this host before upgrading; no programs were changed"
         if [[ -d $ROOT/data ]]; then
-            for name in $(accounts); do cancel_restart "$name"; done
-            place "$source"
+            for name in $(accounts); do cancel_restart "$RESTART-$name"; done
+            place "$1"
             echo "Upgraded programs and offline strategy runtime in $ROOT; configuration and data unchanged. Start accounts explicitly and authorize again."
         else
-            install_once "$source"
-            place "$source"
+            install_once "$1"
+            place "$1"
             # The configured account may start only after installation completes.
             exec {program_lock}<&-
             echo "Installed in $ROOT; Trading runs as $ACCOUNT."
@@ -446,10 +279,3 @@ main() {
         fi
     fi
 }
-
-# Bash must stop here, run or sourced: the release's archive follows.
-if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
-    main "$@"
-    exit
-fi
-return
