@@ -362,7 +362,7 @@ main() {
         port=$(current port)
         echo "Market requires pinned mutual TLS on TCP $port; register its fingerprint in each Terminal."
     fi
-    openssl x509 -noout -fingerprint -sha256 -in "$ROOT/config/tls/server.crt"
+    openssl x509 -noout -fingerprint -sha256 -in "$ROOT/config/tls/server.crt" | sed 's/^.*=//'
     echo "Registered clients take effect after restart. Credentials stay on this host."
     restart
 }

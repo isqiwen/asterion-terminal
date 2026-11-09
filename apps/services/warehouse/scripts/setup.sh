@@ -314,7 +314,7 @@ main() {
         port=$(current port)
         echo "Warehouse requires pinned mutual TLS on TCP $port; register its fingerprint in each Terminal."
     fi
-    openssl x509 -noout -fingerprint -sha256 -in "$ROOT/config/tls/server.crt"
+    openssl x509 -noout -fingerprint -sha256 -in "$ROOT/config/tls/server.crt" | sed 's/^.*=//'
     echo "Client roles and providers take effect after restart. Provider credentials stay on this host."
     restart
 }

@@ -14,7 +14,7 @@ sudo /opt/asterion/warehouse/bin/setup.sh     # 只修改配置
 - 安装时写入并启用 `asterion-warehouse.service`：以执行 `sudo` 的账户运行，只能写 `logs/` 和数据目录，`Restart=always`。
 - 配置时依次询问监听地址、端口、数据目录（默认 `/opt/asterion/warehouse/data`，可以放到单独的磁盘），登记客户端证书（`<指纹>=read` 或 `<指纹>=manage`），选择交易所来源和 Tushare 每分钟请求数，最后隐藏输入 Tushare token。
 - 升级只替换程序，保留配置、TLS 身份、仓库和采集任务，随时可以重启，不影响行情和交易。
-- 安装时生成服务端证书，脚本显示它的指纹，供 Terminal 登记。权限修改在重启后生效。
+- 安装时生成服务端证书 `config/tls/server.crt`，每次运行脚本都显示它的指纹，可直接粘贴到 Terminal。指纹是证书 DER 编码的 SHA-256，不是文件本身的哈希；不重启查看：`openssl x509 -noout -fingerprint -sha256 -in /opt/asterion/warehouse/config/tls/server.crt`。权限修改在重启后生效。
 
 ## 部署目录
 
