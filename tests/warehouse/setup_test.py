@@ -96,14 +96,14 @@ class Host:
 client_pin = 'a' * 64
 shipped = {'bind': '0.0.0.0', 'port': 7450,
            'clients': [dict(fingerprint=client_pin, role='manage')],
-           'acquisition': {'exchanges': ['SHFE', 'INE', 'CZCE', 'DCE', 'CFFEX', 'GFEX'], 'tushare': {'requests_per_minute': 100}}}
+           'acquisition': {'exchanges': ['SHFE', 'INE', 'CZCE', 'DCE', 'CFFEX', 'GFEX'], 'tushare': {'requests_per_minute': 500}}}
 with tempfile.TemporaryDirectory() as folder:
     host = Host(folder)
 
     # Install: the layout, the unit, then the settings (Enter keeps a default,
     # a bad port is asked again), then the first start.
     calls, result = host.run(release(folder, '1'),
-                             ['', 'abc', '7451', '', client_pin + '=manage', '', '100', 'fixture-token'])
+                             ['', 'abc', '7451', '', client_pin + '=manage', '', '', 'fixture-token'])
     assert 'Invalid value' in result.stderr, result.stderr
     assert sorted(p.name for p in host.root.iterdir()) == ['bin', 'config', 'data', 'logs']
     assert (host.root / 'bin/asterion_warehouse').read_text().endswith('1"\n')
@@ -157,7 +157,7 @@ with tempfile.TemporaryDirectory() as folder:
     # made for the market and becomes writable; the old data is not moved.
     disk = host.folder / 'disk/market-data'
     calls, result = host.run(host.root / 'bin/setup.sh',
-                             ['', '', str(disk), '', '', '0'])
+                             ['', '', str(disk), '', '', '', 'second-token'])
     assert host.settings()['port'] == 7999
     assert host.settings()['data'] == str(disk)
     assert disk.is_dir() and any(call.startswith('chown ') and call.endswith(f': {disk}')
@@ -166,7 +166,8 @@ with tempfile.TemporaryDirectory() as folder:
     assert f'ReadWritePaths={host.root}/logs {disk}\n' in unit, unit
     assert f'The existing data stays in {host.root}/data' in result.stdout, result.stdout
     assert (host.root / 'data/acquisition/published.pb').read_bytes() == b'fixture-task'
-    assert not host.secrets.exists()
+    assert host.settings()['acquisition']['tushare'] == {'requests_per_minute': 500}
+    assert host.secrets.read_text().splitlines() == ['--name=asterion.warehouse.tushare.token=second-token']
     assert 'systemctl enable asterion-warehouse.service' not in calls, calls
     assert calls[-1] == 'systemctl restart asterion-warehouse.service', calls
 

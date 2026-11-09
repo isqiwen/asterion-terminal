@@ -41,7 +41,7 @@ declare -Ar DEFAULTS=(
     [port]='7450'
     [clients]=''
     [acquisition.exchanges]='SHFE INE CZCE DCE CFFEX GFEX'
-    [acquisition.tushare]='0'
+    [acquisition.tushare]='500'
 )
 
 fail() {
@@ -98,7 +98,7 @@ if sys.argv[2] == "clients":
 elif sys.argv[2] == "acquisition.exchanges":
     value = " ".join(value) or "-"
 elif sys.argv[2] == "acquisition.tushare":
-    value = value["requests_per_minute"] if value else 0
+    value = value["requests_per_minute"] if value else sys.argv[3]
 print(value)' "$ROOT/config/warehouse.json" "$1" "$(default "$1")"
 }
 
@@ -140,12 +140,10 @@ configure() {
     echo "Register Terminal fingerprints as <fingerprint>=read or <fingerprint>=manage (space separated)."
     clients=$(ask clients "Permitted clients" '^[0-9A-Fa-f:=[:space:]readmng]+$')
     exchanges=$(ask acquisition.exchanges "Public exchanges (- for none)" '^[A-Z[:space:]-]+$')
-    budget=$(ask acquisition.tushare "Tushare requests per minute (0 disables)" '^[0-9]{1,3}$')
-    ((budget <= 500)) || fail "Tushare budget must be 0-500"
-    if ((budget > 0)); then
-        token=$(secret "Tushare token (not shown)")
-        [[ ${#token} -le 256 && ! $token =~ [[:space:]] ]] || fail "Tushare token must be at most 256 characters without whitespace"
-    fi
+    budget=$(ask acquisition.tushare "Tushare requests per minute (1-500)" '^[0-9]{1,3}$')
+    ((budget >= 1 && budget <= 500)) || fail "Tushare requests per minute must be 1-500"
+    token=$(secret "Tushare token (not shown)")
+    [[ ${#token} -le 256 && ! $token =~ [[:space:]] ]] || fail "Tushare token must be at most 256 characters without whitespace"
 
     # Replaced whole, every file staged first; only the service's account may read it.
     stage settings "$ROOT/config/warehouse.json"
@@ -166,19 +164,17 @@ exchanges = [] if exchanges == "-" else exchanges.split()
 if len(set(exchanges)) != len(exchanges) or set(exchanges) - {"SHFE", "INE", "CZCE", "DCE", "CFFEX", "GFEX"}:
     raise SystemExit("Invalid or duplicate acquisition exchanges")
 settings = {"bind": bind, "port": int(port), "data": data, "clients": peers,
-    "acquisition": {"exchanges": exchanges, "tushare": {"requests_per_minute": int(budget)} if int(budget) else None}}
+    "acquisition": {"exchanges": exchanges, "tushare": {"requests_per_minute": int(budget)}}}
 with open(sys.argv[1], "w") as output:
     json.dump(settings, output, ensure_ascii=False, indent=2)
     output.write("\n")' "$settings" "$bind" "$port" "$data" \
         "$clients" "$exchanges" "$budget"
     chown "$ACCOUNT:" "$settings"
     chmod 0600 "$settings"
-    if [[ -n $token ]]; then
-        stage encrypted_token "$CREDENTIALS/asterion.warehouse.tushare.token"
-        printf '%s' "$token" | systemd-creds encrypt --name=asterion.warehouse.tushare.token - "$encrypted_token" >/dev/null
-    fi
+    stage encrypted_token "$CREDENTIALS/asterion.warehouse.tushare.token"
+    printf '%s' "$token" | systemd-creds encrypt --name=asterion.warehouse.tushare.token - "$encrypted_token" >/dev/null
     token=''
-    [[ -z $encrypted_token ]] || mv -f "$encrypted_token" "$CREDENTIALS/asterion.warehouse.tushare.token"
+    mv -f "$encrypted_token" "$CREDENTIALS/asterion.warehouse.tushare.token"
     mkdir -p "$data"
     chmod 0700 "$data"
     chown "$ACCOUNT:" "$data"
