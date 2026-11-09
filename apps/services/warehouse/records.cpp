@@ -1,4 +1,5 @@
 #include "records.hpp"
+#include <stdexcept>
 
 namespace asterion::warehouse {
 namespace {
