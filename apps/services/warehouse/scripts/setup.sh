@@ -3,6 +3,7 @@
 #
 #   sudo bash Asterion-Warehouse-VERSION-linux-x86_64.sh       install, or upgrade an installation
 #   sudo /opt/asterion/warehouse/bin/setup.sh   change the settings
+#   sudo /opt/asterion/warehouse/bin/setup.sh fingerprint   show this host's certificate fingerprint
 #
 # The release, Asterion-Warehouse-VERSION-linux-x86_64.sh, is this script with the
 # installation appended as a tar.gz after a line "__ARCHIVE__" (built by the
@@ -277,8 +278,16 @@ place() {
     done
 }
 
+fingerprint() {
+    openssl x509 -noout -fingerprint -sha256 -in "$ROOT/config/tls/server.crt" | sed 's/^.*=//'
+}
+
 main() {
     [[ $EUID -eq 0 ]] || fail "Run it with sudo"
+    if [[ ${1:-} == fingerprint ]]; then
+        fingerprint
+        return
+    fi
     local source line
     line=$(LC_ALL=C awk '/^__ARCHIVE__$/ { print NR + 1; exit }' "$SELF")
     if [[ -n $line ]]; then
@@ -314,7 +323,7 @@ main() {
         port=$(current port)
         echo "Warehouse requires pinned mutual TLS on TCP $port; register its fingerprint in each Terminal."
     fi
-    openssl x509 -noout -fingerprint -sha256 -in "$ROOT/config/tls/server.crt" | sed 's/^.*=//'
+    fingerprint
     echo "Client roles and providers take effect after restart. Provider credentials stay on this host."
     restart
 }

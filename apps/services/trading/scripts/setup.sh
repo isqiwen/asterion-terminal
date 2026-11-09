@@ -3,6 +3,7 @@
 #
 #   sudo bash Asterion-Trading-VERSION-linux-x86_64.sh       install, or upgrade an installation
 #   sudo /opt/asterion/trading/bin/setup.sh   add, change or disable an account
+#   sudo /opt/asterion/trading/bin/setup.sh fingerprint   show this host's certificate fingerprint
 #
 # The release, Asterion-Trading-VERSION-linux-x86_64.sh, is this script with the
 # installation appended as a tar.gz after a line "__ARCHIVE__" (built by the
@@ -398,6 +399,10 @@ place() {
 
 main() {
     [[ $EUID -eq 0 ]] || fail "Run it with sudo"
+    if [[ ${1:-} == fingerprint ]]; then
+        fingerprint
+        return
+    fi
     local source line
     line=$(LC_ALL=C awk '/^__ARCHIVE__$/ { print NR + 1; exit }' "$SELF")
     if [[ -n $line ]]; then

@@ -117,14 +117,14 @@ class Host:
         self.env = dict(os.environ, PATH=f'{fakes}:{os.environ["PATH"]}', CALLS=str(self.calls),
                         SUDO_USER='tester', TIMERS=str(self.timers), BOOT=str(self.boot))
 
-    def run(self, script, answers, active=False, now='4 1700', ok=True, running=None, tail=True):
+    def run(self, script, answers, active=False, now='4 1700', ok=True, running=None, tail=True, args=()):
         self.calls.unlink(missing_ok=True)
         # Bash does not source a file with an archive in it: source the plain
         # script and point it at `script`, as running `script` would.
-        command = 'source "$4"; SELF=$1; ROOT=$2; UNITS=$3; CREDENTIALS=$3/credstore; main'
+        command = 'source "$4"; SELF=$1; ROOT=$2; UNITS=$3; CREDENTIALS=$3/credstore; main "${@:5}"'
         result = subprocess.run(
             ['unshare', '-r', 'bash', '-c', command, 'setup', str(script), str(self.root),
-             str(self.units), str(setup)], input='\n'.join(answers + (['simulation', '9999', '000001', 'client_app', 'tcp://127.0.0.1:41205', 'tcp://127.0.0.1:41213', 'test-only-password', 'test-only-auth'] if tail else [])) + '\n', capture_output=True,
+             str(self.units), str(setup), *args], input='\n'.join(answers + (['simulation', '9999', '000001', 'client_app', 'tcp://127.0.0.1:41205', 'tcp://127.0.0.1:41213', 'test-only-password', 'test-only-auth'] if tail else [])) + '\n', capture_output=True,
             text=True, env=dict(self.env, RUNNING=running if running is not None else ('*' if active else ''), NOW=now), timeout=60)
         assert (result.returncode == 0) == ok, result.stdout + result.stderr
         calls = self.calls.read_text().splitlines() if self.calls.exists() else []
@@ -259,6 +259,8 @@ with tempfile.TemporaryDirectory() as folder:
     assert row == ['two', '127.0.0.1:7470', 'inactive', 'disabled', 'none'], row
     _, result = host.run(host.root / 'bin/setup.sh', ['3'])
     assert fingerprint in result.stdout
+    _, result = host.run(host.root / 'bin/setup.sh', [], tail=False, args=['fingerprint'])
+    assert result.stdout == fingerprint + '\n', result.stdout
 
     # New accounts use script defaults without any installed default configuration file.
     host.run(host.root / 'bin/setup.sh', ['1', 'three', '', '', TERMINAL,

@@ -5,11 +5,13 @@ record what they were asked.
 
     setup_test.py <apps/services/warehouse/scripts/setup.sh>
 """
+import hashlib
 import io
 import json
 import os
 from pathlib import Path
 import shutil
+import ssl
 import subprocess
 import sys
 import tarfile
@@ -71,17 +73,17 @@ class Host:
         self.env = dict(os.environ, PATH=f'{fakes}:{os.environ["PATH"]}', CALLS=str(self.calls),
                         SECRETS=str(self.secrets), SUDO_USER='tester')
 
-    def run(self, script, answers, active=False, now='4 1700'):
+    def run(self, script, answers, active=False, now='4 1700', args=()):
         """Runs `script`'s main with the host's paths in place of the real ones."""
         for record in (self.calls, self.secrets):
             record.unlink(missing_ok=True)
         # Bash does not source a file with an archive in it: source the plain
         # script and point it at `script`, as running `script` would.
-        command = ('source "$5"; SELF=$1; ROOT=$2; UNITS=$3; CREDENTIALS=$4; main')
+        command = ('source "$5"; SELF=$1; ROOT=$2; UNITS=$3; CREDENTIALS=$4; main "${@:6}"')
         env = dict(self.env, ACTIVE='0' if active else '3', NOW=now)
         result = subprocess.run(
             namespace + ['bash', '-c', command, 'setup', str(script), str(self.root), str(self.units),
-             str(self.credentials), str(setup)], input='\n'.join(answers) + '\n', capture_output=True, text=True,
+             str(self.credentials), str(setup), *args], input='\n'.join(answers) + '\n', capture_output=True, text=True,
             env=env, timeout=60)
         assert result.returncode == 0, result.stdout + result.stderr
         calls = self.calls.read_text().splitlines() if self.calls.exists() else []
@@ -187,6 +189,12 @@ with tempfile.TemporaryDirectory() as folder:
     assert result.returncode != 0, result.stdout + result.stderr
     assert (host.root / 'config/warehouse.json').read_bytes() == before
     assert staged_files() == [], staged_files()
+
+    # The installed copy shows the fingerprint alone, in the form Terminal accepts, and restarts nothing.
+    calls, result = host.run(host.root / 'bin/setup.sh', [], args=['fingerprint'])
+    der = ssl.PEM_cert_to_DER_cert((host.root / 'config/tls/server.crt').read_text())
+    assert result.stdout == ':'.join(f'{b:02X}' for b in hashlib.sha256(der).digest()) + '\n', result.stdout
+    assert calls == [], calls
 
     # The plain script elsewhere carries no programs.
     result = subprocess.run(namespace + ['bash', '-c', 'source "$1"; SELF=$1; ROOT=$2; main', 'setup',
