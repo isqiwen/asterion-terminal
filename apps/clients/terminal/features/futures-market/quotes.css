@@ -587,14 +587,18 @@
   min-width: 0;
   overflow: auto;
 }
-/* Groups flow down as many columns as fit, each group kept whole. */
+/* As many columns as fit, each holding whole groups (MarketBoard). */
 .market-exchange-groups {
-  columns: 28rem;
-  column-gap: 0;
-  column-rule: 1px solid var(--grid);
+  display: flex;
 }
-.market-exchange-groups > section {
-  break-inside: avoid;
+.market-exchange-column {
+  flex: 1;
+  min-width: 0;
+}
+.market-exchange-column + .market-exchange-column {
+  border-left: 1px solid var(--grid);
+}
+.market-exchange-column > section {
   padding-bottom: 12px;
 }
 .market-exchange-groups h3 {

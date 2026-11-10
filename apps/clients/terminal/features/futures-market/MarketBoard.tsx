@@ -4,7 +4,8 @@ import { productOverview } from "./product-overview";
 import { QuotePane } from "./QuotePane";
 import { WatchlistEditor } from "./WatchlistEditor";
 import { WatchlistToggle } from "./WatchlistToggle";
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { boardColumns } from "./board-columns";
 import type { QuoteRow } from "../../src/generated/asterion/market_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
 import {
@@ -36,7 +37,16 @@ const boardGroups = [
   { title: "金融期货", venues: ["CFFEX"] },
   { title: "广州商品期货", venues: ["GFEX"] },
 ];
+// The narrowest column a quote table fits in without scrolling sideways.
+const columnWidth = 500;
 export function MarketBoard({ market, context }: { market: MarketView; context: TerminalContext }) {
+  const list = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const observer = new ResizeObserver(([entry]) => setWidth(entry!.contentRect.width));
+    observer.observe(list.current!);
+    return () => observer.disconnect();
+  }, []);
   const [columns] = useWorkspaceDraft("market-columns", defaultQuoteColumns);
   const visibleColumns = columns.filter(item => item.visible).map(item => item.column);
   const [scope] = useWorkspaceDraft("market-scope", "products");
@@ -99,7 +109,8 @@ export function MarketBoard({ market, context }: { market: MarketView; context: 
       ? [{ title: venueNames[filter] ?? filter, venues: [filter] }]
       : [...boardGroups, ...others.map(value => ({ title: value, venues: [value] }))]
   ).map(group => ({ ...group, rows: rows.filter(row => group.venues.includes(venueOf(row))) }));
-  const orderedRows = groups.flatMap(group => group.rows);
+  const shown = groups.filter(group => group.rows.length);
+  const orderedRows = shown.flatMap(group => group.rows);
   const active =
     rows.find(row => rowKey(row) === selected) ??
     orderedRows[0] ??
@@ -146,7 +157,7 @@ export function MarketBoard({ market, context }: { market: MarketView; context: 
   );
   return (
     <div className="futures-market-board" ref={board}>
-      <div className="futures-market-board-list">
+      <div className="futures-market-board-list" ref={list}>
         {watchlist && <WatchlistEditor context={context} />}
         {!rows.length && (
           <p className="market-search-empty" role="status">
@@ -160,14 +171,19 @@ export function MarketBoard({ market, context }: { market: MarketView; context: 
           </p>
         )}
         <div className="market-exchange-groups">
-          {groups
-            .filter(group => group.rows.length)
-            .map(group => (
-              <section key={group.title} aria-label={t(group.title)}>
-                <h3>{t(group.title)}</h3>
-                {table(group.rows)}
-              </section>
-            ))}
+          {boardColumns(
+            shown.map(group => group.rows.length + 2),
+            Math.max(1, Math.floor(width / columnWidth)),
+          ).map(column => (
+            <div className="market-exchange-column" key={column[0]}>
+              {column.map(index => (
+                <section key={shown[index]!.title} aria-label={t(shown[index]!.title)}>
+                  <h3>{t(shown[index]!.title)}</h3>
+                  {table(shown[index]!.rows)}
+                </section>
+              ))}
+            </div>
+          ))}
         </div>
       </div>
       {active && (

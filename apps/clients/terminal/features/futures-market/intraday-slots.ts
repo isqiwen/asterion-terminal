@@ -33,7 +33,12 @@ function merge(target: Map<number, Merged>, index: number, bar: MinuteBar) {
   const previous = target.get(index);
   target.set(index, {
     price: bar.close!.text,
-    average: bar.averagePrice?.text ?? previous?.average ?? null,
+    // Market sends the average unrounded; show it to the price's decimals, at least two.
+    average: bar.averagePrice
+      ? Number(bar.averagePrice.text).toFixed(
+          Math.max(2, bar.close!.text.split(".")[1]?.length ?? 0),
+        )
+      : (previous?.average ?? null),
     volume: (previous?.volume ?? 0) + Number(bar.volume),
   });
 }
