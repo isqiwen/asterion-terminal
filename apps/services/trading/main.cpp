@@ -60,6 +60,7 @@ int main(int argc, char** argv)
         asterion::Progress initialization, io_progress;
         const auto fill_health = [&](wire::Health& h) {
             h.set_protocol(asterion::build::trading_protocol);
+            h.set_version(asterion::build::description);
             *h.mutable_io() = asterion::protocol::encode_progress(io_progress.observe());
             *h.mutable_initialization() =
                 asterion::protocol::encode_progress(initialization.observe());

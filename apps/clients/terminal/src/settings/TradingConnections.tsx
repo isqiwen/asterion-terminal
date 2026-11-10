@@ -5,6 +5,7 @@ import { translate } from "../i18n";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 import { SettingsDialog } from "./SettingsDialog";
 import { SettingsSection } from "./Section";
+import { ServiceBuild } from "./ServiceBuild";
 const t = (key: string) => translate("host", key);
 const blank = { host: "", port: "7460", instance: "", fingerprint: "" };
 
@@ -52,9 +53,16 @@ export function TradingConnections({
                   {"error" in entry ? (
                     <p role="alert">{t("连接文件无法读取，已保留原文件供检查")}</p>
                   ) : (
-                    <p>
-                      {entry.host}:{entry.port} · {entry.instance}
-                    </p>
+                    <>
+                      <p>
+                        {entry.host}:{entry.port} · {entry.instance}
+                      </p>
+                      <ServiceBuild
+                        key={`${entry.host}:${entry.port}/${entry.fingerprint}`}
+                        account={entry.id}
+                        protocol={snapshot?.trading_protocol}
+                      />
+                    </>
                   )}
                 </div>
                 {!("error" in entry) && (

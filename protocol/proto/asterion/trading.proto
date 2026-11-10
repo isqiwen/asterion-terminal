@@ -59,6 +59,8 @@ message Health {
   Progress command = 8;
   // Hash of this service's schemas; Terminal compares it with its own.
   string protocol = 9;
+  // The build this service runs, as Market and Warehouse report in their status.
+  string version = 10;
 }
 
 // How long one loop of the service has gone without progress.

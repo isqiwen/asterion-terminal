@@ -3,6 +3,9 @@ import { expect, test, vi } from "vitest";
 import { readySnapshot } from "../testing/core";
 import { TradingConnections } from "./TradingConnections";
 
+const health = vi.hoisted(() => vi.fn());
+vi.mock("../bridge/trading", () => ({ tradingCall: health }));
+
 // jsdom does not implement the browser's dialog methods.
 HTMLDialogElement.prototype.showModal = function () {
   this.setAttribute("open", "");
@@ -36,4 +39,24 @@ test("saves a direct pinned trading destination", async () => {
     ),
   );
   expect(trade.mock.calls.map(call => call[0])).not.toContain("node.deploy");
+});
+
+test("a trading connection shows its service's build and a protocol it does not share", async () => {
+  health.mockResolvedValue({ version: "0.4.0 (abc1234)", protocol: "theirs" });
+  const snapshot = readySnapshot();
+  snapshot.trading_protocol = "ours";
+  snapshot.trading_connections = [
+    {
+      id: "simnow",
+      host: "10.0.0.2",
+      port: 7461,
+      instance: "simnow",
+      fingerprint: "a".repeat(64),
+      revision: "r",
+    },
+  ];
+  render(<TradingConnections snapshot={snapshot} busy={false} trade={vi.fn()} />);
+  await screen.findByText("0.4.0 (abc1234)");
+  expect(screen.getByText("不一致：请在服务主机安装同一版本")).toBeTruthy();
+  expect(health).toHaveBeenCalledWith("simnow", { case: "getHealth", value: {} });
 });

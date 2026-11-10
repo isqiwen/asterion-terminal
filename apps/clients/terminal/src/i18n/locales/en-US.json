@@ -194,5 +194,9 @@
   "尚未设置数据服务": "Data is not set up",
   "在设置里填写数据服务的地址和证书指纹后即可使用。": "Enter the Data address and certificate fingerprint in Settings to use it.",
   "在行情服务、数据服务和交易主机登记这个指纹": "Register this fingerprint with Market, Data and the trading host",
-  "图表": "Charts"
+  "图表": "Charts",
+  "服务版本": "Service version",
+  "协议": "Protocol",
+  "与本机一致": "Matches this Terminal",
+  "不一致：请在服务主机安装同一版本": "Differs: install the same version on the service host"
 }

@@ -129,6 +129,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
         assert rejected, "Terminal must reject credentials on the trading API"
         health = trading(process, {"getHealth": {}})["getHealth"]
         assert health["accountOpen"] and health["ready"], health
+        assert health["version"], health
         assert all(health[key]["observed"] for key in ("io", "state", "persistence"))
         wait(process, lambda s: s["brokerState"] == "BROKER_STATE_READY" and s.get("positionsReconciled"))
         act(process, {"requestId": "authorize", "authorize": {"userId": "000001"}})
