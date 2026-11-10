@@ -31,7 +31,9 @@ export function ContractQuote({ market, row }: { market: MarketView; row: QuoteR
                 {t("卖")}
                 {level + 1}
               </th>
-              <td data-tone="up">{q?.asks[level]?.price?.text ?? "—"}</td>
+              <td data-tone={q?.asks[level]?.price ? "up" : undefined}>
+                {q?.asks[level]?.price?.text ?? "—"}
+              </td>
               <td>{q?.asks[level]?.lots?.toString() ?? "—"}</td>
             </tr>
           ))}
@@ -41,7 +43,9 @@ export function ContractQuote({ market, row }: { market: MarketView; row: QuoteR
                 {t("买")}
                 {level + 1}
               </th>
-              <td data-tone="down">{q?.bids[level]?.price?.text ?? "—"}</td>
+              <td data-tone={q?.bids[level]?.price ? "down" : undefined}>
+                {q?.bids[level]?.price?.text ?? "—"}
+              </td>
               <td>{q?.bids[level]?.lots?.toString() ?? "—"}</td>
             </tr>
           ))}
