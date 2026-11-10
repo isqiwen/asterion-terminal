@@ -1,4 +1,5 @@
-/* The data page: the list of tables and views beside the chosen one. */
+/* The data page fills the workspace edge to edge, like the market page: the
+   list of tables and views beside the chosen one. */
 .data-page {
   display: flex;
   flex-direction: column;
@@ -10,8 +11,6 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  gap: 12px;
-  padding: 12px var(--space-page) 16px;
 }
 .data-tasks {
   display: flex;
@@ -30,9 +29,7 @@
   grid-template-columns: 224px minmax(0, 1fr);
   flex: 1;
   min-height: 0;
-  border: 1px solid var(--grid);
-  border-radius: var(--panel-radius);
-  background: var(--panel);
+  border-top: 1px solid var(--grid);
 }
 .data-views {
   display: flex;
@@ -282,8 +279,8 @@
 .data-earlier {
   margin: 0;
   padding: 8px 12px;
-  border: 1px solid var(--warning);
-  border-radius: var(--panel-radius);
+  border-top: 1px solid var(--warning);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
   color: var(--warning);
   font-size: 12px;
 }
