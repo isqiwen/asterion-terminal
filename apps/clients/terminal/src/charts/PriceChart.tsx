@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   AreaSeries,
   CandlestickSeries,
@@ -117,6 +117,22 @@ export function PriceChart(props: Props) {
   });
   const updating = useRef(false);
   const [focus, setFocus] = useState<string | null>(null);
+  // Where the volume pane starts inside the chart, for its label.
+  const [volumeAt, setVolumeAt] = useState<{ top: number; left: number } | null>(null);
+  useEffect(() => {
+    if (!showVolume) return;
+    const element = container.current!;
+    const place = () => {
+      const api = chart.current;
+      if (!api) return;
+      const left = api.options().leftPriceScale.visible ? api.priceScale("left").width() : 0;
+      setVolumeAt({ top: element.offsetTop + api.panes()[0]!.getHeight() + 1, left });
+    };
+    // The engine resizes itself on the next frame.
+    const observer = new ResizeObserver(() => requestAnimationFrame(place));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [showVolume]);
   const [view, setView] = useState({ start: 0, end: series.points.length });
   const points = series.points,
     count = points.length;
@@ -145,6 +161,7 @@ export function PriceChart(props: Props) {
     const css = getComputedStyle(container.current);
     const text = css.getPropertyValue("--muted").trim() || "#999faa";
     const grid = css.getPropertyValue("--grid").trim() || "#23262c";
+    const line = css.getPropertyValue("--line").trim() || "#343842";
     const when = (at: Time, axis: boolean) => {
       const p = latest.current;
       const point = p.series.points[Number(at) - 1];
@@ -159,7 +176,7 @@ export function PriceChart(props: Props) {
         textColor: text,
         fontSize: 11,
         attributionLogo: false,
-        panes: { separatorColor: grid, separatorHoverColor: grid },
+        panes: { separatorColor: line, separatorHoverColor: line },
       },
       grid: { vertLines: { color: grid }, horzLines: { color: grid } },
       crosshair: { mode: CrosshairMode.Normal },
@@ -212,8 +229,16 @@ export function PriceChart(props: Props) {
     const priceScaleId = reference === null ? "right" : "left";
     const format = props.formatPrice ?? numberText;
     api.applyOptions({
-      leftPriceScale: { visible: reference !== null || mirrorPriceAxis, borderVisible: false },
-      rightPriceScale: { visible: true, borderVisible: false },
+      leftPriceScale: {
+        visible: reference !== null || mirrorPriceAxis,
+        borderVisible: false,
+        scaleMargins: { top: 0.06, bottom: 0.04 },
+      },
+      rightPriceScale: {
+        visible: true,
+        borderVisible: false,
+        scaleMargins: { top: 0.06, bottom: 0.04 },
+      },
     });
     const used = new Set<string>();
     const layer = (key: string, kind: "line" | "area" | "candle" | "histogram", pane: number) => {
@@ -366,6 +391,8 @@ export function PriceChart(props: Props) {
     if (showVolume) {
       const volume = layer("volume", "histogram", 1);
       volume.applyOptions({ priceScaleId: "right", priceFormat: { type: "volume" } });
+      // Room above the tallest bar for the pane's label.
+      volume.priceScale().applyOptions({ scaleMargins: { top: 0.25, bottom: 0 } });
       volume.setData(
         points.map((p, i) => {
           const rising =
@@ -583,9 +610,13 @@ export function PriceChart(props: Props) {
           {referencePrice.label}: {referencePrice.value}
         </div>
       )}
-      {showVolume && (
-        <div className="price-chart-legend" data-chart-volume-axis>
-          {volumeLabel}: {points[index]?.volume ?? "—"}
+      {showVolume && volumeAt && (
+        <div
+          className="price-chart-pane-label"
+          data-chart-volume-axis
+          style={{ top: volumeAt.top, left: volumeAt.left }}
+        >
+          {volumeLabel} {points[index]?.volume ?? "—"}
         </div>
       )}
       {oscillator && (

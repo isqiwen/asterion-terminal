@@ -1,8 +1,21 @@
 .price-chart {
+  position: relative;
   margin: 16px 0;
   border-block: 1px solid var(--line);
   padding: 12px 0;
   min-width: 0;
+}
+/* Names a lower pane at its top left, over the chart. */
+.price-chart-pane-label {
+  position: absolute;
+  z-index: 2;
+  margin: 3px 6px;
+  padding: 0 2px;
+  background: var(--canvas);
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
 }
 .price-chart-canvas {
   display: block;
