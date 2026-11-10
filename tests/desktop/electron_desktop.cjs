@@ -146,13 +146,8 @@ async function closeDesktop(application) {
       fingerprint: process.env.ASTERION_TEST_MARKET_FINGERPRINT,
     });
     await call("market.open");
-    for (const [name, selector] of [
-      ["contract", ".contract-workspace"],
-      ["market", ".market-workspace"],
-    ]) {
-      await openView(page, name);
-      await expect(page.locator(selector)).toBeVisible();
-    }
+    await openView(page, "market");
+    await expect(page.locator(".market-workspace")).toBeVisible();
 
     await call("market.watchlist", { instruments: [{ exchange: "SHFE", symbol: "rb2610" }] });
     await openMarketSection(page, "自选");
@@ -162,7 +157,7 @@ async function closeDesktop(application) {
       .first();
     await priceHeading.getByRole("button").click();
     await expect(priceHeading).toHaveAttribute("aria-sort", "descending");
-    await openView(page, "contract");
+    await openView(page, "coverage");
     await openMarketSection(page, "自选");
     await expect(priceHeading).toHaveAttribute("aria-sort", "descending");
     await openMarketSection(page, "期货全景");

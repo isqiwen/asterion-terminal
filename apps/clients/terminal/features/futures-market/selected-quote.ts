@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-// The contract last chosen in either market view of this window.
+// The contract last chosen on the market page of this window.
 let selected = "";
 const listeners = new Set<() => void>();
 export function selectQuote(id: string) {

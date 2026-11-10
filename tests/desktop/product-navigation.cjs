@@ -2,8 +2,7 @@ async function openView(page, view) {
   const destinations = {
     research: ["研究"],
     coverage: ["数据"],
-    market: ["行情", "市场"],
-    contract: ["行情", "合约"],
+    market: ["行情"],
   };
   const [module, title] = destinations[view];
   await page

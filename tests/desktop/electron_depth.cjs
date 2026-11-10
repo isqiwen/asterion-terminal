@@ -190,8 +190,7 @@ const { createInterface } = require("node:readline");
     await expect(row).toHaveCount(1);
     await expect(row.getByRole("button", { name: "rb2610", exact: true })).toHaveText("螺纹钢");
     await expect(row.getByRole("cell", { name: quote.last.text, exact: true })).toBeVisible();
-    await openView(page, "contract");
-    const summary = page.locator(".contract-summary dl");
+    const summary = page.locator(".contract-figures");
     for (const [label, value] of [
       ["开盘", "3490.25"],
       ["日增仓", "-25.25"],
@@ -205,11 +204,15 @@ const { createInterface } = require("node:readline");
           .locator("dd"),
       ).toHaveText(value);
     const depth = page.locator(".contract-depth");
-    await expect(depth.locator(".depth-level").nth(1)).toContainText("3508.25");
-    await expect(depth.locator(".depth-level").nth(2).locator("span").last()).toHaveText("0");
-    await expect(depth.locator(".depth-level").nth(3).locator("span").first()).toHaveText("—");
-    await expect(depth.locator(".depth-level").nth(4)).toContainText("3515");
-    await expect(depth).not.toContainText("当前报价未提供更多档位");
+    const level = name =>
+      depth
+        .locator("tr")
+        .filter({ has: page.locator("th", { hasText: new RegExp(`^${name}$`) }) })
+        .locator("td");
+    await expect(depth).toContainText("3508.25");
+    await expect(level("卖3").last()).toHaveText("0");
+    await expect(level("买4").last()).toHaveText("—");
+    await expect(level("卖5").first()).toHaveText("3515");
     await fs.mkdir(path.resolve("build/native-depth-check"), { recursive: true });
     await page.screenshot({ path: path.resolve("build/native-depth-check/native-depth.png") });
     await call("market.close");

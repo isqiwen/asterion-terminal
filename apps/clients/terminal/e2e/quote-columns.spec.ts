@@ -77,9 +77,11 @@ test("quote columns apply atomically, preserve values and navigation, and reset 
     "ascending",
   );
   await expect(board.locator("tbody tr").first()).toContainText("rb2610");
+  // Opening a row widens its chart beside the board.
   await row.locator("td").nth(1).dblclick();
-  await expect(page.locator('.contract-list-row[aria-pressed="true"]')).toContainText("rb2610");
-  await openView(page, "market");
+  await expect(page.locator(".futures-market-board[data-expanded]")).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "合约详情" })).toContainText("rb2610");
+  await page.getByRole("button", { name: "收起", exact: true }).click();
   await expect(heads).toHaveText(["名称", "现价", "涨跌幅(结)", "涨跌"]);
   await openColumns();
   for (const checkbox of await dialog.getByRole("checkbox").all()) await checkbox.uncheck();

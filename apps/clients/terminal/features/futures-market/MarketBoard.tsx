@@ -2,6 +2,7 @@ import { defaultQuoteColumns } from "./QuoteColumns";
 import { selectQuote, useSelectedQuote } from "./selected-quote";
 import { productOverview } from "./product-overview";
 import { QuotePane } from "./QuotePane";
+import { ContractQuote, sameProduct } from "./ContractQuote";
 import { WatchlistEditor } from "./WatchlistEditor";
 import { WatchlistToggle } from "./WatchlistToggle";
 import { useEffect, useRef, useState } from "react";
@@ -111,10 +112,15 @@ export function MarketBoard({ market, context }: { market: MarketView; context: 
   ).map(group => ({ ...group, rows: rows.filter(row => group.venues.includes(venueOf(row))) }));
   const shown = groups.filter(group => group.rows.length);
   const orderedRows = shown.flatMap(group => group.rows);
+  // Another month of a listed product, chosen beside the chart, stays chosen.
+  const chosen = quotes.find(row => rowKey(row) === selected);
   const active =
     rows.find(row => rowKey(row) === selected) ??
-    orderedRows[0] ??
-    quotes.find(row => rows.includes(row));
+    (chosen && rows.some(row => sameProduct(row, chosen)) ? chosen : undefined) ??
+    orderedRows[0];
+  const listed =
+    active && (rows.includes(active) ? active : rows.find(row => sameProduct(row, active)));
+  const [expanded, setExpanded] = useWorkspaceDraft("market-expanded", false);
   const displayName = (row: QuoteRow) => {
     const label = overview ? productLabel(row.instrument!, catalog) : undefined;
     return label ? `${label}${t("主连")}` : contractName(row.instrument!, catalog);
@@ -126,11 +132,11 @@ export function MarketBoard({ market, context }: { market: MarketView; context: 
       nameFor={displayName}
       market={market}
       rows={groupRows}
-      selected={active ? rowKey(active) : undefined}
+      selected={listed ? rowKey(listed) : undefined}
       onSelect={selectQuote}
       onOpen={id => {
         selectQuote(id);
-        context.navigate("workspace.contract", { page: id });
+        setExpanded(true);
       }}
       sort={sort}
       onSort={column =>
@@ -156,7 +162,7 @@ export function MarketBoard({ market, context }: { market: MarketView; context: 
     />
   );
   return (
-    <div className="futures-market-board" ref={board}>
+    <div className="futures-market-board" ref={board} data-expanded={expanded || undefined}>
       <div className="futures-market-board-list" ref={list}>
         {watchlist && <WatchlistEditor context={context} />}
         {!rows.length && (
@@ -192,11 +198,27 @@ export function MarketBoard({ market, context }: { market: MarketView; context: 
             context={context}
             market={market}
             row={active}
-            name={displayName(active) ?? active.instrument!.symbol}
+            name={
+              (active === listed
+                ? displayName(active)
+                : contractName(active.instrument!, catalog)) ?? active.instrument!.symbol
+            }
             pane="market-pane"
             initial="分时"
-            actions={<WatchlistToggle context={context} market={market} row={active.instrument!} />}
+            actions={
+              <>
+                <WatchlistToggle context={context} market={market} row={active.instrument!} />
+                <button
+                  className="market-expand"
+                  aria-pressed={expanded}
+                  onClick={() => setExpanded(value => !value)}
+                >
+                  {t(expanded ? "收起" : "展开")}
+                </button>
+              </>
+            }
           />
+          <ContractQuote market={market} row={active} />
         </aside>
       )}
     </div>

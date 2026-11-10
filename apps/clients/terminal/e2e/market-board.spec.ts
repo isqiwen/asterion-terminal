@@ -59,7 +59,7 @@ test("market board groups exchanges and links contract selection without inventi
   await expect(board.getByRole("button", { name: "i2701", exact: true })).toHaveCount(0);
   await expect(detail).toContainText("rb2610");
   await expect(detail.locator(".quote-pane-status").first()).toHaveText("等待首笔");
-  await openView(page, "contract");
+  await openView(page, "coverage");
   await openView(page, "market");
   await expect(categories.getByRole("button", { name: "上期所", exact: true })).toHaveAttribute(
     "aria-pressed",
@@ -95,9 +95,8 @@ test("market board groups exchanges and links contract selection without inventi
   await page.screenshot({ path: "build/market-board-desktop.png" });
   await page.setViewportSize({ width: 2048, height: 1152 });
   // A wide window lays the groups side by side instead of stretching them.
-  const first = await board.getByRole("region", { name: "上海商品期货" }).boundingBox();
-  const second = await board.getByRole("region", { name: "大连商品期货" }).boundingBox();
-  expect(second!.x).toBeGreaterThan(first!.x);
+  const left = async (name: string) => (await board.getByRole("region", { name }).boundingBox())!.x;
+  await expect.poll(() => left("大连商品期货")).toBeGreaterThan(await left("上海商品期货"));
   await page.screenshot({ path: "build/market-board-wide.png" });
   await page.setViewportSize({ width: 800, height: 900 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -136,14 +135,17 @@ test("market board groups exchanges and links contract selection without inventi
   await board.getByRole("button", { name: "i2701", exact: true }).click();
   await expect(chart).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 900 });
-  expect(
-    await chart.evaluate(element => {
-      const right = element.getBoundingClientRect().right;
-      return [...element.querySelectorAll("canvas")].every(
-        canvas => canvas.getBoundingClientRect().right <= right + 1,
-      );
-    }),
-  ).toBe(true);
+  // The chart resizes its canvas on the next frame.
+  await expect
+    .poll(() =>
+      chart.evaluate(element => {
+        const right = element.getBoundingClientRect().right;
+        return [...element.querySelectorAll("canvas")].every(
+          canvas => canvas.getBoundingClientRect().right <= right + 1,
+        );
+      }),
+    )
+    .toBe(true);
   await page.screenshot({ path: "build/market-quote-trend.png" });
   // The whole quote row selects/opens its own contract, including numeric cells.
   const rbRow = board.locator("tbody tr").filter({ hasText: "rb2610" });
@@ -155,13 +157,19 @@ test("market board groups exchanges and links contract selection without inventi
   await expect(detail).toContainText("i2701");
   await rbRow.locator("td").nth(1).click();
   await page.screenshot({ path: "build/market-mouse-keyboard-selection.png" });
+  // Opening a row widens its contract beside the board.
+  const expanded = page.locator(".futures-market-board[data-expanded]");
+  const collapse = () => page.getByRole("button", { name: "收起", exact: true }).click();
   await page.keyboard.press("Enter");
-  await expect(page.locator('.contract-list-row[aria-pressed="true"]')).toContainText("rb2610");
-  await openView(page, "market");
+  await expect(expanded).toBeVisible();
+  await expect(detail).toContainText("rb2610");
+  await collapse();
   await board.getByRole("button", { name: "i2701", exact: true }).focus();
   await page.keyboard.press("Enter");
-  await expect(page.locator('.contract-list-row[aria-pressed="true"]')).toContainText("i2701");
-  await openView(page, "market");
+  await expect(detail).toContainText("i2701");
+  await collapse();
+  await expect(expanded).toHaveCount(0);
   await rbRow.locator("td").nth(1).dblclick();
-  await expect(page.locator('.contract-list-row[aria-pressed="true"]')).toContainText("rb2610");
+  await expect(expanded).toBeVisible();
+  await expect(detail).toContainText("rb2610");
 });

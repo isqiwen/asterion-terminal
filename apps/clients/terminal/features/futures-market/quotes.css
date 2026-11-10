@@ -673,3 +673,116 @@
     border-top: 1px solid var(--grid);
   }
 }
+
+/* The Tick chart and its notes. */
+.contract-live-chart {
+  --price-line: var(--accent);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.quote-empty {
+  margin: 0;
+  padding: 10px;
+  color: var(--subtle);
+  font-size: 12px;
+}
+.quote-data-note {
+  padding: 2px 8px;
+  color: var(--subtle);
+  font-size: 12px;
+}
+.quote-data-note p {
+  margin: 3px 0;
+}
+
+/* Under the chart: depth beside the day's figures, then the other months. */
+.futures-market-board[data-expanded] {
+  grid-template-columns: clamp(320px, 30%, 520px) minmax(0, 1fr);
+}
+.market-contract > .quote-pane {
+  min-height: 320px;
+}
+.contract-quote {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0 12px;
+  flex-shrink: 0;
+  padding: 6px 8px 8px;
+  border-top: 1px solid var(--grid);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.contract-depth {
+  border-collapse: collapse;
+}
+.contract-depth :is(th, td) {
+  height: 20px;
+  padding: 0 4px;
+  font-weight: 400;
+  text-align: right;
+}
+.contract-depth th {
+  color: var(--muted);
+  text-align: left;
+}
+.contract-depth tr[data-first-bid] > * {
+  border-top: 1px solid var(--grid);
+}
+.contract-figures {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  margin: 0;
+}
+.contract-figures > div {
+  display: flex;
+  justify-content: space-between;
+  height: 18px;
+  align-items: center;
+}
+.contract-figures dt {
+  color: var(--muted);
+}
+.contract-figures dd {
+  margin: 0;
+}
+.contract-months {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+}
+.contract-months summary {
+  padding: 4px 0;
+  color: var(--muted);
+}
+.contract-months button {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr);
+  width: 100%;
+  min-height: 22px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 12px;
+  text-align: right;
+}
+.contract-months button > :first-child {
+  text-align: left;
+}
+.contract-months button[aria-pressed="true"] {
+  background: var(--accent-surface);
+}
+.contract-quote [data-tone="up"] {
+  color: var(--quote-up);
+}
+.contract-quote [data-tone="down"] {
+  color: var(--quote-down);
+}
+.market-expand {
+  min-height: 20px;
+  padding: 0 7px;
+  font-size: 12px;
+}

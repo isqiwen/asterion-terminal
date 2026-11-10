@@ -7,7 +7,7 @@ export const modules = [
     id: "market",
     title: "行情",
     icon: "market",
-    views: ["workspace.market", "workspace.contract"],
+    views: ["workspace.market"],
   },
   {
     id: "research",

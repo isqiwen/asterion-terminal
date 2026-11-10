@@ -23,10 +23,9 @@ test("workbench with source-only navigation and existing C++ data", async ({ pag
   await expect(page.getByRole("region", { name: "连接", exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "Tushare", exact: true })).toHaveCount(0);
   page = await closeSettingsWindow(page);
-  await openView(page, "contract");
-  await expect(
-    page.locator(".module-views").getByRole("button", { name: "合约", exact: true }),
-  ).toHaveAttribute("aria-current", "page");
+  await openView(page, "market");
+  // The market module has one view, so no view tabs.
+  await expect(page.locator(".module-views")).toHaveCount(0);
   await page.screenshot({ path: join(__dirname, "../test-results/workbench.png") });
 });
 
