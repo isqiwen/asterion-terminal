@@ -28,11 +28,12 @@ test(
       await rpc(page.request, "market.close");
       await expect(page.getByText("只读连接，不能采集或取消任务", { exact: true })).toBeVisible();
       await expect(page.getByRole("button", { name: "采集", exact: true })).toHaveCount(0);
-      await expect(
-        page.getByRole("region", { name: "数据集版本" }).locator(`code[title="${version}"]`),
-      ).toBeVisible();
       await expect(page.getByRole("rowheader", { name: "SHFE/rb", exact: true })).toBeVisible();
       await expect(page.getByRole("columnheader", { name: "2026-01", exact: true })).toBeVisible();
+      await page.getByRole("button", { name: /^版本历史/ }).click();
+      await expect(
+        page.getByRole("table", { name: "版本历史" }).locator(`code[title="${version}"]`),
+      ).toBeVisible();
       expect((await rpc(page.request, "market.watch", { restart: false })).market_watch).toBeNull();
     } finally {
       rmSync(join(data, "sources/research"), { recursive: true, force: true });

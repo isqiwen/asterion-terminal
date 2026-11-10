@@ -11,13 +11,6 @@ vi.mock("../contract", async importOriginal => ({
   translate: (_namespace: string, key: string, values?: Record<string, unknown>) =>
     key.replace(/\{(\w+)\}/g, (_, name: string) => String(values?.[name])),
 }));
-// jsdom does not implement the browser's dialog methods.
-HTMLDialogElement.prototype.showModal = function () {
-  this.setAttribute("open", "");
-};
-HTMLDialogElement.prototype.close = function () {
-  this.removeAttribute("open");
-};
 vi.mock("./StoredContracts", () => ({ StoredContracts: () => null }));
 
 const older = "a".repeat(64);
@@ -68,15 +61,15 @@ request.mockImplementation(
   },
 );
 
-test("viewing an earlier version shows its summary and coverage and what changed since", async () => {
+test("the latest data shows by default; an earlier version is opened from the history", async () => {
   render(<Coverage {...context()} />);
   await screen.findByRole("rowheader", { name: "SHFE/rb" });
-  fireEvent.click(screen.getByRole("button", { name: /^数据版本/ }));
+  expect(screen.queryByRole("status")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /^版本历史/ }));
   const history = await screen.findByRole("table", { name: "版本历史" });
   const row = within(history).getByRole("row", { name: new RegExp(older.slice(0, 12)) });
   fireEvent.click(within(row).getByRole("button", { name: "查看" }));
   await screen.findByRole("rowheader", { name: "SHFE/cu" });
-  expect(screen.queryByRole("dialog")).toBeNull();
   expect(screen.queryByRole("rowheader", { name: "SHFE/rb" })).toBeNull();
   expect(request).toHaveBeenCalledWith({
     case: "getDatasetSummary",
@@ -85,11 +78,12 @@ test("viewing an earlier version shows its summary and coverage and what changed
   await waitFor(() =>
     expect(screen.getByRole("status").textContent).toContain("新增 1 · 替换 0 · 删除 0"),
   );
-  fireEvent.click(screen.getByRole("button", { name: "回到当前版本" }));
+  fireEvent.click(screen.getByRole("button", { name: "回到最新数据" }));
   await screen.findByRole("rowheader", { name: "SHFE/rb" });
 });
 
 test("a research run's version opens on the data page", async () => {
   render(<Coverage {...context({ version: older })} />);
   await screen.findByRole("rowheader", { name: "SHFE/cu" });
+  expect(screen.getByRole("status").textContent).toContain(older.slice(0, 8));
 });

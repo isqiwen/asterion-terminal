@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Acquisition, type Preset } from "./Acquisition";
 import { DailyCoverage } from "./DailyCoverage";
 import { DatasetHistory, changeText } from "./DatasetHistory";
-import { Dialog } from "./Dialog";
 import { MinuteCoverage } from "./MinuteCoverage";
 import { useMarket } from "../../src/host/market";
 import { ReferenceTable } from "./ReferenceTable";
@@ -44,7 +43,7 @@ const tables: Partial<Record<Table, string>> = {
   [Table.CALENDAR]: "交易日历",
 };
 // One view per table, the stored contracts' charts, then every client's tasks.
-type View = Table | "stored" | "tasks";
+type View = Table | "stored" | "tasks" | "history";
 const views: View[] = [
   Table.DAILY,
   Table.MINUTES,
@@ -54,10 +53,13 @@ const views: View[] = [
   Table.CALENDAR,
   "stored",
   "tasks",
+  "history",
 ];
 const tableName = (table: Table) => t(tables[table] ?? Table[table]);
 const viewName = (view: View) =>
-  view === "stored" ? t("已采集合约") : view === "tasks" ? t("采集任务") : tableName(view);
+  typeof view === "number"
+    ? tableName(view)
+    : t({ stored: "已采集合约", tasks: "采集任务", history: "版本历史" }[view]);
 const exchanges = ["SHFE", "INE", "DCE", "CZCE", "CFFEX", "GFEX"];
 
 // Every read and acquisition goes to the saved remote Warehouse service. Browsing a
@@ -138,7 +140,6 @@ function DataCoverage({
   const [change, setChange] = useState<MarketChange>();
   const [view, setView] = useState<View>(Table.DAILY);
   const [acquiring, setAcquiring] = useState<Preset>();
-  const [versionsOpen, setVersionsOpen] = useState(false);
   const catalog = useMarket()?.board.catalog?.contracts;
   const [summary, setSummary] = useState<MarketSummary | null>(null);
   const [coverage, setCoverage] = useState<MarketCoverage>();
@@ -236,29 +237,20 @@ function DataCoverage({
   return (
     <>
       <ErrorNotice error={error} />
+      {/* Only a run's record leads here, or the history; every other view is the latest data. */}
+      {viewed && viewed !== latest && (
+        <p className="data-earlier" role="status">
+          {t("正在查看旧数据版本")} <code title={viewed}>{viewed.slice(0, 8)}</code>
+          {" · "}
+          {t("最新数据与它相比：")}
+          {change ? changeText(change) : t("读取中")}{" "}
+          <button type="button" onClick={() => setViewed("")}>
+            {t("回到最新数据")}
+          </button>
+        </p>
+      )}
       <div className="data-main">
         <nav className="data-views" aria-label={t("表")}>
-          {/* Every table below belongs to this one version of the dataset. */}
-          <section className="data-version" aria-label={t("数据集版本")}>
-            <button
-              type="button"
-              disabled={!version}
-              data-earlier={(viewed && viewed !== latest) || undefined}
-              onClick={() => setVersionsOpen(true)}
-            >
-              {t("数据版本")} {version ? <code title={version}>{version.slice(0, 8)}</code> : "—"}
-              {viewed && viewed !== latest && ` · ${t("旧版本")}`}
-            </button>
-            {viewed && viewed !== latest && (
-              <p role="status">
-                {t("当前版本与它相比：")}
-                {change ? changeText(change) : t("读取中")}{" "}
-                <button type="button" onClick={() => setViewed("")}>
-                  {t("回到当前版本")}
-                </button>
-              </p>
-            )}
-          </section>
           {views.map(item => (
             <button
               key={item}
@@ -308,6 +300,15 @@ function DataCoverage({
             />
           ) : view === "stored" ? (
             latest && <StoredContracts key={latest} context={context} />
+          ) : view === "history" ? (
+            <DatasetHistory
+              latest={latest}
+              viewed={viewed}
+              onView={next => {
+                setViewed(next);
+                setView(Table.DAILY);
+              }}
+            />
           ) : view === "tasks" ? (
             <Tasks
               tasks={tasks}
@@ -350,23 +351,6 @@ function DataCoverage({
             void refresh();
           }}
         />
-      )}
-      {versionsOpen && (
-        <Dialog title={t("版本历史")} close={() => setVersionsOpen(false)}>
-          <DatasetHistory
-            latest={latest}
-            viewed={viewed}
-            onView={next => {
-              setViewed(next);
-              setVersionsOpen(false);
-            }}
-          />
-          <div className="data-actions">
-            <button type="button" onClick={() => setVersionsOpen(false)}>
-              {t("关闭")}
-            </button>
-          </div>
-        </Dialog>
       )}
     </>
   );

@@ -35,9 +35,7 @@
   "查询": "Search",
   "日线": "Daily",
   "无": "None",
-  "数据版本": "Data version",
   "操作": "Actions",
-  "关闭": "Close",
   "本机": "Local",
   "选择合约": "Choose contract",
   "刷新": "Refresh",
@@ -104,7 +102,6 @@
   "当前": "current",
   "正在查看": "Viewing",
   "更早的版本": "Earlier versions",
-  "回到当前版本": "Back to the current version",
   "月份": "Month",
   "开始": "Start",
   "结束": "End",
@@ -132,9 +129,10 @@
   "任务 {id} · 请求 {count} 次": "Task {id} · {count} requests",
   "还没有采集任务。": "No acquisition tasks yet.",
   "{rows} 行": "{rows} rows",
-  "当前版本与它相比：": "The current version against it:",
   "只读连接，不能采集或取消任务": "Read-only connection: cannot acquire or cancel tasks",
   "{count} 进行中": "{count} running",
   "仓库里还没有这张表。": "The warehouse holds none of this table yet.",
-  "旧版本": "earlier version"
+  "正在查看旧数据版本": "Viewing earlier data version",
+  "最新数据与它相比：": "The latest data against it: ",
+  "回到最新数据": "Back to the latest data"
 }

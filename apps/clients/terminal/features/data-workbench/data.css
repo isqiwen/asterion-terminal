@@ -1,4 +1,4 @@
-/* The data page: the version and its tables beside the chosen one. */
+/* The data page: the list of tables and views beside the chosen one. */
 .data-page {
   display: flex;
   flex-direction: column;
@@ -278,31 +278,15 @@
     flex: 1;
   }
 }
-
-/* Above the tables: the version they all belong to. */
-.data-version {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--grid);
-  font-size: 12px;
-}
-.data-version > button {
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  font-size: 12px;
-}
-.data-version > button:hover:not(:disabled) {
-  color: var(--text);
-}
-.data-version > button[data-earlier] {
+/* Shown only while an earlier dataset version replaces the latest data. */
+.data-earlier {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--warning);
+  border-radius: var(--panel-radius);
   color: var(--warning);
+  font-size: 12px;
 }
-.data-version code {
+.data-earlier code {
   color: inherit;
-}
-.data-version p {
-  margin: 6px 0 0;
-  color: var(--muted);
 }
