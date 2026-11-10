@@ -153,22 +153,15 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   }, [settingsWindow]);
-  const [visible, setVisible] = useState(() => !document.hidden);
-  useEffect(() => {
-    const update = () => setVisible(!document.hidden);
-    document.addEventListener("visibilitychange", update);
-    return () => document.removeEventListener("visibilitychange", update);
-  }, []);
   const polling = !!snapshot;
   const pollInFlight = useRef(false);
   useEffect(() => {
     // Polls read the core's published snapshot by revision; an unchanged
-    // revision returns no state. Hidden windows stop polling. A command in
-    // flight does not.
-    if (!visible || !polling) return;
+    // revision returns no state. A command in flight does not stop polling.
+    if (!polling) return;
     let cancelled = false;
     const timer = window.setInterval(async () => {
-      // Keep one read per window, including across visibility changes.
+      // Keep one read per window.
       if (pollInFlight.current) return;
       pollInFlight.current = true;
       const current = generation.current;
@@ -188,7 +181,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [visible, polling, accept]);
+  }, [polling, accept]);
   async function trade(...args: CommandCall) {
     const current = ++generation.current;
     commands.current += 1;
@@ -247,10 +240,9 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
           ids={(snapshot?.trading_connections ?? []).flatMap(item =>
             "error" in item ? [] : [item.id],
           )}
-          active={visible}
           protocol={snapshot?.trading_protocol}
         >
-          <MarketProvider active={visible}>
+          <MarketProvider>
             <Workbench
               title={t(route.module.title)}
               showToolbar={!current?.hideToolbar && !!WorkspaceToolbar}

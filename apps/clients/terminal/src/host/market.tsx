@@ -1,5 +1,5 @@
 import { fromJson, type JsonValue } from "@bufbuild/protobuf";
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { call } from "../bridge/client";
 import {
   QuoteFrameSchema,
@@ -31,6 +31,8 @@ export type MarketView = {
   generation: number;
   // A new stream started after an earlier one, and its ticks were dropped.
   interrupted: boolean;
+  // When Market received the newest quote of any contract.
+  lastReceivedMs: number;
 };
 
 const Market = createContext<MarketView | null>(null);
@@ -73,6 +75,7 @@ export function applyFrames(previous: MarketView | null, frames: QuoteFrame[], o
         ticks: new Map(),
         generation: (view?.generation ?? 0) + 1,
         interrupted: !!view,
+        lastReceivedMs: 0,
       };
     } else if (frame.case === "changed" && view) {
       const board = frame.value;
@@ -84,28 +87,23 @@ export function applyFrames(previous: MarketView | null, frames: QuoteFrame[], o
         catalog: board.catalog ?? view.board.catalog,
       };
     } else return { view: previous, restart: true };
-    for (const row of frame.value.rows) tick(view, row);
+    for (const row of frame.value.rows) {
+      tick(view, row);
+      view.lastReceivedMs = Math.max(view.lastReceivedMs, Number(row.quote?.receivedMs ?? 0));
+    }
   }
   return { view, restart: false };
 }
 
-// While the window is visible, the open watch's frames are read twice a second;
-// while it is hidden, the watch is paused and the next read starts a new stream.
-// The quotes from before the pause stay shown until that stream's full frame.
-export function MarketProvider({ active, children }: { active: boolean; children: ReactNode }) {
+// The open watch's frames are read twice a second, hidden window or not.
+export function MarketProvider({ children }: { children: ReactNode }) {
   const [view, setView] = useState<MarketView | null>(null);
-  const shown = useRef(view);
-  shown.current = view;
   useEffect(() => {
-    if (!active) {
-      void call("market.pause", {});
-      return;
-    }
     let reading = false;
     let stopped = false;
     // This page has no complete frame yet.
     let restart = true;
-    let current = shown.current;
+    let current: MarketView | null = null;
     // A connection that drops is reported once, when it drops.
     let online = false;
     const report = (view: MarketView | null) => {
@@ -147,6 +145,6 @@ export function MarketProvider({ active, children }: { active: boolean; children
       stopped = true;
       window.clearInterval(timer);
     };
-  }, [active]);
+  }, []);
   return <Market.Provider value={view}>{children}</Market.Provider>;
 }

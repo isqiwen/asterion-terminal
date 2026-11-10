@@ -219,9 +219,7 @@ function DataCoverage({
     mounted.current = true;
     void refresh();
     // Other clients can submit work at any time. Poll even with no local task.
-    const timer = setInterval(() => {
-      if (!document.hidden) void refresh();
-    }, 3000);
+    const timer = setInterval(() => void refresh(), 3000);
     return () => {
       mounted.current = false;
       clearInterval(timer);

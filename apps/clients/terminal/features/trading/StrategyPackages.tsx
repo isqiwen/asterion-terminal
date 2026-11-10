@@ -107,9 +107,7 @@ function AccountStrategies({ account, repository, record, connected = false }: P
     active.current = true;
     ++sequence.current;
     void refresh();
-    const timer = window.setInterval(() => {
-      if (!document.hidden) void refresh();
-    }, 3000);
+    const timer = window.setInterval(() => void refresh(), 3000);
     return () => {
       active.current = false;
       window.clearInterval(timer);

@@ -14,7 +14,9 @@ export function quoteStatus(market: MarketView, row: QuoteRow, now = Date.now())
   if (q.exchangeMs === undefined) return t("时间未知");
   const source = Number(q.exchangeMs);
   if (source > now + 5000) return t("来源时间超前");
-  return t(now - source > 30000 || now - Number(q.receivedMs) > 30000 ? "行情未更新" : "实时");
+  if (now - source <= 30000 && now - Number(q.receivedMs) <= 30000) return t("实时");
+  // A quiet contract is normal; the whole feed going quiet is not.
+  return t(now - market.lastReceivedMs > 30000 ? "行情未更新" : "暂无新报价");
 }
 // Display-only change relative to previous settlement; never a ledger calculation.
 export function quoteChange(row: QuoteRow) {

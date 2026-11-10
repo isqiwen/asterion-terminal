@@ -33,6 +33,7 @@ const service = (generation: number): MarketView => ({
   ticks: new Map(),
   generation,
   interrupted: false,
+  lastReceivedMs: 0,
 });
 // What the service answers: the day's series of a contract as it has observed
 // it since this hour, Shanghai time.

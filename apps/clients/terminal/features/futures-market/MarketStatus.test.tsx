@@ -6,6 +6,7 @@ import {
   BoardSchema,
   FeedState,
   StatusSchema,
+  Subscription,
   type Status,
 } from "../../src/generated/asterion/market_pb";
 import { registerTerminalFeatures } from "../../src/host/feature-registry";
@@ -19,11 +20,19 @@ registerTerminalFeatures([feature]);
 afterEach(() => vi.useRealTimers());
 
 const market = (online = true): MarketView => ({
-  board: create(BoardSchema, { feed: { state: FeedState.CONNECTED } }),
+  // One contract confirmed, one still waiting.
+  board: create(BoardSchema, {
+    feed: { state: FeedState.CONNECTED },
+    rows: [
+      { instrument: { exchange: "SHFE", symbol: "rb2701" }, subscription: Subscription.ACTIVE },
+      { instrument: { exchange: "SHFE", symbol: "rb2702" }, subscription: Subscription.PENDING },
+    ],
+  }),
   online,
   ticks: new Map(),
   generation: 1,
   interrupted: false,
+  lastReceivedMs: 0,
 });
 const reply = (failedSubscriptions = 0) =>
   create(StatusSchema, {
@@ -59,14 +68,14 @@ test("status reads do not overlap, and reconnecting or closing discards pending 
   select(market());
   expect(replies).toHaveLength(2);
   await act(async () => replies[0]!(reply()));
-  expect(screen.queryByText("1,234")).toBeNull();
+  expect(screen.queryByText("1 / 1,234")).toBeNull();
   await act(async () => replies[1]!(reply()));
-  expect(screen.getByText("1,234")).toBeDefined();
+  expect(screen.getByText("1 / 1,234")).toBeDefined();
   await act(async () => vi.advanceTimersByTime(3000));
   expect(replies).toHaveLength(3);
   select(null);
   await act(async () => replies[2]!(reply()));
-  expect(screen.queryByText("1,234")).toBeNull();
+  expect(screen.queryByText("1 / 1,234")).toBeNull();
   await act(async () => vi.advanceTimersByTime(9000));
   expect(replies).toHaveLength(3);
 });
@@ -75,9 +84,9 @@ test("a lost service stops showing its status", async () => {
   vi.useFakeTimers();
   const select = mount(market());
   await act(async () => replies[0]!(reply()));
-  expect(screen.getByText("1,234")).toBeDefined();
+  expect(screen.getByText("1 / 1,234")).toBeDefined();
   select(market(false));
-  expect(screen.queryByText("1,234")).toBeNull();
+  expect(screen.queryByText("1 / 1,234")).toBeNull();
   await act(async () => vi.advanceTimersByTime(9000));
   expect(replies).toHaveLength(1);
 });

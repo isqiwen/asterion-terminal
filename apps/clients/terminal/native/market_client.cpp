@@ -35,7 +35,7 @@ struct MarketWatch::Impl
     std::unique_ptr<ipc::RpcClient> transport;
     std::stop_source lifetime;
     std::deque<Json> frames;
-    bool online = false, restarting = false, paused = false;
+    bool online = false, restarting = false;
     std::string error;
     std::chrono::steady_clock::time_point seen{};
 
@@ -95,14 +95,13 @@ struct MarketWatch::Impl
                 transport->cancel();
                 online = false;
                 // Ending the stream here on purpose is not a failure to report.
-                if (!restarting && !paused)
+                if (!restarting)
                     error = failure.what();
             }
             frames.clear();
             const auto next = std::chrono::steady_clock::now() + 2s;
             co_await PollUntil{[&] {
-                return stopped(stop) || restarting
-                    || (!paused && std::chrono::steady_clock::now() >= next);
+                return stopped(stop) || restarting || std::chrono::steady_clock::now() >= next;
             }};
             restarting = false;
         }
@@ -142,7 +141,6 @@ Json MarketWatch::take(bool restart)
 {
     if (restart) {
         impl_->frames.clear();
-        impl_->paused = false;
         impl_->restarting = true;
         impl_->transport->cancel();
     }
@@ -155,14 +153,6 @@ Json MarketWatch::take(bool restart)
         {"online", impl_->online && std::chrono::steady_clock::now() - impl_->seen < 5s},
         {"error", impl_->error}
     };
-}
-
-void MarketWatch::pause()
-{
-    impl_->paused = true;
-    // A window hidden right after it returned must not get the stream it asked for.
-    impl_->restarting = false;
-    impl_->transport->cancel();
 }
 
 ServiceEndpoint MarketWatch::endpoint() const

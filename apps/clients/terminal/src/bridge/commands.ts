@@ -26,7 +26,6 @@ export type CommandParams = {
   "market.close": Record<string, never>;
   "market.watchlist": { instruments: InstrumentKey[] };
   "market.watch": { restart: boolean };
-  "market.pause": Record<string, never>;
   "trading.call": { account: string; request: JsonValue };
   "market.call": { request: JsonValue };
   "warehouse.call": { request: JsonValue };

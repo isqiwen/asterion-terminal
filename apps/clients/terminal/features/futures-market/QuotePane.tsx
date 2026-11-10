@@ -67,9 +67,7 @@ function useIntraday(market: MarketView, row: Row) {
         });
     };
     load();
-    const timer = window.setInterval(() => {
-      if (!document.hidden) load();
-    }, 3000);
+    const timer = window.setInterval(load, 3000);
     return () => {
       current = false;
       window.clearInterval(timer);

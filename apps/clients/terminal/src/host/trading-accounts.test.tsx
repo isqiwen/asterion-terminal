@@ -16,7 +16,7 @@ test("a Trading service built from another protocol is reported and stays usable
     }),
   );
   render(
-    <TradingAccountsProvider ids={["sim"]} active protocol="ours">
+    <TradingAccountsProvider ids={["sim"]} protocol="ours">
       <span />
     </TradingAccountsProvider>,
   );

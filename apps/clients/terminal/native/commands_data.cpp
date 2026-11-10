@@ -70,12 +70,6 @@ void Application::Impl::register_data_commands()
         const bool restart = p.at("restart").get<bool>();
         co_return Response{json{{"market_watch", watch ? watch->take(restart) : json(nullptr)}}};
     });
-    command("market.pause", [this](const json& p) -> PolledTask<Response> {
-        fields(p, {});
-        if (watch)
-            watch->pause();
-        co_return Response{json::object()};
-    });
     command("market.watchlist", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"instruments"});
         co_await settings<void>([&] {

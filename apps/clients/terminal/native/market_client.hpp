@@ -25,8 +25,6 @@ public:
     // at once, for a page that has no complete frame to apply deltas to. error is
     // why the stream last failed, until a frame arrives.
     Json take(bool restart);
-    // Ends the stream for a page nobody can see, until take(true); called on the I/O owner.
-    void pause();
     ServiceEndpoint endpoint() const;
 
 private:

@@ -18,7 +18,7 @@ function WarehouseIndicator() {
     let active = true;
     let pending = false;
     const read = async () => {
-      if (pending || document.hidden) return;
+      if (pending) return;
       pending = true;
       try {
         await warehouseData({ case: "getStatus", value: {} });

@@ -663,12 +663,7 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
     const auto read_watch = [&](bool restart) {
         return app.dispatch(request("market.watch", {{"restart", restart}})).at("market_watch");
     };
-    // A paused watch collects nothing, and the page's next stream starts complete.
-    app.dispatch(request("market.pause"));
-    std::this_thread::sleep_for(testing_support::bound(1s));
-    read_watch(false);
-    std::this_thread::sleep_for(testing_support::bound(1s));
-    EXPECT_TRUE(read_watch(false).at("frames").empty());
+    // A page that asks for a new stream gets it complete.
     frames = read_watch(true).at("frames");
     const auto resumed = std::chrono::steady_clock::now() + testing_support::bound(5s);
     while (frames.empty() && std::chrono::steady_clock::now() < resumed) {

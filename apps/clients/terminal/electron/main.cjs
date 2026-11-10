@@ -162,6 +162,8 @@ function preferences() {
     nodeIntegration: false,
     sandbox: true,
     webSecurity: true,
+    // Quotes, data and accounts keep updating while the window is hidden.
+    backgroundThrottling: false,
   };
 }
 function fit(bounds, area) {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Status } from "../../src/generated/asterion/market_pb";
+import { Subscription, type Status } from "../../src/generated/asterion/market_pb";
 import { useMarket } from "../../src/host/market";
 import {
   ErrorNotice,
@@ -21,7 +21,8 @@ const clock = (value: bigint | undefined) =>
 
 // What the quote stream does not carry. Reconnecting discards pending replies.
 export function MarketStatus() {
-  const online = useMarket()?.online;
+  const market = useMarket();
+  const online = market?.online;
   const [status, setStatus] = useState<Status | null>(null);
   const [error, setError] = useState<DisplayError>("");
   useEffect(() => {
@@ -48,9 +49,7 @@ export function MarketStatus() {
       }
     };
     void read();
-    const timer = window.setInterval(() => {
-      if (!document.hidden) void read();
-    }, 3000);
+    const timer = window.setInterval(() => void read(), 3000);
     return () => {
       active = false;
       window.clearInterval(timer);
@@ -63,8 +62,13 @@ export function MarketStatus() {
     <>
       <dl className="market-service-status">
         <div>
-          <dt>{t("订阅合约")}</dt>
-          <dd>{status.subscribed.toLocaleString(getLocale())}</dd>
+          <dt>{t("已订阅")}</dt>
+          <dd>
+            {(
+              market?.board.rows.filter(row => row.subscription === Subscription.ACTIVE).length ?? 0
+            ).toLocaleString(getLocale())}{" "}
+            / {status.subscribed.toLocaleString(getLocale())}
+          </dd>
         </div>
         <div>
           <dt>{t("最后收到行情（北京时间）")}</dt>

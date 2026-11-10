@@ -60,15 +60,13 @@ function merge(view: TradingView, response: Response): TradingView {
 }
 
 // Every registered account is read once a second with one read in flight, and
-// its health every five seconds. Hidden windows stop reading.
+// its health every five seconds, hidden window or not.
 export function TradingAccountsProvider({
   ids,
-  active,
   protocol,
   children,
 }: {
   ids: readonly string[];
-  active: boolean;
   // The Trading protocol this Terminal was built with.
   protocol: string | undefined;
   children: ReactNode;
@@ -82,7 +80,7 @@ export function TradingAccountsProvider({
   }, []);
   const key = ids.join("\n");
   useEffect(() => {
-    if (!active || !key) return;
+    if (!key) return;
     const reading = new Set<string>();
     // Accounts whose last read failed or whose work stalled: each is reported
     // once, when it begins.
@@ -137,7 +135,7 @@ export function TradingAccountsProvider({
       stopped = true;
       window.clearInterval(timer);
     };
-  }, [key, active, protocol, accept]);
+  }, [key, protocol, accept]);
   const send = useCallback<TradingAccounts["send"]>(
     async (id, operation) => {
       const next = () => (commands.current[id] = (commands.current[id] ?? 0) + 1);
