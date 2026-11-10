@@ -1,5 +1,5 @@
 import { fromJson, type JsonValue } from "@bufbuild/protobuf";
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { call } from "../bridge/client";
 import {
   QuoteFrameSchema,
@@ -91,8 +91,11 @@ export function applyFrames(previous: MarketView | null, frames: QuoteFrame[], o
 
 // While the window is visible, the open watch's frames are read twice a second;
 // while it is hidden, the watch is paused and the next read starts a new stream.
+// The quotes from before the pause stay shown until that stream's full frame.
 export function MarketProvider({ active, children }: { active: boolean; children: ReactNode }) {
   const [view, setView] = useState<MarketView | null>(null);
+  const shown = useRef(view);
+  shown.current = view;
   useEffect(() => {
     if (!active) {
       void call("market.pause", {});
@@ -102,7 +105,7 @@ export function MarketProvider({ active, children }: { active: boolean; children
     let stopped = false;
     // This page has no complete frame yet.
     let restart = true;
-    let current: MarketView | null = null;
+    let current = shown.current;
     // A connection that drops is reported once, when it drops.
     let online = false;
     const report = (view: MarketView | null) => {

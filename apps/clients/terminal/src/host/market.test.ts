@@ -1,7 +1,12 @@
-import { create, type MessageInitShape } from "@bufbuild/protobuf";
-import { expect, test } from "vitest";
+import { create, toJson, type MessageInitShape } from "@bufbuild/protobuf";
+import { render, screen, waitFor } from "@testing-library/react";
+import { createElement } from "react";
+import { expect, test, vi } from "vitest";
 import { CatalogState, QuoteFrameSchema, Subscription } from "../generated/asterion/market_pb";
-import { applyFrames } from "./market";
+import { MarketProvider, applyFrames, useMarket } from "./market";
+
+const call = vi.hoisted(() => vi.fn());
+vi.mock("../bridge/client", () => ({ call }));
 
 const row = (symbol: string, last: string, exchangeMs: bigint) => ({
   instrument: { exchange: "SHFE", symbol },
@@ -70,4 +75,25 @@ test("a busy contract does not push out another contract's recent quotes", () =>
   const { view } = applyFrames(null, [full, ...busy], true);
   expect(view!.ticks.get("SHFE.rb2610")!.map(tick => tick.price)).toEqual(["3500"]);
   expect(view!.ticks.get("SHFE.rb2611")).toHaveLength(512);
+});
+
+test("returning to the window keeps the earlier quotes until the new stream's first frame", async () => {
+  let frames = [toJson(QuoteFrameSchema, full)];
+  call.mockImplementation(async (method: string) =>
+    method === "market.watch"
+      ? { market_watch: { frames: frames.splice(0), online: frames.length === 0 } }
+      : {},
+  );
+  const Rows = () => createElement("p", null, `rows ${useMarket()?.board.rows.length ?? "none"}`);
+  const page = (active: boolean) =>
+    createElement(MarketProvider, { active, children: createElement(Rows) });
+  const { rerender } = render(page(true));
+  await screen.findByText("rows 2");
+  rerender(page(false));
+  expect(call).toHaveBeenLastCalledWith("market.pause", {});
+  // The new stream has sent nothing yet.
+  frames = [];
+  rerender(page(true));
+  await waitFor(() => expect(call).toHaveBeenLastCalledWith("market.watch", { restart: true }));
+  expect(screen.getByText("rows 2")).toBeTruthy();
 });
