@@ -32,9 +32,6 @@ test(
     await rpc(page.request, "market.watchlist", { instruments: [] });
     // The saved watchlist is the desktop's own; Market still collects the contract.
     expect((await marketState(page.request)).rows).toHaveLength(1);
-    await page.getByRole("button", { name: "行情设置" }).click();
-    await expect(
-      page.getByRole("dialog", { name: "行情设置" }).getByText("已订阅", { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByText("已订阅", { exact: true })).toBeVisible();
   },
 );

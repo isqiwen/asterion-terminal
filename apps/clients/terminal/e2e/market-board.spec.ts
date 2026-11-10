@@ -42,11 +42,7 @@ test("market board groups exchanges and links contract selection without inventi
   const detail = page.getByRole("complementary", { name: "合约详情" });
   // Without a catalog the board lists subscribed months even in product overview.
   await expect(board.getByRole("button", { name: "rb2610", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "行情设置" }).click();
-  const menu = page.getByRole("dialog", { name: "行情设置" });
-  await menu.getByRole("button", { name: "全部月份", exact: true }).click();
-  await page.keyboard.press("Escape");
-  await expect(menu).toHaveCount(0);
+  await page.getByRole("button", { name: "全部月份", exact: true }).click();
   await expect(detail).toContainText("rb2610");
   await board.getByRole("button", { name: "i2701", exact: true }).click();
   await expect(detail).toContainText("i2701");
@@ -71,9 +67,7 @@ test("market board groups exchanges and links contract selection without inventi
   );
   await expect(board.getByRole("button", { name: "i2701", exact: true })).toHaveCount(0);
   await categories.getByRole("button", { name: "期货全景", exact: true }).click();
-  await page.getByRole("button", { name: "行情设置" }).click();
-  await menu.getByRole("button", { name: "全部月份", exact: true }).click();
-  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "全部月份", exact: true }).click();
   const listBox = await page.locator(".futures-market-board-list").boundingBox();
   const detailBox = await detail.boundingBox();
   expect(detailBox!.x).toBeGreaterThanOrEqual(listBox!.x + listBox!.width - 1);
@@ -100,9 +94,10 @@ test("market board groups exchanges and links contract selection without inventi
   await expect(detail).toContainText("i2701");
   await page.screenshot({ path: "build/market-board-desktop.png" });
   await page.setViewportSize({ width: 2048, height: 1152 });
+  // A wide window lays the groups side by side instead of stretching them.
   const first = await board.getByRole("region", { name: "上海商品期货" }).boundingBox();
   const second = await board.getByRole("region", { name: "大连商品期货" }).boundingBox();
-  expect(second!.y).toBeGreaterThan(first!.y);
+  expect(second!.x).toBeGreaterThan(first!.x);
   await page.screenshot({ path: "build/market-board-wide.png" });
   await page.setViewportSize({ width: 800, height: 900 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

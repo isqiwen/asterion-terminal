@@ -172,9 +172,7 @@ async function closeDesktop(application) {
     await capture(page, "native-watchlist-sort");
     await openView(page, "market");
 
-    const columnButton = page.getByRole("button", { name: "行情表头设置", exact: true });
-    if (!(await page.getByRole("dialog", { name: "行情设置", exact: true }).count()))
-      await page.getByRole("button", { name: "行情设置", exact: true }).click();
+    const columnButton = page.getByRole("button", { name: "表头设置", exact: true });
     await columnButton.click();
     const columnDialog = page.getByRole("dialog", { name: "行情表头设置" });
     await expect(columnDialog).toBeVisible();
@@ -183,8 +181,6 @@ async function closeDesktop(application) {
     await expect(columnButton).toBeFocused();
     await openView(page, "research");
     await openView(page, "market");
-    if (!(await page.getByRole("dialog", { name: "行情设置", exact: true }).count()))
-      await page.getByRole("button", { name: "行情设置", exact: true }).click();
     await columnButton.click();
     await expect(
       columnDialog.getByRole("checkbox", { name: "持仓量", exact: true }),

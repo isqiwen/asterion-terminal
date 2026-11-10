@@ -32,26 +32,19 @@ test("quote columns apply atomically, preserve values and navigation, and reset 
   await page.goto("/");
   await openView(page, "market");
   const board = page.locator(".futures-market-board");
-  const menu = page.getByRole("dialog", { name: "行情设置" });
-  const openMenu = async () => {
-    if (!(await menu.count())) await page.getByRole("button", { name: "行情设置" }).click();
-  };
   // Without a catalog, list the actual subscribed months.
-  await openMenu();
-  await menu.getByRole("button", { name: "全部月份", exact: true }).click();
+  await page.getByRole("button", { name: "全部月份", exact: true }).click();
   const heads = board.locator("thead .quote-heading-label");
   const original = ["名称", "现价", "涨跌幅(结)", "涨跌", "1分钟涨速", "持仓"];
   await expect(heads).toHaveText(original);
   const dialog = page.getByRole("dialog", { name: "行情表头设置" });
-  const openColumns = async () => {
-    await openMenu();
-    await menu.getByRole("button", { name: "行情表头设置", exact: true }).click();
-  };
+  const columnsButton = page.getByRole("button", { name: "表头设置", exact: true });
+  const openColumns = () => columnsButton.click();
   await openColumns();
   await dialog.getByRole("checkbox", { name: "持仓量", exact: true }).uncheck();
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
-  await expect(menu.getByRole("button", { name: "行情表头设置", exact: true })).toBeFocused();
+  await expect(columnsButton).toBeFocused();
   await expect(heads).toHaveText(original);
   await openColumns();
   await dialog.getByRole("checkbox", { name: "持仓量", exact: true }).uncheck();

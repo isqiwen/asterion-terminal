@@ -1,11 +1,11 @@
-import { QuoteColumns, defaultQuoteColumns } from "./QuoteColumns";
+import { defaultQuoteColumns } from "./QuoteColumns";
 import { selectQuote, useSelectedQuote } from "./selected-quote";
 import { productOverview } from "./product-overview";
 import { QuotePane } from "./QuotePane";
+import { WatchlistEditor } from "./WatchlistEditor";
 import { WatchlistToggle } from "./WatchlistToggle";
-import { createPortal } from "react-dom";
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { FeedState, type QuoteRow } from "../../src/generated/asterion/market_pb";
+import { useRef } from "react";
+import type { QuoteRow } from "../../src/generated/asterion/market_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
 import {
   contractName,
@@ -24,19 +24,22 @@ const venueNames: Record<string, string> = {
   INE: "上海国际能源交易中心",
   GFEX: "广州期货交易所",
 };
-export function MarketBoard({
-  market,
-  context,
-  toolbar,
-}: {
-  market: MarketView;
-  context: TerminalContext;
-  toolbar?: ReactNode;
-}) {
-  const [columns, setColumns] = useWorkspaceDraft("market-columns", defaultQuoteColumns);
-  const [editingColumns, setEditingColumns] = useState(false);
+export const defaultSort: { column: string; direction: "ascending" | "descending" } = {
+  column: "涨跌幅",
+  direction: "descending",
+};
+// Groups of the whole board, in reading order; columns are filled top to bottom.
+const boardGroups = [
+  { title: "上海商品期货", venues: ["SHFE", "INE"] },
+  { title: "郑州商品期货", venues: ["CZCE"] },
+  { title: "大连商品期货", venues: ["DCE"] },
+  { title: "金融期货", venues: ["CFFEX"] },
+  { title: "广州商品期货", venues: ["GFEX"] },
+];
+export function MarketBoard({ market, context }: { market: MarketView; context: TerminalContext }) {
+  const [columns] = useWorkspaceDraft("market-columns", defaultQuoteColumns);
   const visibleColumns = columns.filter(item => item.visible).map(item => item.column);
-  const [scope, setScope] = useWorkspaceDraft("market-scope", "products");
+  const [scope] = useWorkspaceDraft("market-scope", "products");
   const [venue] = useWorkspaceDraft("market-venue", "");
   const [section] = useWorkspaceDraft("market-section", "期货全景");
   const saved = context.snapshot?.market_endpoint;
@@ -44,23 +47,12 @@ export function MarketBoard({
     section === "自选" && saved && "instruments" in saved ? saved.instruments : null;
   const selected = useSelectedQuote();
   const [search] = useWorkspaceDraft("quote-search", "");
-  const [menuOpen] = useWorkspaceDraft("market-menu", false);
-  const [sort, setSort] = useWorkspaceDraft<{
-    column: string;
-    direction: "ascending" | "descending";
-  }>("market-sort", {
-    column: "涨跌幅",
-    direction: "descending",
-  });
+  const [sort, setSort] = useWorkspaceDraft("market-sort", defaultSort);
   const board = useRef<HTMLDivElement>(null);
-  const { rows: quotes, catalog, feed } = market.board;
+  const { rows: quotes, catalog } = market.board;
   const venueOf = (row: QuoteRow) => row.instrument!.exchange;
-  const venueOrder = ["SHFE", "CFFEX", "CZCE", "INE", "DCE", "GFEX"];
-  const venues = [...new Set(quotes.map(venueOf))].sort((a, b) => {
-    const rank = (value: string) =>
-      venueOrder.includes(value) ? venueOrder.indexOf(value) : venueOrder.length;
-    return rank(a) - rank(b) || a.localeCompare(b);
-  });
+  const known = boardGroups.flatMap(group => group.venues);
+  const others = [...new Set(quotes.map(venueOf))].filter(value => !known.includes(value)).sort();
   const filter = venue;
   const query = search.trim().toUpperCase();
   // Without a catalog there is no product identity; list subscribed months.
@@ -102,21 +94,10 @@ export function MarketBoard({
         : Number(left) - Number(right);
     return compared * (sort.direction === "ascending" ? 1 : -1);
   });
-  // Board groups follow the reference layout: domestic commodities by
-  // exchange city on the left, financial and other groups on the right.
   const groups = (
     filter
-      ? [{ title: venueNames[filter] ?? filter, venues: [filter], column: 0, row: 0 }]
-      : [
-          { title: "上海商品期货", venues: ["SHFE", "INE"], column: 0, row: 0 },
-          { title: "金融期货", venues: ["CFFEX"], column: 1, row: 0 },
-          { title: "广州商品期货", venues: ["GFEX"], column: 1, row: 0 },
-          { title: "郑州商品期货", venues: ["CZCE"], column: 0, row: 1 },
-          { title: "大连商品期货", venues: ["DCE"], column: 0, row: 2 },
-          ...venues
-            .filter(value => !venueOrder.includes(value))
-            .map(value => ({ title: value, venues: [value], column: 1, row: 2 })),
-        ]
+      ? [{ title: venueNames[filter] ?? filter, venues: [filter] }]
+      : [...boardGroups, ...others.map(value => ({ title: value, venues: [value] }))]
   ).map(group => ({ ...group, rows: rows.filter(row => group.venues.includes(venueOf(row))) }));
   const orderedRows = groups.flatMap(group => group.rows);
   const active =
@@ -127,29 +108,6 @@ export function MarketBoard({
     const label = overview ? productLabel(row.instrument!, catalog) : undefined;
     return label ? `${label}${t("主连")}` : contractName(row.instrument!, catalog);
   };
-  const [menuSlot, setMenuSlot] = useState<HTMLElement | null>(null);
-  useEffect(() => setMenuSlot(document.getElementById("market-menu-slot")), [menuOpen]);
-  const inlineToolbar = feed?.state !== FeedState.CONNECTED || !quotes.length;
-  const controls = (
-    <div className="market-board-tools">
-      <nav className="market-exchanges" aria-label={t("合约范围")}>
-        <button aria-pressed={scope === "products"} onClick={() => setScope("products")}>
-          {t("品种概览")}
-        </button>
-        <button aria-pressed={scope === "months"} onClick={() => setScope("months")}>
-          {t("全部月份")}
-        </button>
-      </nav>
-      <p className="subtle">
-        {t(query ? "搜索全部月份" : overview ? "每品种一行 · 按持仓量" : "全部实际月份合约")}
-        {overview && ` · ${t("主连行显示同品种持仓量最大的实际月份合约，不是拼接的连续合约。")}`}
-      </p>
-      <button onClick={() => setEditingColumns(true)}>{t("行情表头设置")}</button>
-      <span className="subtle">
-        {rows.length} / {quotes.length} {t("合约")}
-      </span>
-    </div>
-  );
   const table = (groupRows: QuoteRow[]) => (
     <QuoteTable
       overviewStyle
@@ -186,34 +144,10 @@ export function MarketBoard({
       }}
     />
   );
-  const rowCount = Math.max(...groups.map(group => group.row)) + 1;
   return (
     <div className="futures-market-board" ref={board}>
-      {editingColumns && (
-        <QuoteColumns
-          value={columns}
-          close={() => setEditingColumns(false)}
-          apply={next => {
-            setColumns(next);
-            if (
-              sort.column !== "合约" &&
-              !next.some(item => item.column === sort.column && item.visible)
-            )
-              setSort({ column: "合约", direction: "ascending" });
-          }}
-        />
-      )}
-      {menuOpen &&
-        menuSlot &&
-        createPortal(
-          <>
-            {controls}
-            {!inlineToolbar && toolbar}
-          </>,
-          menuSlot,
-        )}
       <div className="futures-market-board-list">
-        {inlineToolbar && toolbar}
+        {watchlist && <WatchlistEditor context={context} />}
         {!rows.length && (
           <p className="market-search-empty" role="status">
             {t(
@@ -225,33 +159,15 @@ export function MarketBoard({
             )}
           </p>
         )}
-        <div
-          className="market-exchange-groups"
-          data-single-column={!!filter || undefined}
-          style={{ gridTemplateRows: `repeat(${rowCount}, auto)` }}
-        >
-          {Array.from({ length: rowCount }).flatMap((_, row) =>
-            [0, 1].map(column => {
-              const cell = groups.filter(
-                group => group.row === row && group.column === column && group.rows.length,
-              );
-              if (!cell.length) return null;
-              return (
-                <div
-                  className="market-exchange-cell"
-                  key={`${row}:${column}`}
-                  style={{ gridRow: row + 1, gridColumn: filter ? 1 : column + 1 }}
-                >
-                  {cell.map(group => (
-                    <section key={group.title} aria-label={t(group.title)}>
-                      <h3>{t(group.title)}</h3>
-                      {table(group.rows)}
-                    </section>
-                  ))}
-                </div>
-              );
-            }),
-          )}
+        <div className="market-exchange-groups">
+          {groups
+            .filter(group => group.rows.length)
+            .map(group => (
+              <section key={group.title} aria-label={t(group.title)}>
+                <h3>{t(group.title)}</h3>
+                {table(group.rows)}
+              </section>
+            ))}
         </div>
       </div>
       {active && (
@@ -261,17 +177,9 @@ export function MarketBoard({
             market={market}
             row={active}
             name={displayName(active) ?? active.instrument!.symbol}
-            pane="market-pane-upper"
+            pane="market-pane"
             initial="分时"
             actions={<WatchlistToggle context={context} market={market} row={active.instrument!} />}
-          />
-          <QuotePane
-            context={context}
-            market={market}
-            row={active}
-            name={displayName(active) ?? active.instrument!.symbol}
-            pane="market-pane-lower"
-            initial="日K"
           />
         </aside>
       )}
