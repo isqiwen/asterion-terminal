@@ -67,14 +67,6 @@ export function Coverage(context: TerminalContext) {
   const endpoint = saved && "host" in saved ? saved : null;
   return (
     <section className="data-page" aria-label={t("数据")}>
-      <div className="panel-heading">
-        <h2>{t("数据")}</h2>
-        {endpoint && (
-          <span className="subtle">
-            {endpoint.host}:{endpoint.port}
-          </span>
-        )}
-      </div>
       {endpoint ? (
         <DataPage
           key={`${endpoint.host}:${endpoint.port}/${endpoint.fingerprint}`}
@@ -140,6 +132,8 @@ function DataCoverage({
   context: TerminalContext;
 }) {
   const canManage = options.canManage;
+  const saved = context.snapshot?.warehouse_endpoint;
+  const endpoint = saved && "host" in saved ? saved : null;
   // The version shown; empty for the current one.
   const [viewed, setViewed] = useState(opened);
   const [latest, setLatest] = useState("");
@@ -265,6 +259,11 @@ function DataCoverage({
         )}
         <span className="data-bar-gap" />
         {!canManage && <span className="subtle">{t("只读连接，不能采集或取消任务")}</span>}
+        {endpoint && (
+          <span className="subtle">
+            {endpoint.host}:{endpoint.port}
+          </span>
+        )}
         {diskFree !== undefined && (
           <span className="subtle">{t("磁盘可用 {size}", { size: size(diskFree) })}</span>
         )}
