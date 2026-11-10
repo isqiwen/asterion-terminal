@@ -134,8 +134,7 @@
   "{rows} 行": "{rows} rows",
   "当前版本与它相比：": "The current version against it:",
   "只读连接，不能采集或取消任务": "Read-only connection: cannot acquire or cancel tasks",
-  "磁盘可用 {size}": "{size} free on disk",
   "{count} 进行中": "{count} running",
   "仓库里还没有这张表。": "The warehouse holds none of this table yet.",
-  "正在查看旧数据版本。": "Viewing an earlier data version. "
+  "旧版本": "earlier version"
 }

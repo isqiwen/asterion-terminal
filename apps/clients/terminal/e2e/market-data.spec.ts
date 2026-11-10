@@ -27,7 +27,7 @@ test(
       await openView(page, "coverage");
       await rpc(page.request, "market.close");
       await expect(page.getByText("只读连接，不能采集或取消任务", { exact: true })).toBeVisible();
-      await expect(page.getByRole("button", { name: "采集", exact: true })).toBeDisabled();
+      await expect(page.getByRole("button", { name: "采集", exact: true })).toHaveCount(0);
       await expect(
         page.getByRole("region", { name: "数据集版本" }).locator(`code[title="${version}"]`),
       ).toBeVisible();

@@ -98,7 +98,7 @@ test("read-only clients see shared tasks but cannot start or cancel them", async
   serve(false);
   render(<Coverage {...context()} />);
   await screen.findByText("只读连接，不能采集或取消任务");
-  expect((screen.getByRole("button", { name: "采集" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.queryByRole("button", { name: "采集" })).toBeNull();
   await showTasks();
   await screen.findByRole("table", { name: "采集任务" });
   expect(screen.queryByRole("button", { name: "取消" })).toBeNull();

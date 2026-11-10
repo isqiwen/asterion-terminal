@@ -2,16 +2,17 @@ import { useEffect, useState } from "react";
 import { marketData } from "../bridge/market-data";
 import { tradingCall } from "../bridge/trading";
 import { warehouseData } from "../bridge/warehouse-data";
-import { translate } from "../i18n";
+import { getLocale, translate } from "../i18n";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 const t = (key: string) => translate("host", key);
 
-// The build a saved service runs and whether its protocol is this Terminal's.
+// The build a saved service runs, whether its protocol is this Terminal's, and
+// for Warehouse the disk space its data can still use.
 // Market and Warehouse refuse a different protocol, so an answer means it matches.
 export function ServiceBuild(
   props: { service: "market" | "warehouse" } | { account: string; protocol: string | undefined },
 ) {
-  const [build, setBuild] = useState<{ version: string; matches: boolean }>();
+  const [build, setBuild] = useState<{ version: string; matches: boolean; disk?: bigint }>();
   const [error, setError] = useState<DisplayError>("");
   const service = "service" in props ? props.service : null;
   const account = "account" in props ? props.account : null;
@@ -23,10 +24,16 @@ export function ServiceBuild(
           version: health.version,
           matches: health.protocol === expected,
         }))
-      : (service === "market"
-          ? marketData({ case: "getStatus", value: {} })
-          : warehouseData({ case: "getStatus", value: {} })
-        ).then(status => ({ version: status.version, matches: true }));
+      : service === "market"
+        ? marketData({ case: "getStatus", value: {} }).then(status => ({
+            version: status.version,
+            matches: true,
+          }))
+        : warehouseData({ case: "getStatus", value: {} }).then(status => ({
+            version: status.version,
+            matches: true,
+            disk: status.diskFreeBytes,
+          }));
     read
       .then(next => active && setBuild(next))
       .catch(reason => active && setError(asDisplayError(reason)));
@@ -44,6 +51,17 @@ export function ServiceBuild(
       <dd data-mismatch={!build.matches || undefined}>
         {t(build.matches ? "与本机一致" : "不一致：请在服务主机安装同一版本")}
       </dd>
+      {build.disk !== undefined && (
+        <>
+          <dt>{t("磁盘可用")}</dt>
+          <dd>
+            {(Number(build.disk / 2n ** 20n) / 1024).toLocaleString(getLocale(), {
+              maximumFractionDigits: 1,
+            })}{" "}
+            GiB
+          </dd>
+        </>
+      )}
     </dl>
   );
 }

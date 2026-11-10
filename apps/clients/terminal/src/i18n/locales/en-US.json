@@ -198,5 +198,6 @@
   "服务版本": "Service version",
   "协议": "Protocol",
   "与本机一致": "Matches this Terminal",
-  "不一致：请在服务主机安装同一版本": "Differs: install the same version on the service host"
+  "不一致：请在服务主机安装同一版本": "Differs: install the same version on the service host",
+  "磁盘可用": "Free disk space"
 }

@@ -43,8 +43,8 @@ const tables: Partial<Record<Table, string>> = {
   [Table.CONTRACTS]: "合约表",
   [Table.CALENDAR]: "交易日历",
 };
-// One view per table, then the stored contracts' charts.
-type View = Table | "stored";
+// One view per table, the stored contracts' charts, then every client's tasks.
+type View = Table | "stored" | "tasks";
 const views: View[] = [
   Table.DAILY,
   Table.MINUTES,
@@ -53,11 +53,11 @@ const views: View[] = [
   Table.CONTRACTS,
   Table.CALENDAR,
   "stored",
+  "tasks",
 ];
-const size = (bytes: bigint) =>
-  `${(Number(bytes / 1024n) / 1024).toLocaleString(getLocale(), { maximumFractionDigits: 1 })} MiB`;
 const tableName = (table: Table) => t(tables[table] ?? Table[table]);
-const viewName = (view: View) => (view === "stored" ? t("已采集合约") : tableName(view));
+const viewName = (view: View) =>
+  view === "stored" ? t("已采集合约") : view === "tasks" ? t("采集任务") : tableName(view);
 const exchanges = ["SHFE", "INE", "DCE", "CZCE", "CFFEX", "GFEX"];
 
 // Every read and acquisition goes to the saved remote Warehouse service. Browsing a
@@ -132,8 +132,6 @@ function DataCoverage({
   context: TerminalContext;
 }) {
   const canManage = options.canManage;
-  const saved = context.snapshot?.warehouse_endpoint;
-  const endpoint = saved && "host" in saved ? saved : null;
   // The version shown; empty for the current one.
   const [viewed, setViewed] = useState(opened);
   const [latest, setLatest] = useState("");
@@ -141,10 +139,8 @@ function DataCoverage({
   const [view, setView] = useState<View>(Table.DAILY);
   const [acquiring, setAcquiring] = useState<Preset>();
   const [versionsOpen, setVersionsOpen] = useState(false);
-  const [tasksOpen, setTasksOpen] = useState(false);
   const catalog = useMarket()?.board.catalog?.contracts;
   const [summary, setSummary] = useState<MarketSummary | null>(null);
-  const [diskFree, setDiskFree] = useState<bigint>();
   const [coverage, setCoverage] = useState<MarketCoverage>();
   const [tasks, setTasks] = useState<MarketTask[]>([]);
   const [error, setError] = useState<DisplayError>("");
@@ -158,10 +154,7 @@ function DataCoverage({
     if (pending.current) return;
     pending.current = true;
     try {
-      const [current, status] = await Promise.all([
-        warehouseData({ case: "getDatasetSummary", value: {} }),
-        warehouseData({ case: "getStatus", value: {} }),
-      ]);
+      const current = await warehouseData({ case: "getDatasetSummary", value: {} });
       const nextLatest = current.dataset?.version ?? "";
       const nextSummary = viewed
         ? await warehouseData({ case: "getDatasetSummary", value: { version: viewed } })
@@ -185,7 +178,6 @@ function DataCoverage({
       setOlder(afterId !== "");
       setLatest(nextLatest);
       setSummary(nextSummary);
-      setDiskFree(status.diskFreeBytes);
       setCoverage(nextCoverage);
       setTasks(nextTasks);
       setError("");
@@ -232,7 +224,7 @@ function DataCoverage({
   );
   const version = summary?.dataset?.version ?? "";
   const running = tasks.filter(activeTask).length;
-  const acquires = view !== "stored" && options.tables.includes(view);
+  const acquires = typeof view === "number" && options.tables.includes(view);
   const fills = canManage && acquires;
   const stats = (table: Table) => summary?.tables.find(item => item.table === table);
   const meta = (table: Table) => {
@@ -243,56 +235,30 @@ function DataCoverage({
   };
   return (
     <>
-      <section className="data-bar" aria-label={t("数据集版本")}>
-        {viewed && viewed !== latest && (
-          <span role="status">
-            {t("正在查看旧数据版本。")}
-            {t("当前版本与它相比：")}
-            {change ? changeText(change) : t("读取中")}{" "}
-            <button type="button" onClick={() => setViewed("")}>
-              {t("回到当前版本")}
-            </button>
-          </span>
-        )}
-        <span className="data-bar-gap" />
-        {!canManage && <span className="subtle">{t("只读连接，不能采集或取消任务")}</span>}
-        {endpoint && (
-          <span className="subtle">
-            {endpoint.host}:{endpoint.port}
-          </span>
-        )}
-        {diskFree !== undefined && (
-          <span className="subtle">{t("磁盘可用 {size}", { size: size(diskFree) })}</span>
-        )}
-        {version && (
-          <button type="button" className="data-bar-link" onClick={() => setVersionsOpen(true)}>
-            {t("数据版本")} <code title={version}>{version.slice(0, 8)}</code>
-          </button>
-        )}
-        <button type="button" aria-expanded={tasksOpen} onClick={() => setTasksOpen(open => !open)}>
-          {t("采集任务")}
-          {running > 0 && ` · ${t("{count} 进行中", { count: running })}`}
-        </button>
-      </section>
       <ErrorNotice error={error} />
-      {tasksOpen && (
-        <Tasks
-          tasks={tasks}
-          tableName={tableName}
-          canManage={canManage}
-          refresh={refresh}
-          older={
-            older
-              ? () => {
-                  shown.current += 20;
-                  void refresh();
-                }
-              : undefined
-          }
-        />
-      )}
       <div className="data-main">
         <nav className="data-views" aria-label={t("表")}>
+          {/* Every table below belongs to this one version of the dataset. */}
+          <section className="data-version" aria-label={t("数据集版本")}>
+            <button
+              type="button"
+              disabled={!version}
+              data-earlier={(viewed && viewed !== latest) || undefined}
+              onClick={() => setVersionsOpen(true)}
+            >
+              {t("数据版本")} {version ? <code title={version}>{version.slice(0, 8)}</code> : "—"}
+              {viewed && viewed !== latest && ` · ${t("旧版本")}`}
+            </button>
+            {viewed && viewed !== latest && (
+              <p role="status">
+                {t("当前版本与它相比：")}
+                {change ? changeText(change) : t("读取中")}{" "}
+                <button type="button" onClick={() => setViewed("")}>
+                  {t("回到当前版本")}
+                </button>
+              </p>
+            )}
+          </section>
           {views.map(item => (
             <button
               key={item}
@@ -301,23 +267,24 @@ function DataCoverage({
               onClick={() => setView(item)}
             >
               <span>{viewName(item)}</span>
-              {item !== "stored" && <small>{meta(item)}</small>}
+              {typeof item === "number" && <small>{meta(item)}</small>}
+              {item === "tasks" && running > 0 && (
+                <small>{t("{count} 进行中", { count: running })}</small>
+              )}
             </button>
           ))}
         </nav>
         <section className="data-view" aria-label={viewName(view)}>
           <header>
             <h3>{viewName(view)}</h3>
-            {acquires && (
-              <button
-                type="button"
-                className="primary"
-                disabled={!canManage}
-                onClick={() => setAcquiring({})}
-              >
-                {t("采集")}
-              </button>
-            )}
+            {acquires &&
+              (canManage ? (
+                <button type="button" className="primary" onClick={() => setAcquiring({})}>
+                  {t("采集")}
+                </button>
+              ) : (
+                <span className="subtle">{t("只读连接，不能采集或取消任务")}</span>
+              ))}
           </header>
           {view === Table.DAILY ? (
             <DailyCoverage
@@ -341,6 +308,21 @@ function DataCoverage({
             />
           ) : view === "stored" ? (
             latest && <StoredContracts key={latest} context={context} />
+          ) : view === "tasks" ? (
+            <Tasks
+              tasks={tasks}
+              tableName={tableName}
+              canManage={canManage}
+              refresh={refresh}
+              older={
+                older
+                  ? () => {
+                      shown.current += 20;
+                      void refresh();
+                    }
+                  : undefined
+              }
+            />
           ) : version && stats(view)?.rows ? (
             <ReferenceTable
               key={`${version}/${view}`}
@@ -354,7 +336,7 @@ function DataCoverage({
           )}
         </section>
       </div>
-      {acquiring && view !== "stored" && (
+      {acquiring && typeof view === "number" && (
         <Acquisition
           table={view}
           name={tableName(view)}
@@ -364,7 +346,7 @@ function DataCoverage({
           close={() => setAcquiring(undefined)}
           started={() => {
             setAcquiring(undefined);
-            setTasksOpen(true);
+            setView("tasks");
             void refresh();
           }}
         />

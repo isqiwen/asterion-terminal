@@ -1,4 +1,4 @@
-/* The data page: a bar for the version and tasks, then the tables beside the chosen one. */
+/* The data page: the version and its tables beside the chosen one. */
 .data-page {
   display: flex;
   flex-direction: column;
@@ -13,41 +13,10 @@
   gap: 12px;
   padding: 12px var(--space-page) 16px;
 }
-.data-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 16px;
-  font-size: 12px;
-}
-.data-bar code {
-  color: var(--muted);
-}
-.data-bar-gap {
-  flex: 1;
-}
-/* Version history opens from here; it reads like the facts beside it. */
-.data-bar-link {
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  font-size: 12px;
-}
-.data-bar-link:hover {
-  color: var(--text);
-}
 .data-tasks {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 40%;
-  overflow: auto;
-  padding: 8px 12px;
-  border: 1px solid var(--grid);
-  border-radius: var(--panel-radius);
-  background: var(--panel);
 }
 .data-tasks > button {
   align-self: flex-start;
@@ -308,4 +277,32 @@
     flex-direction: column;
     flex: 1;
   }
+}
+
+/* Above the tables: the version they all belong to. */
+.data-version {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--grid);
+  font-size: 12px;
+}
+.data-version > button {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+.data-version > button:hover:not(:disabled) {
+  color: var(--text);
+}
+.data-version > button[data-earlier] {
+  color: var(--warning);
+}
+.data-version code {
+  color: inherit;
+}
+.data-version p {
+  margin: 6px 0 0;
+  color: var(--muted);
 }
