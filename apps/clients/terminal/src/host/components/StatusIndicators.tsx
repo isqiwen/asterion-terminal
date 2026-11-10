@@ -81,23 +81,9 @@ export function StatusIndicators({
         ? ["", "连接柜台中"]
         : ["bad", "柜台未连接"];
   const warehouse = snapshot.warehouse_endpoint;
+  // The sidebar's order; trading last, since there is one light per account.
   return (
     <>
-      {lab &&
-        (() => {
-          // Lab restarts by itself while the Terminal runs; this only says where it is.
-          const [tone, state] = {
-            ready: ["good", ""],
-            starting: ["", "启动中"],
-            unresponsive: ["bad", "异常"],
-            restarting: ["bad", "重启中"],
-          }[lab.state];
-          return (
-            <span className={`status-item ${tone}`} title={lab.error || undefined}>
-              {label(t("研究"), state)}
-            </span>
-          );
-        })()}
       {!(snapshot.market_endpoint && "host" in snapshot.market_endpoint) ? (
         <button className="status-item" onClick={openMarketSettings}>
           {label(t("行情"), "未设置")}
@@ -114,6 +100,21 @@ export function StatusIndicators({
           {label(t("行情"), marketState)}
         </span>
       )}
+      {lab &&
+        (() => {
+          // Lab restarts by itself while the Terminal runs; this only says where it is.
+          const [tone, state] = {
+            ready: ["good", ""],
+            starting: ["", "启动中"],
+            unresponsive: ["bad", "异常"],
+            restarting: ["bad", "重启中"],
+          }[lab.state];
+          return (
+            <span className={`status-item ${tone}`} title={lab.error || undefined}>
+              {label(t("研究"), state)}
+            </span>
+          );
+        })()}
       {warehouse && "host" in warehouse ? (
         <WarehouseIndicator key={`${warehouse.host}:${warehouse.port}/${warehouse.fingerprint}`} />
       ) : (

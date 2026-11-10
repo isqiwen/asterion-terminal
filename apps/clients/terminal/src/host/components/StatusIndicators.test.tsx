@@ -26,7 +26,7 @@ const show = (
   />
 );
 
-test("indicators show research first, then market, warehouse and each trading connection", () => {
+test("indicators follow the sidebar: market, research, warehouse, then each trading connection", () => {
   const snapshot = readySnapshot();
   snapshot.trading_connections = [
     {
@@ -40,8 +40,8 @@ test("indicators show research first, then market, warehouse and each trading co
   ];
   const view = render(show(snapshot));
   expect([...view.container.children].map(item => item.textContent)).toEqual([
-    "● 研究",
     "● 行情 未连接",
+    "● 研究",
     "● 数据 连接中",
     "● 交易·simnow 连接中",
   ]);
