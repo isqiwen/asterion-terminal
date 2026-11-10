@@ -545,6 +545,13 @@
 .market-bar-gap {
   flex: 1;
 }
+.market-search {
+  width: 180px;
+  min-width: 0;
+  height: 26px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
 .market-phase {
   color: var(--warning);
   white-space: nowrap;

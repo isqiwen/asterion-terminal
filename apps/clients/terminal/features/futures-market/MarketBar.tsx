@@ -52,7 +52,7 @@ export function MarketBar({ context }: { context: TerminalContext }) {
   const [section, setSection] = useWorkspaceDraft("market-section", "期货全景");
   const [, setVenue] = useWorkspaceDraft("market-venue", "");
   const [scope, setScope] = useWorkspaceDraft("market-scope", "products");
-  const [, setSearch] = useWorkspaceDraft("quote-search", "");
+  const [search, setSearch] = useWorkspaceDraft("quote-search", "");
   const [columns, setColumns] = useWorkspaceDraft("market-columns", defaultQuoteColumns);
   const [sort, setSort] = useWorkspaceDraft("market-sort", defaultSort);
   const [editingColumns, setEditingColumns] = useState(false);
@@ -98,6 +98,14 @@ export function MarketBar({ context }: { context: TerminalContext }) {
       <button className="market-bar-button" onClick={() => setEditingColumns(true)}>
         {t("表头设置")}
       </button>
+      <input
+        type="search"
+        className="market-search"
+        aria-label={t("搜索市场合约")}
+        placeholder={t("搜索市场合约")}
+        value={search}
+        onChange={event => setSearch(event.target.value)}
+      />
       <span className="market-bar-gap" />
       <span className="market-phase" role="status" data-live={live || undefined}>
         {phase}

@@ -71,7 +71,7 @@ export function ContractQuote({ market, row }: { market: MarketView; row: QuoteR
         ))}
       </dl>
       {months.length > 1 && (
-        <details className="contract-months" open>
+        <details className="contract-months">
           <summary>{t("同品种其他月份")}</summary>
           {months.map(month => {
             const change = quoteChange(month);

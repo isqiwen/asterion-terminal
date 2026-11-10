@@ -220,7 +220,6 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   );
   const current = currentFeature?.workspaces.find(item => item.id === view);
   const Panel = current?.component;
-  const HeaderTools = current?.headerTools;
   const WorkspaceToolbar = current?.toolbar;
   const panelContext = context;
   return (
@@ -281,28 +280,19 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
               }
               body={
                 <div className="module-workspace">
-                  {(route.module.views.length > 1 || HeaderTools) && (
+                  {route.module.views.length > 1 && (
                     <div className="module-header">
-                      {route.module.views.length > 1 && (
-                        <nav ref={viewsRef} className="module-views" aria-label={t("子模块视图")}>
-                          {route.module.views.map(id => (
-                            <button
-                              key={id}
-                              aria-current={view === id ? "page" : undefined}
-                              onClick={() => context.navigate(id)}
-                            >
-                              {workspaces.find(item => item.id === id)!.title}
-                            </button>
-                          ))}
-                        </nav>
-                      )}
-                      {HeaderTools && (
-                        <div className="module-tools">
-                          <WorkspaceDraftScope store={drafts} namespace={current!.id}>
-                            <HeaderTools {...panelContext} />
-                          </WorkspaceDraftScope>
-                        </div>
-                      )}
+                      <nav ref={viewsRef} className="module-views" aria-label={t("子模块视图")}>
+                        {route.module.views.map(id => (
+                          <button
+                            key={id}
+                            aria-current={view === id ? "page" : undefined}
+                            onClick={() => context.navigate(id)}
+                          >
+                            {workspaces.find(item => item.id === id)!.title}
+                          </button>
+                        ))}
+                      </nav>
                     </div>
                   )}
                   <main className="terminal-business">

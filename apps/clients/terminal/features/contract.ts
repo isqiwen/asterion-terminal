@@ -57,7 +57,6 @@ export type TerminalFeature = {
     id: string;
     title: string;
     component: ComponentType<TerminalContext>;
-    headerTools?: ComponentType<TerminalContext>;
     toolbar?: ComponentType<TerminalContext>;
     hideToolbar?: boolean;
   }[];

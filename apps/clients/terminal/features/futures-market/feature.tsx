@@ -1,4 +1,3 @@
-import { HeaderSearch } from "./HeaderSearch";
 import { translate, type MessageValues } from "../contract";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.futures-market", key, values);
@@ -19,7 +18,6 @@ export const feature: TerminalFeature = {
       },
 
       component: context => <Panel {...context} />,
-      headerTools: HeaderSearch,
     },
   ],
 };
