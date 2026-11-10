@@ -23,9 +23,9 @@ test("product catalog has the required modules and places every contributed view
   setLocale("zh-CN");
 });
 
-test("first launch opens data and module switching retains each view's location", () => {
+test("first launch opens the market and module switching retains each view's location", () => {
   let state = initialNavigation();
-  expect(currentRoute(state).view).toBe("workspace.coverage");
+  expect(currentRoute(state).view).toBe("workspace.market");
   state = selectView(state, "workspace.lab-factors");
   state = selectModule(state, "market");
   expect(currentRoute(state).view).toBe("workspace.market");
@@ -51,6 +51,6 @@ test("reload restores the concrete destination without persisting object paramet
   const restored = initialNavigation(JSON.parse(JSON.stringify(location)));
   expect(currentRoute(restored).view).toBe("workspace.trading");
   expect(restored.locations).toEqual({});
-  // A view that no longer exists opens the data page.
-  expect(initialNavigation({ ...location, view: "workspace.factor" }).module).toBe("data");
+  // A view that no longer exists opens the market, as a first launch does.
+  expect(initialNavigation({ ...location, view: "workspace.factor" }).module).toBe("market");
 });

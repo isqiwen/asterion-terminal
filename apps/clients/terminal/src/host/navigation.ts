@@ -40,7 +40,8 @@ export type NavigationState = {
   locations: Record<string, NavigationOptions>;
 };
 export function initialNavigation(saved?: unknown): NavigationState {
-  const initial: NavigationState = { module: "data", routes: {}, locations: {} };
+  // A first launch opens the first module; its page offers to add the connection.
+  const initial: NavigationState = { module: modules[0]!.id, routes: {}, locations: {} };
   if (!saved || typeof saved !== "object") return initial;
   const location = saved as Record<string, unknown>;
   const module = modules.find(item => item.id === location.module);

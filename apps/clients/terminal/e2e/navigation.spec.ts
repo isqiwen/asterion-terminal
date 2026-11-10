@@ -12,9 +12,9 @@ test("four business modules preserve navigation without starting work", async ({
   const reads = ({ request }: (typeof methods)[number]["params"]) =>
     !!request && ("getAccount" in request || "getHealth" in request || "getStrategies" in request);
   const nav = page.getByRole("navigation", { name: "业务工作区" });
-  const names = ["行情", "研究", "交易", "数据"];
+  const names = ["行情", "交易", "研究", "数据"];
   await expect(nav.getByRole("button")).toHaveText(names);
-  await expect(nav.getByRole("button", { name: "数据", exact: true })).toHaveAttribute(
+  await expect(nav.getByRole("button", { name: "行情", exact: true })).toHaveAttribute(
     "aria-current",
     "page",
   );
@@ -47,13 +47,13 @@ test("four business modules preserve navigation without starting work", async ({
   await page.screenshot({ path: "apps/clients/terminal/test-results/navigation-system.png" });
 });
 
-test("unknown saved module starts at data", async ({ page }) => {
+test("unknown saved module starts at the market", async ({ page }) => {
   await page.addInitScript(() =>
     localStorage.setItem("asterion.navigation", JSON.stringify({ module: "unknown.module" })),
   );
   await page.goto("/");
   await expect(
-    page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }),
+    page.locator(".workspace-tabs").getByRole("button", { name: "行情", exact: true }),
   ).toHaveAttribute("aria-current", "page");
 });
 
