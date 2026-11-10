@@ -1,6 +1,7 @@
 import { dailyChartDate } from "../../src/ui/charts/daily-chart";
 import { useMarket } from "../../src/host/market";
 import { chartTime } from "./chart-time";
+import { priceTickOf } from "./price-tick";
 import { averagePeriods, movingAverage } from "./indicators";
 import { useEffect, useState } from "react";
 import { PriceChart } from "@asterion/terminal/charts/PriceChart";
@@ -232,6 +233,7 @@ export function ContractHistory({
             fitHeight
             showPriceExtremes
             mirrorPriceAxis
+            priceTick={priceTickOf(market, venue, symbol)}
             formatIndicatorValue={value => value.toFixed(2)}
             showVolume={!showMacd}
             overlays={overlays}

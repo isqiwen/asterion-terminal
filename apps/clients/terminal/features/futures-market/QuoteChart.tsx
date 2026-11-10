@@ -4,6 +4,7 @@ import { FeedState, type QuoteRow } from "../../src/generated/asterion/market_pb
 import { rowKey, type MarketView } from "../../src/host/market";
 import { translate } from "../contract";
 import { chartTime } from "./chart-time";
+import { priceTickOf } from "./price-tick";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 export function QuoteChart({ market, row }: { market: MarketView; row: QuoteRow }) {
   const points = market.ticks.get(rowKey(row)) ?? [];
@@ -16,6 +17,7 @@ export function QuoteChart({ market, row }: { market: MarketView; row: QuoteRow 
           compact
           fitHeight
           fillArea
+          priceTick={priceTickOf(market, row.instrument!.exchange, row.instrument!.symbol)}
           key={`${rowKey(row)}:${market.generation}`}
           referencePrice={
             reference && Number.isFinite(Number(reference)) && Number(reference) > 0

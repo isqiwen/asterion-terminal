@@ -18,6 +18,7 @@ export function IntradayChart({
   referenceLabel,
   describe,
   formatPrice,
+  priceTick,
 }: {
   slots: readonly IntradaySlot[];
   reference: string;
@@ -28,6 +29,7 @@ export function IntradayChart({
   referenceLabel: string;
   describe: (index: number) => ReactNode;
   formatPrice?: (value: number) => string;
+  priceTick?: string;
 }) {
   const series = useMemo(
     () => ({
@@ -66,6 +68,7 @@ export function IntradayChart({
           ticks.find(tick => tick.index === Number(value))?.label ?? slots[Number(value)].label
         }
         formatPrice={formatPrice}
+        priceTick={priceTick}
         overlays={overlays}
         referencePrice={baseline}
         fillArea

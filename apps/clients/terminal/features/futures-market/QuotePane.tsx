@@ -20,6 +20,7 @@ import { quoteChange, quoteStatus } from "./QuoteTable";
 import { chartTime } from "./chart-time";
 import { intradaySlots, sessionRanges } from "./intraday-slots";
 import { averagePeriods, movingAverage } from "./indicators";
+import { priceTickOf } from "./price-tick";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 
 type Row = QuoteRow;
@@ -106,6 +107,7 @@ function IntradayPanel({ market, row }: { market: MarketView; row: Row }) {
   return (
     <>
       <IntradayChart
+        priceTick={priceTickOf(market, exchange, symbol)}
         slots={slots}
         volumeLabel={t("成交量")}
         averageLabel={t("均价")}
@@ -149,18 +151,29 @@ function MinuteCandles({
   minutes: number;
 }) {
   const { series, error } = useIntraday(market, row);
-  return <ObservedCandles series={series} error={error} minutes={minutes} row={row} />;
+  const { exchange, symbol } = row.instrument!;
+  return (
+    <ObservedCandles
+      series={series}
+      error={error}
+      minutes={minutes}
+      row={row}
+      priceTick={priceTickOf(market, exchange, symbol)}
+    />
+  );
 }
 function ObservedCandles({
   series,
   error,
   minutes,
   row,
+  priceTick,
 }: {
   series: Minutes | null;
   error: DisplayError;
   minutes: number;
   row: Row;
+  priceTick?: string;
 }) {
   if (error && !series)
     return (
@@ -203,6 +216,7 @@ function ObservedCandles({
       fitHeight
       showPriceExtremes
       mirrorPriceAxis
+      priceTick={priceTick}
       key={`${row.instrument!.exchange}.${row.instrument!.symbol}:${minutes}:${series.tradingDay}`}
       series={{ kind: "candles", points: candles }}
       overlays={averagePeriods.slice(0, 4).map((period, index) => ({

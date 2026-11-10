@@ -60,6 +60,8 @@ type Props = {
   mirrorPriceAxis?: boolean;
   formatIndicatorValue?: (value: number) => string;
   formatPrice?: (value: number) => string;
+  // The contract's minimum price move, as decimal text; the axis steps by it.
+  priceTick?: string;
 };
 const emptyLines: readonly Line[] = [];
 const noTrades: readonly TradeMark[] = [];
@@ -104,6 +106,7 @@ export function PriceChart(props: Props) {
     trades = noTrades,
     mirrorPriceAxis = false,
     formatIndicatorValue = numberText,
+    priceTick,
   } = props;
   const container = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
@@ -260,43 +263,54 @@ export function PriceChart(props: Props) {
       entry.applyOptions({ lastValueVisible: false, priceLineVisible: false });
       return entry;
     };
+    const tick = priceTick ? Number(priceTick) : null;
+    const shared = (): { priceRange: { minValue: number; maxValue: number } } | null => {
+      // Both price axes use the same visible candles and overlays. Scaling
+      // the mirror from close alone would misalign wicks and percentages.
+      const range = api.timeScale().getVisibleLogicalRange();
+      const first = range ? Math.max(0, Math.floor(range.from)) : 0;
+      const last = range ? Math.min(count, Math.ceil(range.to) + 1) : count;
+      let low = reference ?? Infinity,
+        high = reference ?? -Infinity;
+      const include = (value: number) => {
+        low = Math.min(low, value);
+        high = Math.max(high, value);
+      };
+      for (let i = first; i < last; i++) {
+        const point = points[i];
+        if ("high" in point) {
+          include(Number(point.high));
+          include(Number(point.low));
+        } else if (point.price !== null) include(Number(point.price));
+        for (const line of overlays) if (line.values[i] != null) include(line.values[i]!);
+      }
+      if (low === Infinity) return null;
+      if (reference !== null) {
+        const radius = Math.max(
+          Math.abs(low - reference),
+          Math.abs(high - reference),
+          Math.abs(reference) * 0.001,
+        );
+        low = reference - radius;
+        high = reference + radius;
+      }
+      return { priceRange: { minValue: low, maxValue: high } };
+    };
     const priceOptions = {
       priceScaleId,
-      priceFormat: { type: "custom" as const, minMove: 0.00000001, formatter: format },
+      priceFormat: { type: "custom" as const, minMove: tick ?? 0.00000001, formatter: format },
       autoscaleInfoProvider: (
         original: () => { priceRange: { minValue: number; maxValue: number } } | null,
       ) => {
-        if (reference === null && !mirrorPriceAxis) return original();
-        // Both price axes use the same visible candles and overlays. Scaling
-        // the mirror from close alone would misalign wicks and percentages.
-        const range = api.timeScale().getVisibleLogicalRange();
-        const first = range ? Math.max(0, Math.floor(range.from)) : 0;
-        const last = range ? Math.min(count, Math.ceil(range.to) + 1) : count;
-        let low = reference ?? Infinity,
-          high = reference ?? -Infinity;
-        const include = (value: number) => {
-          low = Math.min(low, value);
-          high = Math.max(high, value);
+        const info = reference === null && !mirrorPriceAxis ? original() : shared();
+        // A quiet market spans at least 20 price ticks, so one tick is not the whole height.
+        const missing =
+          info && tick ? tick * 20 - (info.priceRange.maxValue - info.priceRange.minValue) : 0;
+        if (!info || missing <= 0) return info;
+        const { minValue, maxValue } = info.priceRange;
+        return {
+          priceRange: { minValue: minValue - missing / 2, maxValue: maxValue + missing / 2 },
         };
-        for (let i = first; i < last; i++) {
-          const point = points[i];
-          if ("high" in point) {
-            include(Number(point.high));
-            include(Number(point.low));
-          } else if (point.price !== null) include(Number(point.price));
-          for (const line of overlays) if (line.values[i] != null) include(line.values[i]!);
-        }
-        if (low === Infinity) return null;
-        if (reference !== null) {
-          const radius = Math.max(
-            Math.abs(low - reference),
-            Math.abs(high - reference),
-            Math.abs(reference) * 0.001,
-          );
-          low = reference - radius;
-          high = reference + radius;
-        }
-        return { priceRange: { minValue: low, maxValue: high } };
       },
     };
     const timeline = layer("timeline", "line", 0);
@@ -448,6 +462,7 @@ export function PriceChart(props: Props) {
     referencePrice,
     mirrorPriceAxis,
     fillArea,
+    priceTick,
     props.formatPrice,
     count,
     points,
