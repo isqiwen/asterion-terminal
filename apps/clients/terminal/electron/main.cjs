@@ -147,9 +147,10 @@ function configure(win) {
 // there every window drops it and has its buttons drawn over the page's right
 // edge, in the theme's --canvas and --text colours and one pixel short of the
 // bar's height so that its bottom rule stays whole.
-function chrome(primary) {
+// Every window draws its own title strip; the system's is hidden.
+function chrome() {
   if (process.platform === "darwin")
-    return primary ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 12, y: 10 } } : {};
+    return { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 12, y: 10 } };
   return {
     titleBarStyle: "hidden",
     titleBarOverlay: { color: "#06080b", symbolColor: "#c5ccd6", height: 33 },
@@ -212,7 +213,7 @@ async function openSettings(category) {
     return;
   }
   settings = new BrowserWindow({
-    ...chrome(false),
+    ...chrome(),
     parent: main,
     modal: false,
     // A dialog-sized window over the main one, even when that is full screen.
@@ -382,7 +383,7 @@ app
       ]),
     );
     main = new BrowserWindow({
-      ...chrome(true),
+      ...chrome(),
       width: 1440,
       height: 940,
       minWidth: 800,
