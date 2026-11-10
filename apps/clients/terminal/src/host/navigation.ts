@@ -1,7 +1,8 @@
 import type { IconName } from "../ui/Icon";
 
-// Product organization is independent of plugin ownership. Each module lists
-// its views in tab order; IDs name the current contributed views.
+// Product organization is independent of plugin ownership. In-session modules
+// come first (market, trading), then after-hours ones (research, data). Each
+// module lists its views in tab order; IDs name the current contributed views.
 export const modules = [
   {
     id: "market",
@@ -10,16 +11,16 @@ export const modules = [
     views: ["workspace.market"],
   },
   {
-    id: "research",
-    title: "研究",
-    icon: "backtest",
-    views: ["workspace.lab-strategies", "workspace.lab-factors"],
-  },
-  {
     id: "live",
     title: "交易",
     icon: "trading",
     views: ["workspace.trading"],
+  },
+  {
+    id: "research",
+    title: "研究",
+    icon: "backtest",
+    views: ["workspace.lab-strategies", "workspace.lab-factors"],
   },
   {
     id: "data",

@@ -11,7 +11,7 @@ import { workspaces } from "../features";
 import { setLocale, translate } from "../i18n";
 
 test("product catalog has the required modules and places every contributed view exactly once", () => {
-  expect(modules.map(module => module.id)).toEqual(["market", "research", "live", "data"]);
+  expect(modules.map(module => module.id)).toEqual(["market", "live", "research", "data"]);
   const views = modules.flatMap(module => module.views);
   expect(new Set(views).size).toBe(views.length);
   expect([...views].sort()).toEqual(workspaces.map(view => view.id).sort());
