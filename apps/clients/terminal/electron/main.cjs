@@ -399,6 +399,8 @@ app
       settings?.destroy();
     });
     await main.loadURL(`${origin}/index.html`);
+    // Opens filling the screen; it can still be resized or restored.
+    main.maximize();
     main.show();
   })
   .catch(error => {
