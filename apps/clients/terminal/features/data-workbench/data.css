@@ -26,6 +26,18 @@
 .data-bar-gap {
   flex: 1;
 }
+/* Version history opens from here; it reads like the facts beside it. */
+.data-bar-link {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+.data-bar-link:hover {
+  color: var(--text);
+}
 .data-tasks {
   display: flex;
   flex-direction: column;

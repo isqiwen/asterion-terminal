@@ -71,7 +71,7 @@ request.mockImplementation(
 test("viewing an earlier version shows its summary and coverage and what changed since", async () => {
   render(<Coverage {...context()} />);
   await screen.findByRole("rowheader", { name: "SHFE/rb" });
-  fireEvent.click(screen.getByRole("button", { name: /^版本/ }));
+  fireEvent.click(screen.getByRole("button", { name: /^数据版本/ }));
   const history = await screen.findByRole("table", { name: "版本历史" });
   const row = within(history).getByRole("row", { name: new RegExp(older.slice(0, 12)) });
   fireEvent.click(within(row).getByRole("button", { name: "查看" }));

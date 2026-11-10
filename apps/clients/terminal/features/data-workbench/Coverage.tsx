@@ -244,12 +244,9 @@ function DataCoverage({
   return (
     <>
       <section className="data-bar" aria-label={t("数据集版本")}>
-        <button type="button" onClick={() => setVersionsOpen(true)} disabled={!version}>
-          {t("版本")} {version ? <code title={version}>{version.slice(0, 12)}</code> : t("无")}
-          {version && ` · ${t(viewed && viewed !== latest ? "旧版本" : "当前")}`}
-        </button>
         {viewed && viewed !== latest && (
           <span role="status">
+            {t("正在查看旧数据版本。")}
             {t("当前版本与它相比：")}
             {change ? changeText(change) : t("读取中")}{" "}
             <button type="button" onClick={() => setViewed("")}>
@@ -266,6 +263,11 @@ function DataCoverage({
         )}
         {diskFree !== undefined && (
           <span className="subtle">{t("磁盘可用 {size}", { size: size(diskFree) })}</span>
+        )}
+        {version && (
+          <button type="button" className="data-bar-link" onClick={() => setVersionsOpen(true)}>
+            {t("数据版本")} <code title={version}>{version.slice(0, 8)}</code>
+          </button>
         )}
         <button type="button" aria-expanded={tasksOpen} onClick={() => setTasksOpen(open => !open)}>
           {t("采集任务")}
