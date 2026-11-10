@@ -393,11 +393,12 @@
   color: var(--muted);
   font-size: 12px;
 }
+/* Button text lines up with the 8-pixel edge the rest of the side keeps. */
 .quote-pane-periods {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 2px 8px 4px;
+  padding: 2px 8px 4px 0;
   border-bottom: 1px solid var(--grid);
 }
 .quote-pane-periods button {
@@ -440,7 +441,7 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 0 4px 4px;
+  padding: 0 8px 4px;
 }
 .quote-pane-body .market-history-chart,
 .quote-pane-body .contract-live-chart {
@@ -468,7 +469,7 @@
   color: var(--chart-average);
 }
 .intraday-note {
-  margin: 2px 4px 0;
+  margin: 2px 0 0;
   color: var(--muted);
   font-size: 12px;
 }
@@ -799,4 +800,16 @@
   min-height: 20px;
   padding: 0 7px;
   font-size: 12px;
+}
+
+.quote-pane-body .market-history-chart {
+  padding-inline: 0;
+}
+.contract-depth :is(th, td):first-child,
+.contract-months button {
+  padding-left: 0;
+}
+.contract-depth :is(th, td):last-child,
+.contract-months button {
+  padding-right: 0;
 }
