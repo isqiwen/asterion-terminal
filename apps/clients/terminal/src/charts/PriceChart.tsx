@@ -232,12 +232,13 @@ export function PriceChart(props: Props) {
       leftPriceScale: {
         visible: reference !== null || mirrorPriceAxis,
         borderVisible: false,
-        scaleMargins: { top: 0.06, bottom: 0.04 },
+        // Room for the highest and lowest price labels.
+        scaleMargins: { top: 0.08, bottom: 0.08 },
       },
       rightPriceScale: {
         visible: true,
         borderVisible: false,
-        scaleMargins: { top: 0.06, bottom: 0.04 },
+        scaleMargins: { top: 0.08, bottom: 0.08 },
       },
     });
     const used = new Set<string>();

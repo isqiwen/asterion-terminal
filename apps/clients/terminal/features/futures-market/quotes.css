@@ -641,9 +641,16 @@
 .quote-pane-header > * {
   flex-shrink: 0;
 }
+/* The name keeps room for a few characters; the status and symbol give way first. */
 .quote-pane-header strong {
   flex-shrink: 1;
+  min-width: 5em;
+}
+.quote-pane-header :is(.quote-pane-status, .quote-pane-symbol) {
+  flex-shrink: 1;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .watchlist-editor {
   display: flex;

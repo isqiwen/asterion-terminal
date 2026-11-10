@@ -39,7 +39,7 @@ const boardGroups = [
   { title: "广州商品期货", venues: ["GFEX"] },
 ];
 // The narrowest column a quote table fits in without scrolling sideways.
-const columnWidth = 500;
+const columnWidth = 460;
 export function MarketBoard({ market, context }: { market: MarketView; context: TerminalContext }) {
   const list = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
