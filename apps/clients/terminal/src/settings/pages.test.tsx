@@ -51,6 +51,7 @@ test("the two data pages each configure their own service without counter creden
       fingerprint: "a".repeat(64),
     }),
   );
+  await waitFor(() => expect(trade).toHaveBeenLastCalledWith("market.open", {}));
   cleanup();
   snapshot.warehouse_endpoint = null;
   render(

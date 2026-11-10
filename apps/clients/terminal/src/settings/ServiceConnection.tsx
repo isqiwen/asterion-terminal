@@ -102,6 +102,8 @@ export function ServiceConnection({
                 fingerprint: fingerprint.trim(),
               });
               setEditing(false);
+              // Saving drops the old live connection; the new one opens as at startup.
+              if (service === "market") void run("market.open", {});
             } catch (reason) {
               setRefused(asDisplayError(reason));
             }
