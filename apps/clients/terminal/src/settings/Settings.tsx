@@ -162,6 +162,13 @@ export function Settings({
               <dd>
                 <code className="client-fingerprint">{snapshot?.client_fingerprint}</code>
               </dd>
+              {/* The chart library's licence asks for this credit; here instead of under every chart. */}
+              <dt>{t("图表")}</dt>
+              <dd>
+                <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">
+                  TradingView Lightweight Charts™ · © 2025 TradingView, Inc.
+                </a>
+              </dd>
             </dl>
           </SettingsSection>
         )}

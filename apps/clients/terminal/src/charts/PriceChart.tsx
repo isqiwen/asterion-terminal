@@ -640,14 +640,6 @@ export function PriceChart(props: Props) {
             ) && <span data-oscillator-empty>{oscillator.emptyLabel}</span>}
         </div>
       )}
-      <a
-        className="chart-attribution"
-        href="https://www.tradingview.com/"
-        target="_blank"
-        rel="noreferrer"
-      >
-        TradingView Lightweight Charts™ · © 2025 TradingView, Inc.
-      </a>
     </div>
   );
 }

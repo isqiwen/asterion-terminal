@@ -193,5 +193,6 @@
   "数据服务": "Data",
   "尚未设置数据服务": "Data is not set up",
   "在设置里填写数据服务的地址和证书指纹后即可使用。": "Enter the Data address and certificate fingerprint in Settings to use it.",
-  "在行情服务、数据服务和交易主机登记这个指纹": "Register this fingerprint with Market, Data and the trading host"
+  "在行情服务、数据服务和交易主机登记这个指纹": "Register this fingerprint with Market, Data and the trading host",
+  "图表": "Charts"
 }
