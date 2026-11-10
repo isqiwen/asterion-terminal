@@ -11,7 +11,13 @@ vi.mock("../contract", async importOriginal => ({
   translate: (_namespace: string, key: string, values?: Record<string, unknown>) =>
     key.replace(/\{(\w+)\}/g, (_, name: string) => String(values?.[name])),
 }));
-vi.mock("./MinuteComparison", () => ({ MinuteComparison: () => null }));
+// jsdom does not implement the browser's dialog methods.
+HTMLDialogElement.prototype.showModal = function () {
+  this.setAttribute("open", "");
+};
+HTMLDialogElement.prototype.close = function () {
+  this.removeAttribute("open");
+};
 vi.mock("./StoredContracts", () => ({ StoredContracts: () => null }));
 
 const older = "a".repeat(64);
@@ -65,10 +71,12 @@ request.mockImplementation(
 test("viewing an earlier version shows its summary and coverage and what changed since", async () => {
   render(<Coverage {...context()} />);
   await screen.findByRole("rowheader", { name: "SHFE/rb" });
-  const history = screen.getByRole("table", { name: "版本历史" });
+  fireEvent.click(screen.getByRole("button", { name: /^版本/ }));
+  const history = await screen.findByRole("table", { name: "版本历史" });
   const row = within(history).getByRole("row", { name: new RegExp(older.slice(0, 12)) });
   fireEvent.click(within(row).getByRole("button", { name: "查看" }));
   await screen.findByRole("rowheader", { name: "SHFE/cu" });
+  expect(screen.queryByRole("dialog")).toBeNull();
   expect(screen.queryByRole("rowheader", { name: "SHFE/rb" })).toBeNull();
   expect(request).toHaveBeenCalledWith({
     case: "getDatasetSummary",

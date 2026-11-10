@@ -20,7 +20,7 @@ export const changeText = (change: MarketChange) =>
     removed: change.removed,
   });
 
-// A source's versions, newest first, each with what it changed from the one
+// The dataset's versions, newest first, each with what it changed from the one
 // before. Choosing one shows its summary and coverage instead of the current.
 export function DatasetHistory({
   latest,
@@ -61,12 +61,8 @@ export function DatasetHistory({
       setError(asDisplayError(reason));
     }
   };
-  if (!versions.length && !error) return null;
   return (
-    <section className="data-card" aria-label={t("版本历史")}>
-      <header>
-        <h3>{t("版本历史")}</h3>
-      </header>
+    <div className="data-versions">
       <ErrorNotice error={error} />
       <table className="data-table" aria-label={t("版本历史")}>
         <thead>
@@ -112,6 +108,6 @@ export function DatasetHistory({
           {t("更早的版本")}
         </button>
       )}
-    </section>
+    </div>
   );
 }

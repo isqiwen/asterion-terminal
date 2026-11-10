@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 import { Table } from "../../src/generated/asterion/warehouse_pb";
-import { ReferenceTables } from "./ReferenceTables";
+import { ReferenceTable } from "./ReferenceTable";
 
 const request = vi.hoisted(() => vi.fn());
 vi.mock("../contract", async importOriginal => ({
@@ -18,9 +18,10 @@ request.mockImplementation(async (body: { value: { exchange: string } }) => ({
 
 test("the contract table shows the chosen exchange's contracts", async () => {
   render(
-    <ReferenceTables
+    <ReferenceTable
       version="v"
-      tables={[Table.CONTRACTS, Table.CALENDAR]}
+      table={Table.CONTRACTS}
+      name="合约表"
       exchanges={["SHFE", "DCE"]}
     />,
   );
@@ -43,9 +44,10 @@ test("the contract table shows the chosen exchange's contracts", async () => {
 
 test("historical price ticks are browsed in the chosen fixed version and date range", async () => {
   render(
-    <ReferenceTables
+    <ReferenceTable
       version="historical-version"
-      tables={[Table.PRICE_TICKS]}
+      table={Table.PRICE_TICKS}
+      name="历史报价单位"
       exchanges={["SHFE"]}
     />,
   );

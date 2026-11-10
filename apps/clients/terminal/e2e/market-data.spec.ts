@@ -26,10 +26,8 @@ test(
       await page.goto("/");
       await openView(page, "coverage");
       await rpc(page.request, "market.close");
-      await expect(
-        page.getByText("当前连接只有读取权限，不能启动或取消采集。", { exact: true }),
-      ).toBeVisible();
-      await expect(page.getByRole("button", { name: "开始采集", exact: true })).toBeDisabled();
+      await expect(page.getByText("只读连接，不能采集或取消任务", { exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "采集", exact: true })).toBeDisabled();
       await expect(
         page.getByRole("region", { name: "数据集版本" }).locator(`code[title="${version}"]`),
       ).toBeVisible();

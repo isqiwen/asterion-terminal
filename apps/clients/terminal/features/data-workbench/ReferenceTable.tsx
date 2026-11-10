@@ -11,32 +11,21 @@ import {
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.data-workbench", key, values);
-const names: Partial<Record<Table, string>> = {
-  [Table.CONTRACTS]: "合约表",
-  [Table.CALENDAR]: "交易日历",
-  [Table.SETTLEMENT]: "结算参数",
-  [Table.PRICE_TICKS]: "历史报价单位",
-};
-export const referenceTables = [
-  Table.CONTRACTS,
-  Table.CALENDAR,
-  Table.SETTLEMENT,
-  Table.PRICE_TICKS,
-];
 const page = 100;
 const today = () => new Date().toISOString().slice(0, 10);
 
-// Browse one exchange in a fixed version, limited to the selected dates.
-export function ReferenceTables({
+// Browse one table of one exchange in a fixed version, limited to the selected dates.
+export function ReferenceTable({
   version,
-  tables,
+  table,
+  name,
   exchanges,
 }: {
   version: string;
-  tables: Table[];
+  table: Table;
+  name: string;
   exchanges: string[];
 }) {
-  const [table, setTable] = useState(tables[0]!);
   const [exchange, setExchange] = useState(exchanges[0] ?? "");
   const [first, setFirst] = useState(() => `${today().slice(0, 4)}-01-01`);
   const [last, setLast] = useState(today);
@@ -72,24 +61,8 @@ export function ReferenceTables({
     setOffset(0);
   };
   return (
-    <section className="data-card" aria-label={t("参考表")}>
-      <header>
-        <h3>{t("参考表")}</h3>
-      </header>
+    <>
       <div className="data-fields">
-        <label>
-          {t("表")}
-          <select
-            value={table}
-            onChange={event => choose(() => setTable(Number(event.target.value)))}
-          >
-            {tables.map(item => (
-              <option key={item} value={item}>
-                {t(names[item]!)}
-              </option>
-            ))}
-          </select>
-        </label>
         <label>
           {t("交易所")}
           <select
@@ -126,7 +99,7 @@ export function ReferenceTables({
       {rows?.rows.length ? (
         <>
           <div className="coverage-matrix">
-            <table className="data-table" aria-label={t(names[table]!)}>
+            <table className="data-table" aria-label={name}>
               <thead>
                 <tr>
                   {rows.columns.map(column => (
@@ -168,6 +141,6 @@ export function ReferenceTables({
       ) : (
         !error && <p className="subtle">{t("所选范围内没有数据。")}</p>
       )}
-    </section>
+    </>
   );
 }

@@ -1,11 +1,14 @@
-import { Table, TaskState } from "../../src/generated/asterion/warehouse_pb";
+import { Table } from "../../src/generated/asterion/warehouse_pb";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ContractPicker } from "./ContractPicker";
+import { Acquisition, type Preset } from "./Acquisition";
+import { DailyCoverage } from "./DailyCoverage";
 import { DatasetHistory, changeText } from "./DatasetHistory";
+import { Dialog } from "./Dialog";
 import { MinuteCoverage } from "./MinuteCoverage";
 import { useMarket } from "../../src/host/market";
-import { ReferenceTables, referenceTables } from "./ReferenceTables";
+import { ReferenceTable } from "./ReferenceTable";
 import { StoredContracts } from "./StoredContracts";
+import { Tasks, activeTask } from "./Tasks";
 import {
   ErrorNotice,
   asDisplayError,
@@ -20,42 +23,41 @@ import {
   type AcquisitionOptions,
   type MessageValues,
   type TerminalContext,
-  ActionError,
   MarketUnset,
-  useActionError,
 } from "../contract";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.data-workbench", key, values);
-const states: Record<number, string> = {
-  [TaskState.QUEUED]: "等待采集",
-  [TaskState.RUNNING]: "采集中",
-  [TaskState.SUCCEEDED]: "已完成",
-  [TaskState.FAILED]: "失败",
-  [TaskState.CANCELLED]: "已取消",
-  [TaskState.INTERRUPTED]: "已中断",
-};
-const activeTask = (task: MarketTask) => [TaskState.QUEUED, TaskState.RUNNING].includes(task.state);
 const day = (offset: number) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
 // A month's days up to yesterday: providers only hold finished trading days.
 const monthRange = (month: string) => {
   const [year, number] = month.split("-").map(Number);
   const last = new Date(Date.UTC(year!, number!, 0)).toISOString().slice(0, 10);
-  return [`${month}-01`, last < day(-1) ? last : day(-1)] as const;
+  return { first: `${month}-01`, last: last < day(-1) ? last : day(-1) };
 };
 const tables: Partial<Record<Table, string>> = {
   [Table.DAILY]: "日线",
-  [Table.CALENDAR]: "交易日历",
-  [Table.CONTRACTS]: "合约表",
   [Table.MINUTES]: "分钟线",
   [Table.SETTLEMENT]: "结算参数",
   [Table.PRICE_TICKS]: "历史报价单位",
+  [Table.CONTRACTS]: "合约表",
+  [Table.CALENDAR]: "交易日历",
 };
+// One view per table, then the stored contracts' charts.
+type View = Table | "stored";
+const views: View[] = [
+  Table.DAILY,
+  Table.MINUTES,
+  Table.SETTLEMENT,
+  Table.PRICE_TICKS,
+  Table.CONTRACTS,
+  Table.CALENDAR,
+  "stored",
+];
 const size = (bytes: bigint) =>
   `${(Number(bytes / 1024n) / 1024).toLocaleString(getLocale(), { maximumFractionDigits: 1 })} MiB`;
 const tableName = (table: Table) => t(tables[table] ?? Table[table]);
-// Tables a task can name products or contracts for; minutes name nothing else.
-const byInstrument = [Table.DAILY, Table.MINUTES, Table.SETTLEMENT, Table.PRICE_TICKS];
+const viewName = (view: View) => (view === "stored" ? t("已采集合约") : tableName(view));
 const exchanges = ["SHFE", "INE", "DCE", "CZCE", "CFFEX", "GFEX"];
 
 // Every read and acquisition goes to the saved remote Warehouse service. Browsing a
@@ -115,7 +117,7 @@ function DataPage({ context }: { context: TerminalContext }) {
       </div>
     );
   return (
-    <div className="page-body data-body">
+    <div className="data-body">
       {options && (
         <DataCoverage
           key={`${options.tables.join()}/${options.exchanges.join()}/${opened?.version}`}
@@ -142,23 +144,16 @@ function DataCoverage({
   const [viewed, setViewed] = useState(opened);
   const [latest, setLatest] = useState("");
   const [change, setChange] = useState<MarketChange>();
-  const [table, setTable] = useState(options.tables[0] ?? Table.UNSPECIFIED);
-  const [exchange, setExchange] = useState(options.exchanges[0] ?? "");
-  const [instruments, setInstruments] = useState<string[]>([]);
-  const [target, setTarget] = useState<"exchange" | "instruments">("exchange");
+  const [view, setView] = useState<View>(Table.DAILY);
+  const [acquiring, setAcquiring] = useState<Preset>();
+  const [versionsOpen, setVersionsOpen] = useState(false);
+  const [tasksOpen, setTasksOpen] = useState(false);
   const catalog = useMarket()?.board.catalog?.contracts;
-  const [replace, setReplace] = useState(false);
   const [summary, setSummary] = useState<MarketSummary | null>(null);
   const [diskFree, setDiskFree] = useState<bigint>();
   const [coverage, setCoverage] = useState<MarketCoverage>();
   const [tasks, setTasks] = useState<MarketTask[]>([]);
   const [error, setError] = useState<DisplayError>("");
-  const [begin, setBegin] = useState(() => day(-30));
-  const [end, setEnd] = useState(() => day(-1));
-  const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState("");
-  const started = useActionError();
-  const cancelled = useActionError();
   const mounted = useRef(false);
   const pending = useRef(false);
   // Tasks to show: one page, more on request.
@@ -232,11 +227,7 @@ function DataCoverage({
       clearInterval(timer);
     };
   }, [refresh]);
-  // The reference tables this version holds rows of.
-  const stored = referenceTables.filter(table =>
-    summary?.tables.some(item => item.table === table && item.rows > 0n),
-  );
-  // Contracts a minute task can choose from: those Market lists now and those
+  // Contracts an acquisition can choose from: those Market lists now and those
   // the dataset already holds minutes of.
   const known = useMemo(
     () => [
@@ -247,372 +238,155 @@ function DataCoverage({
     ],
     [catalog, coverage],
   );
-  const form = useRef<HTMLElement>(null);
-  const fillsDaily = canManage && options.tables.includes(Table.DAILY);
-  // Fills the form with one coverage gap; stored partitions are skipped, so the
-  // whole month can be asked for.
-  const fill = (next: Table, month: string, gap: { exchange?: string; contracts?: string[] }) => {
-    const [first, last] = monthRange(month);
-    setTable(next);
-    if (gap.exchange) {
-      setExchange(gap.exchange);
-      setTarget("exchange");
-    }
-    if (gap.contracts) setInstruments(gap.contracts);
-    setBegin(first);
-    setEnd(last);
-    form.current?.scrollIntoView({ block: "nearest" });
+  const version = summary?.dataset?.version ?? "";
+  const running = tasks.filter(activeTask).length;
+  const acquires = view !== "stored" && options.tables.includes(view);
+  const fills = canManage && acquires;
+  const stats = (table: Table) => summary?.tables.find(item => item.table === table);
+  const meta = (table: Table) => {
+    const item = stats(table);
+    if (!item?.rows) return "—";
+    const rows = t("{rows} 行", { rows: Number(item.rows).toLocaleString(getLocale()) });
+    return item.firstDay ? `${rows} · ${item.firstDay} – ${item.lastDay}` : rows;
   };
-  // Instruments without days span each contract's listed life.
-  const named =
-    table === Table.MINUTES || (target === "instruments" && byInstrument.includes(table));
-  const choose = (next: "exchange" | "instruments") => {
-    setTarget(next);
-    if (next === "instruments") {
-      setBegin("");
-      setEnd("");
-    }
-  };
-  const scope = named ? { exchanges: [], instruments } : { exchanges: [exchange], instruments: [] };
-  const acquire = async () => {
-    setSubmitting(true);
-    const id = crypto.randomUUID();
-    setSubmitted(id);
-    await started.attempt(async () => {
-      await warehouseData({
-        case: "startAcquisition",
-        value: {
-          id,
-          table,
-          refetch: replace,
-          ...scope,
-          firstDay: begin,
-          lastDay: end,
-        },
-      });
-      // Market data is usable only with its price ticks.
-      if (
-        [Table.DAILY, Table.MINUTES, Table.SETTLEMENT].includes(table) &&
-        options.tables.includes(Table.PRICE_TICKS)
-      )
-        await warehouseData({
-          case: "startAcquisition",
-          value: {
-            id: crypto.randomUUID(),
-            table: Table.PRICE_TICKS,
-            refetch: replace,
-            ...scope,
-            firstDay: begin,
-            lastDay: end,
-          },
-        });
-      await refresh();
-    });
-    if (mounted.current) setSubmitting(false);
-  };
-  const cancel = (id: string) =>
-    cancelled.attempt(async () => {
-      await warehouseData({ case: "cancelAcquisition", value: { id } });
-      await refresh();
-    });
-  const daily = useMemo(() => coverage?.products ?? [], [coverage]);
-  const months = useMemo(
-    () => [...new Set(daily.flatMap(item => item.months.map(m => m.month)))].sort(),
-    [daily],
-  );
   return (
     <>
-      <section className="data-card" aria-label={t("数据集版本")}>
-        <header>
-          <h3>{t("数据集版本")}</h3>
-          {summary?.dataset?.version && (
-            <code title={summary.dataset.version}>{summary.dataset.version.slice(0, 12)}</code>
-          )}
-          {diskFree !== undefined && (
-            <span className="subtle">
-              {t("磁盘可用空间")} {size(diskFree)}
-            </span>
-          )}
-        </header>
-        <ErrorNotice error={error} />
+      <section className="data-bar" aria-label={t("数据集版本")}>
+        <button type="button" onClick={() => setVersionsOpen(true)} disabled={!version}>
+          {t("版本")} {version ? <code title={version}>{version.slice(0, 12)}</code> : t("无")}
+          {version && ` · ${t(viewed && viewed !== latest ? "旧版本" : "当前")}`}
+        </button>
         {viewed && viewed !== latest && (
-          <p role="status">
-            {t("正在查看旧版本。当前版本与它相比：")}
+          <span role="status">
+            {t("当前版本与它相比：")}
             {change ? changeText(change) : t("读取中")}{" "}
             <button type="button" onClick={() => setViewed("")}>
               {t("回到当前版本")}
             </button>
-          </p>
+          </span>
         )}
-        {summary?.dataset?.version ? (
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>{t("表")}</th>
-                <th className="numeric">{t("行数")}</th>
-                <th className="numeric">{t("分区")}</th>
-                <th>{t("日期范围")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {summary.tables.map(item => (
-                <tr key={item.table}>
-                  <td>{tableName(item.table)}</td>
-                  <td className="numeric">{item.rows.toString()}</td>
-                  <td className="numeric">{item.partitions.toString()}</td>
-                  <td>{item.firstDay ? `${item.firstDay} – ${item.lastDay}` : "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <p className="subtle">{t("仓库里还没有数据。")}</p>
+        <span className="data-bar-gap" />
+        {!canManage && <span className="subtle">{t("只读连接，不能采集或取消任务")}</span>}
+        {diskFree !== undefined && (
+          <span className="subtle">{t("磁盘可用 {size}", { size: size(diskFree) })}</span>
         )}
+        <button type="button" aria-expanded={tasksOpen} onClick={() => setTasksOpen(open => !open)}>
+          {t("采集任务")}
+          {running > 0 && ` · ${t("{count} 进行中", { count: running })}`}
+        </button>
       </section>
-      <DatasetHistory latest={latest} viewed={viewed} onView={setViewed} />
-      {options.tables.length > 0 && (
-        <section ref={form} className="data-card" aria-label={t("采集")}>
-          <header>
-            <h3>{t("采集")}</h3>
-          </header>
-          <p className="subtle">
-            {t("已入库分区跳过。品种或合约不填日期时，采它们的整个上市期。")}{" "}
-            {t("关闭此页面不会停止采集。")}
-          </p>
-          <div className="data-fields">
-            <label>
-              {t("表")}
-              <select
-                value={table}
-                onChange={event => {
-                  const next = Number(event.target.value);
-                  setTable(next);
-                  if (next === Table.MINUTES) choose("instruments");
-                }}
-              >
-                {options.tables.map(item => (
-                  <option key={item} value={item}>
-                    {tableName(item)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {table !== Table.MINUTES && byInstrument.includes(table) && (
-              <label>
-                {t("范围")}
-                <select
-                  value={target}
-                  onChange={event => choose(event.target.value as "exchange" | "instruments")}
-                >
-                  <option value="exchange">{t("整个交易所")}</option>
-                  <option value="instruments">{t("品种或合约")}</option>
-                </select>
-              </label>
-            )}
-            {!named && (
-              <label>
-                {t("交易所")}
-                <select value={exchange} onChange={event => setExchange(event.target.value)}>
-                  {options.exchanges.map(item => (
-                    <option key={item}>{item}</option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <label>
-              {t("开始日期")}
-              <input type="date" value={begin} onChange={event => setBegin(event.target.value)} />
-            </label>
-            <label>
-              {t("结束日期")}
-              <input type="date" value={end} onChange={event => setEnd(event.target.value)} />
-            </label>
-          </div>
-          {named && <ContractPicker known={known} value={instruments} onChange={setInstruments} />}
-          <label>
-            <input
-              type="checkbox"
-              checked={replace}
-              onChange={event => setReplace(event.target.checked)}
-            />
-            {t("重新采集已有分区，保留旧数据集版本")}
-          </label>
-          <div className="data-actions">
-            <button
-              type="button"
-              className="primary"
-              disabled={
-                !canManage ||
-                submitting ||
-                (begin !== "" && end !== "" && begin > end) ||
-                !table ||
-                (named ? !instruments.length : !exchange || !begin || !end)
-              }
-              onClick={() => void acquire()}
-            >
-              {t("开始采集")}
-            </button>
-            {!canManage && (
-              <span className="subtle" role="status">
-                {t("当前连接只有读取权限，不能启动或取消采集。")}
-              </span>
-            )}
-            {submitted && (
-              <span className="subtle">
-                {t("本次提交任务")}: <code>{submitted}</code>
-              </span>
-            )}
-          </div>
-          <ActionError error={started.error} />
-        </section>
-      )}
-      {tasks.length > 0 && (
-        <section className="data-card" aria-label={t("采集任务")}>
-          <header>
-            <h3>{t("采集任务")}</h3>
-          </header>
-          <ActionError error={cancelled.error} />
-          <table className="data-table" aria-label={t("采集任务")}>
-            <thead>
-              <tr>
-                <th>{t("任务编号")}</th>
-                <th>{t("表")}</th>
-                <th>{t("范围")}</th>
-                <th>{t("区间")}</th>
-                <th>{t("状态")}</th>
-                <th>{t("进度")}</th>
-                <th className="numeric">{t("请求次数")}</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {tasks.map(task => (
-                <tr key={task.request!.id}>
-                  <td>
-                    <code>{task.request!.id}</code>
-                  </td>
-                  <td>{tableName(task.request!.table)}</td>
-                  <td>
-                    {[...task.request!.exchanges, ...task.request!.instruments].join("、") ||
-                      t("全部交易所")}
-                  </td>
-                  <td>
-                    {task.request!.firstDay || t("上市日")} – {task.request!.lastDay || t("摘牌日")}
-                  </td>
-                  <td title={task.error?.message} data-state={TaskState[task.state].toLowerCase()}>
-                    {t(states[task.state] ?? String(task.state))}
-                    {task.error ? ` · ${task.error.message}` : ""}
-                  </td>
-                  <td>
-                    {task.itemsDone.toString()} / {task.items.toString()}
-                    {task.itemsEmpty > 0n
-                      ? ` · ${t("{count} 天尚无数据", { count: Number(task.itemsEmpty) })}`
-                      : ""}
-                  </td>
-                  <td className="numeric">{task.requestsSent.toString()}</td>
-                  <td>
-                    {canManage && activeTask(task) && (
-                      <button onClick={() => void cancel(task.request!.id)}>{t("取消")}</button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {older && (
-            <button
-              type="button"
-              onClick={() => {
-                shown.current += 20;
-                void refresh();
-              }}
-            >
-              {t("更早的任务")}
-            </button>
-          )}
-        </section>
-      )}
-      <section className="data-card" aria-label={t("日线覆盖")}>
-        <header>
-          <h3>{t("日线覆盖")}</h3>
-          <span className="subtle">{t("每格为已存日线的天数；没有交易日历时，完整性未知。")}</span>
-        </header>
-        {daily.length ? (
-          <div className="coverage-matrix">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>{t("品种")}</th>
-                  {months.map(month => (
-                    <th key={month}>{month}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {daily.map(product => {
-                  const byMonth = new Map(product.months.map(m => [m.month, m]));
-                  return (
-                    <tr key={product.product}>
-                      <th scope="row">{product.product}</th>
-                      {months.map(month => {
-                        const cell = byMonth.get(month);
-                        const share = cell?.openDays ? cell.days / cell.openDays : 0;
-                        return (
-                          <td
-                            key={month}
-                            data-share={cell ? (share >= 1 ? "full" : "partial") : "none"}
-                            title={cell ? `${cell.days} / ${cell.openDays || "?"}` : t("无数据")}
-                          >
-                            {fillsDaily && share < 1 ? (
-                              <button
-                                type="button"
-                                aria-label={t("补采 {target} {month}", {
-                                  target: product.product,
-                                  month,
-                                })}
-                                onClick={() =>
-                                  fill(Table.DAILY, month, {
-                                    exchange: product.product.split("/")[0]!,
-                                  })
-                                }
-                              >
-                                {cell ? cell.days : "+"}
-                              </button>
-                            ) : cell ? (
-                              cell.days
-                            ) : (
-                              ""
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="subtle">{t("仓库里还没有日线。")}</p>
-        )}
-      </section>
-      {stored.length > 0 && (
-        <ReferenceTables
-          key={summary!.dataset!.version}
-          version={summary!.dataset!.version}
-          tables={stored}
-          exchanges={options.exchanges.length ? options.exchanges : exchanges}
+      <ErrorNotice error={error} />
+      {tasksOpen && (
+        <Tasks
+          tasks={tasks}
+          tableName={tableName}
+          canManage={canManage}
+          refresh={refresh}
+          older={
+            older
+              ? () => {
+                  shown.current += 20;
+                  void refresh();
+                }
+              : undefined
+          }
         />
       )}
-      <MinuteCoverage
-        contracts={coverage?.contracts ?? []}
-        onFill={
-          canManage && options.tables.includes(Table.MINUTES)
-            ? (contract, month) => fill(Table.MINUTES, month, { contracts: [contract] })
-            : undefined
-        }
-      />
-      {latest && <StoredContracts key={latest} context={context} />}
+      <div className="data-main">
+        <nav className="data-views" aria-label={t("表")}>
+          {views.map(item => (
+            <button
+              key={item}
+              type="button"
+              aria-current={view === item || undefined}
+              onClick={() => setView(item)}
+            >
+              <span>{viewName(item)}</span>
+              {item !== "stored" && <small>{meta(item)}</small>}
+            </button>
+          ))}
+        </nav>
+        <section className="data-view" aria-label={viewName(view)}>
+          <header>
+            <h3>{viewName(view)}</h3>
+            {acquires && (
+              <button
+                type="button"
+                className="primary"
+                disabled={!canManage}
+                onClick={() => setAcquiring({})}
+              >
+                {t("采集")}
+              </button>
+            )}
+          </header>
+          {view === Table.DAILY ? (
+            <DailyCoverage
+              products={coverage?.products ?? []}
+              onFill={
+                fills
+                  ? (product, month) =>
+                      setAcquiring({ exchange: product.split("/")[0]!, ...monthRange(month) })
+                  : undefined
+              }
+            />
+          ) : view === Table.MINUTES ? (
+            <MinuteCoverage
+              contracts={coverage?.contracts ?? []}
+              onFill={
+                fills
+                  ? (contract, month) =>
+                      setAcquiring({ instruments: [contract], ...monthRange(month) })
+                  : undefined
+              }
+            />
+          ) : view === "stored" ? (
+            latest && <StoredContracts key={latest} context={context} />
+          ) : version && stats(view)?.rows ? (
+            <ReferenceTable
+              key={`${version}/${view}`}
+              version={version}
+              table={view}
+              name={tableName(view)}
+              exchanges={options.exchanges.length ? options.exchanges : exchanges}
+            />
+          ) : (
+            <p className="subtle">{t("仓库里还没有这张表。")}</p>
+          )}
+        </section>
+      </div>
+      {acquiring && view !== "stored" && (
+        <Acquisition
+          table={view}
+          name={tableName(view)}
+          options={options}
+          known={known}
+          preset={acquiring}
+          close={() => setAcquiring(undefined)}
+          started={() => {
+            setAcquiring(undefined);
+            setTasksOpen(true);
+            void refresh();
+          }}
+        />
+      )}
+      {versionsOpen && (
+        <Dialog title={t("版本历史")} close={() => setVersionsOpen(false)}>
+          <DatasetHistory
+            latest={latest}
+            viewed={viewed}
+            onView={next => {
+              setViewed(next);
+              setVersionsOpen(false);
+            }}
+          />
+          <div className="data-actions">
+            <button type="button" onClick={() => setVersionsOpen(false)}>
+              {t("关闭")}
+            </button>
+          </div>
+        </Dialog>
+      )}
     </>
   );
 }

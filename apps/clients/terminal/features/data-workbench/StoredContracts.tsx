@@ -55,10 +55,7 @@ export function StoredContracts({ context }: { context: TerminalContext }) {
   const visible = matched.slice(0, shownAtOnce);
   const active = matched.some(item => item.contract === selected) ? selected : visible[0]?.contract;
   return (
-    <section className="data-card" aria-label={t("已采集合约")}>
-      <header>
-        <h3>{t("已采集合约")}</h3>
-      </header>
+    <>
       {!stored ? (
         <p className="subtle">{t("读取中")}</p>
       ) : stored.error ? (
@@ -141,6 +138,6 @@ export function StoredContracts({ context }: { context: TerminalContext }) {
           </div>
         </div>
       )}
-    </section>
+    </>
   );
 }

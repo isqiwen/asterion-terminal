@@ -19,6 +19,10 @@ test(
     ]);
     await page.goto("/");
     await openView(page, "coverage");
+    await page
+      .getByRole("navigation", { name: "表" })
+      .getByRole("button", { name: "已采集合约" })
+      .click();
     const contracts = page.getByRole("group", { name: "已采集合约" });
     // Includes Lab startup and the first remote cache download.
     await expect(contracts.getByRole("button")).toHaveCount(2, { timeout: 30000 });

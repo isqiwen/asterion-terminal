@@ -12,8 +12,13 @@ vi.mock("../contract", async importOriginal => ({
   translate: (_namespace: string, key: string, values?: Record<string, unknown>) =>
     key.replace(/\{(\w+)\}/g, (_, name: string) => String(values?.[name])),
 }));
-// The comparison has its own test.
-vi.mock("./MinuteComparison", () => ({ MinuteComparison: () => null }));
+// jsdom does not implement the browser's dialog methods.
+HTMLDialogElement.prototype.showModal = function () {
+  this.setAttribute("open", "");
+};
+HTMLDialogElement.prototype.close = function () {
+  this.removeAttribute("open");
+};
 vi.mock("./StoredContracts", () => ({ StoredContracts: () => null }));
 vi.mock("./DatasetHistory", async importOriginal => ({
   ...(await importOriginal<typeof import("./DatasetHistory")>()),
@@ -48,6 +53,21 @@ function serve(canManage = true, tables = [Table.DAILY, Table.PRICE_TICKS]) {
     }
   });
 }
+// Opens the shown table's acquisition and returns its dialog.
+async function openAcquisition() {
+  const open = (await screen.findByRole("button", { name: "采集" })) as HTMLButtonElement;
+  await waitFor(() => expect(open.disabled).toBe(false));
+  fireEvent.click(open);
+  return screen.getByRole("dialog", { name: /^采集 / });
+}
+const showTasks = async () =>
+  fireEvent.click(await screen.findByRole("button", { name: /^采集任务/ }));
+const showView = (name: string) =>
+  fireEvent.click(
+    within(screen.getByRole("navigation", { name: "表" })).getByRole("button", {
+      name: new RegExp(`^${name}`),
+    }),
+  );
 const started = () =>
   request.mock.calls
     .map(([body]) => body)
@@ -58,16 +78,18 @@ test("clients choose no source, and market data also asks for its price ticks", 
   serve();
   const props = context();
   render(<Coverage {...props} />);
-  const start = (await screen.findByRole("button", { name: "开始采集" })) as HTMLButtonElement;
-  expect(screen.queryByLabelText("数据源")).toBeNull();
-  await waitFor(() => expect(start.disabled).toBe(false));
-  fireEvent.click(start);
+  const dialog = await openAcquisition();
+  expect(within(dialog).queryByLabelText("数据源")).toBeNull();
+  fireEvent.click(within(dialog).getByRole("button", { name: "开始采集" }));
   await waitFor(() =>
     expect(started()).toEqual([
       [Table.DAILY, ["SHFE"]],
       [Table.PRICE_TICKS, ["SHFE"]],
     ]),
   );
+  // The dialog closes and the tasks show.
+  await screen.findByRole("table", { name: "采集任务" });
+  expect(screen.queryByRole("dialog")).toBeNull();
   expect(request.mock.calls.flat().some(body => "provider" in (body.value ?? {}))).toBe(false);
   expect(props.trade).not.toHaveBeenCalled();
 });
@@ -75,12 +97,11 @@ test("clients choose no source, and market data also asks for its price ticks", 
 test("read-only clients see shared tasks but cannot start or cancel them", async () => {
   serve(false);
   render(<Coverage {...context()} />);
-  await screen.findByText("当前连接只有读取权限，不能启动或取消采集。");
+  await screen.findByText("只读连接，不能采集或取消任务");
+  expect((screen.getByRole("button", { name: "采集" }) as HTMLButtonElement).disabled).toBe(true);
+  await showTasks();
   await screen.findByRole("table", { name: "采集任务" });
   expect(screen.queryByRole("button", { name: "取消" })).toBeNull();
-  expect((screen.getByRole("button", { name: "开始采集" }) as HTMLButtonElement).disabled).toBe(
-    true,
-  );
 });
 
 test("coverage uses the summary's version and no form appears without a source", async () => {
@@ -108,8 +129,10 @@ test("coverage uses the summary's version and no form appears without a source",
     case: "getDatasetCoverage",
     value: { version: "fixed-version" },
   });
-  expect(screen.queryByRole("button", { name: "开始采集" })).toBeNull();
-  expect(screen.getByRole("table", { name: "采集任务" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "采集" })).toBeNull();
+  await showTasks();
+  const shown = await screen.findByRole("table", { name: "采集任务" });
+  await waitFor(() => expect(within(shown).getAllByRole("row")).toHaveLength(2));
 });
 
 test("polls shared tasks even when this client has no active acquisition", async () => {
@@ -133,7 +156,7 @@ test("polls shared tasks even when this client has no active acquisition", async
     }
   });
   render(<Coverage {...context()} />);
-  await screen.findByRole("button", { name: "开始采集" });
+  await showTasks();
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith({
       case: "listAcquisitionTasks",
@@ -186,12 +209,13 @@ const submitted = () =>
 test("a minute acquisition of a whole product spans its contracts' listed lives", async () => {
   serveCoverage();
   render(<Coverage {...context()} />);
-  await screen.findByRole("table", { name: "分钟线覆盖" });
-  fireEvent.change(screen.getByLabelText("表"), { target: { value: String(Table.MINUTES) } });
-  const picker = screen.getByRole("group", { name: "品种或合约" });
+  await screen.findByRole("table", { name: "日线覆盖" });
+  showView("分钟线");
+  const dialog = await openAcquisition();
+  const picker = within(dialog).getByRole("group", { name: "品种或合约" });
   fireEvent.change(within(picker).getByLabelText("品种"), { target: { value: "SHFE/rb" } });
   fireEvent.click(within(picker).getByRole("button", { name: "整个品种" }));
-  fireEvent.click(screen.getByRole("button", { name: "开始采集" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "开始采集" }));
   await waitFor(() =>
     expect(submitted()).toMatchObject({
       table: Table.MINUTES,
@@ -206,13 +230,14 @@ test("a minute acquisition of a whole product spans its contracts' listed lives"
 test("daily bars of one contract ask for it and its price ticks, not its exchange", async () => {
   serve(true, [Table.DAILY, Table.PRICE_TICKS]);
   render(<Coverage {...context()} />);
-  fireEvent.change(await screen.findByLabelText("范围"), { target: { value: "instruments" } });
-  const picker = screen.getByRole("group", { name: "品种或合约" });
+  const dialog = await openAcquisition();
+  fireEvent.click(within(dialog).getByRole("radio", { name: "品种或合约" }));
+  const picker = within(dialog).getByRole("group", { name: "品种或合约" });
   fireEvent.change(within(picker).getByLabelText("其他品种或合约"), {
     target: { value: "SHFE/rb/2027-01" },
   });
   fireEvent.click(within(picker).getByRole("button", { name: "添加" }));
-  fireEvent.click(screen.getByRole("button", { name: "开始采集" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "开始采集" }));
   const sent = () =>
     request.mock.calls
       .map(([body]) => body)
@@ -228,11 +253,14 @@ test("daily bars of one contract ask for it and its price ticks, not its exchang
     });
 });
 
-test("a coverage gap fills the acquisition with its month", async () => {
+const startInDialog = () =>
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "开始采集" }));
+
+test("a coverage gap opens an acquisition of its month", async () => {
   serveCoverage();
   render(<Coverage {...context()} />);
   fireEvent.click(await screen.findByRole("button", { name: "补采 SHFE/rb 2026-09" }));
-  fireEvent.click(screen.getByRole("button", { name: "开始采集" }));
+  startInDialog();
   await waitFor(() =>
     expect(submitted()).toMatchObject({
       table: Table.DAILY,
@@ -242,11 +270,13 @@ test("a coverage gap fills the acquisition with its month", async () => {
       lastDay: "2026-09-30",
     }),
   );
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   request.mockClear();
-  const minutes = screen.getByRole("region", { name: "分钟线覆盖" });
+  showView("分钟线");
+  const minutes = screen.getByRole("region", { name: "分钟线" });
   fireEvent.change(within(minutes).getByLabelText("品种"), { target: { value: "SHFE/rb" } });
   fireEvent.click(within(minutes).getByRole("button", { name: "补采 SHFE/rb/2027-01 2026-10" }));
-  fireEvent.click(screen.getByRole("button", { name: "开始采集" }));
+  startInDialog();
   await waitFor(() =>
     expect(submitted()).toMatchObject({
       table: Table.MINUTES,
@@ -274,11 +304,17 @@ test("each refresh reads one page of tasks; earlier ones are read on request", a
     }
   });
   render(<Coverage {...context()} />);
+  await showTasks();
   fireEvent.click(await screen.findByRole("button", { name: "更早的任务" }));
   const reads = () =>
     request.mock.calls.filter(([body]) => body.case === "listAcquisitionTasks").map(([b]) => b);
   expect(reads()).toEqual([{ case: "listAcquisitionTasks", value: { afterId: "" } }]);
-  await screen.findByText("oldest");
+  // The heading row, the first page and the oldest task.
+  await waitFor(() =>
+    expect(
+      within(screen.getByRole("table", { name: "采集任务" })).getAllByRole("row"),
+    ).toHaveLength(22),
+  );
   expect(reads().at(-1)).toEqual({
     case: "listAcquisitionTasks",
     value: { afterId: "task-19" },

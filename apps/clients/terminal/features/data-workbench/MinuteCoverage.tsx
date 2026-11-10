@@ -20,11 +20,7 @@ export function MinuteCoverage({
   const rows = contracts.filter(item => productOf(item.contract) === product);
   const months = [...new Set(rows.flatMap(item => item.months.map(m => m.month)))].sort();
   return (
-    <section className="data-card" aria-label={t("分钟线覆盖")}>
-      <header>
-        <h3>{t("分钟线覆盖")}</h3>
-        <span className="subtle">{t("每格为该合约当月有分钟线的交易日数。")}</span>
-      </header>
+    <>
       {rows.length ? (
         <>
           <label>
@@ -85,6 +81,6 @@ export function MinuteCoverage({
       ) : (
         <p className="subtle">{t("仓库里还没有分钟线。")}</p>
       )}
-    </section>
+    </>
   );
 }
