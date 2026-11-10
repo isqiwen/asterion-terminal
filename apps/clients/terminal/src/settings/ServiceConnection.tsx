@@ -3,7 +3,7 @@ import type { CommandCall, CommandHandler } from "../bridge/commands";
 import type { Snapshot } from "../bridge/client";
 import { translate } from "../i18n";
 import { SettingsSection } from "./Section";
-import { ServiceBuild } from "./ServiceBuild";
+import { ServiceFacts } from "./ServiceFacts";
 import { ActionError, useActionError } from "../host/action-error";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 const t = (key: string) => translate("host", key);
@@ -86,11 +86,9 @@ export function ServiceConnection({
       {saved && "error" in saved && <p role="alert">{t(word.unreadable)}</p>}
       {!editing && endpoint && (
         <>
-          <p className="settings-hint">
-            {t("地址")} <code>{`${endpoint.host}:${endpoint.port}`}</code>
-          </p>
-          <ServiceBuild
+          <ServiceFacts
             key={`${endpoint.host}:${endpoint.port}/${endpoint.fingerprint}`}
+            address={`${endpoint.host}:${endpoint.port}`}
             service={service}
           />
           <ActionError error={error} />

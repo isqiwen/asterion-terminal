@@ -101,15 +101,6 @@
   color: var(--text-strong);
 }
 .settings-section-header p,
-.settings-hint {
-  margin: 4px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.6;
-}
-.settings-hint {
-  margin: 0;
-}
 .settings-actions {
   display: flex;
   flex-wrap: wrap;
