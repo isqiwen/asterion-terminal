@@ -204,7 +204,7 @@ export function MarketBoard({ market, context }: { market: MarketView; context: 
                 : contractName(active.instrument!, catalog)) ?? active.instrument!.symbol
             }
             pane="market-pane"
-            initial="分时"
+            initial="1分"
             actions={
               <>
                 <WatchlistToggle context={context} market={market} row={active.instrument!} />
