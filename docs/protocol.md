@@ -1,21 +1,22 @@
 # 通信协议设计
 
-本文规定 Terminal、Lab、Warehouse、Trading 和策略进程之间消息的格式和命名规则，并列出各服务提供的操作。消息定义在 [protocol/proto/asterion/](../protocol/proto/asterion/)，C++、Python 和 TypeScript 代码都从这些定义生成。
+本文规定 Terminal、Lab、Market、Warehouse、Trading 和策略进程之间消息的格式和命名规则，并列出各服务提供的操作。消息定义在 [protocol/proto/asterion/](../protocol/proto/asterion/)，C++、Python 和 TypeScript 代码都从这些定义生成。
 
 ## 1. 传输
 
 | 连接 | 传输 | 身份 |
 | --- | --- | --- |
+| Terminal → Market | TCP + TLS 1.3 双向认证 | 双方证书指纹固定；行情主机登记 Terminal 的证书 |
 | Terminal → Warehouse、Lab → Warehouse | TCP + TLS 1.3 双向认证 | 双方证书指纹固定；Warehouse 按客户端证书授予 `read` 或 `manage` 权限 |
-| Terminal → Trading | TCP + TLS 1.3 双向认证 | 同上；交易主机登记 Terminal 的证书 |
+| Terminal → Trading | TCP + TLS 1.3 双向认证 | 双方证书指纹固定；交易主机登记 Terminal 的证书 |
 | Terminal → Lab | 本机 Unix 套接字 | 套接字目录只有当前用户可读写 |
 | Trading → 策略进程 | 本机私有 Unix 套接字 | 由 Trading 启动的子进程 |
 
-每条消息是 4 字节大端长度加 Protobuf 字节。Terminal 的 Warehouse、Trading 请求经原生层发送，TLS 私钥不进入页面；Lab 请求由 Electron 主进程通过本机套接字转发。
+每条消息是 4 字节大端长度加 Protobuf 字节。Terminal 的 Market、Warehouse 和 Trading 请求经原生层发送，TLS 私钥不进入页面；Lab 请求由 Electron 主进程通过本机套接字转发。
 
 ## 2. 消息封套
 
-Warehouse、Lab 和 Trading 的 RPC 使用各自的 `Request` 和 `Response`：
+Market、Warehouse、Lab 和 Trading 的 RPC 使用各自的 `Request` 和 `Response`：
 
 ```proto
 message Request {
@@ -31,7 +32,7 @@ message Response {
 }
 ```
 
-- `id` 由调用方选择，回复带回同一个值。原生层为每个连接递增编号。
+- `id` 由调用方选择，回复带回同一个值。原生层为远程服务请求递增编号。
 - **请求和结果同名同号**：请求的 `call` 是 `get_dataset_version = 21`，成功的结果就是 `get_dataset_version = 21`。调用方不需要另外的对照表。
 - 失败时 `result` 是 `error`，不会同时有结果。
 - 封套里没有版本号和服务名。理由：逐包携带是重复的，连接本身已经确定了对方是哪个服务。
@@ -41,7 +42,7 @@ message Response {
 
 | 对象 | 规则 | 例子 |
 | --- | --- | --- |
-| 包 | 服务名，或 `common` | `quotes`、`history`、`lab`、`trading`、`strategy` |
+| 包 | 服务名，或 `common` | `market`、`warehouse`、`lab`、`trading`、`strategy` |
 | 操作 | 动词_名词 | `get_status`、`get_dataset_version`、`start_acquisition` |
 | 动词 | `get` 读一项，`list` 读一组，`read` 读字节，`start`/`cancel` 改变任务，`stream` 持续接收 | |
 | 参数消息 | 操作名的 PascalCase；无参数用 `common.Empty`；只有一个标识用 `TaskId` 这类消息 | `GetDatasetVersion` |
@@ -187,8 +188,8 @@ sequenceDiagram
 | `pause_strategy` | 实例 ID、是否暂停 | `Strategies` |
 
 - `Account` 是主机配置的账户和柜台（不含密码和授权码），`session` 是开通后的账户状态：政策及其版本、柜台连接状态、授权时间、资金、持仓、委托、成交、未确认委托、费率和账本用量。账户相关的操作都返回整个 `Account`。理由：页面每次拿到的都是同一份完整状态，不需要合并局部回复。
-- 会改变交易状态的操作都放在 `Command` 里：下单、撤单、授权、撤销授权、确认未回报委托、修改政策。`Command` 带 `account_id` 和 `policy_revision`，与当前账户或政策不符时返回 `CONFLICT`。理由：用户核对的是哪个账户、哪版政策，执行的就只能是它。
-- 已写入交易记录的 `request_id` 不可复用，重复使用返回 `CONFLICT`。回复丢失时先 `get_account` 读取结果，不重发。
+- 会改变交易状态的操作都放在 `Command` 里：下单、撤单、授权、撤销授权、确认未回报委托、修改政策。`Command` 带 `account_id` 和 `policy_revision`，新命令与当前账户或政策不符时返回 `CONFLICT`。理由：用户核对的是哪个账户、哪版政策，执行的就只能是它。
+- `request_id` 随命令写入交易记录，重复请求语义见[交易记录](trading/README.md#交易记录断线与恢复)。回复丢失时先 `get_account` 读取结果，不重发。
 - `authorized_ms` 存在表示已授权。授权在撤销、修改政策或 Trading 重启后失效。
 - 策略实例的状态依次为 `STARTING`、`WARMING`、`READY`，结束于 `STOPPED`、`FAILED` 或 `INTERRUPTED`。
 

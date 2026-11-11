@@ -1,6 +1,6 @@
 # Terminal 部署与运行
 
-Terminal 支持 macOS Apple Silicon 和 Linux x86_64。应用包包含 Electron 界面、C++ 原生层、Lab 程序和内置研究源码；Warehouse 与 Trading 独立安装在 Linux 主机。
+Terminal 支持 macOS Apple Silicon 和 Linux x86_64。应用包包含 Electron 界面、C++ 原生层、Lab 程序和内置研究源码；Market、Warehouse 和 Trading 独立安装在 Linux 主机。
 
 ## 安装与启动
 
@@ -12,7 +12,7 @@ Terminal 支持 macOS Apple Silicon 和 Linux x86_64。应用包包含 Electron 
 
 首次启动安装研究使用的 Python 运行时及依赖，并创建本机客户端证书。安装失败可重试。进入工作台后，Lab 自动启动，已配置的行情服务自动连接。
 
-在设置的“关于”中复制客户端证书指纹，到 Warehouse 或 Trading 主机登记，再在相应服务设置中填写地址、端口和服务端证书指纹。交易连接还需要填写账户实例名。柜台密码和供应商密钥留在服务主机。
+在设置的“关于”中复制客户端证书指纹，到要连接的 Market、Warehouse 或 Trading 主机登记，再在相应服务设置中填写地址、端口和服务端证书指纹。交易连接还需要填写账户实例名。柜台密码和供应商密钥留在服务主机。
 
 ## 程序与数据布局
 
@@ -42,9 +42,9 @@ Lab 内部布局见[Lab 部署](../lab/deployment.md)。业务文件由界面维
 
 ## 生命周期
 
-- Terminal 只看护 Lab；Warehouse 和 Trading 的启动、停止、升级由服务主机负责。
-- 窗口关闭后 Lab 结束，远程 Warehouse 和已授权交易继续。停止策略、撤销授权、撤单和平仓必须分别执行对应操作。
-- 状态栏依次显示研究、行情、数据和交易状态。操作错误显示在表单中，后台错误进入通知中心；诊断可复制，本机日志可从通知中心打开。
+- Terminal 只看护 Lab；Market、Warehouse 和 Trading 的启动、停止、升级由服务主机负责。
+- 窗口关闭后 Lab 结束，远程 Market、Warehouse 和 Trading 继续运行，已授权交易不受影响。停止策略、撤销授权、撤单和平仓必须分别执行对应操作。
+- 状态栏依次显示行情、研究、数据和交易状态。操作错误显示在表单中，后台错误进入通知中心；诊断可复制，本机日志可从通知中心打开。
 - 连接修改与删除在设置页进行，业务页面只在未配置时提供添加入口。
 
 ## 升级、卸载与备份
