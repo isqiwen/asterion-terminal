@@ -638,6 +638,19 @@ def excluded_record(contracts: list) -> dict:
     return {"bars": len(days), "days": sorted(set(days))}
 
 
+def rejections_record(engine, contracts: list) -> list:
+    """Targets the risk limits or funds refused, one row per contract, lots and
+    reason with how often and when. Trading ends an instance on the first."""
+    rows = {}
+    for time_ns, _, contract, lots, reason in engine.rejections:
+        key = (contracts[contract]["symbol"], str(Decimal(lots).scaleb(-8).normalize()), reason)
+        row = rows.setdefault(key, {"contract": key[0], "lots": key[1], "reason": reason,
+                                    "count": 0, "first_ms": time_ns // 10 ** 6})
+        row["count"] += 1
+        row["last_ms"] = time_ns // 10 ** 6
+    return list(rows.values())
+
+
 def bars_record(config: Config) -> dict:
     return {"period": f"{config.minutes}m" if config.minutes else "day"}
 
@@ -672,8 +685,10 @@ def run(directory: Path, identity: str, config: Config, started=lambda: None):
         symbols = {engine.unit(index): symbol for symbol, index in first.items()}
         replay(engine, strategy, symbols, contracts, config)
         held_without_minutes(engine, contracts)
-        runs.succeed(identity, tables(engine, contracts), metrics(config, engine),
-                     {"excluded": excluded_record(contracts)} if config.minutes else {})
+        data = {"rejections": rejections_record(engine, contracts)}
+        if config.minutes:
+            data["excluded"] = excluded_record(contracts)
+        runs.succeed(identity, tables(engine, contracts), metrics(config, engine), data)
     except BaseException as error:
         runs.end(identity, "failed", str(error) or type(error).__name__)
         raise

@@ -160,5 +160,15 @@
   "评价记录": "Evaluations",
   "区间": "Range",
   "评价时间": "Evaluated",
-  "评价时的源码": "Code as evaluated"
+  "评价时的源码": "Code as evaluated",
+  "目标被风控或资金拒绝 {count} 次，实盘遇到会结束实例": "Targets refused by risk limits or funds {count} times; live trading would end the instance",
+  "目标手数": "Target lots",
+  "原因": "Reason",
+  "次数": "Times",
+  "首次": "First",
+  "末次": "Last",
+  "超过单笔上限": "Over the order limit",
+  "超过总持仓上限": "Over the gross position limit",
+  "超过在途委托上限": "Over the working order limit",
+  "资金不足": "Insufficient funds"
 }

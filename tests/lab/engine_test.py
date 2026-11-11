@@ -89,7 +89,7 @@ class Engine(unittest.TestCase):
 
         run(replay, decide)
         self.assertTrue(replay.rejections)
-        self.assertEqual(replay.rejections[0][1:], ("strategy.0", 5 * R, "gross_quantity"))
+        self.assertEqual(replay.rejections[0][2:], (0, 5 * R, "gross_quantity"))
         self.assertEqual(replay.fills(), [])
 
     def test_invalid_input_is_refused(self):

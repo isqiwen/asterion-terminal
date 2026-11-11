@@ -884,6 +884,16 @@ class Backtests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, f"missing fees of SHFE/rb/2026-05 on {DAYS[3].isoformat()}"):
             backtest.run(self.directory, "missing", self.config(("SHFE/rb/2026-05",)))
 
+    def test_targets_the_limits_refuse_are_recorded_with_their_reason(self):
+        backtest.run(self.directory, "refused", self.config(
+            ("SHFE/rb/2026-05",), params={"fast": 2, "slow": 4, "lots": 5}, max_gross_lots=Decimal(2)))
+        rows = Runs(self.directory).record("refused")["data"]["rejections"]
+        # Long, then short: each target is refused at every bar it stands.
+        self.assertEqual([(row["contract"], row["lots"], row["reason"]) for row in rows],
+                         [("SHFE/rb/2026-05", "5", "gross_quantity"),
+                          ("SHFE/rb/2026-05", "-5", "gross_quantity")])
+        self.assertTrue(all(row["count"] > 1 and row["first_ms"] < row["last_ms"] for row in rows))
+
     def test_a_missing_limit_is_named(self):
         run = self.sweep_request("named", [2], [4], 1).start_sweep.base
         run.limits.max_order_lots.text = ""

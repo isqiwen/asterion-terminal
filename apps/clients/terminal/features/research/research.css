@@ -811,3 +811,6 @@ label.lab-inline {
   border-bottom-color: var(--accent);
   color: var(--text-strong);
 }
+.lab-rejections summary {
+  color: var(--warning);
+}

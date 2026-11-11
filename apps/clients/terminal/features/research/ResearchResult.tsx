@@ -188,6 +188,8 @@ export function RunResult({
   const holdout = record.statistics?.holdout_day as string | undefined;
   const rolling = record.statistics?.rolling;
   const excluded = record.data.excluded as { bars: number; days: string[] } | undefined;
+  const rejections = (record.data.rejections ?? []) as Rejection[];
+  const refused = rejections.reduce((sum, row) => sum + row.count, 0);
   return (
     <div className="lab-result">
       {excluded && excluded.bars > 0 && (
@@ -197,6 +199,36 @@ export function RunResult({
             days: excluded.days.join("、"),
           })}
         </p>
+      )}
+      {refused > 0 && (
+        <details className="lab-rejections">
+          <summary>
+            {t("目标被风控或资金拒绝 {count} 次，实盘遇到会结束实例", { count: refused })}
+          </summary>
+          <div className="lab-scroll">
+            <table className="lab-table">
+              <thead>
+                <tr>
+                  {["合约", "目标手数", "原因", "次数", "首次", "末次"].map(label => (
+                    <th key={label}>{t(label)}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rejections.map(row => (
+                  <tr key={`${row.contract} ${row.lots} ${row.reason}`}>
+                    <td>{row.contract}</td>
+                    <td>{row.lots}</td>
+                    <td>{t(reasons[row.reason] ?? row.reason)}</td>
+                    <td>{row.count}</td>
+                    <td>{minute(BigInt(row.first_ms) * 1_000_000n)}</td>
+                    <td>{minute(BigInt(row.last_ms) * 1_000_000n)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
       )}
       <Figures summary={summary} />
       {holdout && (
@@ -350,6 +382,21 @@ const offsets: Record<string, string> = {
   open: "开仓",
   close_today: "平今",
   close_yesterday: "平昨",
+};
+// A target the run's limits or its funds refused, how often and when.
+type Rejection = {
+  contract: string;
+  lots: string;
+  reason: string;
+  count: number;
+  first_ms: number;
+  last_ms: number;
+};
+const reasons: Record<string, string> = {
+  order_quantity: "超过单笔上限",
+  gross_quantity: "超过总持仓上限",
+  working_orders: "超过在途委托上限",
+  insufficient_funds: "资金不足",
 };
 export const states: Record<string, string> = {
   running: "运行中",

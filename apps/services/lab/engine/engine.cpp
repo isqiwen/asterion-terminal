@@ -123,7 +123,7 @@ struct Record final : Replay::Observer
     std::vector<py::tuple> settlements;
     // (trading_day, contract, long, short, settlement_price, margin)
     std::vector<py::tuple> positions;
-    // (event, intent, lots, reason)
+    // (time_ns, trading_day, contract, lots, reason)
     std::vector<py::tuple> rejections;
     // When each order was placed and each fill made, and on which trading day.
     std::vector<std::int64_t> order_times, fill_times;
@@ -150,8 +150,9 @@ struct Record final : Replay::Observer
         if (!decision.allowed() && intent)
             rejections.push_back(
                 py::make_tuple(
-                    index,
-                    intent->order_id,
+                    bar.timestamp_ns,
+                    bar.trading_day,
+                    execution.event(index).contract,
                     intent->quantity.raw(),
                     std::string(risk_reason_name(decision.reason))));
     }

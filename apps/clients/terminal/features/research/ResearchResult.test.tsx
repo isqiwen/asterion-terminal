@@ -188,3 +188,43 @@ test("a Friday night fill shows Monday's trading day and Friday's time", async (
   const row = (await screen.findByText("2026-01-05", { selector: "td" })).closest("tr")!;
   expect(row.textContent).toContain("01-02 21:05");
 });
+
+test("a run whose targets were refused shows how often and why", async () => {
+  const request = vi.mocked(lab);
+  request.mockReset();
+  request.mockImplementation(async operation => {
+    if (operation?.case === "getChartBars") return create(ChartBarsSchema, {}) as never;
+    if (operation?.case !== "getRun") throw new Error("expected run read");
+    return create(RunDetailSchema, {
+      summary: { id: "refused", state: RunState.SUCCEEDED },
+      record: JSON.stringify({
+        strategy: { id: "ma_cross.MaCross", commit: "commit", changes: "" },
+        costs: { deposit: "1000000" },
+        engine: { version: "test" },
+        data: {
+          dataset_version: "a".repeat(64),
+          symbols: ["SHFE/rb/2026-05"],
+          begin_day: "2026-01-05",
+          end_day: "2026-02-13",
+          bars: { period: "day" },
+          rejections: [
+            {
+              contract: "SHFE/rb/2026-05",
+              lots: "5",
+              reason: "gross_quantity",
+              count: 14,
+              first_ms: 1767942000000,
+              last_ms: 1769583600000,
+            },
+          ],
+        },
+      }),
+    }) as never;
+  });
+  render(<RunResult id="refused" state="succeeded" />);
+  expect(
+    await screen.findByText("目标被风控或资金拒绝 {count} 次，实盘遇到会结束实例"),
+  ).not.toBeNull();
+  expect(screen.getByRole("cell", { name: "超过总持仓上限" })).not.toBeNull();
+  expect(screen.getByRole("cell", { name: "14" })).not.toBeNull();
+});

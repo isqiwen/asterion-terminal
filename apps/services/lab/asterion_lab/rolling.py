@@ -180,7 +180,8 @@ def run(directory: Path, identity: str, sweep: str, config, training: int, valid
         # Out of sample: from the first validation day on.
         result.update({f"out_of_sample_{name}": value for name, value in
                        backtest.segment_metrics(config, engine, training).items()})
-        runs.succeed(identity, backtest.tables(engine, contracts), result)
+        runs.succeed(identity, backtest.tables(engine, contracts), result,
+                     {"rejections": backtest.rejections_record(engine, contracts)})
     except BaseException as error:
         runs.end(identity, "failed", str(error) or type(error).__name__)
         raise
