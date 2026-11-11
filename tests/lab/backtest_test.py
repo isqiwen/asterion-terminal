@@ -666,6 +666,45 @@ class Backtests(unittest.TestCase):
                          [backtest.close_ns(DAYS[3].isoformat())])
         self.assertEqual(engine.positions[-1][1:4], (1, 2 * backtest.R, 0))
 
+    def test_a_series_month_needs_minutes_only_while_it_trades(self):
+        import asterion_engine
+
+        # 2026-05 is dominant until its handover on DAYS[16]; 2026-10 joins on DAYS[15].
+        writer = Warehouse(self.directory).writer()
+        stored = backtest.open_data(self.directory, self.config(("SHFE/rb",))).product("SHFE", "rb")
+        for contract, days in (("SHFE/rb/2026-05", DAYS[1:18]), ("SHFE/rb/2026-10", DAYS[15:])):
+            for day in days:
+                close = Decimal(stored[contract].days[day.isoformat()]["close"])
+                start = int(datetime.datetime.combine(day, datetime.time(9), backtest.BEIJING)
+                            .timestamp()) * 1000
+                writer.put_rows(f"minutes/SHFE/{day.isoformat()}/rb/{contract[-7:]}", "minutes", [
+                    dict(exchange="SHFE", product="rb", contract=contract, day=day.isoformat(),
+                         start_ms=start + minute * 60000, partial=False, open=close, high=close,
+                         low=close, close=close, volume=Decimal(10), average_price=None,
+                         open_interest=Decimal(900)) for minute in range(10)], days=[day.isoformat()])
+        writer.commit()
+        backtest.run(self.directory, "dominant", self.config(("SHFE/rb",), minutes=1))
+        (row,) = Runs(self.directory).list()
+        self.assertEqual(row["state"], "succeeded", row["error"])
+
+        class Pause(Strategy):
+            def on_bar(self, ctx, bar):
+                if bar.time.date() == DAYS[2]:
+                    ctx.target(bar.symbol, 3)
+
+            def ready(self, ctx):
+                return ctx.time.date() <= DAYS[2]
+
+        config = self.config(("SHFE/rb",), minutes=1)
+        contracts, series, first = backtest.prepare(backtest.open_data(self.directory, config), config)
+        engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
+                                        (backtest.R, 10 * backtest.R, 10))
+        backtest.replay(engine, Pause(), {engine.unit(index): symbol for symbol, index in first.items()},
+                        contracts, config)
+        with self.assertRaisesRegex(ValueError, f"minutes of SHFE/rb/2026-05 are not stored on "
+                                                f"{DAYS[18].isoformat()} to .*, while it is held"):
+            backtest.held_without_minutes(engine, contracts)
+
     def test_minute_bars_are_read_gathered_and_traded(self):
         # Ten minutes 09:00-09:10 Beijing on each of the first ten days, up
         # then down, on top of the days' settlements.

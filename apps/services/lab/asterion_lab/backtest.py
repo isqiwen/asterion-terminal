@@ -23,6 +23,8 @@ placed again at every bar's close, each order at most the order limit. A
 strategy that is not ready places nothing and keeps what it holds; once ready
 again, only the targets it then gives stand. Minute runs require daily settlements
 on open days within the contract's listed life, and minutes unless daily volume is zero.
+A series month needs minutes only while it is dominant, from the day before through
+the handover; after that, only on days it is still held.
 
 The service runs each backtest in a child process:
 
@@ -303,7 +305,10 @@ def spans(missing: list, days: list) -> str:
                      for run in runs)
 
 
-def contract_input(data: Data, config: Config, contract: str, begin: str, end: str) -> dict:
+def contract_input(data: Data, config: Config, contract: str, begin: str, end: str,
+                   minutes_until: str = "") -> dict:
+    """`minutes_until`: the last day minutes are required; later days without
+    them are listed as unminuted."""
     exchange, product, _ = contract.split("/")
     month = data.product(exchange, product).get(contract)
     if config.minutes:
@@ -321,7 +326,7 @@ def contract_input(data: Data, config: Config, contract: str, begin: str, end: s
     if not days:
         raise ValueError(f"no bars of {contract} fall inside the requested trading days")
     interest = lambda value: math.nan if value is None else float(value)
-    excluded = []
+    excluded, unminuted = [], []
     if config.minutes:
         # Minutes of the days that settle; a period is labelled when it ends.
         settled = set(days)
@@ -329,6 +334,8 @@ def contract_input(data: Data, config: Config, contract: str, begin: str, end: s
                    if bar["trading_day"] in settled]
         stored = {bar["trading_day"] for bar in minutes}
         missing = [day for day in days if day not in stored and month.days[day]["volume"] != 0]
+        unminuted = [day for day in missing if day > (minutes_until or end)]
+        missing = [day for day in missing if day <= (minutes_until or end)]
         if missing:
             raise ValueError(f"minutes of {contract} are not stored on {spans(missing, days)}")
         excluded = [bar["trading_day"] for bar in minutes if bar["partial"]]
@@ -370,7 +377,7 @@ def contract_input(data: Data, config: Config, contract: str, begin: str, end: s
         settlements=settlements,
         # Not the engine's: what a strategy reads besides prices, by bar time,
         # and the trading day of each bar left out.
-        open_interest={bar[1]: bar[7] for bar in bars}, excluded=excluded)
+        open_interest={bar[1]: bar[7] for bar in bars}, excluded=excluded, unminuted=unminuted)
 
 
 def series_input(data: Data, config: Config, exchange: str, product: str):
@@ -398,7 +405,13 @@ def series_input(data: Data, config: Config, exchange: str, product: str):
         month = months[segment.month]
         # A paused strategy can keep the old month until it gives a new target.
         begin = segment.before if i else segment.begin
-        contracts.append(contract_input(data, config, month.contract, begin, config.end_day))
+        # A month that hands over trades through its bar on or after the roll day, and the next.
+        until = ""
+        if i + 1 < len(plan.segments):
+            bars = traded[month.contract]
+            closed = next(n for n, day in enumerate(bars) if day >= plan.segments[i + 1].begin)
+            until = bars[min(closed + 1, len(bars) - 1)]
+        contracts.append(contract_input(data, config, month.contract, begin, config.end_day, until))
         contracts[-1]["roll_ratio"] = float(plan.ratios[i])
         rolls.append((segment.begin, i))
     return contracts, rolls
@@ -610,6 +623,15 @@ def open_data(directory: Path, config: Config) -> Data:
     return Data(Dataset(directory), config.begin_day, config.end_day, version=config.dataset_version)
 
 
+def held_without_minutes(engine, contracts: list):
+    """A position held where its month has no minutes could neither close nor roll."""
+    for index, item in enumerate(contracts):
+        days = [row[0] for row in engine.positions if row[1] == index and row[0] in item["unminuted"]]
+        if days:
+            raise ValueError(f"minutes of {item['symbol']} are not stored on "
+                             f"{spans(days, item['unminuted'])}, while it is held")
+
+
 def excluded_record(contracts: list) -> dict:
     """The bars left out for an incomplete minute, and their trading days."""
     days = [day for item in contracts for day in item["excluded"]]
@@ -649,6 +671,7 @@ def run(directory: Path, identity: str, config: Config, started=lambda: None):
             (raw(config.max_order_lots), raw(config.max_gross_lots), config.max_working_orders))
         symbols = {engine.unit(index): symbol for symbol, index in first.items()}
         replay(engine, strategy, symbols, contracts, config)
+        held_without_minutes(engine, contracts)
         runs.succeed(identity, tables(engine, contracts), metrics(config, engine),
                      {"excluded": excluded_record(contracts)} if config.minutes else {})
     except BaseException as error:
