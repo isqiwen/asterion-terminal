@@ -116,7 +116,7 @@ target_include_directories(asterion_market_settings_tests PRIVATE ${CMAKE_SOURCE
 add_test(NAME warehouse_startup COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/warehouse/startup_test.py $<TARGET_FILE:asterion_warehouse>)
 set_tests_properties(warehouse_startup PROPERTIES TIMEOUT 45)
 asterion_unit_tests(asterion_warehouse_tests warehouse/warehouse_test.cpp asterion_warehouse_store)
-target_link_libraries(asterion_warehouse_tests PRIVATE asterion_bar_parquet duckdb::duckdb)
+target_link_libraries(asterion_warehouse_tests PRIVATE asterion_parquet duckdb::duckdb)
 target_compile_definitions(asterion_warehouse_tests PRIVATE ASTERION_WAREHOUSE_PATH="$<TARGET_FILE:asterion_warehouse>")
 add_dependencies(asterion_warehouse_tests asterion_warehouse)
 asterion_unit_tests(asterion_acquisition_tests warehouse/acquisition_test.cpp asterion_warehouse_acquisition)

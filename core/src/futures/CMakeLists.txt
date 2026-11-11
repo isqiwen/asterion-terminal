@@ -1,8 +1,7 @@
 add_library(asterion_futures STATIC
   market.cpp
-  historical_bars.cpp
   history_identity.cpp
-  history_tables.cpp
+  trading_days.cpp
   intraday_bars.cpp
   order.cpp
   order_limits.cpp

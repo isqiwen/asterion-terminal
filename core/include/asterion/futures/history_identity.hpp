@@ -1,9 +1,5 @@
 #pragma once
-#include <asterion/futures/market.hpp>
-#include <optional>
-#include <span>
-#include <vector>
-#include <stop_token>
+#include <string>
 
 namespace asterion {
 
@@ -11,36 +7,9 @@ namespace asterion {
 struct HistoryIdentity
 {
     std::string venue, product, delivery_month;
-    auto operator<=>(const HistoryIdentity&) const = default;
-    void validate() const;
+    // "<venue>/<product>/<YYYY-MM>", as research and Warehouse name a contract;
+    // throws for an unsupported exchange, product or month.
     std::string key() const;
-    InstrumentId exchange_id() const;
-    static HistoryIdentity parse(std::string_view);
 };
-
-struct HistoryListing
-{
-    HistoryIdentity identity;
-    std::string name, list_date, delist_date;
-    std::string source_instrument = {};
-    std::optional<Decimal> multiplier = {}, per_unit = {};
-    std::optional<std::string> trade_unit = {}, quote_unit = {};
-};
-
-// Serialized with each dataset. Unknown label semantics cannot be used for execution.
-struct HistorySemantics
-{
-    std::string source, normalization, timezone, timestamp_semantics;
-    std::string amount_unit = "quote_currency", quantity_unit = "contracts";
-    auto operator<=>(const HistorySemantics&) const = default;
-    void validate() const;
-};
-
-void validate_history_source(std::string_view);
-// The six futures exchanges history is kept for.
-std::span<const std::string_view> history_venues();
-void validate_history_venue(std::string_view);
-std::int64_t parse_shanghai_time(std::string_view);
-std::string format_shanghai_time(std::int64_t);
 
 } // namespace asterion

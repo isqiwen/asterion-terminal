@@ -43,7 +43,7 @@ flowchart TB
 | --- | --- | --- |
 | 基础 `base` | `asterion_base` | `Decimal`（8 位小数定点）、ID、时钟、错误码、序列化 |
 | 系统 `system` | `asterion_system` | 本机 IPC、固定指纹 TLS、RPC、子进程、文件锁、持久写入、线程池、日志 |
-| 期货 `futures` | `asterion_futures` | 合约、订单、账本、回放与撮合、交易时段、分钟线、订单限额 |
+| 期货 `futures` | `asterion_futures` | 合约、订单、账本、回放与撮合、交易日、分钟线、订单限额 |
 | 数据库 `database/` | `asterion_sqlite` | SQLite 访问 |
 | 协议 | `asterion_protocol` | `protocol/proto/` 的 Protobuf 契约，规则见[通信协议](protocol.md) |
 

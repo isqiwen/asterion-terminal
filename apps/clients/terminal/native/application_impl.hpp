@@ -3,7 +3,6 @@
 // per-domain command registrations (commands_*.cpp). Not a public API.
 #include "terminal_application.hpp"
 #include <asterion/futures/account.hpp>
-#include <asterion/futures/history_identity.hpp>
 #include "warehouse_client.hpp"
 #include "market_client.hpp"
 #include "lab_supervisor.hpp"
