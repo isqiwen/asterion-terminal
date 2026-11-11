@@ -1,6 +1,6 @@
 # Terminal 开发者导读
 
-界面行为见[终端界面](README.md)，安装和本机目录见[部署与运行](deployment.md)。Terminal 是桌面操作入口，远程业务状态仍由 Warehouse 和 Trading 管理。
+界面行为见[终端界面](README.md)，安装和本机目录见[部署与运行](deployment.md)。Terminal 是桌面操作入口，远程业务状态仍由 Market、Warehouse 和 Trading 管理。
 
 ## 组件边界
 
@@ -12,14 +12,15 @@ flowchart LR
     main --> native[Node-API / C++ Application]
     main -->|Lab Protobuf 字节| lab[本机 Lab]
     native -->|启动与看护| lab
-    native <-->|TLS 请求与报价流| market[远程 Warehouse]
+    native <-->|TLS 请求与报价流| market[远程 Market]
+    native <-->|TLS 请求| warehouse[远程 Warehouse]
     native <-->|TLS 请求与快照| trading[远程 Trading]
 ```
 
 - `features/` 负责业务页面与操作，`src/host/` 负责工作台、共享视图状态和通知，`src/settings/` 管理连接与偏好。
 - 页面使用生成的 Protobuf 类型构建请求；桥接层负责将消息送到正确通道。功能只能调用其声明的原生命令。
 - Electron 主进程管理窗口、系统交互和 Lab 字节通道；预加载脚本只暴露允许的接口。
-- C++ `Application` 管理连接设置、TLS 身份、Warehouse 报价流与 Lab 看护。Warehouse 和 Trading 的业务字段由页面读取，不另建一套原生层视图模型。
+- C++ `Application` 管理连接设置、TLS 身份、Market 报价流与 Lab 看护。Market、Warehouse 和 Trading 的业务字段由页面读取，不另建一套原生层视图模型。
 - 行情与交易状态由页面端共享 Provider 维护，`runtime.snapshot` 提供本机服务与设置状态。理由：多个页面看到同一份连接状态，远程账户状态保持服务端权威。
 
 ## 原生层核心关系
@@ -33,7 +34,7 @@ classDiagram
         view()
     }
     class PythonRuntime
-    class MarketEndpoint
+    class SavedEndpoint
     class TradingConnections
     class MarketWatch {
         open()
@@ -42,14 +43,14 @@ classDiagram
     Application *-- ServiceIo
     Application *-- LabSupervisor
     Application *-- PythonRuntime
-    Application *-- MarketEndpoint
+    Application *-- "2" SavedEndpoint : Market 与 Warehouse
     Application *-- TradingConnections
     Application --> MarketWatch
     MarketWatch --> ServiceIo
     LabSupervisor ..> PythonRuntime : 通过解释器提供函数
 ```
 
-图中的成员由 `Application::Impl` 持有。交易请求通过函数 `call_trading()` 发送，没有与之对应的 `TradingClient` 业务类；行情普通请求通过 `call_market()`，持续报价使用 `MarketWatch`。
+图中的成员由 `Application::Impl` 持有。交易请求通过函数 `call_trading()` 发送，没有与之对应的 `TradingClient` 业务类；行情普通请求通过 `call_market()`，持续报价使用 `MarketWatch`；Warehouse 请求通过 `call_warehouse()`。
 
 ## 启动与研究请求
 
@@ -81,15 +82,15 @@ sequenceDiagram
 sequenceDiagram
     participant UI as 页面与 Provider
     participant Native as C++ 原生层
-    participant Warehouse
+    participant Market
     participant Trading
     UI->>Native: market.open
-    Native->>Warehouse: stream_quotes
-    Warehouse-->>Native: full
+    Native->>Market: stream_quotes
+    Market-->>Native: full
     UI->>Native: market.watch
     Native-->>UI: 已接收的报价帧
     UI->>UI: full 替换，changed 按合约合并
-    Warehouse-->>Native: changed
+    Market-->>Native: changed
     UI->>Native: market.watch
     Native-->>UI: 后续报价帧
     UI->>Native: trading.call(Request)
@@ -98,7 +99,7 @@ sequenceDiagram
     Native-->>UI: ProtoJSON
 ```
 
-`market.watch` 是页面读取原生层已接收报价帧的命令；`stream_quotes` 才是 Warehouse 服务协议。断线或页面缺少完整首帧时重开报价流。普通 Warehouse 查询通过 `market.call`，数据页与行情共享连接设置。
+`market.watch` 是页面读取原生层已接收报价帧的命令；`stream_quotes` 才是 Market 服务协议。断线或页面缺少完整首帧时重开报价流。其他行情请求通过 `market.call`；数据页通过 `warehouse.call` 读 Warehouse。Market 和 Warehouse 各有单独保存的地址和证书指纹，每次请求各自建立 TLS 连接。
 
 交易命令的回复不替代柜台后续状态；账户 Provider 持续读取 `get_account` 与健康状态。发送失败显示在操作位置，后台中断进入通知中心，不自动补发交易命令。
 
@@ -111,7 +112,7 @@ sequenceDiagram
 | 远程读取中断 | 显示中断原因，已有账户状态保留并标记失联 |
 | 操作失败 | 在相关表单显示错误，原始诊断可复制 |
 | Lab 异常退出 | 显示研究状态并自动重启，远程服务不受影响 |
-| 关闭 Terminal | 结束本机 Lab 和连接，Warehouse 与 Trading 继续运行 |
+| 关闭 Terminal | 结束本机 Lab 和连接，Market、Warehouse 与 Trading 继续运行 |
 
 ## 代码阅读路线
 

@@ -16,20 +16,29 @@
 
 Lab 的研究任务通过通信协议提交，没有单独的研究或任务配置文件。日志字段见[运行日志](services.md#运行日志)，两个输出都支持可选的 `pattern`。
 
+## Market
+
+| 字段 | 含义 |
+| --- | --- |
+| `bind`、`port` | 服务监听地址和端口 |
+| `data` | 已存在的数据目录绝对路径 |
+| `counter.market_front`、`trade_front` | CTP 行情、交易前置地址；交易前置只用于获取合约目录 |
+| `counter.broker`、`user`、`app_id` | 经纪商、行情账户和应用标识；`app_id` 可为空 |
+| `clients[].fingerprint` | 允许连接的客户端证书 SHA-256 指纹 |
+
+密码和授权码不属于 JSON 字段。服务从 systemd 提供的凭据目录读取 `asterion.ctp.password`，`app_id` 非空时另读 `asterion.ctp.auth_code`。
+
 ## Warehouse
 
 | 字段 | 含义 |
 | --- | --- |
 | `bind`、`port` | 服务监听地址和端口 |
 | `data` | 已存在的数据目录绝对路径 |
-| `recording.tick_days` | Tick 保留的交易日数，分钟线和观测段长期保留 |
-| `counter.market_front`、`trade_front` | CTP 行情、交易前置地址；交易前置用于获取合约目录 |
-| `counter.broker`、`user`、`app_id` | 经纪商、账户和应用标识；`app_id` 可为空 |
 | `clients[].fingerprint`、`role` | 客户端证书 SHA-256 指纹；`read` 只读，`manage` 可管理采集 |
 | `acquisition.exchanges` | 开启日线采集的交易所列表，可为空 |
 | `acquisition.tushare` | `null` 表示关闭；开启时填写 `requests_per_minute`（1–500） |
 
-密码、授权码和 Tushare token 不属于 JSON 字段。服务从 systemd 提供的凭据目录读取 `asterion.ctp.password`、非空 `app_id` 对应的 `asterion.ctp.auth_code`，以及开启 Tushare 后的 `asterion.warehouse.tushare.token`。
+Warehouse 不连接柜台，也没有 CTP 凭据。开启 Tushare 后，服务从 systemd 凭据目录读取 `asterion.warehouse.tushare.token`，token 不写在 JSON 里。
 
 ## Trading
 

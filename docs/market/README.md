@@ -20,7 +20,7 @@ Market 用单独的行情账户，不得配置实盘交易账户，理由见[交
 - 在“设置 → 关于”复制本机客户端证书指纹，登记到 Market 主机，再在“设置 → 行情服务”填写主机、端口和服务端证书指纹。连接是 TLS 1.3 双向固定指纹。Market 没有管理操作，登记的客户端都能读取。
 - Terminal 在 `terminal/data/market.json` 保存地址、服务端指纹和自选（最多 50 个合约）。修改地址或自选不影响服务和其他客户端。
 - 分时图按 `apps/clients/terminal/config/futures-sessions.json` 的交易时段排横轴；没有列出的品种只按已观测的分钟排列。
-- 看盘用 `stream_quotes`：首帧 `full` 替换全部内容，之后的 `changed` 按合约替换整行，带目录时替换目录；断线后重新开流。一次性读取用 `get_board`。协议见[通信协议](../protocol.md#7-quotes)。
+- 看盘用 `stream_quotes`：首帧 `full` 替换全部内容，之后的 `changed` 按合约替换整行，带目录时替换目录；断线后重新开流。一次性读取用 `get_board`。协议见[通信协议](../protocol.md#7-market)。
 
 ## 错误边界
 

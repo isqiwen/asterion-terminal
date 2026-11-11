@@ -142,7 +142,7 @@ sequenceDiagram
 
 版本参数 `DatasetRef` 的 `version` 为空时表示当前版本；回复带回实际版本，后续分页和下载都使用这个版本。
 
-## 8. Lab
+## 9. Lab
 
 定义在 [lab.proto](../protocol/proto/asterion/lab.proto)。行为说明见 [Lab](lab/README.md)。Lab 只接受本机 Terminal 的连接。
 
@@ -150,23 +150,24 @@ sequenceDiagram
 | --- | --- | --- |
 | `get_health` | — | 是否已启动完成；Terminal 的 Lab 看护模块用它判断服务是否可用 |
 | `get_dataset_summary` | — | 研究数据当前版本的摘要，与 Warehouse 的 `DatasetSummary` 相同 |
-| `list_stored_contracts` | 合约，不填表示全部 | 每个合约的日线和分钟线范围 |
+| `list_stored_contracts` | 合约（不填表示全部）、版本（不填表示当前） | 每个合约的日线和分钟线范围 |
 | `get_chart_bars` | 合约、周期、版本 | K 线与 MACD |
 | `get_dominant_series` | 品种、起止日、是否按交易换月、复权方式 | 主力连续的逐日价格和换月 |
 | `get_trading_sessions` | 品种、起止日 | 每个交易日的日盘、夜盘时段和依据 |
 | `list_strategies` | 策略目录 | 策略、因子、导入失败的模块 |
 | `read_source` / `save_source` / `delete_source` | 模块路径 | 模块内容 / — / — |
 | `build_package` | 策略目录与策略 | 发布到 Trading 的策略包 |
-| `evaluate_factor` | 因子、参数、品种、起止日、持有期、分组 | 因子评估结果 |
+| `evaluate_factor` | 名称、因子、参数、品种、起止日、持有期、分组 | 因子评估结果，Lab 同时保存它 |
+| `list_factor_results` / `get_factor_result` | — / 名称 | 保存的评估（不含逐日与分组）/ 一次评估的完整结果 |
 | `start_backtest` | 回测设置 | —，接受即已记录 |
 | `list_runs` / `get_run` / `get_run_report` | — / 运行 ID / 运行 ID | 运行列表 / 运行详情 / QuantStats 指标 |
 | `cancel_run` | 运行 ID | — |
 | `start_sweep` / `get_sweep` / `cancel_sweep` | 扫描设置 / 扫描 ID / 扫描 ID | — / 扫描的各次运行 / — |
 
-- 回测和因子评估在接受时由 Lab 固定研究数据版本和代码副本；结果中的 `pinned` 记录数据版本、代码提交和未提交改动摘要。理由：界面的请求只描述要算什么；读哪一版由 Lab 在同一时刻决定，扫描的每次运行都相同。
+- 回测和因子评估在接受时由 Lab 固定研究数据版本和代码副本；副本只含策略或因子模块及它从策略目录导入的模块，与策略包的范围相同。结果中的 `pinned` 记录数据版本、代码提交和未提交改动摘要；因子结果还带着评价时的模块源码。理由：界面的请求只描述要算什么；读哪一版由 Lab 在同一时刻决定，扫描的每次运行都相同。
 - Lab 交给子进程的是 `AdmittedRun`、`RollingRun` 和 `AdmittedFactor`：界面的请求加上 Lab 选定的版本和代码副本。它们也定义在 lab.proto 里，但只在 Lab 内部使用。
 
-## 9. Trading
+## 10. Trading
 
 定义在 [trading.proto](../protocol/proto/asterion/trading.proto)。行为说明见 [交易](trading/README.md)，交易规则见 [交易安全](safety.md)。一个 Trading 进程只管一个 CTP 账户。
 
@@ -191,7 +192,7 @@ sequenceDiagram
 - `authorized_ms` 存在表示已授权。授权在撤销、修改政策或 Trading 重启后失效。
 - 策略实例的状态依次为 `STARTING`、`WARMING`、`READY`，结束于 `STOPPED`、`FAILED` 或 `INTERRUPTED`。
 
-## 10. 策略进程
+## 11. 策略进程
 
 定义在 [strategy.proto](../protocol/proto/asterion/strategy.proto)。Trading 为每个策略实例启动一个 Python 子进程，经私有 Unix 套接字交换 `strategy.Request` 和 `strategy.Response`，一问一答，没有 `id`。理由：连接只有一个调用方，回复按顺序对应请求。
 
@@ -216,6 +217,6 @@ sequenceDiagram
 
 Lab 打包策略时也使用 `strategy.Package` 和 `strategy.ParameterValue`。
 
-## 11. 演进
+## 12. 演进
 
 项目尚未发布，服务和客户端使用同一套协议，需配套部署。协议格式变更也影响采集任务、目录缓存等持久化 Protobuf 文件，当前不提供旧格式迁移。
