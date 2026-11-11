@@ -21,6 +21,15 @@ std::int64_t quote_age_ms(const MarketQuote& quote, std::int64_t wall)
     return std::max({std::int64_t{0}, wall - quote.source_ms, wall - quote.received_ms});
 }
 
+// The host stamps the time when it records the event.
+::trading::InstanceEvent event(::trading::InstanceEventKind kind, std::string text)
+{
+    ::trading::InstanceEvent result;
+    result.set_kind(kind);
+    result.set_text(std::move(text));
+    return result;
+}
+
 } // namespace
 
 StrategyAuthorityPtr LiveAccountState::register_strategy(
@@ -316,11 +325,12 @@ AccountCommand LiveAccountState::advance_strategy_target(
             origin);
         batch.last_order = sent;
         // Not std::format: macOS 13.0 libc++ lacks the to_chars it instantiates.
-        strategy_->events.push_back(
+        strategy_->events.push_back(event(
+            ::trading::INSTANCE_EVENT_KIND_ORDER_SENT,
             "sent " + leg.instrument.venue + "/" + leg.instrument.symbol
-            + (leg.side == Side::buy ? " buy " : " sell ")
-            + (leg.offset == Offset::open ? "open " : "close ") + leg.quantity.str() + " @ "
-            + price->str());
+                + (leg.side == Side::buy ? " buy " : " sell ")
+                + (leg.offset == Offset::open ? "open " : "close ") + leg.quantity.str() + " @ "
+                + price->str()));
         // No references to batch survive this suspension: a stop can release it.
         co_await execute_strategy(basis, request, control);
     } catch (const std::invalid_argument& error) {
@@ -355,7 +365,9 @@ void LiveAccountState::abandon_strategy_batch(std::string_view reason)
         strategy_->sequence,
         reason);
     strategy_->batch.reset();
-    strategy_->events.push_back("batch abandoned: " + std::string(reason));
+    strategy_->events.push_back(event(
+        ::trading::INSTANCE_EVENT_KIND_BATCH_ABANDONED,
+        "batch abandoned: " + std::string(reason)));
     send_gate_.invalidate();
     request_strategy_cancels();
 }
@@ -392,10 +404,10 @@ void LiveAccountState::flatten_strategy(
     strategy_->next_leg = 0;
     strategy_->deadline = now + std::chrono::seconds(10);
     strategy_->batch = std::move(batch);
-    strategy_->events.push_back("flattening");
+    strategy_->events.push_back(event(::trading::INSTANCE_EVENT_KIND_FLATTENING, "flattening"));
 }
 
-std::vector<std::string> LiveAccountState::take_strategy_events(
+std::vector<::trading::InstanceEvent> LiveAccountState::take_strategy_events(
     const StrategyAuthorityPtr& authority)
 {
     if (!strategy_ || strategy_->authority != authority)

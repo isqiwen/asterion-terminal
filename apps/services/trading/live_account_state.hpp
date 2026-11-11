@@ -62,7 +62,8 @@ public:
     // Pauses the instance and closes its contracts through the same execution path.
     void flatten_strategy(const StrategyAuthorityPtr& authority, std::vector<MarketQuote> quotes);
     // Execution events since the last call: orders sent and batches abandoned.
-    std::vector<std::string> take_strategy_events(const StrategyAuthorityPtr& authority);
+    std::vector<::trading::InstanceEvent> take_strategy_events(
+        const StrategyAuthorityPtr& authority);
     void fail_strategy(std::string reason);
     // Drops the current target batch and cancels its orders once; the instance keeps running.
     void abandon_strategy_batch(std::string_view reason);
@@ -242,7 +243,7 @@ private:
         // ready decision without targets replans what is left of them.
         std::vector<PositionTarget> held = {};
         bool paused = false;
-        std::vector<std::string> events = {};
+        std::vector<::trading::InstanceEvent> events = {};
     };
 
     std::optional<ActiveStrategy> strategy_;

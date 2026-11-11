@@ -202,11 +202,13 @@ message Trade {
   string trading_day = 8;
   // The counter's TradeDate and TradeTime, "YYYYMMDD HH:MM:SS" Beijing time.
   string trade_time = 9;
+  // When Trading received the report; the counter's dates are unreliable at night.
+  int64 received_ms = 10;
 }
 
 // What the account recorded of one trading day: its fills, oldest first, and its close.
 message GetDay {
-  // YYYYMMDD, as the counter labels it.
+  // YYYY-MM-DD, as every trading day of this protocol.
   string trading_day = 1;
 }
 
@@ -324,4 +326,17 @@ message InstanceStatus {
 message InstanceEvent {
   int64 time_ms = 1;
   string text = 2;
+  InstanceEventKind kind = 3;
+}
+
+enum InstanceEventKind {
+  INSTANCE_EVENT_KIND_UNSPECIFIED = 0;
+  INSTANCE_EVENT_KIND_ORDER_SENT = 1;
+  INSTANCE_EVENT_KIND_BATCH_ABANDONED = 2;
+  INSTANCE_EVENT_KIND_FLATTENING = 3;
+  INSTANCE_EVENT_KIND_PAUSED = 4;
+  INSTANCE_EVENT_KIND_RESUMED = 5;
+  INSTANCE_EVENT_KIND_FLATTEN_REQUESTED = 6;
+  INSTANCE_EVENT_KIND_MARKET_DISCONNECTED = 7;
+  INSTANCE_EVENT_KIND_MARKET_RECONNECTED = 8;
 }

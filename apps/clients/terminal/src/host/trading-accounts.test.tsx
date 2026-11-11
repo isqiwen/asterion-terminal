@@ -4,6 +4,7 @@ import { expect, test, vi } from "vitest";
 import { tradingRequest } from "../bridge/trading";
 import {
   HealthSchema,
+  InstanceEventKind,
   InstanceState,
   ResponseSchema,
   StrategiesSchema,
@@ -105,7 +106,11 @@ const instance = (id: string, state: InstanceState, events: [bigint, string][] =
           instance: { id },
           state,
           error,
-          events: events.map(([timeMs, text]) => ({ timeMs, text })),
+          events: events.map(([timeMs, text]) => ({
+            timeMs,
+            text,
+            kind: InstanceEventKind.BATCH_ABANDONED,
+          })),
         },
       }),
     },

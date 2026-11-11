@@ -52,7 +52,8 @@ public:
     std::future<void> pause_strategy(StrategyAuthorityPtr authority, bool paused);
     std::future<void>
     flatten_strategy(StrategyAuthorityPtr authority, std::vector<MarketQuote> quotes);
-    std::future<std::vector<std::string>> take_strategy_events(StrategyAuthorityPtr authority);
+    std::future<std::vector<::trading::InstanceEvent>> take_strategy_events(
+        StrategyAuthorityPtr authority);
     std::future<void> execute_strategy(StrategyOrderBasis basis, SubmitOrder order);
     std::future<void> accept_strategy_target(
         StrategyAuthorityPtr authority,

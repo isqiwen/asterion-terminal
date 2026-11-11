@@ -2,6 +2,7 @@
 #include "ctp_support.hpp"
 #include "ctp_feed.hpp"
 #include <algorithm>
+#include <chrono>
 
 namespace asterion::ctp {
 namespace {
@@ -154,6 +155,9 @@ bool ReportReconciler::apply(const CThostFtdcTradeField& report)
     trade.price = *fill;
     trade.trading_day = field(report.TradingDay);
     trade.trade_time = field(report.TradeDate) + " " + field(report.TradeTime);
+    trade.received_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch())
+                            .count();
     traded_quantities_[trade.exchange_order_id] =
         traded_quantities_[trade.exchange_order_id] + trade.quantity;
     state_.trades.push_back(std::move(trade));

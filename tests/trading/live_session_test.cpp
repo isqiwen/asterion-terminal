@@ -1722,9 +1722,10 @@ TEST_F(Live, TradingDayRolloverRebuildsReportsAndRatesWithoutResending)
         "ready");
     ctp::SharedLibrary rollover(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_next_day");
     int index = 0;
-    for (const auto* day : {"20260929", "20260930"}) {
+    for (const auto& [counter, day] :
+        {std::pair{"20260929", "2026-09-29"}, std::pair{"20260930", "2026-09-30"}}) {
         SCOPED_TRACE(day);
-        rollover.symbol<void (*)(const char*)>()(day);
+        rollover.symbol<void (*)(const char*)>()(counter);
         const auto state = wait_for(session, [&](const Json& s) {
             return s.at("phase") == "ready" && s.at("trading_day") == day
                 && s.at("unconfirmed").size() == (index == 0 ? 1U : 0U);
@@ -1738,7 +1739,7 @@ TEST_F(Live, TradingDayRolloverRebuildsReportsAndRatesWithoutResending)
         EXPECT_TRUE(state.at("costs").empty());
         if (index == 0) {
             EXPECT_EQ(state.at("unconfirmed")[0].at("id"), "day0.resting");
-            EXPECT_EQ(state.at("unconfirmed")[0].at("trading_day"), "20260928");
+            EXPECT_EQ(state.at("unconfirmed")[0].at("trading_day"), "2026-09-28");
         }
         ASSERT_EQ(state.at("positions").size(), 1U);
         EXPECT_EQ(decimal(state.at("positions")[0].at("today")), "0");
@@ -1840,40 +1841,42 @@ TEST_F(Live, FillsAreRecordedOnceAndRemainReadableAfterRestartAndRollover)
         ASSERT_EQ(ready(session).at("phase"), "ready");
         act(session, authorize());
         act(session, submit("filled", "1"));
-        const auto trades = recorded(session, "20260928");
+        const auto trades = recorded(session, "2026-09-28");
         ASSERT_EQ(trades.trades_size(), 1);
         EXPECT_EQ(trades.trades(0).order_id(), "filled");
         EXPECT_EQ(trades.trades(0).lots().text(), "1");
         EXPECT_FALSE(trades.trades(0).price().text().empty());
         EXPECT_EQ(trades.trades(0).trade_time(), "20260928 09:30:00");
+        EXPECT_GT(trades.trades(0).received_ms(), 0);
         // The counter reports the same fill again after a reconnect.
         exchange.call<void (*)()>("asterion_fake_trader_reconnect");
         ready(session);
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        EXPECT_EQ(session.day("20260928").trades_size(), 1);
+        EXPECT_EQ(session.day("2026-09-28").trades_size(), 1);
         // The broker rebuilt its fill list; a fill after it is still recorded.
         act(session, authorize("authorize.after.reconnect"));
         act(session, submit("after", "1"));
-        for (int attempt = 0; attempt < 200 && session.day("20260928").trades_size() < 2; ++attempt)
+        for (int attempt = 0; attempt < 200 && session.day("2026-09-28").trades_size() < 2;
+            ++attempt)
             std::this_thread::sleep_for(std::chrono::milliseconds(25));
-        EXPECT_EQ(session.day("20260928").trades_size(), 2);
+        EXPECT_EQ(session.day("2026-09-28").trades_size(), 2);
         wait_for(session, [](const Json& s) {
             return s.at("positions_reconciled") == true && s.contains("funds")
                 && s.at("positions").size() == 1 && s.at("positions")[0].at("today") == "2";
         });
         // The next trading day begins while Trading runs: the day's close is recorded.
-        EXPECT_FALSE(session.day("20260928").has_close());
+        EXPECT_FALSE(session.day("2026-09-28").has_close());
         exchange.call<void (*)(const char*)>("asterion_fake_trader_next_day", "20260929");
-        for (int attempt = 0; attempt < 400 && !session.day("20260928").has_close(); ++attempt)
+        for (int attempt = 0; attempt < 400 && !session.day("2026-09-28").has_close(); ++attempt)
             std::this_thread::sleep_for(std::chrono::milliseconds(25));
     }
     LiveSession next_day(directory.path, ASTERION_TEST_CTP_TRADER, owners.path);
     EXPECT_TRUE(ready(next_day).at("trades").empty());
-    const auto day = next_day.day("20260928");
+    const auto day = next_day.day("2026-09-28");
     ASSERT_EQ(day.trades_size(), 2);
     EXPECT_EQ(day.trades(0).order_id(), "filled");
     EXPECT_EQ(day.trading_days_size(), 1);
-    EXPECT_EQ(day.trading_days(0), "20260928");
+    EXPECT_EQ(day.trading_days(0), "2026-09-28");
     ASSERT_TRUE(day.has_close());
     EXPECT_FALSE(day.close().funds().balance().text().empty());
     ASSERT_EQ(day.close().positions_size(), 1);
@@ -1908,7 +1911,7 @@ TEST_F(Live, FailedTerminalCommitRetainsUnknownRiskAcrossRolloverAndRecovery)
     const auto state = ready(restored);
     ASSERT_EQ(state.at("unconfirmed").size(), 1U);
     EXPECT_EQ(state.at("unconfirmed")[0].at("id"), "unsettled");
-    EXPECT_EQ(state.at("unconfirmed")[0].at("trading_day"), "20260928");
+    EXPECT_EQ(state.at("unconfirmed")[0].at("trading_day"), "2026-09-28");
     act(restored, authorize("after.failure"));
     EXPECT_THROW(act(restored, submit("blocked", "1")), std::invalid_argument);
 }
@@ -2493,14 +2496,13 @@ TEST_F(StrategyTarget, APausedInstanceOnlyReducesAndFlatteningClosesItsPosition)
     EXPECT_EQ(decimal(state.at("orders")[1].at("quantity")), "2");
     EXPECT_TRUE(session.strategy_failure(owner).empty());
     const auto events = session.strategy_events(owner);
-    EXPECT_NE(std::ranges::find(events, "flattening"), events.end());
-    EXPECT_EQ(
-        std::ranges::count_if(
-            events,
-            [](const auto& e) {
-                return e.starts_with("sent ");
-            }),
-        2);
+    const auto count = [&](::trading::InstanceEventKind kind) {
+        return std::ranges::count_if(events, [&](const auto& e) {
+            return e.kind() == kind;
+        });
+    };
+    EXPECT_EQ(count(::trading::INSTANCE_EVENT_KIND_FLATTENING), 1);
+    EXPECT_EQ(count(::trading::INSTANCE_EVENT_KIND_ORDER_SENT), 2);
 }
 
 TEST_F(StrategyTarget, PausingDuringDurableSubmissionStopsTheOpeningButNotLaterReductions)

@@ -73,6 +73,8 @@ struct BrokerTrade
     Offset offset = Offset::open;
     Decimal quantity, price;
     std::string trading_day, trade_time;
+    // When Trading received the report.
+    std::int64_t received_ms = 0;
 };
 
 struct BrokerPosition

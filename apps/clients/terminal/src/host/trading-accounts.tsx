@@ -9,6 +9,7 @@ import {
 } from "react";
 import { tradingRequest, type TradingCall } from "../bridge/trading";
 import {
+  InstanceEventKind,
   InstanceState,
   type Account,
   type Health,
@@ -63,7 +64,7 @@ function alert(account: string, status: InstanceStatus | undefined, before: Aler
   const same = before?.instance === instance;
   const since = !before ? (status.events.at(-1)?.timeMs ?? 0n) : same ? before.eventMs : -1n;
   const bodies = status.events
-    .filter(event => event.timeMs > since && event.text.startsWith("batch abandoned"))
+    .filter(event => event.timeMs > since && event.kind === InstanceEventKind.BATCH_ABANDONED)
     .map(event => event.text);
   const failed = status.state === InstanceState.FAILED;
   if (failed && !(same && before?.failed)) bodies.push(status.error);

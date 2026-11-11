@@ -278,7 +278,8 @@ Instrument terms(const ::trading::ContractTerms& c)
             "quantity",
             "price",
             "trading_day",
-            "trade_time"});
+            "trade_time",
+            "received_ms"});
     ::trading::Trade result;
     result.set_id(t.at("id").get<std::string>());
     result.set_order_id(t.at("order_id").get<std::string>());
@@ -291,7 +292,8 @@ Instrument terms(const ::trading::ContractTerms& c)
     set(result.mutable_price(), t.at("price"));
     result.set_trading_day(t.at("trading_day").get<std::string>());
     result.set_trade_time(t.at("trade_time").get<std::string>());
-    if (result.id().empty() || result.trading_day().size() != 8)
+    result.set_received_ms(t.at("received_ms").get<std::int64_t>());
+    if (result.id().empty() || result.trading_day().size() != 10)
         throw std::invalid_argument("invalid recorded trade");
     return result;
 }
@@ -308,7 +310,8 @@ Json decode_trade(const ::trading::Trade& t)
         {"quantity", get(t.lots())},
         {"price", get(t.price())},
         {"trading_day", t.trading_day()},
-        {"trade_time", t.trade_time()}
+        {"trade_time", t.trade_time()},
+        {"received_ms", t.received_ms()}
     };
 }
 

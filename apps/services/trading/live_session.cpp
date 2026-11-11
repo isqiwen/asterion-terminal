@@ -43,6 +43,12 @@ void put(::common::Instrument* field, const InstrumentId& id)
     field->set_symbol(id.symbol);
 }
 
+// The counter's YYYYMMDD as the protocol writes trading days.
+std::string dashed(const std::string& day)
+{
+    return day.empty() ? day : day.substr(0, 4) + "-" + day.substr(4, 2) + "-" + day.substr(6, 2);
+}
+
 ::trading::Trade wire_trade(const BrokerTrade& trade)
 {
     ::trading::Trade result;
@@ -53,8 +59,9 @@ void put(::common::Instrument* field, const InstrumentId& id)
     result.set_offset(wire_offset(trade.offset));
     put(result.mutable_lots(), trade.quantity);
     put(result.mutable_price(), trade.price);
-    result.set_trading_day(trade.trading_day);
+    result.set_trading_day(dashed(trade.trading_day));
     result.set_trade_time(trade.trade_time);
+    result.set_received_ms(trade.received_ms);
     return result;
 }
 
@@ -62,7 +69,7 @@ void put(::common::Instrument* field, const InstrumentId& id)
 ::trading::DayClose close_of(const BrokerSnapshot& state)
 {
     ::trading::DayClose result;
-    result.set_trading_day(state.trading_day);
+    result.set_trading_day(dashed(state.trading_day));
     if (state.funds) {
         auto* funds = result.mutable_funds();
         put(funds->mutable_balance(), state.funds->balance);
@@ -838,7 +845,7 @@ std::vector<::trading::Trade> LiveAccountState::unrecorded() const
         std::vector<::trading::Trade> result;
         for (auto i = recorded_through_; i < state.trades.size(); ++i) {
             const auto& trade = state.trades[i];
-            const auto day = recorded_ids_.find(trade.trading_day);
+            const auto day = recorded_ids_.find(dashed(trade.trading_day));
             if (day != recorded_ids_.end() && day->second.contains(trade.trade_id)) {
                 if (result.empty())
                     recorded_through_ = i + 1;
@@ -856,9 +863,10 @@ std::optional<::trading::DayClose> LiveAccountState::unclosed() const
 {
     return observed([&](const BrokerSnapshot& state) -> std::optional<::trading::DayClose> {
         const auto& day = latest_.trading_day();
-        if (!day.empty() && state.trading_day > day && !closes_.contains(day))
+        const auto today = dashed(state.trading_day);
+        if (!day.empty() && today > day && !closes_.contains(day))
             return latest_;
-        if (state.funds && state.positions_reconciled && state.trading_day >= day)
+        if (state.funds && state.positions_reconciled && today >= day)
             latest_ = close_of(state);
         return std::nullopt;
     });
@@ -1012,7 +1020,7 @@ bool LiveAccountState::authorized(const BrokerSnapshot& state) const
         : state.phase;
     result.set_broker_state(static_cast<::trading::BrokerState>(static_cast<int>(phase) + 1));
     result.set_ctp_error(state.error_code);
-    result.set_trading_day(state.trading_day);
+    result.set_trading_day(dashed(state.trading_day));
     if (authorization_ && !failed_)
         result.set_authorized_ms(authorization_->authorized_at_ms);
     result.set_positions_reconciled(state.positions_reconciled);
@@ -1043,7 +1051,7 @@ bool LiveAccountState::authorized(const BrokerSnapshot& state) const
         auto* item = result.add_unconfirmed();
         item->set_id(order);
         item->set_broker_key(intent->broker_key);
-        item->set_trading_day(intent->trading_day);
+        item->set_trading_day(dashed(intent->trading_day));
     }
     auto* journal = result.mutable_journal();
     journal->set_records(capacity_.records_used);

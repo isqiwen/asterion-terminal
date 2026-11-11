@@ -285,7 +285,7 @@ JournalRecord parse_record(const Json& record)
                 record.at("day_closed").dump(),
                 &result.close)
                 .ok()
-            || result.close.trading_day().size() != 8)
+            || result.close.trading_day().size() != 10)
             throw std::invalid_argument("invalid recorded day close");
         return result;
     }

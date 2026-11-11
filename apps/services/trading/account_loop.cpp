@@ -554,7 +554,7 @@ LiveSession::flatten_strategy(StrategyAuthorityPtr authority, std::vector<Market
     });
 }
 
-std::future<std::vector<std::string>> LiveSession::take_strategy_events(
+std::future<std::vector<::trading::InstanceEvent>> LiveSession::take_strategy_events(
     StrategyAuthorityPtr authority)
 {
     return loop_->call(

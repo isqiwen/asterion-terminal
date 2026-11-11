@@ -63,6 +63,7 @@ message Response {
 | `Decimal` | 精确十进制文本，如 `"3456.5"`。消息不存在表示未知；`"0"` 表示已知的零 |
 | `Instrument` | 交易所与柜台合约代码，如 `SHFE` + `rb2701` |
 | 合约字符串 | 仓库的合约标识 `EXCHANGE/product/YYYY-MM`；品种为 `EXCHANGE/product` |
+| 交易日 | `YYYY-MM-DD`；柜台原样的成交时间 `trade_time` 除外 |
 | `Error` | `ErrorCode` 与诊断文本 |
 | `Period` | 1、5、10、15、30、60 分钟，日、周、月、季、年 |
 | `Side`、`Offset` | 买卖方向与开平 |

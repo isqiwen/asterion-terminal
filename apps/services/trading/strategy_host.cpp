@@ -231,17 +231,18 @@ struct StrategyHost::State
             std::rethrow_exception(failure);
     }
 
-    void record_event(const std::string& event)
+    void record_event(pb::InstanceEventKind kind, const std::string& event)
     {
         const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch())
                              .count();
-        sqlite::Database::Statement insert(*records, "INSERT INTO events VALUES(?,?)");
-        insert.bind(1, now).bind(2, event).step();
+        sqlite::Database::Statement insert(*records, "INSERT INTO events VALUES(?,?,?)");
+        insert.bind(1, now).bind(2, static_cast<std::int64_t>(kind)).bind(3, event).step();
         log::info("strategy {}: {}", instance.instance().id(), event);
         auto* added = instance.add_events();
         added->set_time_ms(now);
         added->set_text(event);
+        added->set_kind(kind);
         if (instance.events_size() > 20)
             instance.mutable_events()->DeleteSubrange(0, 1);
         save();
@@ -258,7 +259,10 @@ struct StrategyHost::State
         require_running(request.id());
         account->pause_strategy(authority, request.paused()).get();
         instance.set_paused(request.paused());
-        record_event(request.paused() ? "paused" : "resumed");
+        if (request.paused())
+            record_event(pb::INSTANCE_EVENT_KIND_PAUSED, "paused");
+        else
+            record_event(pb::INSTANCE_EVENT_KIND_RESUMED, "resumed");
     }
 
     void flatten(const pb::InstanceId& request)
@@ -266,7 +270,7 @@ struct StrategyHost::State
         require_running(request.id());
         account->flatten_strategy(authority, latest_quotes()).get();
         instance.set_paused(true);
-        record_event("flatten requested");
+        record_event(pb::INSTANCE_EVENT_KIND_FLATTEN_REQUESTED, "flatten requested");
     }
 
     std::vector<MarketQuote> latest_quotes() const
@@ -348,7 +352,7 @@ struct StrategyHost::State
                 if (!failure.empty())
                     throw std::runtime_error(failure);
                 for (const auto& event : account->take_strategy_events(authority).get())
-                    record_event(event);
+                    record_event(event.kind(), event.text());
             }
             const auto update = feed->poll();
             if (update.failed)
@@ -360,11 +364,15 @@ struct StrategyHost::State
                         throw std::runtime_error("strategy market connection failed");
                     if (status->phase == MarketPhase::connected && !online) {
                         if (connected)
-                            record_event("market reconnected");
+                            record_event(
+                                pb::INSTANCE_EVENT_KIND_MARKET_RECONNECTED,
+                                "market reconnected");
                         connected = online = true;
                     } else if (status->phase != MarketPhase::connected && online) {
                         online = false;
-                        record_event("market disconnected");
+                        record_event(
+                            pb::INSTANCE_EVENT_KIND_MARKET_DISCONNECTED,
+                            "market disconnected");
                     }
                 } else if (const auto* subscription = std::get_if<MarketSubscription>(&event)) {
                     if (subscription->state == SubscriptionState::error)
@@ -513,7 +521,8 @@ struct StrategyHost::State
             records->execute("CREATE TABLE configuration (value BLOB NOT NULL)");
             records->execute(
                 "CREATE TABLE steps (sequence INTEGER PRIMARY KEY, input BLOB NOT NULL, decision BLOB)");
-            records->execute("CREATE TABLE events (time_ms INTEGER NOT NULL, event TEXT NOT NULL)");
+            records->execute(
+                "CREATE TABLE events (time_ms INTEGER NOT NULL, kind INTEGER NOT NULL, event TEXT NOT NULL)");
             {
                 sqlite::Database::Transaction transaction(*records);
                 sqlite::Database::Statement insert(*records, "INSERT INTO configuration VALUES(?)");

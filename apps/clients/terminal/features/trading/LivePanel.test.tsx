@@ -196,22 +196,22 @@ test("an earlier trading day shows its recorded close and fills and exports them
     offset: Offset.OPEN,
     lots: { text: "1" },
     price: { text: "3500" },
-    tradingDay: "20260925",
+    tradingDay: "2026-09-25",
     tradeTime: "20260925 09:30:00",
   });
-  read = () => live({ ...session, tradingDay: "20260928" });
+  read = () => live({ ...session, tradingDay: "2026-09-28" });
   vi.mocked(tradingRequest).mockImplementation(async (_account, operation) =>
     operation?.case === "getDay"
       ? create(ResponseSchema, {
           result: {
             case: "getDay",
             value: {
-              tradingDays: ["20260925", "20260928"],
-              trades: operation.value.tradingDay === "20260925" ? [recorded] : [],
+              tradingDays: ["2026-09-25", "2026-09-28"],
+              trades: operation.value.tradingDay === "2026-09-25" ? [recorded] : [],
               close:
-                operation.value.tradingDay === "20260925"
+                operation.value.tradingDay === "2026-09-25"
                   ? {
-                      tradingDay: "20260925",
+                      tradingDay: "2026-09-25",
                       funds: { balance: { text: "1000123.5" }, available: { text: "990000" } },
                       positions: [
                         {
@@ -233,10 +233,10 @@ test("an earlier trading day shows its recorded close and fills and exports them
   const day = await screen.findByRole("combobox", { name: "交易日" });
   expect([...(day as HTMLSelectElement).options].map(option => option.value)).toEqual([
     "",
-    "20260925",
+    "2026-09-25",
   ]);
   expect(screen.getByText("暂无成交")).toBeTruthy();
-  fireEvent.change(day, { target: { value: "20260925" } });
+  fireEvent.change(day, { target: { value: "2026-09-25" } });
   expect(await screen.findByText("20260925 09:30:00")).toBeTruthy();
   expect(screen.queryByText("暂无成交")).toBeNull();
   expect(screen.getByText("1000123.5")).toBeTruthy();
@@ -252,7 +252,7 @@ test("an earlier trading day shows its recorded close and fills and exports them
   fireEvent.click(screen.getByRole("button", { name: "导出 CSV" }));
   expect(click).toHaveBeenCalled();
   const text = await exported!.text();
-  expect(text).toContain("交易日,20260925");
+  expect(text).toContain("交易日,2026-09-25");
   expect(text).toContain("1000123.5,990000");
   expect(text).toContain("rb2610,多头,1,0");
   expect(text).toContain("rb2610,买入 / 开仓,20260925 09:30:00,3500,1");
