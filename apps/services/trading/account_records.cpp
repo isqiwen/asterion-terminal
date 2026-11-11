@@ -267,6 +267,16 @@ JournalRecord parse_record(const Json& record)
             result.orders.push_back(terminal_order(order));
         return result;
     }
+    if (record.is_object() && record.contains("trades_recorded")) {
+        require_fields(record, {"trades_recorded"});
+        const auto& trades = record.at("trades_recorded");
+        if (!trades.is_array() || trades.empty() || trades.size() > TradesRecorded::batch)
+            throw std::invalid_argument("invalid recorded trades");
+        TradesRecorded result;
+        for (const auto& trade : trades)
+            result.trades.push_back(protocol::encode_trade(trade));
+        return result;
+    }
     if (record.is_object() && record.contains("order_not_sent")) {
         require_fields(record, {"order_not_sent", "error_code"});
         if (!record.at("error_code").is_number_integer()
@@ -427,6 +437,17 @@ JournalEntry entry(const CancelResult& record)
     result.trace.request_id = record.request_id;
     result.trace.outcome = record.acknowledged ? "dispatch_acknowledged" : "unknown";
     result.body = {{"cancel_result", record.request_id}, {"outcome", result.trace.outcome}};
+    return result;
+}
+
+JournalEntry entry(const TradesRecorded& record)
+{
+    Json trades = Json::array();
+    for (const auto& trade : record.trades)
+        trades.push_back(protocol::decode_trade(trade));
+    JournalEntry result;
+    result.body = {{"trades_recorded", std::move(trades)}};
+    result.trace.outcome = "trades_recorded";
     return result;
 }
 

@@ -10,6 +10,7 @@ import {
   Environment,
   ResponseSchema,
   SessionSchema,
+  TradeSchema,
   type Response,
   type Session,
 } from "../../src/generated/asterion/trading_pb";
@@ -69,8 +70,8 @@ beforeEach(() => {
   read = () => live(session);
   vi.mocked(tradingRequest).mockReset();
   vi.mocked(tradingRequest).mockImplementation(async (_account, operation) =>
-    operation?.case === "getStrategies"
-      ? create(ResponseSchema, { result: { case: "getStrategies", value: {} } })
+    operation?.case === "getStrategies" || operation?.case === "getTrades"
+      ? create(ResponseSchema, { result: { case: operation.case, value: {} } })
       : operation?.case === "getAccount" || operation?.case === "getHealth"
         ? read()
         : new Promise(resolve => {
@@ -82,7 +83,8 @@ const commands = () =>
   vi
     .mocked(tradingRequest)
     .mock.calls.filter(
-      ([, operation]) => !["getAccount", "getHealth", "getStrategies"].includes(operation.case!),
+      ([, operation]) =>
+        !["getAccount", "getHealth", "getStrategies", "getTrades"].includes(operation.case!),
     );
 const button = (name: string) => screen.getByRole("button", { name }) as HTMLButtonElement;
 const show = (namespace: string) =>
@@ -184,4 +186,42 @@ test("the account's broker facts follow each read", async () => {
     live({ ...session, brokerState: BrokerState.DISCONNECTED, positionsReconciled: false });
   expect(await screen.findByText("尚未核对已知成交", undefined, { timeout: 3000 })).toBeTruthy();
   expect(commands()).toEqual([]);
+});
+
+test("an earlier trading day shows the fills the account recorded", async () => {
+  const recorded = create(TradeSchema, {
+    id: "SHFE:     1",
+    instrument: { exchange: "SHFE", symbol: "rb2610" },
+    side: Side.BUY,
+    offset: Offset.OPEN,
+    lots: { text: "1" },
+    price: { text: "3500" },
+    tradingDay: "20260925",
+    tradeTime: "20260925 09:30:00",
+  });
+  read = () => live({ ...session, tradingDay: "20260928" });
+  vi.mocked(tradingRequest).mockImplementation(async (_account, operation) =>
+    operation?.case === "getTrades"
+      ? create(ResponseSchema, {
+          result: {
+            case: "getTrades",
+            value: {
+              tradingDays: ["20260925", "20260928"],
+              trades: operation.value.tradingDay === "20260925" ? [recorded] : [],
+            },
+          },
+        })
+      : read(),
+  );
+  show("fills");
+  fireEvent.click(await screen.findByRole("button", { name: "成交" }));
+  const day = await screen.findByRole("combobox", { name: "交易日" });
+  expect([...(day as HTMLSelectElement).options].map(option => option.value)).toEqual([
+    "",
+    "20260925",
+  ]);
+  expect(screen.getByText("暂无成交")).toBeTruthy();
+  fireEvent.change(day, { target: { value: "20260925" } });
+  expect(await screen.findByText("20260925 09:30:00")).toBeTruthy();
+  expect(screen.queryByText("暂无成交")).toBeNull();
 });

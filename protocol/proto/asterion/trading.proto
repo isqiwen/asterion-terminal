@@ -15,6 +15,7 @@ message Request {
     common.Empty disconnect_broker = 14;
     common.Empty query_costs = 15;
     Command send_command = 16;
+    GetTrades get_trades = 17;
 
     common.Empty get_strategies = 20;
     strategy.Package publish_strategy = 21;
@@ -36,6 +37,7 @@ message Response {
     Account disconnect_broker = 14;
     Account query_costs = 15;
     Account send_command = 16;
+    Trades get_trades = 17;
 
     Strategies get_strategies = 20;
     Strategies publish_strategy = 21;
@@ -198,9 +200,20 @@ message Trade {
   common.Decimal lots = 6;
   common.Decimal price = 7;
   string trading_day = 8;
-  // HH:MM:SS Beijing time, as the counter reports it; the counter gives no
-  // calendar date for night trades.
+  // The counter's TradeDate and TradeTime, "YYYYMMDD HH:MM:SS" Beijing time.
   string trade_time = 9;
+}
+
+// The fills the account recorded on one trading day, oldest first.
+message GetTrades {
+  // YYYYMMDD, as the counter labels it.
+  string trading_day = 1;
+}
+
+message Trades {
+  // Every trading day with recorded fills, ascending.
+  repeated string trading_days = 1;
+  repeated Trade trades = 2;
 }
 
 message UnconfirmedOrder {

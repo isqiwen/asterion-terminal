@@ -43,6 +43,21 @@ void put(::common::Instrument* field, const InstrumentId& id)
     field->set_symbol(id.symbol);
 }
 
+::trading::Trade wire_trade(const BrokerTrade& trade)
+{
+    ::trading::Trade result;
+    result.set_id(trade.trade_id);
+    result.set_order_id(trade.order_id);
+    put(result.mutable_instrument(), trade.instrument);
+    result.set_side(trade.side == Side::buy ? ::common::SIDE_BUY : ::common::SIDE_SELL);
+    result.set_offset(wire_offset(trade.offset));
+    put(result.mutable_lots(), trade.quantity);
+    put(result.mutable_price(), trade.price);
+    result.set_trading_day(trade.trading_day);
+    result.set_trade_time(trade.trade_time);
+    return result;
+}
+
 constexpr auto quote_validity = std::chrono::seconds(10);
 
 std::string text(const Json& value, const char* key)
@@ -167,6 +182,11 @@ LiveAccountState::LiveAccountState(
                     "account record changed while acquiring execution ownership");
         },
         [&](const JournalRecord& record) {
+            if (const auto* recorded = std::get_if<TradesRecorded>(&record)) {
+                for (const auto& trade : recorded->trades)
+                    trades_[trade.trading_day()].push_back(trade);
+                return;
+            }
             if (const auto* terminal = std::get_if<OrdersTerminal>(&record)) {
                 for (const auto& order : terminal->orders) {
                     const auto found = intents_.find(order.order_id);
@@ -775,10 +795,40 @@ void LiveAccountState::check_terminal(const TerminalOrder& order, const Intent& 
         throw std::invalid_argument("invalid persisted terminal order evidence");
 }
 
+std::vector<::trading::Trade> LiveAccountState::unrecorded() const
+{
+    return observed([&](const BrokerSnapshot& state) {
+        std::vector<::trading::Trade> result;
+        for (const auto& trade : state.trades) {
+            const auto day = trades_.find(trade.trading_day);
+            if (day != trades_.end() && std::ranges::any_of(day->second, [&](const auto& known) {
+                    return known.id() == trade.trade_id;
+                }))
+                continue;
+            result.push_back(wire_trade(trade));
+            if (result.size() == TradesRecorded::batch)
+                break;
+        }
+        return result;
+    });
+}
+
+::trading::Trades LiveAccountState::trades(const std::string& trading_day) const
+{
+    ::trading::Trades result;
+    for (const auto& [day, trades] : trades_)
+        result.add_trading_days(day);
+    if (const auto found = trades_.find(trading_day); found != trades_.end())
+        for (const auto& trade : found->second)
+            *result.add_trades() = trade;
+    return result;
+}
+
 bool LiveAccountState::storage_work_pending() const
 {
     return !failed_
-        && (strategy_cancellation_pending() || (!attribution_.day.empty() && !attribution_.complete)
+        && (strategy_cancellation_pending() || !unrecorded().empty()
+            || (!attribution_.day.empty() && !attribution_.complete)
             || std::ranges::any_of(intents_, [](const auto& entry) {
                    return bool(entry.second.terminal);
                }));
@@ -814,6 +864,12 @@ AccountCommand LiveAccountState::advance_storage()
             co_await append(entry(terminal));
             for (const auto& order : terminal.orders)
                 intents_.erase(order.order_id);
+            co_return;
+        }
+        if (TradesRecorded recorded{unrecorded()}; !recorded.trades.empty()) {
+            co_await append(entry(recorded));
+            for (auto& trade : recorded.trades)
+                trades_[trade.trading_day()].push_back(std::move(trade));
             co_return;
         }
         const auto scope = attribution_;
@@ -930,18 +986,8 @@ bool LiveAccountState::authorized(const BrokerSnapshot& state) const
         item->set_state(static_cast<::trading::OrderState>(static_cast<int>(order.status) + 1));
         item->set_ctp_error(order.error_code);
     }
-    for (const auto& trade : state.trades) {
-        auto* item = result.add_trades();
-        item->set_id(trade.trade_id);
-        item->set_order_id(trade.order_id);
-        put(item->mutable_instrument(), trade.instrument);
-        item->set_side(wire_side(trade.side));
-        item->set_offset(wire_offset(trade.offset));
-        put(item->mutable_lots(), trade.quantity);
-        put(item->mutable_price(), trade.price);
-        item->set_trading_day(trade.trading_day);
-        item->set_trade_time(trade.trade_time);
-    }
+    for (const auto& trade : state.trades)
+        *result.add_trades() = wire_trade(trade);
     for (const auto& [order, intent] : unconfirmed(state)) {
         auto* item = result.add_unconfirmed();
         item->set_id(order);

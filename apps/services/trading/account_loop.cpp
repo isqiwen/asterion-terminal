@@ -621,6 +621,15 @@ std::future<::trading::Session> LiveSession::snapshot() const
         Loop::Admission::observation);
 }
 
+std::future<::trading::Trades> LiveSession::trades(std::string trading_day) const
+{
+    return loop_->call(
+        [trading_day = std::move(trading_day)](LiveAccountState& account) {
+            return account.trades(trading_day);
+        },
+        Loop::Admission::observation);
+}
+
 bool LiveSession::recovery_required() const noexcept
 {
     return loop_->failed.load();

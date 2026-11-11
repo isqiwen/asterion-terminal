@@ -70,6 +70,11 @@ public:
         session_.disconnect().get();
     }
 
+    ::trading::Trades trades(std::string day) const
+    {
+        return session_.trades(std::move(day)).get();
+    }
+
     void query_costs()
     {
         session_.query_costs().get();
@@ -1793,6 +1798,44 @@ TEST_F(Live, TerminalEvidenceSurvivesSegmentsAndRestoresCurrentDayAttribution)
     EXPECT_TRUE(state.at("unconfirmed").empty());
     EXPECT_TRUE(state.at("orders").empty());
     EXPECT_GE(number(state.at("segment_count")), 2);
+}
+
+TEST_F(Live, FillsAreRecordedOnceAndRemainReadableAfterRestartAndRollover)
+{
+    const auto recorded = [](const LiveSession& session, const std::string& day) {
+        for (int attempt = 0; attempt < 200; ++attempt) {
+            auto trades = session.trades(day);
+            if (trades.trades_size())
+                return trades;
+            std::this_thread::sleep_for(std::chrono::milliseconds(25));
+        }
+        return session.trades(day);
+    };
+    {
+        LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+        ASSERT_EQ(ready(session).at("phase"), "ready");
+        act(session, authorize());
+        act(session, submit("filled", "1"));
+        const auto trades = recorded(session, "20260928");
+        ASSERT_EQ(trades.trades_size(), 1);
+        EXPECT_EQ(trades.trades(0).order_id(), "filled");
+        EXPECT_EQ(trades.trades(0).lots().text(), "1");
+        EXPECT_FALSE(trades.trades(0).price().text().empty());
+        EXPECT_EQ(trades.trades(0).trade_time(), "20260928 09:30:00");
+        // The counter reports the same fill again after a reconnect.
+        exchange.call<void (*)()>("asterion_fake_trader_reconnect");
+        ready(session);
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        EXPECT_EQ(session.trades("20260928").trades_size(), 1);
+    }
+    exchange.call<void (*)(const char*)>("asterion_fake_trader_next_day", "20260929");
+    LiveSession next_day(directory.path, ASTERION_TEST_CTP_TRADER, owners.path);
+    EXPECT_TRUE(ready(next_day).at("trades").empty());
+    const auto trades = next_day.trades("20260928");
+    ASSERT_EQ(trades.trades_size(), 1);
+    EXPECT_EQ(trades.trades(0).order_id(), "filled");
+    EXPECT_EQ(trades.trading_days_size(), 1);
+    EXPECT_EQ(trades.trading_days(0), "20260928");
 }
 
 TEST_F(Live, FailedTerminalCommitRetainsUnknownRiskAcrossRolloverAndRecovery)

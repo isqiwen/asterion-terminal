@@ -136,7 +136,15 @@ struct CancelResult
     bool acknowledged = false;
 };
 
-using JournalRecord = std::variant<CommandRecord, OrdersTerminal, OrderNotSent, CancelResult>;
+// Broker fills, each recorded once by its trading day and identity.
+struct TradesRecorded
+{
+    static constexpr std::size_t batch = 32;
+    std::vector<::trading::Trade> trades;
+};
+
+using JournalRecord =
+    std::variant<CommandRecord, OrdersTerminal, OrderNotSent, CancelResult, TradesRecorded>;
 // Any record after the journal header. Throws for content this engine never writes.
 JournalRecord parse_record(const Json& record);
 
@@ -170,6 +178,7 @@ JournalEntry authorization_entry(
 JournalEntry entry(const OrdersTerminal& record);
 JournalEntry entry(const OrderNotSent& record);
 JournalEntry entry(const CancelResult& record);
+JournalEntry entry(const TradesRecorded& record);
 
 std::string_view status_name(BrokerOrderStatus status) noexcept;
 

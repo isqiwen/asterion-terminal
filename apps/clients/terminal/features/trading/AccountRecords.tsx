@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import { decimalText } from "../../src/bridge/decimal";
+import { tradingRequest } from "../../src/bridge/trading";
 import { Side } from "../../src/generated/asterion/common_pb";
 import {
   BrokerState,
@@ -6,8 +8,9 @@ import {
   OrderState,
   type Account,
   type Session,
+  type Trade,
 } from "../../src/generated/asterion/trading_pb";
-import type { TerminalContext } from "../contract";
+import { notify, type TerminalContext } from "../contract";
 import { AccountPolicyEditor } from "./AccountPolicyEditor";
 import { ActivityTabs, type Activity } from "./ActivityTabs";
 import { key, offsets, statuses, t, type Run } from "./live-shared";
@@ -16,6 +19,77 @@ const working = [OrderState.SUBMITTED, OrderState.ACCEPTED, OrderState.PARTIALLY
 
 // The account's positions, orders, fills, rates and risk policy, one tab at a
 // time. A working order can be cancelled from its row.
+// The fills of the session's trading day as the counter reports them, or of
+// an earlier trading day as the account recorded them.
+function Fills({ account, live }: { account: string; live: Session }) {
+  const [day, setDay] = useState("");
+  const [recorded, setRecorded] = useState<{ days: string[]; trades: Trade[] }>({
+    days: [],
+    trades: [],
+  });
+  // A new day's first fill adds that day to the choices.
+  const today = live.trades.length > 0;
+  useEffect(() => {
+    let active = true;
+    void tradingRequest(account, { case: "getTrades", value: { tradingDay: day } })
+      .then(reply => {
+        if (active && reply.result.case === "getTrades")
+          setRecorded({
+            days: reply.result.value.tradingDays,
+            trades: reply.result.value.trades,
+          });
+      })
+      .catch(failure => active && notify(failure, { namespace: "asterion.terminal.trading" }));
+    return () => {
+      active = false;
+    };
+  }, [account, day, today]);
+  const trades = day ? recorded.trades : live.trades;
+  const earlier = recorded.days.filter(item => item !== live.tradingDay).reverse();
+  return (
+    <div className="paper-table" role="region" aria-label={t("CTP 成交")} tabIndex={0}>
+      {earlier.length > 0 && (
+        <select aria-label={t("交易日")} value={day} onChange={event => setDay(event.target.value)}>
+          <option value="">{t("当日")}</option>
+          {earlier.map(item => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
+      )}
+      <table aria-label={t("CTP 成交")}>
+        <thead>
+          <tr>
+            <th>{t("合约")}</th>
+            <th>{t("方向")}</th>
+            <th>{t("时间")}</th>
+            <th>{t("价格")}</th>
+            <th>{t("手数")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {trades
+            .slice()
+            .reverse()
+            .map(f => (
+              <tr key={f.id}>
+                <td>{f.instrument?.symbol}</td>
+                <td>
+                  {f.side === Side.BUY ? t("买入") : t("卖出")} / {t(offsets[f.offset])}
+                </td>
+                <td>{f.tradeTime}</td>
+                <td>{decimalText(f.price)}</td>
+                <td>{decimalText(f.lots)}</td>
+              </tr>
+            ))}
+        </tbody>
+      </table>
+      {!trades.length && <p className="subtle">{t("暂无成交")}</p>}
+    </div>
+  );
+}
+
 export function AccountRecords({
   record,
   busy,
@@ -122,32 +196,7 @@ export function AccountRecords({
         </div>
       </div>
       <div hidden={activity !== "fills"}>
-        <div className="paper-table" role="region" aria-label={t("CTP 成交")} tabIndex={0}>
-          <table aria-label={t("CTP 成交")}>
-            <thead>
-              <tr>
-                <th>{t("合约")}</th>
-                <th>{t("时间")}</th>
-                <th>{t("价格")}</th>
-                <th>{t("手数")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {live.trades
-                .slice()
-                .reverse()
-                .map(f => (
-                  <tr key={f.id}>
-                    <td>{f.instrument?.symbol}</td>
-                    <td>{f.tradeTime}</td>
-                    <td>{decimalText(f.price)}</td>
-                    <td>{decimalText(f.lots)}</td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-          {!live.trades.length && <p className="subtle">{t("暂无成交")}</p>}
-        </div>
+        <Fills account={record.id} live={live} />
       </div>
       <div hidden={activity !== "rates"}>
         {ready ? (

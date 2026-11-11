@@ -265,6 +265,53 @@ Instrument terms(const ::trading::ContractTerms& c)
     return result;
 }
 
+::trading::Trade encode_trade(const Json& t)
+{
+    require_fields(
+        t,
+        {"id",
+            "order_id",
+            "venue",
+            "symbol",
+            "side",
+            "offset",
+            "quantity",
+            "price",
+            "trading_day",
+            "trade_time"});
+    ::trading::Trade result;
+    result.set_id(t.at("id").get<std::string>());
+    result.set_order_id(t.at("order_id").get<std::string>());
+    result.mutable_instrument()->set_exchange(t.at("venue").get<std::string>());
+    result.mutable_instrument()->set_symbol(t.at("symbol").get<std::string>());
+    InstrumentId{result.instrument().exchange(), result.instrument().symbol()}.validate();
+    result.set_side(side(t.at("side").get<std::string>()));
+    result.set_offset(offset(t.at("offset").get<std::string>()));
+    set(result.mutable_lots(), t.at("quantity"));
+    set(result.mutable_price(), t.at("price"));
+    result.set_trading_day(t.at("trading_day").get<std::string>());
+    result.set_trade_time(t.at("trade_time").get<std::string>());
+    if (result.id().empty() || result.trading_day().size() != 8)
+        throw std::invalid_argument("invalid recorded trade");
+    return result;
+}
+
+Json decode_trade(const ::trading::Trade& t)
+{
+    return {
+        {"id", t.id()},
+        {"order_id", t.order_id()},
+        {"venue", t.instrument().exchange()},
+        {"symbol", t.instrument().symbol()},
+        {"side", side(t.side())},
+        {"offset", offset(t.offset())},
+        {"quantity", get(t.lots())},
+        {"price", get(t.price())},
+        {"trading_day", t.trading_day()},
+        {"trade_time", t.trade_time()}
+    };
+}
+
 Json decode_command(const ::trading::Command& c)
 {
     Json result{{"request_id", c.request_id()}};

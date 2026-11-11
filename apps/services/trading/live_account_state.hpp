@@ -107,6 +107,8 @@ public:
         parked_ = 0;
     }
 
+    // The fills recorded on a trading day, and every day with any.
+    ::trading::Trades trades(const std::string& trading_day) const;
     void poll_broker();
     bool storage_work_pending() const;
     AccountCommand advance_storage();
@@ -279,6 +281,10 @@ private:
     Json header_;
     // Order ID -> what was recorded before sending it.
     std::map<std::string, Intent> intents_;
+    // Recorded fills by trading day, oldest first; rebuilt from the journal on start.
+    std::map<std::string, std::vector<::trading::Trade>> trades_;
+    // Broker fills not yet recorded, at most one batch.
+    std::vector<::trading::Trade> unrecorded() const;
     // Lasts across connections and trading days; never restored.
     std::optional<Authorization> authorization_;
     // Authorized, and connected to a synchronized broker: orders may be sent.

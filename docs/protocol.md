@@ -178,6 +178,7 @@ sequenceDiagram
 | `connect_broker` / `disconnect_broker` | — | `Account` |
 | `query_costs` | — | `Account`，柜台回报的费率随后出现在 `session.costs` |
 | `send_command` | `Command` | `Account` |
+| `get_trades` | `GetTrades`（交易日） | `Trades`：这一交易日记录的成交，以及有成交记录的全部交易日 |
 | `get_strategies` | — | `Strategies`：已发布的策略包和当前实例 |
 | `publish_strategy` | `strategy.Package` | `Strategies` |
 | `start_strategy` | `strategy.Instance` | `Strategies` |

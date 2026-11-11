@@ -12,6 +12,9 @@ Instrument terms(const ::trading::ContractTerms& contract);
 // Commands and policies in the JSON the account journal stores.
 ::trading::Command encode_command(const Json& command);
 Json decode_command(const ::trading::Command& command);
+// A broker fill in the JSON the account journal stores.
+::trading::Trade encode_trade(const Json& trade);
+Json decode_trade(const ::trading::Trade& trade);
 ::trading::Policy encode_policy(const Json& policy);
 void validate_policy(const ::trading::Policy& policy);
 Json decode_policy(const ::trading::Policy& policy);
