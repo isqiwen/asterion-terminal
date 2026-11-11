@@ -233,9 +233,12 @@ struct WarehouseService::Running
     explicit Running(Settings settings)
         : settings(std::move(settings)),
           composer(this->settings.directory),
-          acquisitions(this->settings.directory, sources(this->settings), [this] {
-              composer.request();
-          })
+          acquisitions(
+              this->settings.directory,
+              sources(this->settings),
+              [this](const auto& committed) {
+                  composer.request(committed);
+              })
     {}
 
     Reply ask(ThreadPool& pool, wire::Request request, bool can_manage)

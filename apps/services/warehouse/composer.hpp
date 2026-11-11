@@ -1,18 +1,16 @@
 #pragma once
-#include "store.hpp"
+#include "composition.hpp"
 #include <condition_variable>
 #include <thread>
 
 namespace asterion::warehouse {
 
-// Keeps research current on its own thread: it composes at start and after each
-// request, requests made meanwhile coalescing into one. Nothing that commits to
-// a source waits for it, and its failure holds back only research.
+// Composes fixed source versions, coalescing requests without blocking acquisition.
 class Composer
 {
 public:
     explicit Composer(std::filesystem::path data);
-    void request();
+    void request(const SourceVersions& committed);
     void stop();
 
 private:
@@ -22,6 +20,7 @@ private:
     Store research_;
     std::mutex mutex_;
     std::condition_variable_any changed_;
+    SourceVersions versions_;
     bool requested_ = true;
     std::jthread thread_;
 };

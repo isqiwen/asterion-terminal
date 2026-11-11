@@ -428,6 +428,66 @@ TEST_F(Acquisition, AProviderIsNotAskedForToday)
     EXPECT_EQ(std::count(vendor->days.begin(), vendor->days.end(), compact), 0);
 }
 
+TEST_F(Acquisition, CompletedTaskVersionsExcludeTheNextTasksCommittedReferences)
+{
+    auto vendor = std::make_shared<Vendor>();
+    std::promise<void> entered;
+    std::mutex mutex;
+    std::condition_variable_any changed;
+    bool released = false;
+    vendor->before = [&](const Json& request, std::stop_token stop) {
+        if (request.at("api_name") == "fut_daily"
+            && request.at("params").at("exchange") == "CZCE") {
+            entered.set_value();
+            std::unique_lock lock(mutex);
+            changed.wait(lock, stop, [&] {
+                return released;
+            });
+            ac::check_stop(stop);
+        }
+    };
+    auto sources = wh::source_versions(root);
+    wh::SourceVersions completed;
+    ac::Manager manager(root, {{"tushare", factory(vendor)}}, [&](const auto& versions) {
+        completed = versions;
+    });
+    auto first = request("first");
+    first.set_first_day("2026-01-05");
+    first.set_last_day("2026-01-05");
+    manager.submit(first);
+    ASSERT_EQ(finished(manager, "first").state(), ac::wire::TASK_STATE_SUCCEEDED);
+    sources["tushare"] = completed.at("tushare");
+
+    auto second = request("second");
+    second.set_exchanges(0, "CZCE");
+    second.set_first_day("2020-01-05");
+    second.set_last_day("2020-01-05");
+    manager.submit(second);
+    ASSERT_EQ(entered.get_future().wait_for(5s), std::future_status::ready);
+    EXPECT_EQ(manager.get("second").state(), ac::wire::TASK_STATE_RUNNING);
+    wh::Store store(root, "tushare");
+    EXPECT_TRUE(store.current().partitions.contains("contracts/CZCE"));
+    wh::Store research(wh::source_directory(root, "research"), "research");
+    const auto first_version = wh::compose(root, research, sources);
+    EXPECT_TRUE(first_version.partitions.contains("daily/SHFE/2026-01-05"));
+    EXPECT_FALSE(first_version.partitions.contains("contracts/CZCE"));
+    EXPECT_FALSE(first_version.partitions.contains("calendar/CZCE/2020"));
+
+    {
+        std::lock_guard lock(mutex);
+        released = true;
+    }
+    changed.notify_all();
+    const auto done = finished(manager, "second");
+    ASSERT_EQ(done.state(), ac::wire::TASK_STATE_SUCCEEDED) << done.error().message();
+    sources["tushare"] = completed.at("tushare");
+    const auto second_version = wh::compose(root, research, sources);
+    EXPECT_TRUE(second_version.partitions.contains("daily/CZCE/2020-01-05"));
+    EXPECT_TRUE(second_version.partitions.contains("contracts/CZCE"));
+    EXPECT_TRUE(second_version.partitions.contains("calendar/CZCE/2020"));
+    EXPECT_FALSE(research.version(first_version.identity).partitions.contains("contracts/CZCE"));
+}
+
 TEST_F(Acquisition, CancellingAnInFlightRequestKeepsFetchedDaysAndDoesNotRetry)
 {
     auto vendor = std::make_shared<Vendor>();
@@ -445,7 +505,11 @@ TEST_F(Acquisition, CancellingAnInFlightRequestKeepsFetchedDaysAndDoesNotRetry)
             ac::check_stop(stop);
         }
     };
-    ac::Manager manager(root, {{"tushare", factory(vendor)}});
+    auto sources = wh::source_versions(root);
+    ac::Manager manager(root, {{"tushare", factory(vendor)}}, [&](const auto& versions) {
+        for (const auto& [provider, identity] : versions)
+            sources[provider] = identity;
+    });
     manager.submit(request("cancel"));
     ASSERT_EQ(entered.get_future().wait_for(5s), std::future_status::ready);
     // A later task waits its turn instead of being refused.
@@ -459,6 +523,9 @@ TEST_F(Acquisition, CancellingAnInFlightRequestKeepsFetchedDaysAndDoesNotRetry)
     wh::Store store(root, "tushare");
     EXPECT_EQ(store.current().partitions.at("daily/SHFE/2026-01-05").rows, 1);
     manager.stop();
+    wh::Store research(wh::source_directory(root, "research"), "research");
+    const auto published = wh::compose(root, research, sources);
+    EXPECT_EQ(published.partitions.at("daily/SHFE/2026-01-05").rows, 1);
     const auto calls = vendor->calls.size();
     ac::Manager restarted(root, {{"tushare", factory(vendor)}});
     EXPECT_EQ(restarted.get("cancel").state(), ac::wire::TASK_STATE_CANCELLED);
@@ -545,20 +612,26 @@ TEST_F(Acquisition, ALaterSourceFillsOnlyWhatTheOneBeforeItLacksAndAFailureKeeps
     EXPECT_EQ(first, (std::vector<std::string>{"2026-01-05", "2026-01-06"}));
     EXPECT_EQ(second, std::vector<std::string>{"2026-01-06"});
     wh::Store research(wh::source_directory(root, "research"), "research");
-    const auto version = wh::compose(root, research);
+    const auto version = wh::compose(root, research, wh::source_versions(root));
     EXPECT_EQ(version.partitions.at("daily/SHFE/2026-01-05").source, "shfe");
     EXPECT_EQ(version.partitions.at("daily/SHFE/2026-01-06").source, "sina");
 
     std::vector<std::string> ignored, kept;
+    auto failed_sources = wh::source_versions(root / "broken");
     ac::Manager broken(
         root / "broken",
         {{"shfe",
              [&](auto) {
                  return std::make_unique<Daily>(ignored, std::set<std::string>{}, true);
              }},
-            {"sina", [&](auto) {
-                 return std::make_unique<Daily>(kept, std::set<std::string>{"2026-01-05"});
-             }}});
+            {"sina",
+                [&](auto) {
+                    return std::make_unique<Daily>(kept, std::set<std::string>{"2026-01-05"});
+                }}},
+        [&](const auto& versions) {
+            for (const auto& [provider, identity] : versions)
+                failed_sources[provider] = identity;
+        });
     task.set_id("broken");
     task.set_last_day("2026-01-05");
     broken.submit(task);
@@ -567,6 +640,9 @@ TEST_F(Acquisition, ALaterSourceFillsOnlyWhatTheOneBeforeItLacksAndAFailureKeeps
     EXPECT_NE(failed.error().message().find("shfe"), std::string::npos);
     wh::Store fallback(wh::source_directory(root / "broken", "sina"), "sina");
     EXPECT_TRUE(fallback.current().partitions.contains("daily/SHFE/2026-01-05"));
+    wh::Store kept_research(wh::source_directory(root / "broken", "research"), "research");
+    const auto published = wh::compose(root / "broken", kept_research, failed_sources);
+    EXPECT_EQ(published.partitions.at("daily/SHFE/2026-01-05").source, "sina");
 }
 
 TEST_F(Acquisition, FailedTaskPersistenceIsVisibleAndRecoveryDoesNotResubmit)

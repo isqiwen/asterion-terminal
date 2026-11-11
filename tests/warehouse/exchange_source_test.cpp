@@ -373,7 +373,7 @@ TEST_F(ExchangeSources, PriceTickTasksFillGapsAndKeepFixedVersions)
     EXPECT_EQ(task.items(), 2);
     EXPECT_EQ(task.items_empty(), 1);
     wh::Store research(wh::source_directory(root, "research"), "research");
-    wh::compose(root, research);
+    wh::compose(root, research, wh::source_versions(root));
     const auto fixed = research.current();
     ASSERT_TRUE(fixed.partitions.contains("price_ticks/CZCE/2022-01-04"));
     EXPECT_EQ(fixed.partitions.at("price_ticks/CZCE/2022-01-04").source, "czce");
@@ -386,7 +386,7 @@ TEST_F(ExchangeSources, PriceTickTasksFillGapsAndKeepFixedVersions)
     ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
     EXPECT_EQ(task.requests_sent(), 1);
     EXPECT_EQ(task.items_empty(), 0);
-    wh::compose(root, research);
+    wh::compose(root, research, wh::source_versions(root));
     EXPECT_TRUE(research.current().partitions.contains("price_ticks/CZCE/2022-01-05"));
 
     raw.replace(raw.find("1.00元/吨"), std::string("1.00元/吨").size(), "0.005元/吨");
@@ -396,7 +396,7 @@ TEST_F(ExchangeSources, PriceTickTasksFillGapsAndKeepFixedVersions)
     task = wait(manager, request.id());
     ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
     EXPECT_EQ(task.requests_sent(), 2);
-    wh::compose(root, research);
+    wh::compose(root, research, wh::source_versions(root));
     EXPECT_EQ(
         research.read(fixed, "price_ticks/CZCE/2022-01-04")[0][5],
         wh::Cell{std::string("1.00000000")});

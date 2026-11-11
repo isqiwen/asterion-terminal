@@ -174,7 +174,8 @@ TEST_F(SinaSource, RealMinutesAndDailyBarsParse)
     asterion::warehouse::Store research(
         asterion::warehouse::source_directory(data, "research"),
         "research");
-    const auto version = asterion::warehouse::compose(data, research);
+    const auto version =
+        asterion::warehouse::compose(data, research, asterion::warehouse::source_versions(data));
     ASSERT_EQ(version.partitions.size(), 1);
     EXPECT_EQ(version.partitions.begin()->second.source, "sina");
     std::cout << version.partitions.begin()->first << " from "

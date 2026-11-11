@@ -95,13 +95,14 @@ sequenceDiagram
     loop 按优先级每个来源，只取前面没有的分区
         Manager->>Source: 后台读取供应商数据
         Source-->>Manager: 按表的记录
+        Manager->>Writer: put()，分批 commit()
+        Writer->>Writer: 分区文件 → 月度分片 → 版本清单 → current
+        Writer-->>Manager: 已提交的来源版本 ID
+        Manager->>Manager: 持久化任务进度
     end
-    Manager->>Writer: put()
-    Manager->>Writer: commit()
-    Writer->>Writer: 分区文件 → 月度分片 → 版本清单 → current
-    Manager-->>Research: 通知合成，不等待
-    Manager->>Manager: 持久化任务进度或完成状态
-    Research->>Research: 在自己的线程读取来源版本并发布
+    Manager-->>Research: 任务结束，交付已提交的来源版本 ID
+    Manager->>Manager: 持久化任务完成状态
+    Research->>Research: 后台读取固定来源版本并发布
     Client->>RPC: get_dataset_version(当前版本)
     RPC-->>Client: 固定版本 ID、分区与摘要
     loop 分页与文件下载
@@ -110,7 +111,7 @@ sequenceDiagram
     end
 ```
 
-`research` 的来源选择规则见[功能文档](README.md#仓库与固定版本)。来源顺序只在 `sources_of` 维护，`Manager` 和合成共用。`Writer::adopt()` 用硬链接引用选中的分区，旧版本仍引用原文件；无内容变化不生成新版本。`Composer` 在启动时和每次来源提交后运行，运行期间的通知合并为一次，所以任务完成后 `research` 稍后才更新；合成失败不影响任务，一分钟后重试。
+`research` 的来源选择与发布规则见[功能文档](README.md#仓库与固定版本)。来源顺序只在 `sources_of` 维护，`Manager` 和合成共用。`Writer::adopt()` 用硬链接引用选中的分区，旧版本仍引用原文件。`Composer` 在启动和任务结束后合成，失败不影响采集任务，稍后重试；重试可纳入此后已结束的任务，不能重新读取运行中来源的 `current`。理由：来源按批保存进度，合成读取的边界必须是任务结束。
 
 ## 生命周期与错误边界
 
@@ -120,6 +121,8 @@ sequenceDiagram
 | 来源失败 | 后面的来源照常补缺，任务最后标为失败，见 `Manager::work()` |
 | 服务正常停止 | 结束后台任务后退出，见 `main.cpp` 与 `service.cpp` |
 | 服务重新启动 | 旧采集任务标为中断，损坏的任务文件只影响它自己，见 `Manager` |
+
+启动时若无法读取来源的版本指针，则启动失败并报告路径，理由：接纳新采集前必须先确定已有数据的发布边界。
 
 ## 代码阅读路线
 

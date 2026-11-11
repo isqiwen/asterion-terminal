@@ -148,7 +148,7 @@ TEST_F(GuotaiSource, MarketPublishesFiveExchangesAndSkipsStoredDays)
     EXPECT_EQ(task.requests_sent(), 2);
     EXPECT_EQ(task.items_done(), 10);
     wh::Store research(wh::source_directory(root, "research"), "research");
-    wh::compose(root, research);
+    wh::compose(root, research, wh::source_versions(root));
     const auto fixed = research.current();
     ASSERT_EQ(fixed.partitions.size(), 10);
     for (const auto& [key, part] : fixed.partitions)
@@ -164,7 +164,7 @@ TEST_F(GuotaiSource, MarketPublishesFiveExchangesAndSkipsStoredDays)
     task = wait(manager, request.id());
     EXPECT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
     EXPECT_EQ(task.requests_sent(), 0);
-    EXPECT_EQ(wh::compose(root, research).identity, fixed.identity);
+    EXPECT_EQ(wh::compose(root, research, wh::source_versions(root)).identity, fixed.identity);
 }
 
 TEST_F(GuotaiSource, PublicReportsPublishHistoricalChangesThroughMarket)
@@ -187,7 +187,7 @@ TEST_F(GuotaiSource, PublicReportsPublishHistoricalChangesThroughMarket)
         EXPECT_EQ(task.items_empty(), 0);
     }
     wh::Store research(wh::source_directory(root, "research"), "research");
-    const auto fixed = wh::compose(root, research);
+    const auto fixed = wh::compose(root, research, wh::source_versions(root));
     ASSERT_EQ(fixed.partitions.size(), 20);
     const auto tick =
         [&](const std::string& exchange, const std::string& name, const std::string& day) {

@@ -7,9 +7,10 @@ namespace asterion::warehouse {
 // fills what those before it lack.
 const std::vector<std::string>& sources_of(std::string_view table);
 
-// The one dataset clients read, composed from the sources in the data directory
-// in that order, table by table. Every partition comes whole from one source.
-// Unchanged sources publish no new version.
-Version compose(const std::filesystem::path& data, Store& unified);
+using SourceVersions = std::map<std::string, std::string>;
+SourceVersions source_versions(const std::filesystem::path& data);
+
+// Fixed inputs keep later acquisition batches out of this publication.
+Version compose(const std::filesystem::path& data, Store& unified, const SourceVersions& versions);
 
 } // namespace asterion::warehouse

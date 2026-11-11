@@ -16,11 +16,11 @@ namespace wire = ::warehouse;
 class Manager
 {
 public:
-    // `finished` runs when a task ends, however it ends.
+    // `finished` receives the source versions committed by the task, however it ends.
     Manager(
         std::filesystem::path directory,
         std::map<std::string, Factory> sources = {},
-        std::function<void()> finished = {});
+        std::function<void(const SourceVersions&)> finished = {});
     ~Manager();
     wire::AcquisitionTask submit(wire::StartAcquisition);
     void cancel(const std::string& id);
@@ -35,6 +35,7 @@ private:
         wire::AcquisitionTask task;
         std::stop_source cancel;
         std::shared_future<void> finished;
+        SourceVersions versions;
     };
 
     // What a task covers once its instruments are resolved: days of whole
@@ -59,7 +60,7 @@ private:
     std::filesystem::path directory_;
     std::map<std::string, Factory> sources_;
     std::map<std::string, std::unique_ptr<warehouse::Store>> stores_;
-    std::function<void()> finished_;
+    std::function<void(const SourceVersions&)> finished_;
     mutable std::mutex mutex_;
     std::map<std::string, std::unique_ptr<Active>> active_;
     bool stopped_ = false;

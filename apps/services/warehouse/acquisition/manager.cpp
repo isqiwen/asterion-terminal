@@ -112,7 +112,7 @@ wire::AcquisitionOptions Manager::options() const
 Manager::Manager(
     fs::path directory,
     std::map<std::string, Factory> sources,
-    std::function<void()> finished)
+    std::function<void(const SourceVersions&)> finished)
     : directory_(std::move(directory) / "acquisition"),
       sources_(std::move(sources)),
       finished_(std::move(finished))
@@ -308,7 +308,7 @@ void Manager::work(
     }
     task.set_finished_ms(now_ms());
     if (finished_)
-        finished_();
+        finished_(active.versions);
     // The source may have committed data immediately before a status write
     // failed. The warehouse remains authoritative; never roll it back.
     publish(task, active);
@@ -403,7 +403,7 @@ std::vector<Contract> Manager::listed(Active& active, const std::string& exchang
         auto contracts = source->contracts(exchange);
         auto writer = stores_.at(provider)->writer();
         writer.put("contracts/" + exchange, warehouse::rows(contracts));
-        writer.commit();
+        active.versions[provider] = writer.commit().identity;
         wire::AcquisitionTask task;
         {
             std::lock_guard lock(mutex_);
@@ -502,6 +502,7 @@ void Manager::run(
     auto version = store.current();
     const auto commit = [&] {
         version = writer.commit();
+        active.versions[store.provider()] = version.identity;
         task.set_requests_sent(previous_requests + source.requests());
         publish(task, active);
     };

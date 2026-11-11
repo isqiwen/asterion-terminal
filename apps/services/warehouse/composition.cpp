@@ -18,10 +18,20 @@ const std::vector<std::string>& sources_of(std::string_view table)
     return order.at(table);
 }
 
-Version compose(const std::filesystem::path& data, Store& unified)
+SourceVersions source_versions(const std::filesystem::path& data)
 {
-    // Sources are read under the writer's lock, so a later composition never
-    // publishes older source versions than an earlier one.
+    SourceVersions versions;
+    for (const auto* table :
+        {"contracts", "calendar", "daily", "minutes", "settlement", "price_ticks"})
+        for (const auto& provider : sources_of(table))
+            if (!versions.contains(provider))
+                versions[provider] =
+                    Store(source_directory(data, provider), provider).current_identity();
+    return versions;
+}
+
+Version compose(const std::filesystem::path& data, Store& unified, const SourceVersions& versions)
+{
     auto writer = unified.writer();
     writer.clear();
     std::map<std::string, std::pair<std::unique_ptr<Store>, Version>> sources;
@@ -33,7 +43,8 @@ Version compose(const std::filesystem::path& data, Store& unified)
             auto& source = sources[provider];
             if (!source.first) {
                 source.first = std::make_unique<Store>(source_directory(data, provider), provider);
-                source.second = source.first->current();
+                const auto& identity = versions.at(provider);
+                source.second = identity.empty() ? Version{} : source.first->version(identity);
             }
             const auto& version = source.second;
             for (auto at = version.partitions.lower_bound(prefix);
