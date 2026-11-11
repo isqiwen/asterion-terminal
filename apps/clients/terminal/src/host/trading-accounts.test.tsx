@@ -1,5 +1,5 @@
 import { create } from "@bufbuild/protobuf";
-import { render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 import { tradingRequest } from "../bridge/trading";
 import {
@@ -7,12 +7,79 @@ import {
   InstanceState,
   ResponseSchema,
   StrategiesSchema,
+  type Response,
 } from "../generated/asterion/trading_pb";
 import { notify } from "./notifications";
-import { TradingAccountsProvider } from "./trading-accounts";
+import { TradingAccountsProvider, useTradingAccounts } from "./trading-accounts";
 
 vi.mock("../bridge/trading", () => ({ tradingRequest: vi.fn() }));
 vi.mock("./notifications", () => ({ notify: vi.fn() }));
+
+test("a delayed command reply cannot undo the account's observed revocation", async () => {
+  vi.useFakeTimers();
+  let authorized = true;
+  const replies = new Map<string, (response: Response) => void>();
+  const account = (operation: "getAccount" | "sendCommand", allowed: boolean) =>
+    create(ResponseSchema, {
+      result: {
+        case: operation,
+        value: { id: "record", session: allowed ? { authorizedMs: 1n } : {} },
+      },
+    });
+  vi.mocked(tradingRequest).mockImplementation(async (_id, operation) => {
+    if (operation.case === "sendCommand")
+      return new Promise(resolve => replies.set(operation.value.requestId!, resolve));
+    if (operation.case === "getAccount") return account("getAccount", authorized);
+    if (operation.case === "getHealth")
+      return create(ResponseSchema, { result: { case: "getHealth", value: { protocol: "ours" } } });
+    return create(ResponseSchema, { result: { case: "getStrategies", value: {} } });
+  });
+  function Status() {
+    const { views, send } = useTradingAccounts();
+    const command = (requestId: string) =>
+      void send("sim", {
+        case: "sendCommand",
+        value: {
+          requestId,
+          accountId: "record",
+          policyRevision: "policy",
+          action:
+            requestId === "cancel"
+              ? { case: "cancelOrder", value: { id: "order" } }
+              : { case: "revoke", value: {} },
+        },
+      });
+    return (
+      <>
+        <output>
+          {views.sim?.live?.authorizedMs === undefined ? "unauthorized" : "authorized"}
+        </output>
+        <button onClick={() => command("cancel")}>cancel</button>
+        <button onClick={() => command("revoke")}>revoke</button>
+      </>
+    );
+  }
+  render(
+    <TradingAccountsProvider ids={["sim"]} protocol="ours">
+      <Status />
+    </TradingAccountsProvider>,
+  );
+  await act(() => vi.advanceTimersByTimeAsync(0));
+  expect(screen.getByRole("status").textContent).toBe("authorized");
+  fireEvent.click(screen.getByRole("button", { name: "cancel" }));
+  fireEvent.click(screen.getByRole("button", { name: "revoke" }));
+  await act(async () => {
+    authorized = false;
+    replies.get("revoke")!(account("sendCommand", false));
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+  expect(screen.getByRole("status").textContent).toBe("unauthorized");
+  await act(async () => replies.get("cancel")!(account("sendCommand", true)));
+  expect(screen.getByRole("status").textContent).toBe("unauthorized");
+  authorized = true;
+  await act(() => vi.advanceTimersByTimeAsync(1000));
+  expect(screen.getByRole("status").textContent).toBe("authorized");
+});
 
 test("a Trading service built from another protocol is reported and stays usable", async () => {
   vi.mocked(tradingRequest).mockResolvedValue(

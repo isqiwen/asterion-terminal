@@ -102,9 +102,6 @@ export function TradingAccountsProvider({
   children: ReactNode;
 }) {
   const [views, setViews] = useState<Record<string, TradingView>>({});
-  // A read that began before a command was answered may show the account as
-  // it was before that command, so it is dropped.
-  const commands = useRef<Record<string, number>>({});
   const alerted = useRef<Record<string, Alerted | undefined>>({});
   const accept = useCallback((id: string, responses: Response[]) => {
     setViews(current => ({ ...current, [id]: responses.reduce(merge, current[id] ?? {}) }));
@@ -124,7 +121,6 @@ export function TradingAccountsProvider({
     const read = async (id: string, health: boolean) => {
       if (reading.has(id)) return;
       reading.add(id);
-      const command = commands.current[id];
       try {
         const responses = [await tradingRequest(id, { case: "getAccount", value: {} })];
         if (health) {
@@ -143,7 +139,7 @@ export function TradingAccountsProvider({
           if (strategies.result.case === "getStrategies")
             alerted.current[id] = alert(id, strategies.result.value.instance, alerted.current[id]);
         }
-        if (!stopped && command === commands.current[id]) accept(id, responses);
+        if (!stopped) accept(id, responses);
         failing.delete(id);
       } catch (reason) {
         if (!failing.has(id)) {
@@ -170,23 +166,9 @@ export function TradingAccountsProvider({
       window.clearInterval(timer);
     };
   }, [key, protocol, accept]);
-  const send = useCallback<TradingAccounts["send"]>(
-    async (id, operation) => {
-      const next = () => (commands.current[id] = (commands.current[id] ?? 0) + 1);
-      next();
-      try {
-        const response = await tradingRequest(id, operation);
-        accept(id, [response]);
-        return response;
-      } finally {
-        next();
-      }
-    },
-    [accept],
-  );
   const value = {
     views: Object.fromEntries(ids.filter(id => views[id]).map(id => [id, views[id]!])),
-    send,
+    send: tradingRequest,
   };
   return <Accounts.Provider value={value}>{children}</Accounts.Provider>;
 }
