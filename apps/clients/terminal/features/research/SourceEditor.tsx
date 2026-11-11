@@ -15,22 +15,29 @@ const theme = EditorView.theme(
   { dark: true },
 );
 
-// One module of the strategy directory. A built-in module is shown read only.
+// One module of the strategy directory, opened on its unsaved `draft` if it
+// has one. A built-in module is shown read only.
 export function SourceEditor({
   repository,
   path,
+  draft,
+  edited,
   changed,
   deleted,
 }: {
   repository: string;
   path: string;
+  draft: string | undefined;
+  edited: (content: string | null) => void;
   changed: () => void;
   deleted: () => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
+  const opened = useRef({ draft, edited });
+  opened.current.edited = edited;
   const [readOnly, setReadOnly] = useState(true);
-  const [dirty, setDirty] = useState(false);
+  const dirty = draft !== undefined;
   const { error, attempt } = useActionError();
   useEffect(() => {
     let active = true;
@@ -38,17 +45,18 @@ export function SourceEditor({
       const source = await lab({ case: "readSource", value: { repository, path } });
       if (!active || !host.current) return;
       setReadOnly(source.readOnly);
-      setDirty(false);
       view.current = new EditorView({
         parent: host.current,
         state: EditorState.create({
-          doc: source.content,
+          doc: opened.current.draft ?? source.content,
           extensions: [
             basicSetup,
             python(),
             theme,
             EditorState.readOnly.of(source.readOnly),
-            EditorView.updateListener.of(update => update.docChanged && setDirty(true)),
+            EditorView.updateListener.of(
+              update => update.docChanged && opened.current.edited(update.state.doc.toString()),
+            ),
           ],
         }),
       });
@@ -63,7 +71,7 @@ export function SourceEditor({
     attempt(async () => {
       const content = view.current!.state.doc.toString();
       await lab({ case: "saveSource", value: { source: { repository, path }, content } });
-      setDirty(false);
+      edited(null);
       changed();
     });
   const remove = async () => {

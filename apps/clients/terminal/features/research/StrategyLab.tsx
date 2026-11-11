@@ -51,7 +51,8 @@ export function StrategyLab(context: TerminalContext) {
     active: boolean;
   } | null>(null);
   const [shown, setShown] = useState<Shown>(null);
-  const source = useSource(shown);
+  const source = useSource(repository, shown);
+  const [saved, setSaved] = useState<string[]>([]);
   const [compared, setCompared] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const submitted = useActionError();
@@ -98,7 +99,11 @@ export function StrategyLab(context: TerminalContext) {
   const submit = async () => {
     if (!strategy) return;
     setBusy(true);
+    setSaved([]);
     await submitted.attempt(async () => {
+      const written = await source.save();
+      setSaved(written);
+      if (written.length) await readStrategies();
       const id = identity(strategy.id);
       const { run, swept } = runRequest(form, repository, strategy.id, strategy.parameters, id);
       if (form.validation === "rolling" && !swept.length)
@@ -339,6 +344,9 @@ export function StrategyLab(context: TerminalContext) {
               >
                 {t("运行")}
               </button>
+              {saved.length > 0 && (
+                <p className="subtle">{t("已保存 {files}", { files: saved.join("、") })}</p>
+              )}
               <ActionError error={submitted.error} />
             </footer>
           </>

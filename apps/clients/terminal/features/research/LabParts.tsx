@@ -9,6 +9,7 @@ import {
   type LabSummary,
   type MessageValues,
   type TerminalContext,
+  useWorkspaceDraft,
 } from "../contract";
 import { moduleTemplate } from "./research-lab";
 import { SourceEditor } from "./SourceEditor";
@@ -178,23 +179,47 @@ export function ModuleErrors({
     ));
 }
 
-// The open module and whether the centre shows its code or the latest result,
-// which takes over whenever a new one arrives.
-export function useSource(shown: unknown) {
-  const [path, setPath] = useState("");
+// The open module, its unsaved edits and whether the centre shows its code or
+// the latest result, which takes over whenever a new one arrives. The edits
+// belong to the workspace: they outlive the editor until saved.
+export function useSource(repository: string, shown: unknown) {
+  const [path, setPath] = useWorkspaceDraft(`source-path:${repository}`, "");
+  const [drafts, setDrafts] = useWorkspaceDraft<Record<string, string>>(
+    `source-drafts:${repository}`,
+    {},
+  );
   const [tab, setTab] = useState<"code" | "result">("code");
   useEffect(() => {
     if (shown) setTab("result");
   }, [shown]);
+  const draft = (module: string, content: string | null) =>
+    setDrafts(previous => {
+      const { [module]: _, ...rest } = previous;
+      return content === null ? rest : { ...rest, [module]: content };
+    });
   return {
     path,
     tab,
     setTab,
+    drafts,
+    draft,
     open: (next: string) => {
       setPath(next);
       setTab("code");
     },
     close: () => setPath(""),
+    // Saves every module with unsaved edits, so that a run reads the code on show; the paths saved.
+    async save() {
+      const saved = Object.keys(drafts);
+      for (const module of saved) {
+        await lab({
+          case: "saveSource",
+          value: { source: { repository, path: module }, content: drafts[module] },
+        });
+        draft(module, null);
+      }
+      return saved;
+    },
   };
 }
 
@@ -230,8 +255,11 @@ export function LabCentre({
           key={source.path}
           repository={repository}
           path={source.path}
+          draft={source.drafts[source.path]}
+          edited={content => source.draft(source.path, content)}
           changed={changed}
           deleted={() => {
+            source.draft(source.path, null);
             source.close();
             deleted();
           }}

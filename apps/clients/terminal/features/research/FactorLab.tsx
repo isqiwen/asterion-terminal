@@ -30,18 +30,23 @@ export function FactorLab(context: TerminalContext) {
   const [result, setResult] = useState<LabFactorResult | null>(null);
   const [busy, setBusy] = useState(false);
   const { error, attempt } = useActionError();
-  const source = useSource(result);
+  const source = useSource(repository, result);
+  const [saved, setSaved] = useState<string[]>([]);
 
   const factor = modules?.factors.find(item => item.id === chosen);
   const change = (patch: Partial<FactorForm>) => setForm(previous => ({ ...previous, ...patch }));
   const evaluate = async () => {
     if (!factor) return;
     setBusy(true);
-    await attempt(async () =>
+    setSaved([]);
+    await attempt(async () => {
+      const written = await source.save();
+      setSaved(written);
+      if (written.length) await read();
       setResult(
         await lab({ case: "evaluateFactor", value: factorRequest(form, repository, factor) }),
-      ),
-    );
+      );
+    });
     setBusy(false);
   };
   const field = (label: string, key: "begin" | "end" | "horizons" | "groups", props = {}) => (
@@ -163,6 +168,9 @@ export function FactorLab(context: TerminalContext) {
               >
                 {busy ? t("正在评价…") : t("评价")}
               </button>
+              {saved.length > 0 && (
+                <p className="subtle">{t("已保存 {files}", { files: saved.join("、") })}</p>
+              )}
               <ActionError error={error} />
             </footer>
           </>
