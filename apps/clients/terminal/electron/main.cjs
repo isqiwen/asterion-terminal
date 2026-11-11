@@ -3,7 +3,6 @@ const {
   crashReporter,
   BrowserWindow,
   ipcMain,
-  dialog,
   Menu,
   protocol,
   net,
@@ -248,36 +247,6 @@ async function openSettings(category) {
     win.focus();
   }
 }
-function options(input, save = false) {
-  if (!input || typeof input !== "object" || Array.isArray(input))
-    throw new Error("Invalid dialog options");
-  const result = {};
-  for (const key of ["title", "defaultPath"])
-    if (input[key] !== undefined) {
-      if (typeof input[key] !== "string" || input[key].length > 4096)
-        throw new Error("Invalid dialog text");
-      result[key] = input[key];
-    }
-  if (input.filters !== undefined) {
-    if (!Array.isArray(input.filters) || input.filters.length > 10)
-      throw new Error("Invalid file filters");
-    result.filters = input.filters.map(item => {
-      if (
-        typeof item.name !== "string" ||
-        !Array.isArray(item.extensions) ||
-        !item.extensions.every(e => typeof e === "string" && /^[a-zA-Z0-9*]+$/.test(e))
-      )
-        throw new Error("Invalid file filter");
-      return { name: item.name, extensions: item.extensions };
-    });
-  }
-  if (!save)
-    result.properties = [
-      input.directory === true ? "openDirectory" : "openFile",
-      ...(input.multiple === true ? ["multiSelections"] : []),
-    ];
-  return result;
-}
 app.on("before-quit", () => {
   quitting = true;
 });
@@ -360,20 +329,6 @@ app
       const win = authorized(event);
       if (typeof title !== "string" || title.length > 256) throw new Error("Invalid window title");
       win.setTitle(title);
-    });
-    ipcMain.handle("asterion:open", async (event, input) => {
-      const win = authorized(event);
-      const result = await dialog.showOpenDialog(win, options(input));
-      return result.canceled
-        ? null
-        : input.multiple
-          ? result.filePaths
-          : (result.filePaths[0] ?? null);
-    });
-    ipcMain.handle("asterion:save", async (event, input) => {
-      const win = authorized(event);
-      const result = await dialog.showSaveDialog(win, options(input, true));
-      return result.canceled ? null : (result.filePath ?? null);
     });
     Menu.setApplicationMenu(
       Menu.buildFromTemplate([

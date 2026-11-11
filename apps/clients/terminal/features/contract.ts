@@ -1,7 +1,6 @@
 // Reads a feature may make through `query`; anything that acts goes through `trade`.
 import type { CommandHandler } from "../src/bridge/commands";
 export { useWorkspaceDraft } from "../src/host/workspace/drafts";
-export { save } from "../src/bridge/desktop";
 export { lab } from "../src/bridge/lab";
 export { warehouseData } from "../src/bridge/warehouse-data";
 export { marketData } from "../src/bridge/market-data";
