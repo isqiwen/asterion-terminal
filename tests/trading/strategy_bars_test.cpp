@@ -94,6 +94,33 @@ TEST(StrategyBars, DailyWindowStartsAtObservedTradingDayTransition)
     EXPECT_TRUE(restarted.observe(tick(start + 172800000, 1, "102", "20260930")).empty());
 }
 
+TEST(StrategyBars, ADayEndsWhenALaterTradingDayIsObserved)
+{
+    StrategyBars bars(configuration(::common::PERIOD_DAY, true), start);
+    const auto day = start + 86400000; // 09:00 on 2026-09-29
+    const auto observe = [&](std::int64_t time,
+                             int volume,
+                             const char* price,
+                             const char* date,
+                             const char* symbol) {
+        return bars.observe(tick(time, volume, price, date, symbol));
+    };
+    for (const auto* symbol : {"rb2610", "cu2610"}) {
+        EXPECT_TRUE(observe(start, 1, "100", "20260928", symbol).empty());
+        EXPECT_TRUE(observe(day, 2, "101", "20260929", symbol).empty());
+    }
+    // Quotes after 15:00 of the same trading day still belong to it.
+    EXPECT_TRUE(observe(day + 22500000, 5, "104", "20260929", "rb2610").empty());
+    // cu opens the night session of the next trading day; rb stays silent.
+    const auto night = day + 43200000;
+    EXPECT_TRUE(observe(night, 1, "99", "20260930", "cu2610").empty());
+    const auto closed = observe(night + 10000, 2, "98", "20260930", "cu2610");
+    ASSERT_EQ(closed.size(), 1);
+    ASSERT_EQ(closed[0].bars_size(), 2);
+    EXPECT_EQ(closed[0].bars(0).trading_day(), "2026-09-29");
+    EXPECT_EQ(closed[0].bars(0).close().text(), Decimal::parse("104").str());
+}
+
 TEST(StrategyBars, BatchesContractsOnceSkipsRepeatedOrStaleQuotesAndRejectsResets)
 {
     StrategyBars bars(configuration(::common::PERIOD_MINUTES_1, true), start);

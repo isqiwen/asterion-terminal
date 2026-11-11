@@ -7,7 +7,9 @@ namespace asterion::trading {
 
 // One instance's fresh observation window. A period is delivered once every
 // contract has an observation after it, or once any contract's observation is
-// past its end by the freshness limit, when no quote of it can still arrive.
+// past its end by the freshness limit, when no quote of it can still arrive. A
+// day ends when a later trading day is first observed, not at a clock time:
+// bond futures trade until 15:15 and settlement snapshots follow the close.
 // A contract silent in a period, closed or halted, is absent from it: silence
 // never manufactures bars, and a quote of a period already delivered goes to
 // that contract's next bar.
@@ -34,6 +36,8 @@ private:
     std::vector<std::string> contracts_;
     std::map<std::string, Current> current_;
     std::map<std::int64_t, std::map<std::string, ::strategy::Bar>> pending_;
+    // Daily: when each trading day was first observed, by any contract.
+    std::map<std::int64_t, std::int64_t> opened_;
     // The latest observation of any contract, and the last period delivered.
     std::int64_t now_ = 0, delivered_ = -1;
     std::uint64_t sequence_ = 0;

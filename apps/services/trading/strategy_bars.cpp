@@ -89,6 +89,8 @@ std::vector<wire::Bars> StrategyBars::observe(const MarketQuote& quote)
     now_ = std::max(now_, quote.source_ms);
     if (key <= delivered_)
         return deliver();
+    if (daily_)
+        opened_.try_emplace(key, quote.source_ms);
     const bool new_day = current.initialized && day != current.bar.trading_day();
     if (current.initialized
         && (key < current.key || day < current.bar.trading_day() || (new_day && key == current.key)
@@ -140,7 +142,10 @@ std::vector<wire::Bars> StrategyBars::deliver()
                 key = std::min(key, current.key);
         if (key == INT64_MAX)
             break;
-        const auto end = daily_ ? key + 15 * 3600000LL : key + interval_;
+        const auto later = opened_.upper_bound(key);
+        const auto end = !daily_     ? key + interval_
+            : later == opened_.end() ? INT64_MAX - fresh_ms
+                                     : later->second;
         if (now_ < end + fresh_ms
             && std::ranges::any_of(
                 current_,
@@ -162,6 +167,7 @@ std::vector<wire::Bars> StrategyBars::deliver()
         result.push_back(std::move(batch));
         pending_.erase(key);
         delivered_ = key;
+        opened_.erase(opened_.begin(), opened_.upper_bound(key));
     }
     return result;
 }
