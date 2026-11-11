@@ -1,11 +1,7 @@
 import { useState } from "react";
-import {
-  ActionError,
-  translate,
-  useActionError,
-  type MessageValues,
-  type TerminalContext,
-} from "../contract";
+import { ActionError, useActionError } from "../../src/host/action-error";
+import type { TerminalContext } from "../../src/host/feature-registry";
+import { type MessageValues, translate } from "../../src/i18n";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.futures-market", key, values);
 

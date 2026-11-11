@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { translate, type MarketCoverage, type MessageValues } from "../contract";
+import type { DatasetCoverage } from "../../src/generated/asterion/warehouse_pb";
+import { type MessageValues, translate } from "../../src/i18n";
 import { productOf } from "./ContractPicker";
 
 const t = (key: string, values?: MessageValues) =>
@@ -11,7 +12,7 @@ export function MinuteCoverage({
   contracts,
   onFill,
 }: {
-  contracts: MarketCoverage["contracts"];
+  contracts: DatasetCoverage["contracts"];
   onFill?: (contract: string, month: string) => void;
 }) {
   const products = [...new Set(contracts.map(item => productOf(item.contract)))].sort();

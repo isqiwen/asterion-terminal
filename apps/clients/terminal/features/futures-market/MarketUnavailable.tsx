@@ -1,11 +1,7 @@
-import {
-  ActionError,
-  MarketUnset,
-  translate,
-  useActionError,
-  type MessageValues,
-  type TerminalContext,
-} from "../contract";
+import { ActionError, useActionError } from "../../src/host/action-error";
+import { ServiceUnset } from "../../src/host/components/ServiceUnset";
+import type { TerminalContext } from "../../src/host/feature-registry";
+import { type MessageValues, translate } from "../../src/i18n";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.futures-market", key, values);
 
@@ -14,7 +10,7 @@ export function MarketUnavailable({ context }: { context: TerminalContext }) {
   const saved = context.snapshot?.market_endpoint;
   const endpoint = saved && "host" in saved ? saved : null;
   const { error, attempt } = useActionError();
-  if (!endpoint) return <MarketUnset openSettings={context.openSettings} />;
+  if (!endpoint) return <ServiceUnset openSettings={context.openSettings} />;
   return (
     <div className="workspace-empty">
       <strong>{t("尚未连接行情服务")}</strong>

@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { basicSetup, EditorView } from "codemirror";
 import { EditorState } from "@codemirror/state";
 import { python } from "@codemirror/lang-python";
-import { ActionError, lab, translate, useActionError } from "../contract";
+import { lab } from "../../src/bridge/lab";
+import { ActionError, useActionError } from "../../src/host/action-error";
+import { translate } from "../../src/i18n";
 
 const t = (key: string) => translate("asterion.terminal.research", key);
 

@@ -1,7 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 import { expect, test, vi } from "vitest";
-import { lab, type TerminalContext } from "../contract";
+import { lab } from "../../src/bridge/lab";
+import type { TerminalContext } from "../../src/host/feature-registry";
 import {
   FactorResultSchema,
   FactorResultsSchema,
@@ -10,9 +11,11 @@ import {
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "../../src/host/workspace/drafts";
 import { FactorLab } from "./FactorLab";
 
-vi.mock("../contract", async original => ({
-  ...(await original<typeof import("../contract")>()),
+vi.mock("../../src/bridge/lab", () => ({
   lab: vi.fn(),
+}));
+vi.mock("../../src/i18n", async original => ({
+  ...(await original<typeof import("../../src/i18n")>()),
   translate: (_namespace: string, key: string) => key,
 }));
 vi.mock("@asterion/terminal/charts/PriceChart", () => ({ PriceChart: () => null }));

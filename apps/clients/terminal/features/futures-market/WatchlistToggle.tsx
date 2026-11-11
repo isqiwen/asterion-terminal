@@ -1,6 +1,8 @@
 import { FeedState } from "../../src/generated/asterion/market_pb";
 import type { MarketView } from "../../src/host/market";
-import { ActionError, translate, useActionError, type TerminalContext } from "../contract";
+import { ActionError, useActionError } from "../../src/host/action-error";
+import type { TerminalContext } from "../../src/host/feature-registry";
+import { translate } from "../../src/i18n";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 
 // Adds the contract to the watchlist or removes it, wherever the contract is

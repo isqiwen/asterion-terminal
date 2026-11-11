@@ -1,13 +1,9 @@
 import { useState } from "react";
 import { Table } from "../../src/generated/asterion/warehouse_pb";
-import {
-  ActionError,
-  translate,
-  useActionError,
-  warehouseData,
-  type AcquisitionOptions,
-  type MessageValues,
-} from "../contract";
+import { warehouseData } from "../../src/bridge/warehouse-data";
+import type { AcquisitionOptions } from "../../src/generated/asterion/warehouse_pb";
+import { ActionError, useActionError } from "../../src/host/action-error";
+import { type MessageValues, translate } from "../../src/i18n";
 import { ContractPicker } from "./ContractPicker";
 import { Dialog } from "./Dialog";
 

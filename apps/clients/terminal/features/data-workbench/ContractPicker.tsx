@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { translate } from "../contract";
+import { translate } from "../../src/i18n";
 
 const t = (key: string) => translate("asterion.terminal.data-workbench", key);
 // EXCHANGE/product/YYYY-MM → EXCHANGE/product

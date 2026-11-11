@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useMarket } from "../../src/host/market";
 import { decimal, decimalText } from "../../src/bridge/decimal";
 import { BrokerState, type Account, type Policy } from "../../src/generated/asterion/trading_pb";
-import { catalogName } from "../contract";
+import { catalogName } from "../../src/ui/contract-names";
 import {
   command,
   key as contractKey,

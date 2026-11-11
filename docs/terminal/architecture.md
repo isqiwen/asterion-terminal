@@ -120,7 +120,7 @@ sequenceDiagram
 | 顺序 | 入口 | 阅读目标 |
 | --- | --- | --- |
 | 1 | [main.cjs](../../apps/clients/terminal/electron/main.cjs)、[preload.cjs](../../apps/clients/terminal/electron/preload.cjs) | 窗口、IPC 与桌面生命周期 |
-| 2 | [Workbench.tsx](../../apps/clients/terminal/src/host/workspace/Workbench.tsx)、[features.ts](../../apps/clients/terminal/src/features.ts)、[contract.ts](../../apps/clients/terminal/features/contract.ts) | 页面装配与功能边界 |
+| 2 | [Workbench.tsx](../../apps/clients/terminal/src/host/workspace/Workbench.tsx)、[features.ts](../../apps/clients/terminal/src/features.ts)、[feature-registry.ts](../../apps/clients/terminal/src/host/feature-registry.ts) | 页面装配与功能边界 |
 | 3 | [bridge](../../apps/clients/terminal/src/bridge)、[Node-API 入口](../../apps/clients/terminal/bindings/node/terminal.cpp) | 页面命令、消息编码与原生调用 |
 | 4 | [terminal_application.cpp](../../apps/clients/terminal/native/terminal_application.cpp)、[application_impl.hpp](../../apps/clients/terminal/native/application_impl.hpp) | 原生命令与共享状态 |
 | 5 | [market_client.cpp](../../apps/clients/terminal/native/market_client.cpp)、[trading_client.cpp](../../apps/clients/terminal/native/trading_client.cpp)、[lab-channel.cjs](../../apps/clients/terminal/electron/lab-channel.cjs) | 三条服务通道 |

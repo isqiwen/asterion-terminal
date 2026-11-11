@@ -1,15 +1,10 @@
 import { useEffect, useState } from "react";
-import {
-  identityName,
-  translate,
-  lab,
-  useWorkspaceDraft,
-  ErrorNotice,
-  asDisplayError,
-  type DisplayError,
-  type MessageValues,
-  type TerminalContext,
-} from "../contract";
+import { lab } from "../../src/bridge/lab";
+import type { TerminalContext } from "../../src/host/feature-registry";
+import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
+import { type MessageValues, translate } from "../../src/i18n";
+import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/errors";
+import { identityName } from "../../src/ui/contract-names";
 import { ContractHistory } from "../futures-market/ContractHistory";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.data-workbench", key, values);

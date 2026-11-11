@@ -1,19 +1,13 @@
 import { useEffect, useState } from "react";
-import {
-  ErrorNotice,
-  asDisplayError,
-  getLocale,
-  warehouseData,
-  translate,
-  type DisplayError,
-  type MarketChange,
-  type MessageValues,
-} from "../contract";
+import { warehouseData } from "../../src/bridge/warehouse-data";
+import type { DatasetChange } from "../../src/generated/asterion/warehouse_pb";
+import { type MessageValues, getLocale, translate } from "../../src/i18n";
+import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/errors";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.data-workbench", key, values);
 
-export const changeText = (change: MarketChange) =>
+export const changeText = (change: DatasetChange) =>
   t("新增 {added} · 替换 {replaced} · 删除 {removed}", {
     added: change.added,
     replaced: change.replaced,
@@ -32,7 +26,7 @@ export function DatasetHistory({
   viewed: string;
   onView: (version: string) => void;
 }) {
-  const [versions, setVersions] = useState<MarketChange[]>([]);
+  const [versions, setVersions] = useState<DatasetChange[]>([]);
   const [next, setNext] = useState("");
   const [error, setError] = useState<DisplayError>("");
   useEffect(() => {

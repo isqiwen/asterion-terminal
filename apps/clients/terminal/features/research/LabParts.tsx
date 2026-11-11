@@ -1,16 +1,12 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import {
-  notify,
-  ActionError,
-  useActionError,
-  lab,
-  translate,
-  type LabStrategies,
-  type LabSummary,
-  type MessageValues,
-  type TerminalContext,
-  useWorkspaceDraft,
-} from "../contract";
+import { lab } from "../../src/bridge/lab";
+import type { Strategies } from "../../src/generated/asterion/lab_pb";
+import type { DatasetSummary } from "../../src/generated/asterion/warehouse_pb";
+import { ActionError, useActionError } from "../../src/host/action-error";
+import type { TerminalContext } from "../../src/host/feature-registry";
+import { notify } from "../../src/host/notifications";
+import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
+import { type MessageValues, translate } from "../../src/i18n";
 import { moduleTemplate } from "./research-lab";
 import { SourceEditor } from "./SourceEditor";
 
@@ -21,7 +17,7 @@ export type Folder = "strategies" | "factors";
 
 // The modules of the research directory, read again after each change.
 export function useModules(repository: string) {
-  const [modules, setModules] = useState<LabStrategies | null>(null);
+  const [modules, setModules] = useState<Strategies | null>(null);
   const read = useCallback(async () => {
     if (!repository) return;
     try {
@@ -41,7 +37,7 @@ export function LabHeader({
   refresh,
 }: {
   context: TerminalContext;
-  modules: LabStrategies | null;
+  modules: Strategies | null;
   refresh: () => void;
 }) {
   const endpoint = context.snapshot?.warehouse_endpoint;
@@ -49,7 +45,7 @@ export function LabHeader({
     endpoint && "host" in endpoint
       ? `${endpoint.host}:${endpoint.port}/${endpoint.fingerprint}`
       : "";
-  const [summary, setSummary] = useState<LabSummary | null>(null);
+  const [summary, setSummary] = useState<DatasetSummary | null>(null);
   useEffect(() => {
     let active = true;
     setSummary(null);
@@ -156,7 +152,7 @@ export function ModuleErrors({
   open,
 }: {
   folder: Folder;
-  modules: LabStrategies | null;
+  modules: Strategies | null;
   open: (path: string) => void;
 }) {
   return modules?.errors

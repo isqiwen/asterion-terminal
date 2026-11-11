@@ -4,16 +4,11 @@ import { PriceChart, type Candle } from "@asterion/terminal/charts/PriceChart";
 import { timestamp } from "../../src/bridge/client";
 import type { Minutes, QuoteRow } from "../../src/generated/asterion/market_pb";
 import type { MarketView } from "../../src/host/market";
-import {
-  ErrorNotice,
-  asDisplayError,
-  getLocale,
-  marketData,
-  translate,
-  useWorkspaceDraft,
-  type DisplayError,
-  type TerminalContext,
-} from "../contract";
+import { marketData } from "../../src/bridge/market-data";
+import type { TerminalContext } from "../../src/host/feature-registry";
+import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
+import { getLocale, translate } from "../../src/i18n";
+import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/errors";
 import { ContractHistory } from "./ContractHistory";
 import { QuoteChart } from "./QuoteChart";
 import { quoteChange, quoteStatus } from "./QuoteTable";

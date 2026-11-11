@@ -1,4 +1,5 @@
-import { translate, type MarketCoverage, type MessageValues } from "../contract";
+import type { DatasetCoverage } from "../../src/generated/asterion/warehouse_pb";
+import { type MessageValues, translate } from "../../src/i18n";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.data-workbench", key, values);
@@ -9,7 +10,7 @@ export function DailyCoverage({
   products,
   onFill,
 }: {
-  products: MarketCoverage["products"];
+  products: DatasetCoverage["products"];
   onFill?: (product: string, month: string) => void;
 }) {
   const months = [...new Set(products.flatMap(item => item.months.map(m => m.month)))].sort();

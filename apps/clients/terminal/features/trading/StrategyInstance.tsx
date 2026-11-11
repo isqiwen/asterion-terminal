@@ -8,7 +8,7 @@ import {
   type Strategies,
 } from "../../src/generated/asterion/trading_pb";
 import { decimal, decimalText } from "../../src/bridge/decimal";
-import { ActionError, useActionError } from "../contract";
+import { ActionError, useActionError } from "../../src/host/action-error";
 import { environmentName, key, t } from "./live-shared";
 import {
   activeStrategy,

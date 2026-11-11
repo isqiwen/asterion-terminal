@@ -1,14 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  ActionError,
-  notify,
-  lab,
-  useActionError,
-  translate,
-  type LabRunSummary,
-  type MessageValues,
-  type TerminalContext,
-} from "../contract";
+import { lab } from "../../src/bridge/lab";
+import type { RunSummary } from "../../src/generated/asterion/lab_pb";
+import { ActionError, useActionError } from "../../src/host/action-error";
+import type { TerminalContext } from "../../src/host/feature-registry";
+import { notify } from "../../src/host/notifications";
+import { type MessageValues, translate } from "../../src/i18n";
 import {
   defaultForm,
   defaultText,
@@ -34,10 +30,10 @@ export function StrategyLab(context: TerminalContext) {
   const { modules: strategies, read: readStrategies } = useModules(repository);
   const [chosen, setChosen] = useState("");
   const [form, setForm] = useState<RunForm>(defaultForm);
-  const [runs, setRuns] = useState<LabRunSummary[]>([]);
+  const [runs, setRuns] = useState<RunSummary[]>([]);
   const [sweep, setSweep] = useState<{
     id: string;
-    runs: LabRunSummary[];
+    runs: RunSummary[];
     selected: string;
     active: boolean;
   } | null>(null);

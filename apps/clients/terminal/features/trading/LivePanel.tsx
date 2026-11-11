@@ -1,11 +1,8 @@
 import { useState } from "react";
-import {
-  ActionError,
-  ErrorNotice,
-  useActionError,
-  useWorkspaceDraft,
-  type TerminalContext,
-} from "../contract";
+import { ActionError, useActionError } from "../../src/host/action-error";
+import type { TerminalContext } from "../../src/host/feature-registry";
+import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
+import { ErrorNotice } from "../../src/i18n/errors";
 import type { TradingConnection } from "../../src/bridge/client";
 import { BrokerState } from "../../src/generated/asterion/trading_pb";
 import { useTradingAccounts, type TradingView } from "../../src/host/trading-accounts";

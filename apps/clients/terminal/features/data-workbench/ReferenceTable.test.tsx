@@ -4,9 +4,11 @@ import { Table } from "../../src/generated/asterion/warehouse_pb";
 import { ReferenceTable } from "./ReferenceTable";
 
 const request = vi.hoisted(() => vi.fn());
-vi.mock("../contract", async importOriginal => ({
-  ...(await importOriginal<typeof import("../contract")>()),
+vi.mock("../../src/bridge/warehouse-data", () => ({
   warehouseData: request,
+}));
+vi.mock("../../src/i18n", async importOriginal => ({
+  ...(await importOriginal<typeof import("../../src/i18n")>()),
   translate: (_namespace: string, key: string, values?: Record<string, unknown>) =>
     key.replace(/\{(\w+)\}/g, (_, name: string) => String(values?.[name])),
 }));

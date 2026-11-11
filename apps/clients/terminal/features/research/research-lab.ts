@@ -2,7 +2,8 @@
 // form, the request for a run, a sweep or a factor's evaluation, and figures
 // read from a run record.
 import type { MessageInitShape } from "@bufbuild/protobuf";
-import { protocolPeriod, translate, type MessageValues } from "../contract";
+import { type MessageValues, translate } from "../../src/i18n";
+import { protocolPeriod } from "../../src/ui/periods";
 import { RunState } from "../../src/generated/asterion/lab_pb";
 import type {
   BacktestSchema,

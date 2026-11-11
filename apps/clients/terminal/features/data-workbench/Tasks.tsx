@@ -1,12 +1,8 @@
 import { TaskState } from "../../src/generated/asterion/warehouse_pb";
-import {
-  ActionError,
-  translate,
-  useActionError,
-  warehouseData,
-  type MarketTask,
-  type MessageValues,
-} from "../contract";
+import { warehouseData } from "../../src/bridge/warehouse-data";
+import type { AcquisitionTask } from "../../src/generated/asterion/warehouse_pb";
+import { ActionError, useActionError } from "../../src/host/action-error";
+import { type MessageValues, translate } from "../../src/i18n";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.data-workbench", key, values);
@@ -18,7 +14,7 @@ const states: Record<number, string> = {
   [TaskState.CANCELLED]: "已取消",
   [TaskState.INTERRUPTED]: "已中断",
 };
-export const activeTask = (task: MarketTask) =>
+export const activeTask = (task: AcquisitionTask) =>
   [TaskState.QUEUED, TaskState.RUNNING].includes(task.state);
 
 // Every client's tasks, newest first.
@@ -29,7 +25,7 @@ export function Tasks({
   older,
   refresh,
 }: {
-  tasks: MarketTask[];
+  tasks: AcquisitionTask[];
   tableName: (table: number) => string;
   canManage: boolean;
   older?: () => void;

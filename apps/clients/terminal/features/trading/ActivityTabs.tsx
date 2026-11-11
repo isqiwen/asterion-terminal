@@ -1,4 +1,4 @@
-import { translate } from "../contract";
+import { translate } from "../../src/i18n";
 export type Activity = "positions" | "orders" | "fills" | "rates" | "policy";
 const t = (key: string) => translate("asterion.terminal.trading", key);
 export function ActivityTabs({

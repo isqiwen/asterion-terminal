@@ -9,13 +9,10 @@ import { useEffect, useRef, useState } from "react";
 import { boardColumns } from "./board-columns";
 import type { QuoteRow } from "../../src/generated/asterion/market_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
-import {
-  contractName,
-  productLabel,
-  translate,
-  useWorkspaceDraft,
-  type TerminalContext,
-} from "../contract";
+import type { TerminalContext } from "../../src/host/feature-registry";
+import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
+import { translate } from "../../src/i18n";
+import { contractName, productLabel } from "../../src/ui/contract-names";
 import { QuoteTable, quoteChange } from "./QuoteTable";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 const venueNames: Record<string, string> = {

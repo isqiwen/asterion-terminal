@@ -1,7 +1,36 @@
 import { translate, type MessageValues } from "../i18n";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 import { registerLanguageResources } from "../i18n";
-import type { TerminalFeature } from "../../features/contract";
+import type { ComponentType } from "react";
+import type { CommandHandler } from "../bridge/commands";
+import type { Snapshot } from "../bridge/client";
+import type { DisplayError } from "../i18n/errors";
+import type { LanguageResources } from "../i18n";
+
+// What every workspace of a feature receives. Reads go through `query`;
+// anything that acts goes through `trade`.
+export type TerminalContext = {
+  snapshot: Snapshot | null;
+  busy: boolean;
+  error: DisplayError;
+  workspacePage?: string;
+  workspaceParams?: Readonly<Record<string, string>>;
+  navigate: (id: string, options?: { page?: string; params?: Record<string, string> }) => void;
+  openSettings: (page?: "preferences" | "market" | "warehouse" | "trading") => void;
+  trade: CommandHandler;
+};
+// A built-in feature: its workspaces and language resources.
+export type TerminalFeature = {
+  id: string;
+  languageResources?: LanguageResources;
+  workspaces: readonly {
+    id: string;
+    title: string;
+    component: ComponentType<TerminalContext>;
+    toolbar?: ComponentType<TerminalContext>;
+    hideToolbar?: boolean;
+  }[];
+};
 // Built-in registration only; React owns component lifetimes.
 export function registerTerminalFeatures(features: readonly TerminalFeature[]) {
   const ids = new Set<string>();

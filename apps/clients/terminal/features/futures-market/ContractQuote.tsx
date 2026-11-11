@@ -1,6 +1,7 @@
 import type { QuoteRow } from "../../src/generated/asterion/market_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
-import { contractName, translate } from "../contract";
+import { translate } from "../../src/i18n";
+import { contractName } from "../../src/ui/contract-names";
 import { quoteChange } from "./QuoteTable";
 import { selectQuote } from "./selected-quote";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);

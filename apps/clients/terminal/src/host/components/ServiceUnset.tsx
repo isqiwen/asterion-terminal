@@ -1,7 +1,7 @@
 import { translate, useLocale } from "../../i18n";
 
 // What a page that reads a service shows before one is set, and the way to set it.
-export function MarketUnset({
+export function ServiceUnset({
   openSettings,
   page = "market",
 }: {

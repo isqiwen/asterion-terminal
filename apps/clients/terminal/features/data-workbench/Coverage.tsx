@@ -8,22 +8,18 @@ import { useMarket } from "../../src/host/market";
 import { ReferenceTable } from "./ReferenceTable";
 import { StoredContracts } from "./StoredContracts";
 import { Tasks, activeTask } from "./Tasks";
-import {
-  ErrorNotice,
-  asDisplayError,
-  getLocale,
-  warehouseData,
-  translate,
-  type DisplayError,
-  type MarketChange,
-  type MarketCoverage,
-  type MarketSummary,
-  type MarketTask,
-  type AcquisitionOptions,
-  type MessageValues,
-  type TerminalContext,
-  MarketUnset,
-} from "../contract";
+import { warehouseData } from "../../src/bridge/warehouse-data";
+import type {
+  AcquisitionOptions,
+  AcquisitionTask,
+  DatasetChange,
+  DatasetCoverage,
+  DatasetSummary,
+} from "../../src/generated/asterion/warehouse_pb";
+import { ServiceUnset } from "../../src/host/components/ServiceUnset";
+import type { TerminalContext } from "../../src/host/feature-registry";
+import { type MessageValues, getLocale, translate } from "../../src/i18n";
+import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/errors";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.data-workbench", key, values);
@@ -75,7 +71,7 @@ export function Coverage(context: TerminalContext) {
           context={context}
         />
       ) : (
-        <MarketUnset openSettings={context.openSettings} page="warehouse" />
+        <ServiceUnset openSettings={context.openSettings} page="warehouse" />
       )}
     </section>
   );
@@ -137,13 +133,13 @@ function DataCoverage({
   // The version shown; empty for the current one.
   const [viewed, setViewed] = useState(opened);
   const [latest, setLatest] = useState("");
-  const [change, setChange] = useState<MarketChange>();
+  const [change, setChange] = useState<DatasetChange>();
   const [view, setView] = useState<View>(Table.DAILY);
   const [acquiring, setAcquiring] = useState<Preset>();
   const catalog = useMarket()?.board.catalog?.contracts;
-  const [summary, setSummary] = useState<MarketSummary | null>(null);
-  const [coverage, setCoverage] = useState<MarketCoverage>();
-  const [tasks, setTasks] = useState<MarketTask[]>([]);
+  const [summary, setSummary] = useState<DatasetSummary | null>(null);
+  const [coverage, setCoverage] = useState<DatasetCoverage>();
+  const [tasks, setTasks] = useState<AcquisitionTask[]>([]);
   const [error, setError] = useState<DisplayError>("");
   const mounted = useRef(false);
   const pending = useRef(false);
@@ -165,7 +161,7 @@ function DataCoverage({
         ? await warehouseData({ case: "getDatasetCoverage", value: { version } })
         : undefined;
       // Warehouse lists tasks newest first; read as many pages as shown.
-      const nextTasks: MarketTask[] = [];
+      const nextTasks: AcquisitionTask[] = [];
       let afterId = "";
       do {
         const page = await warehouseData({

@@ -27,7 +27,7 @@ import {
   selectModule,
   selectView,
 } from "./host/navigation";
-import type { TerminalContext } from "../features/contract";
+import type { TerminalContext } from "./host/feature-registry";
 import "./ui/theme/style.css";
 import "./terminal.css";
 import "./host/workspace/workbench.css";

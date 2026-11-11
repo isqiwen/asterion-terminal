@@ -12,7 +12,8 @@ import {
   type Session,
   type Trade,
 } from "../../src/generated/asterion/trading_pb";
-import { notify, type TerminalContext } from "../contract";
+import type { TerminalContext } from "../../src/host/feature-registry";
+import { notify } from "../../src/host/notifications";
 import { AccountPolicyEditor } from "./AccountPolicyEditor";
 import { ActivityTabs, type Activity } from "./ActivityTabs";
 import { fundFields, key, offsets, statuses, t, type Run } from "./live-shared";

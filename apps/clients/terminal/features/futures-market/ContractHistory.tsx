@@ -6,19 +6,13 @@ import { averagePeriods, movingAverage } from "./indicators";
 import { useEffect, useState } from "react";
 import { PriceChart } from "@asterion/terminal/charts/PriceChart";
 import { timestamp } from "../../src/bridge/client";
-import {
-  protocolPeriod,
-  translate,
-  lab,
-  useWorkspaceDraft,
-  ErrorNotice,
-  asDisplayError,
-  type ChartPeriod,
-  type DisplayError,
-  type LabChartBars,
-  type LabStoredContract,
-  type TerminalContext,
-} from "../contract";
+import { lab } from "../../src/bridge/lab";
+import type { ChartBars, StoredContract } from "../../src/generated/asterion/lab_pb";
+import type { TerminalContext } from "../../src/host/feature-registry";
+import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
+import { translate } from "../../src/i18n";
+import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/errors";
+import { type ChartPeriod, protocolPeriod } from "../../src/ui/periods";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 
 type Period = ChartPeriod;
@@ -68,7 +62,7 @@ export function ContractHistory({
   // What the research dataset holds of this contract.
   const [stored, setStored] = useState<{
     key: string;
-    contract?: LabStoredContract;
+    contract?: StoredContract;
     error: DisplayError;
   }>();
   const endpoint = snapshot?.warehouse_endpoint;
@@ -112,7 +106,7 @@ export function ContractHistory({
   const [showMacd, setShowMacd] = useWorkspaceDraft(`${preferenceKey}.macd`, true);
   const [showAverages, setShowAverages] = useWorkspaceDraft(`${preferenceKey}.averages`, true);
   const barsKey = JSON.stringify([address, contractId, datasetVersion, activePeriod, retry]);
-  const [drawn, setDrawn] = useState<{ key: string; bars?: LabChartBars; error: DisplayError }>();
+  const [drawn, setDrawn] = useState<{ key: string; bars?: ChartBars; error: DisplayError }>();
   useEffect(() => {
     if (!contractId || activePeriod === undefined || !available) return;
     let active = true;

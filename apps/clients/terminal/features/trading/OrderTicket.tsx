@@ -3,7 +3,8 @@ import { useMarket } from "../../src/host/market";
 import { decimal, decimalText } from "../../src/bridge/decimal";
 import { Offset, Side } from "../../src/generated/asterion/common_pb";
 import type { Account } from "../../src/generated/asterion/trading_pb";
-import { explicitCloseBuckets, type TerminalContext } from "../contract";
+import type { TerminalContext } from "../../src/host/feature-registry";
+import { explicitCloseBuckets } from "../../src/ui/closePolicy";
 import { command, key, t, type Run } from "./live-shared";
 
 const offsetValues = {

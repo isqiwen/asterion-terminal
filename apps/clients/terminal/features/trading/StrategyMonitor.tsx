@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { InstanceState, type InstanceStatus } from "../../src/generated/asterion/trading_pb";
 import { decimalText } from "../../src/bridge/decimal";
-import { BackendError, ErrorNotice, getLocale } from "../contract";
+import { getLocale } from "../../src/i18n";
+import { BackendError, ErrorNotice } from "../../src/i18n/errors";
 import { key, t } from "./live-shared";
 import { activeStrategy, parameterText, periodText } from "./strategy-instance";
 

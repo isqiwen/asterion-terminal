@@ -2,7 +2,7 @@ import { PriceChart } from "@asterion/terminal/charts/PriceChart";
 import { timestamp } from "../../src/bridge/client";
 import { FeedState, type QuoteRow } from "../../src/generated/asterion/market_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
-import { translate } from "../contract";
+import { translate } from "../../src/i18n";
 import { chartTime } from "./chart-time";
 import { priceTickOf } from "./price-tick";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);

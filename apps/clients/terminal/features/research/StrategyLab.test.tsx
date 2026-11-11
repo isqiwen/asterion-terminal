@@ -2,14 +2,17 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 import { EditorView } from "codemirror";
 import { expect, test, vi } from "vitest";
-import { lab, type TerminalContext } from "../contract";
+import { lab } from "../../src/bridge/lab";
+import type { TerminalContext } from "../../src/host/feature-registry";
 import { RunsSchema, SourceSchema, StrategiesSchema } from "../../src/generated/asterion/lab_pb";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "../../src/host/workspace/drafts";
 import { StrategyLab } from "./StrategyLab";
 
-vi.mock("../contract", async original => ({
-  ...(await original<typeof import("../contract")>()),
+vi.mock("../../src/bridge/lab", () => ({
   lab: vi.fn(),
+}));
+vi.mock("../../src/i18n", async original => ({
+  ...(await original<typeof import("../../src/i18n")>()),
   translate: (_namespace: string, key: string, values?: Record<string, string>) =>
     values ? `${key} ${Object.values(values).join(" ")}` : key,
 }));

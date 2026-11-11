@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { translate, type MessageValues } from "../contract";
+import { type MessageValues, translate } from "../../src/i18n";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.futures-market", key, values);
 

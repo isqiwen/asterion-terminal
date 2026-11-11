@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 import { registerTerminalFeatures } from "../../src/host/feature-registry";
 import { lab } from "../../src/bridge/lab";
-import type { TerminalContext } from "../contract";
+import type { TerminalContext } from "../../src/host/feature-registry";
 import { feature } from "./feature";
 import { LabHeader } from "./LabParts";
 

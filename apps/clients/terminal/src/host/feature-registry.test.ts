@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve, relative } from "node:path";
 import { registerTerminalFeatures } from "./feature-registry";
-import type { TerminalFeature } from "../../features/contract";
+import type { TerminalFeature } from "./feature-registry";
 
 const feature: TerminalFeature = {
   id: "test.panel",

@@ -1,15 +1,11 @@
 import { useState } from "react";
 import { CatalogState, FeedState } from "../../src/generated/asterion/market_pb";
 import { useMarket } from "../../src/host/market";
-import {
-  ActionError,
-  BackendError,
-  ErrorNotice,
-  translate,
-  useActionError,
-  useWorkspaceDraft,
-  type TerminalContext,
-} from "../contract";
+import { ActionError, useActionError } from "../../src/host/action-error";
+import type { TerminalContext } from "../../src/host/feature-registry";
+import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
+import { translate } from "../../src/i18n";
+import { BackendError, ErrorNotice } from "../../src/i18n/errors";
 import { defaultSort } from "./MarketBoard";
 import { MarketStatus } from "./MarketStatus";
 import { QuoteColumns, defaultQuoteColumns } from "./QuoteColumns";

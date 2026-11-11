@@ -1,5 +1,6 @@
 import { useMarket } from "../../src/host/market";
-import { translate, type TerminalContext } from "../contract";
+import type { TerminalContext } from "../../src/host/feature-registry";
+import { translate } from "../../src/i18n";
 import { MarketBar } from "./MarketBar";
 import { MarketBoard } from "./MarketBoard";
 import { MarketUnavailable } from "./MarketUnavailable";

@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 import { expect, test, vi } from "vitest";
-import { lab } from "../contract";
+import { lab } from "../../src/bridge/lab";
 import { Period } from "../../src/generated/asterion/common_pb";
 import {
   ChartBarsSchema,
@@ -12,9 +12,11 @@ import {
 import { RunComparison, RunResult } from "./ResearchResult";
 import "./feature";
 
-vi.mock("../contract", async original => ({
-  ...(await original<typeof import("../contract")>()),
+vi.mock("../../src/bridge/lab", () => ({
   lab: vi.fn(),
+}));
+vi.mock("../../src/i18n", async original => ({
+  ...(await original<typeof import("../../src/i18n")>()),
   translate: (_namespace: string, key: string) => key,
 }));
 vi.mock("@asterion/terminal/charts/PriceChart", () => ({ PriceChart: () => null }));

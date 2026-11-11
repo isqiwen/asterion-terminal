@@ -1,13 +1,8 @@
 import { useEffect, useState } from "react";
 import { Table, type TableRows } from "../../src/generated/asterion/warehouse_pb";
-import {
-  ErrorNotice,
-  asDisplayError,
-  warehouseData,
-  translate,
-  type DisplayError,
-  type MessageValues,
-} from "../contract";
+import { warehouseData } from "../../src/bridge/warehouse-data";
+import { type MessageValues, translate } from "../../src/i18n";
+import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/errors";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.data-workbench", key, values);

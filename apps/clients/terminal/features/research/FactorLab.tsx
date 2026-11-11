@@ -1,15 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  ActionError,
-  lab,
-  useActionError,
-  translate,
-  getLocale,
-  notify,
-  type LabFactorResult,
-  type MessageValues,
-  type TerminalContext,
-} from "../contract";
+import { lab } from "../../src/bridge/lab";
+import type { FactorResult } from "../../src/generated/asterion/lab_pb";
+import { ActionError, useActionError } from "../../src/host/action-error";
+import type { TerminalContext } from "../../src/host/feature-registry";
+import { notify } from "../../src/host/notifications";
+import { type MessageValues, getLocale, translate } from "../../src/i18n";
 import {
   defaultFactorForm,
   defaultText,
@@ -18,7 +13,7 @@ import {
   parameterKind,
   type FactorForm,
 } from "./research-lab";
-import { FactorResult } from "./FactorResult";
+import { FactorResultView } from "./FactorResultView";
 import { LabCentre, LabHeader, ModuleErrors, NewModule, useModules, useSource } from "./LabParts";
 
 const t = (key: string, values?: MessageValues) =>
@@ -30,9 +25,9 @@ export function FactorLab(context: TerminalContext) {
   const { modules, read } = useModules(repository);
   const [chosen, setChosen] = useState("");
   const [form, setForm] = useState<FactorForm>(defaultFactorForm);
-  const [result, setResult] = useState<LabFactorResult | null>(null);
+  const [result, setResult] = useState<FactorResult | null>(null);
   // Every kept evaluation, newest first, without its days and groups.
-  const [kept, setKept] = useState<LabFactorResult[]>([]);
+  const [kept, setKept] = useState<FactorResult[]>([]);
   const readKept = useCallback(async () => {
     try {
       setKept((await lab({ case: "listFactorResults", value: {} })).results);
@@ -137,7 +132,7 @@ export function FactorLab(context: TerminalContext) {
         }}
       >
         {result ? (
-          <FactorResult result={result} />
+          <FactorResultView result={result} />
         ) : (
           <p className="lab-placeholder">
             {t("选择左侧的因子、填写右侧的设置后评价；结果显示在这里。")}

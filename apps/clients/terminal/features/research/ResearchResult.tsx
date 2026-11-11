@@ -1,18 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { PriceChart, type Candle, type TradeMark } from "@asterion/terminal/charts/PriceChart";
-import {
-  ErrorNotice,
-  asDisplayError,
-  lab,
-  protocolPeriod,
-  translate,
-  type DisplayError,
-  type LabChartBars,
-  type LabRunDetail,
-  type LabRunReport,
-  type LabRunSummary,
-  type MessageValues,
-} from "../contract";
+import { lab } from "../../src/bridge/lab";
+import type {
+  ChartBars,
+  RunDetail,
+  RunReport,
+  RunSummary,
+} from "../../src/generated/asterion/lab_pb";
+import { type MessageValues, translate } from "../../src/i18n";
+import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/errors";
+import { protocolPeriod } from "../../src/ui/periods";
 import { Offset, Side } from "../../src/generated/asterion/common_pb";
 import { heatmap, monthlyReturns, parameterText, runState } from "./research-lab";
 
@@ -70,7 +67,7 @@ function day(timeNs: bigint) {
   return new Date(Number(timeNs / 1_000_000n) + 8 * 3600_000).toISOString().slice(0, 10);
 }
 
-function Figures({ summary, prefix = "" }: { summary: LabRunSummary; prefix?: string }) {
+function Figures({ summary, prefix = "" }: { summary: RunSummary; prefix?: string }) {
   return (
     <dl className="lab-figures">
       {figures.map(([name, label, percent]) => {
@@ -101,9 +98,9 @@ export function RunResult({
   state: string;
   openVersion?: (version: string) => void;
 }) {
-  const [detail, setDetail] = useState<LabRunDetail | null>(null);
+  const [detail, setDetail] = useState<RunDetail | null>(null);
   const [contract, setContract] = useState("");
-  const [bars, setBars] = useState<LabChartBars["bars"][number][]>([]);
+  const [bars, setBars] = useState<ChartBars["bars"][number][]>([]);
   const [error, setError] = useState<DisplayError>("");
   useEffect(() => {
     let active = true;
@@ -338,7 +335,7 @@ const quantStats = [
 
 // QuantStats figures of the run, computed by the lab when first opened.
 function QuantStats({ id }: { id: string }) {
-  const [report, setReport] = useState<LabRunReport | null>(null);
+  const [report, setReport] = useState<RunReport | null>(null);
   const [error, setError] = useState<DisplayError>("");
   const [asked, setAsked] = useState(false);
   useEffect(() => {
@@ -457,7 +454,7 @@ export function RunComparison({ ids }: { ids: readonly [string, string] }) {
 }
 
 function Comparison({ ids: [firstId, secondId] }: { ids: readonly [string, string] }) {
-  const [details, setDetails] = useState<LabRunDetail[]>([]);
+  const [details, setDetails] = useState<RunDetail[]>([]);
   const [error, setError] = useState<DisplayError>("");
   useEffect(() => {
     let active = true;
@@ -472,7 +469,7 @@ function Comparison({ ids: [firstId, secondId] }: { ids: readonly [string, strin
   if (details.length !== 2) return <p className="subtle">{t("正在读取结果…")}</p>;
   const [first, second] = details;
   const other = new Map(second.days.map(item => [item.tradingDay, Number(item.equity?.text)]));
-  const base = (detail: LabRunDetail) => Number(JSON.parse(detail.record).costs.deposit);
+  const base = (detail: RunDetail) => Number(JSON.parse(detail.record).costs.deposit);
   return (
     <div className="lab-result">
       <div className="lab-scroll">
@@ -535,7 +532,7 @@ export function SweepResult({
   open,
   rolling,
 }: {
-  runs: readonly LabRunSummary[];
+  runs: readonly RunSummary[];
   selected: string;
   open: (id: string) => void;
   rolling?: () => void;

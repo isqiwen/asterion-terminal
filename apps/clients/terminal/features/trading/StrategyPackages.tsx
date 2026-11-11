@@ -3,14 +3,9 @@ import type { Package } from "../../src/generated/asterion/strategy_pb";
 import type { Account, Strategies } from "../../src/generated/asterion/trading_pb";
 import { lab } from "../../src/bridge/lab";
 import { strategyRequest, type StrategyCall } from "../../src/bridge/strategy";
-import {
-  ActionError,
-  ErrorNotice,
-  asDisplayError,
-  useActionError,
-  type DisplayError,
-  notify,
-} from "../contract";
+import { ActionError, useActionError } from "../../src/host/action-error";
+import { notify } from "../../src/host/notifications";
+import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/errors";
 import { t } from "./live-shared";
 import { StrategyInstance } from "./StrategyInstance";
 import { StrategyMonitor } from "./StrategyMonitor";

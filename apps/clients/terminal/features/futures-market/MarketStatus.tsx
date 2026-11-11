@@ -1,14 +1,9 @@
 import { useEffect, useState } from "react";
 import { Subscription, type Status } from "../../src/generated/asterion/market_pb";
 import { useMarket } from "../../src/host/market";
-import {
-  ErrorNotice,
-  asDisplayError,
-  getLocale,
-  marketData,
-  translate,
-  type DisplayError,
-} from "../contract";
+import { marketData } from "../../src/bridge/market-data";
+import { getLocale, translate } from "../../src/i18n";
+import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/errors";
 
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 // Beijing time; the bar shows the time of day and the date on hover.

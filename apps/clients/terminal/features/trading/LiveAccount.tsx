@@ -3,7 +3,7 @@ import type { TradingConnection, Snapshot } from "../../src/bridge/client";
 import { decimalText } from "../../src/bridge/decimal";
 import { BrokerState, Environment, type Account } from "../../src/generated/asterion/trading_pb";
 import { FlowSteps } from "../../src/ui/FlowSteps";
-import { useWorkspaceDraft } from "../contract";
+import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { AccountRecords } from "./AccountRecords";
 import { type Activity } from "./ActivityTabs";
 import { OrderTicket } from "./OrderTicket";

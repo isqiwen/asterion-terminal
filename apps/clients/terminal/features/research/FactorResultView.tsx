@@ -1,5 +1,6 @@
 import { PriceChart } from "@asterion/terminal/charts/PriceChart";
-import { translate, type LabFactorResult, type MessageValues } from "../contract";
+import type { FactorResult } from "../../src/generated/asterion/lab_pb";
+import { type MessageValues, translate } from "../../src/i18n";
 import { cumulativeIc } from "./research-lab";
 import { metric, signed } from "./ResearchResult";
 
@@ -16,7 +17,7 @@ const groupColor = (group: number, count: number) =>
   `hsl(${210 - (190 * group) / Math.max(1, count - 1)} 65% 58%)`;
 
 // A factor's evaluation: IC by horizon, its running sum, and the groups.
-export function FactorResult({ result }: { result: LabFactorResult }) {
+export function FactorResultView({ result }: { result: FactorResult }) {
   const largest = Math.max(...result.horizons.map(item => Math.abs(item.mean ?? 0)), 1e-12);
   const grouped = result.days.filter(day => day.groups.length);
   const ic = cumulativeIc(result.days);
