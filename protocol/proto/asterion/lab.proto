@@ -14,8 +14,6 @@ message Request {
     common.Empty get_dataset_summary = 20;
     ListStoredContracts list_stored_contracts = 21;
     GetChartBars get_chart_bars = 22;
-    GetDominantSeries get_dominant_series = 23;
-    GetTradingSessions get_trading_sessions = 24;
 
     Repository list_strategies = 30;
     SourcePath read_source = 31;
@@ -46,8 +44,6 @@ message Response {
     warehouse.DatasetSummary get_dataset_summary = 20;
     StoredContracts list_stored_contracts = 21;
     ChartBars get_chart_bars = 22;
-    DominantSeries get_dominant_series = 23;
-    TradingSessions get_trading_sessions = 24;
 
     Strategies list_strategies = 30;
     Source read_source = 31;
@@ -126,90 +122,6 @@ message ChartBar {
   optional double macd_diff = 9;
   optional double macd_signal = 10;
   optional double macd_histogram = 11;
-}
-
-enum Adjustment {
-  ADJUSTMENT_UNSPECIFIED = 0;
-  ADJUSTMENT_NONE = 1;
-  // Earlier months scaled to the level of the last one.
-  ADJUSTMENT_RATIO = 2;
-}
-
-// Traded leaves a month on its last day and includes the outgoing month's bars
-// on the roll day.
-message GetDominantSeries {
-  string product = 1;
-  string first_day = 2;
-  string last_day = 3;
-  bool traded = 4;
-  Adjustment adjustment = 5;
-}
-
-message DominantSeries {
-  string dataset_version = 1;
-  repeated DominantDay days = 2;
-  repeated Roll rolls = 3;
-}
-
-// Prices are absent when the month did not trade or settle that day.
-message DominantDay {
-  string trading_day = 1;
-  string contract = 2;
-  common.Decimal open = 3;
-  common.Decimal high = 4;
-  common.Decimal low = 5;
-  common.Decimal close = 6;
-  common.Decimal settlement = 7;
-}
-
-message Roll {
-  string trading_day = 1;
-  string from_contract = 2;
-  string to_contract = 3;
-  // New over old settlement on the trading day before the roll.
-  common.Decimal ratio = 4;
-}
-
-message GetTradingSessions {
-  string product = 1;
-  string first_day = 2;
-  string last_day = 3;
-}
-
-message TradingSessions {
-  string reviewed_day = 1;
-  repeated SessionDay days = 2;
-  repeated SessionSource sources = 3;
-}
-
-enum NightSession {
-  NIGHT_SESSION_UNSPECIFIED = 0;
-  NIGHT_SESSION_HELD = 1;
-  NIGHT_SESSION_NONE = 2;
-  NIGHT_SESSION_HOLIDAY_EVE = 3;
-  NIGHT_SESSION_UNKNOWN = 4;
-}
-
-message SessionDay {
-  string trading_day = 1;
-  // Empty when no reviewed rule covers the day session.
-  repeated TimeRange day = 2;
-  NightSession night_session = 3;
-  TimeRange night = 4;
-  repeated string source_ids = 5;
-}
-
-message TimeRange {
-  int64 start_ms = 1;
-  int64 end_ms = 2;
-}
-
-message SessionSource {
-  string id = 1;
-  string title = 2;
-  string url = 3;
-  string published_day = 4;
-  string note = 5;
 }
 
 // ---- Strategy directory

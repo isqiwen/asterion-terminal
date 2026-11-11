@@ -94,18 +94,3 @@ def plan(months: list, traded: bool) -> Plan:
     for i in range(len(segments) - 1, 0, -1):
         segments[i - 1].factor = rounded(segments[i].factor * ratios[i])
     return Plan(days, segments, ratios)
-
-
-def months_of(rows) -> list:
-    """Months from daily rows (contract, day, settlement, open_interest, close)."""
-    months = {}
-    for contract, day, settlement, open_interest, close in rows:
-        month = months.setdefault(contract, Month(contract, contract.rsplit("/", 1)[1]))
-        day = day.isoformat()
-        if settlement is not None:
-            month.settlement[day] = Decimal(settlement)
-        if open_interest is not None:
-            month.open_interest[day] = Decimal(open_interest)
-        if close is not None and day > month.last_bar:
-            month.last_bar = day
-    return sorted(months.values(), key=lambda month: month.delivery_month)

@@ -14,12 +14,11 @@ from pathlib import Path
 import tempfile
 
 from asterion.common_pb2 import ErrorCode, Period, Side, Offset
-from asterion.lab_pb2 import (AdmittedFactor, AdmittedRun, Adjustment, FactorResult, NightSession,
-                              Request, Response, RollingRun, RunState)
+from asterion.lab_pb2 import (AdmittedFactor, AdmittedRun, FactorResult, Request, Response,
+                              RollingRun, RunState)
 
-from asterion_lab import backtest, chart, dominant, repository, package, rolling
+from asterion_lab import backtest, chart, repository, package, rolling
 from asterion_lab.runs import IDENTITY, Runs
-from asterion_lab.sessions import Sessions, holiday_between
 from asterion_lab.warehouse import write_durably
 from asterion_lab.warehouse_client import Client, Dataset, WarehouseError
 
@@ -45,31 +44,14 @@ PERIODS = {Period.PERIOD_MINUTES_1: 1, Period.PERIOD_MINUTES_5: 5, Period.PERIOD
            Period.PERIOD_MINUTES_15: 15, Period.PERIOD_MINUTES_30: 30, Period.PERIOD_MINUTES_60: 60,
            Period.PERIOD_DAY: "day", Period.PERIOD_WEEK: "week", Period.PERIOD_MONTH: "month",
            Period.PERIOD_QUARTER: "quarter", Period.PERIOD_YEAR: "year"}
-NIGHTS = {"held": NightSession.NIGHT_SESSION_HELD, "none": NightSession.NIGHT_SESSION_NONE,
-          "holiday_eve": NightSession.NIGHT_SESSION_HOLIDAY_EVE,
-          "unknown": NightSession.NIGHT_SESSION_UNKNOWN}
 STATES = {"running": RunState.RUN_STATE_RUNNING, "succeeded": RunState.RUN_STATE_SUCCEEDED,
           "failed": RunState.RUN_STATE_FAILED, "stopped": RunState.RUN_STATE_STOPPED,
           "interrupted": RunState.RUN_STATE_INTERRUPTED}
-BEIJING = datetime.timezone(datetime.timedelta(hours=8))
-
-
-def beijing_ms(stamp: str) -> int:
-    """Unix milliseconds of a "YYYY-MM-DD HH:MM" Beijing time."""
-    moment = datetime.datetime.strptime(stamp, "%Y-%m-%d %H:%M").replace(tzinfo=BEIJING)
-    return int(moment.timestamp() * 1000)
 
 
 def error_code(name: str) -> int:
     return ErrorCode.Value(f"ERROR_CODE_{name.upper()}") if f"ERROR_CODE_{name.upper()}" in \
         ErrorCode.keys() else ErrorCode.ERROR_CODE_OPERATION_FAILED
-
-
-def split_product(product: str):
-    exchange, _, name = product.partition("/")
-    if not exchange or not name:
-        raise ValueError(f"a product is EXCHANGE/product: {product}")
-    return exchange, name
 
 
 @dataclass
@@ -105,7 +87,6 @@ class Service:
         self.directory = directory
         self.warehouse = warehouse
         self.reads = ThreadPoolExecutor(max_workers=2, thread_name_prefix="warehouse-read")
-        self.sessions = Sessions()
         self.runs = Runs(directory)
         # Runs a stopped service left running ended with it.
         self.runs.interrupt()
@@ -283,85 +264,6 @@ class Service:
             for table, coverage in (("daily", item.daily), ("minutes", item.minutes)):
                 if table in found[contract]:
                     coverage.first_day, coverage.last_day, coverage.days = found[contract][table]
-
-    def dominant(self, request):
-        if request.adjustment == Adjustment.ADJUSTMENT_UNSPECIFIED:
-            raise ValueError("a dominant series needs an adjustment")
-        exchange, product = split_product(request.product)
-        warehouse = self.dataset()
-        version = warehouse.current()
-        # The first day's dominant month is read from the day before it.
-        rows = warehouse.query(version, """
-            select contract, day, settlement, open_interest, close, open, high, low from daily
-            where exchange = ? and product = ? and day between ?::date - 31 and ?::date
-            order by day""", ("daily",),
-            (exchange, product, request.first_day, request.last_day),
-            exchange=exchange)
-        months = dominant.months_of([row[:5] for row in rows])
-        plan = dominant.plan(months, request.traded)
-        bars = {(row[0], row[1].isoformat()): row for row in rows}
-        return version, months, plan, bars
-
-    async def on_get_dominant_series(self, request, series):
-        version, months, plan, bars = await self.read(self.dominant, request)
-        series.dataset_version = version.identity
-        segments = plan.segments
-        for index, segment in enumerate(segments):
-            if index and segment.begin >= request.first_day:
-                series.rolls.add(trading_day=segment.begin,
-                                 from_contract=months[segments[index - 1].month].contract,
-                                 to_contract=months[segment.month].contract,
-                                 ratio=decimal(plan.ratios[index]))
-        current = -1
-        for day in plan.days:
-            while current + 1 < len(segments) and segments[current + 1].begin <= day:
-                current += 1
-            if current < 0 or day < request.first_day:
-                continue
-            segment = segments[current]
-            contract = months[segment.month].contract
-            factor = segment.factor if request.adjustment == Adjustment.ADJUSTMENT_RATIO else Decimal(1)
-            row = bars.get((contract, day))
-            values = {}
-            if row is not None:
-                for name, value in (("settlement", row[2]), ("close", row[4]), ("open", row[5]),
-                                    ("high", row[6]), ("low", row[7])):
-                    if value is not None:
-                        values[name] = decimal(dominant.rounded(Decimal(value) * factor))
-            series.days.add(trading_day=day, contract=contract, **values)
-
-    def open_days(self, exchange, begin, end):
-        warehouse = self.dataset()
-        version = warehouse.current()
-        rows = warehouse.query(version, """
-            select day from calendar where exchange = ? and open
-            and day between ?::date - 31 and ?::date order by day""", ("calendar",),
-            (exchange, begin, end), exchange=exchange)
-        return [row[0] for row in rows]
-
-    async def on_get_trading_sessions(self, request, reply):
-        exchange, product = split_product(request.product)
-        days = await self.read(self.open_days, exchange, request.first_day, request.last_day)
-        reply.reviewed_day = self.sessions.reviewed
-        named = set()
-        for previous, trading_day in zip(days, days[1:]):
-            if trading_day.isoformat() < request.first_day:
-                continue
-            day = self.sessions.day(exchange, product, trading_day)
-            night = self.sessions.night(exchange, product, previous,
-                                        holiday_between(previous, trading_day))
-            item = reply.days.add(trading_day=trading_day.isoformat(),
-                                  night_session=NIGHTS[night.state])
-            for begin, end in day.segments:
-                item.day.add(start_ms=beijing_ms(begin), end_ms=beijing_ms(end))
-            if night.state == "held":
-                item.night.start_ms, item.night.end_ms = beijing_ms(night.begin), beijing_ms(night.end)
-            item.source_ids.extend(sorted(set(day.sources) | set(night.sources)))
-            named |= set(item.source_ids)
-        for identity in sorted(named):
-            source = self.sessions.sources[identity]
-            reply.sources.add(id=identity, title=source["title"], url=source["url"],
-                              published_day=source["published"], note=source["note"])
 
     async def on_list_strategies(self, request, result):
         result.CopyFrom(await asyncio.to_thread(repository.list_strategies, request.path))

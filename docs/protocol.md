@@ -153,8 +153,6 @@ sequenceDiagram
 | `get_dataset_summary` | — | 研究数据当前版本的摘要，与 Warehouse 的 `DatasetSummary` 相同 |
 | `list_stored_contracts` | 合约（不填表示全部）、版本（不填表示当前） | 每个合约的日线和分钟线范围 |
 | `get_chart_bars` | 合约、周期、版本 | K 线与 MACD |
-| `get_dominant_series` | 品种、起止日、是否按交易换月、复权方式 | 主力连续的逐日价格和换月 |
-| `get_trading_sessions` | 品种、起止日 | 每个交易日的日盘、夜盘时段和依据 |
 | `list_strategies` | 策略目录 | 策略、因子、导入失败的模块 |
 | `read_source` / `save_source` / `delete_source` | 模块路径 | 模块内容 / — / — |
 | `build_package` | 策略目录与策略 | 发布到 Trading 的策略包 |
