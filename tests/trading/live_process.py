@@ -38,11 +38,12 @@ def launch():
 
 
 def call(process, method, params=None, error=False):
-    process.stdin.write(json.dumps(dict(version=1, method=method, params=params or {})) + "\n")
+    request = dict(version=1, method=method, params=params or {})
+    process.stdin.write(json.dumps(dict(id=1, request=request)) + "\n")
     process.stdin.flush()
     line = process.stdout.readline()
     assert SECRET not in line and AUTH not in line, line
-    reply = json.loads(line)
+    reply = json.loads(line)["reply"]
     if error:
         assert "error" in reply, reply
         return reply["error"]

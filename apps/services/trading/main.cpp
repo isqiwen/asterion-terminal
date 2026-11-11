@@ -167,8 +167,7 @@ int main(int argc, char** argv)
                         if (!work->session)
                             throw std::invalid_argument("the account is not open");
                         if (request.has_connect_broker())
-                            work->action =
-                                work->session->connect(settings.password, settings.auth_code);
+                            work->action = work->session->connect(settings.login);
                         else if (request.has_disconnect_broker())
                             work->action = work->session->disconnect();
                         else if (request.has_query_costs())
@@ -273,7 +272,7 @@ int main(int argc, char** argv)
                     initializing.get();
                     account = account_owner.get();
                     if (stage == Host::Stage::running)
-                        login = account->connect(settings.password, settings.auth_code);
+                        login = account->connect(settings.login);
                 } catch (...) {
                     account_owner.reset();
                     if (recovering)
@@ -302,11 +301,15 @@ int main(int argc, char** argv)
                 asterion::read_journal_header(
                     journal,
                     asterion::trading::AccountJournal::sidecars));
-            for (const auto* key : {"account_id", "broker", "environment"})
-                if (recorded.at(key) != settings.identity.at(key))
-                    throw std::invalid_argument(
-                        "trading account configuration differs from its journal: "
-                        + (installation / "config/accounts" / (account_name + ".json")).string());
+            // The front and AppID may change; another broker or investor is another account.
+            const auto& broker = settings.identity.at("broker");
+            if (recorded.at("account_id") != settings.identity.at("account_id")
+                || recorded.at("environment") != settings.identity.at("environment")
+                || recorded.at("broker").at("broker_id") != broker.at("broker_id")
+                || recorded.at("broker").at("user_id") != broker.at("user_id"))
+                throw std::invalid_argument(
+                    "trading account configuration differs from its journal: "
+                    + (installation / "config/accounts" / (account_name + ".json")).string());
             initialization.begin();
             account_owner =
                 std::make_unique<asterion::trading::LiveSession>(journal, sdk, ownership_directory);

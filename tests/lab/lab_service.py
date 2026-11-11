@@ -19,9 +19,10 @@ def launch():
 
 
 def call(process, method, params=None):
-    process.stdin.write(json.dumps({"version": 1, "method": method, "params": params or {}}) + "\n")
+    request = {"version": 1, "method": method, "params": params or {}}
+    process.stdin.write(json.dumps({"id": 1, "request": request}) + "\n")
     process.stdin.flush()
-    response = json.loads(process.stdout.readline())
+    response = json.loads(process.stdout.readline())["reply"]
     assert "error" not in response, response
     return response["result"]
 

@@ -28,6 +28,9 @@ namespace {
 std::atomic<int> quote_rejection_code{0}, quote_rejection_count{0};
 // The exchange refuses every order, as it does outside trading hours.
 std::atomic<bool> reject_inserts{false};
+// The front the last trader registered.
+std::mutex front_mutex;
+std::string registered_front;
 std::atomic<int> quote_mode{0}, cancel_return_code{0};
 std::atomic<int> catalog_side_effects = 0, stale_batches = 0;
 std::atomic<bool> hold_positions = false, hold_trades = false;
@@ -335,9 +338,11 @@ public:
         return day.c_str();
     }
 
-    void RegisterFront(char*) override
+    void RegisterFront(char* address) override
     {
         check_sdk_thread();
+        std::lock_guard lock(front_mutex);
+        registered_front = address;
     }
 
     void RegisterSpi(CThostFtdcTraderSpi* value) override
@@ -1588,4 +1593,12 @@ FAKE_EXPORT void asterion_fake_trader_stale_queries()
 FAKE_EXPORT int asterion_fake_trader_stale_batches()
 {
     return stale_batches.load();
+}
+
+FAKE_EXPORT const char* asterion_fake_trader_front()
+{
+    std::lock_guard lock(front_mutex);
+    static std::string copy;
+    copy = registered_front;
+    return copy.c_str();
 }

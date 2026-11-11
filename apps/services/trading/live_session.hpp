@@ -36,7 +36,7 @@ public:
     // After reply drain, stop all resources on their owners. Completion includes SDK release.
     void stop();
     std::shared_future<void> stopped() const;
-    std::future<void> connect(std::string password, std::string auth_code);
+    std::future<void> connect(BrokerLogin login);
     std::future<void> disconnect();
     std::future<void> query_costs();
     // Admission is bounded; completion acknowledges the durable command outcome.

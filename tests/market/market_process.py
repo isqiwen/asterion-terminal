@@ -16,8 +16,8 @@ env = dict(os.environ)
 def terminal():
     return subprocess.Popen([str(build/'asterion_terminal_dev_bridge')],env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
 def call(process, method, params=None):
-    process.stdin.write(json.dumps(dict(version=1,method=method,params=params or {}))+'\n');process.stdin.flush()
-    reply=json.loads(process.stdout.readline());assert 'error' not in reply,reply;return reply['result']
+    process.stdin.write(json.dumps(dict(id=1,request=dict(version=1,method=method,params=params or {})))+'\n');process.stdin.flush()
+    reply=json.loads(process.stdout.readline())['reply'];assert 'error' not in reply,reply;return reply['result']
 def ready(process):
     """The open watch's latest frame once its row has a quote."""
     deadline=time.monotonic()+8

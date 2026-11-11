@@ -41,8 +41,8 @@ with tempfile.TemporaryDirectory(prefix='asterion-warehouse-acceptance-') as roo
         env=dict(os.environ,ASTERION_ROOT=root,ASTERION_TEST_NODE_ISOLATED='1'),
         stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True)
     def call(method, params=None):
-        core.stdin.write(json.dumps({'version':1,'method':method,'params':params or {}})+'\n');core.stdin.flush()
-        response=json.loads(core.stdout.readline())
+        core.stdin.write(json.dumps({'id':1,'request':{'version':1,'method':method,'params':params or {}}})+'\n');core.stdin.flush()
+        response=json.loads(core.stdout.readline())['reply']
         if 'error' in response:raise RuntimeError(response['error']['message'])
         return response['result']
     try:

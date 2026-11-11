@@ -19,9 +19,10 @@ build = Path(sys.argv[1]).resolve()
 
 
 def call(process, method, params=None, error=False):
-    process.stdin.write(json.dumps(dict(version=1, method=method, params=params or {})) + "\n")
+    request = dict(version=1, method=method, params=params or {})
+    process.stdin.write(json.dumps(dict(id=1, request=request)) + "\n")
     process.stdin.flush()
-    reply = json.loads(process.stdout.readline())
+    reply = json.loads(process.stdout.readline())["reply"]
     assert ("error" in reply) == error, reply
     return reply["error"] if error else reply["result"]
 
@@ -133,15 +134,28 @@ with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["AS
         # Counter settings cannot enter the create request from a Terminal.
         trading(terminal, "real", {"openAccount": dict(create["openAccount"],
                                                        environment="ENVIRONMENT_SIMULATION")}, error=True)
+        # The fill is in the record before the service stops.
+        today = session(terminal, "simulation")["tradingDay"]
+        wait(lambda: trading(terminal, "simulation", {"getTrades": {"tradingDay": today}})
+             ["getTrades"].get("trades"))
         children["simulation"].terminate()
         children["simulation"].wait(timeout=15)
         os.kill(real_pid, 0)
         assert session(terminal, "real")["brokerState"] == "BROKER_STATE_READY"
         trading(terminal, "simulation", {"getAccount": {}}, error=True)
+        # The same account behind another front and AppID keeps its record.
+        moved = host.root / "config/accounts/simulation.json"
+        account = json.loads(moved.read_text())
+        account["broker"].update(front="tcp://127.0.0.1:41207", app_id="moved_app")
+        moved.write_text(json.dumps(account))
         children["simulation"] = host.start("simulation")
         restarted = account_of(terminal, "simulation")
         assert restarted["environment"] == "ENVIRONMENT_SIMULATION"
+        assert restarted["broker"]["front"] == "tcp://127.0.0.1:41207"
+        assert restarted["session"]["policyRevision"] == reviewed["policyRevision"]
         assert "authorizedMs" not in restarted["session"]
+        kept = trading(terminal, "simulation", {"getTrades": {"tradingDay": today}})["getTrades"]
+        assert [trade["orderId"] for trade in kept["trades"]] == ["remote-order"], kept
         # A new Terminal process reads the same reference; remote records stay remote.
         terminal.communicate(timeout=15)
         terminal = launch()

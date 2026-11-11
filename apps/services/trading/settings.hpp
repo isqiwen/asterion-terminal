@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <asterion/base/serialization.hpp>
 #include <string>
+#include "broker_execution.hpp"
 #include "ctp_feed.hpp"
 
 namespace asterion::trading {
@@ -30,8 +31,9 @@ namespace asterion::trading {
 struct Settings
 {
     std::string account;
+    // The account's stable identity: its name, environment, broker and investor.
     Json identity;
-    std::string password, auth_code;
+    BrokerLogin login;
     ctp::Configuration market;
     service::Transport transport;
     std::filesystem::path journal, owners, ctp_library;

@@ -442,13 +442,12 @@ std::shared_future<void> LiveSession::stopped() const
     return loop_->stopped;
 }
 
-std::future<void> LiveSession::connect(std::string password, std::string auth_code)
+std::future<void> LiveSession::connect(BrokerLogin login)
 {
     return loop_->mutate(
-        [password = std::move(password), auth_code = std::move(auth_code)](
-            LiveAccountState& account,
-            std::uint64_t) mutable -> AccountCommand {
-            account.connect(std::move(password), std::move(auth_code));
+        [login = std::move(
+             login)](LiveAccountState& account, std::uint64_t) mutable -> AccountCommand {
+            account.connect(std::move(login));
             co_return;
         });
 }

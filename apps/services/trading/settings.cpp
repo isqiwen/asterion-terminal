@@ -121,8 +121,13 @@ Settings load_settings(const fs::path& root, const std::string& account)
             throw invalid("invalid systemd credential " + path.string());
         return value;
     };
-    result.password = secret("password");
-    result.auth_code = secret("auth_code");
+    const auto& broker = document.at("broker");
+    result.login = {
+        broker.at("front").get<std::string>(),
+        broker.at("app_id").get<std::string>(),
+        secret("password"),
+        secret("auth_code")
+    };
     if (!document.at("market_front").is_string()
         || !std::regex_match(
             document.at("market_front").get<std::string>(),
@@ -136,7 +141,7 @@ Settings load_settings(const fs::path& root, const std::string& account)
         front,
         document.at("broker").at("broker_id").get<std::string>(),
         document.at("broker").at("user_id").get<std::string>(),
-        result.password
+        result.login.password
     };
     return result;
 }

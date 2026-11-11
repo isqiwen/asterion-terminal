@@ -51,16 +51,24 @@ function localCore(): Plugin {
         });
         const core = {
           child,
-          pending: [] as { resolve: (response: string) => void; reject: (error: Error) => void }[],
+          // Replies come in the order requests complete, each with its request's id.
+          pending: new Map<
+            number,
+            { resolve: (response: string) => void; reject: (error: Error) => void }
+          >(),
+          next: 0,
           failed: null as Error | null,
         };
         const fail = (error: Error) => {
           core.failed = error;
-          for (const item of core.pending.splice(0)) item.reject(error);
+          for (const item of core.pending.values()) item.reject(error);
+          core.pending.clear();
         };
-        createInterface({ input: child.stdout }).on("line", line =>
-          core.pending.shift()?.resolve(line),
-        );
+        createInterface({ input: child.stdout }).on("line", line => {
+          const { id, reply } = JSON.parse(line) as { id: number; reply: unknown };
+          core.pending.get(id)?.resolve(JSON.stringify(reply));
+          core.pending.delete(id);
+        });
         child.on("error", fail);
         child.on("exit", () => fail(new Error("C++ 核心已退出，请重新启动开发服务")));
         child.stderr.on("data", data => server.config.logger.error(String(data)));
@@ -72,11 +80,13 @@ function localCore(): Plugin {
         new Promise<string>((resolve, reject) => {
           const current = core;
           if (current.failed) return reject(current.failed);
-          current.pending.push({ resolve, reject });
-          current.child.stdin.write(request + "\n", error => {
+          const id = ++current.next;
+          current.pending.set(id, { resolve, reject });
+          current.child.stdin.write(`{"id":${id},"request":${request}}\n`, error => {
             if (error) {
               current.failed = error;
-              for (const item of current.pending.splice(0)) item.reject(error);
+              for (const item of current.pending.values()) item.reject(error);
+              current.pending.clear();
             }
           });
         });

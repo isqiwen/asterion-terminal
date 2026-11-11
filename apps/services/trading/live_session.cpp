@@ -112,8 +112,6 @@ LiveAccountState::LiveAccountState(
     investor_id_ = broker.at("user_id");
     account_id_ = text(manifest, "account_id");
     const auto& account_id = account_id_;
-    trade_front_ = broker.at("front");
-    app_id_ = broker.at("app_id");
     create_directories_durably(ownership_directory);
     const auto owner_key = sha256_bytes(broker_id_ + '\n' + investor_id_);
     try {
@@ -328,20 +326,20 @@ void LiveAccountState::log_broker_observations(const BrokerSnapshot& state) cons
     }
 }
 
-void LiveAccountState::connect(std::string password, std::string auth_code)
+void LiveAccountState::connect(BrokerLogin login)
 {
     if (failed_)
         throw std::invalid_argument("live trading record needs recovery; reopen the session");
-    if (password.empty() || auth_code.empty())
+    if (login.password.empty() || login.auth_code.empty())
         throw std::invalid_argument("enter the CTP password and authentication code");
     send_gate_.invalidate();
     trader_->connect(
-        {trade_front_,
+        {std::move(login.front),
             broker_id_,
             investor_id_,
-            std::move(password),
-            app_id_,
-            std::move(auth_code)});
+            std::move(login.password),
+            std::move(login.app_id),
+            std::move(login.auth_code)});
 }
 
 void LiveAccountState::query_costs()

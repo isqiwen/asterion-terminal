@@ -25,9 +25,10 @@ from trading_installation import install, Programs
 
 
 def terminal_call(process, method, params=None):
-    process.stdin.write(json.dumps(dict(version=1, method=method, params=params or {})) + '\n')
+    request = dict(version=1, method=method, params=params or {})
+    process.stdin.write(json.dumps(dict(id=1, request=request)) + '\n')
     process.stdin.flush()
-    reply = json.loads(process.stdout.readline())
+    reply = json.loads(process.stdout.readline())['reply']
     assert 'error' not in reply, reply
     return reply['result']
 

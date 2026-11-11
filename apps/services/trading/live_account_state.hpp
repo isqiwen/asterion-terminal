@@ -39,7 +39,7 @@ public:
         Progress& persistence);
     ~LiveAccountState();
     // Credentials live in the trader's memory for this connection only.
-    void connect(std::string password, std::string auth_code);
+    void connect(BrokerLogin login);
     void disconnect();
     // Asks the broker for the account's rates on every allowed contract.
     void query_costs();
@@ -276,7 +276,7 @@ private:
     BrokerSendGate& send_gate_;
     std::unique_ptr<ctp::Trader> trader_;
     ::trading::Environment environment_;
-    std::string account_id_, trade_front_, app_id_, broker_id_, investor_id_;
+    std::string account_id_, broker_id_, investor_id_;
     // Journal record 0; the durable form of the account's creation.
     Json header_;
     // Order ID -> what was recorded before sending it.

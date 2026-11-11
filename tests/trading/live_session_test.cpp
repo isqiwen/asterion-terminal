@@ -60,9 +60,11 @@ public:
         session_.initialized().get();
     }
 
-    void connect(std::string password, std::string auth)
+    void
+    connect(std::string password, std::string auth, std::string front = "tcp://127.0.0.1:41205")
     {
-        session_.connect(std::move(password), std::move(auth)).get();
+        session_.connect({std::move(front), "client_app", std::move(password), std::move(auth)})
+            .get();
     }
 
     void disconnect()
@@ -1800,6 +1802,28 @@ TEST_F(Live, TerminalEvidenceSurvivesSegmentsAndRestoresCurrentDayAttribution)
     EXPECT_GE(number(state.at("segment_count")), 2);
 }
 
+TEST_F(Live, AnotherFrontOfTheSameAccountContinuesItsRecordWithoutAuthorization)
+{
+    {
+        LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+        ASSERT_EQ(ready(session).at("phase"), "ready");
+        act(session, authorize());
+        act(session, submit("before", "1"));
+        wait_for(session, [](const Json& state) {
+            return order_has_status(state, "before", "filled");
+        });
+    }
+    LiveSession moved(directory.path, ASTERION_TEST_CTP_TRADER, owners.path);
+    moved.connect("secret", "auth-code", "tcp://127.0.0.1:41299");
+    const auto state = wait_for(moved, [](const Json& s) {
+        return s.at("phase") == "ready" && order_has_status(s, "before", "filled");
+    });
+    EXPECT_STREQ(
+        exchange.call<const char* (*)()>("asterion_fake_trader_front"),
+        "tcp://127.0.0.1:41299");
+    EXPECT_FALSE(state.contains("authorization"));
+}
+
 TEST_F(Live, FillsAreRecordedOnceAndRemainReadableAfterRestartAndRollover)
 {
     const auto recorded = [](const LiveSession& session, const std::string& day) {
@@ -2038,7 +2062,8 @@ TEST_F(Live, DISABLED_ObservationScaleMeasurements)
                 owners.path,
                 config);
             session->initialized().get();
-            session->connect("test-only", "test-only").get();
+            session->connect({"tcp://127.0.0.1:41205", "client_app", "test-only", "test-only"})
+                .get();
             const auto deadline = std::chrono::steady_clock::now() + 20s;
             auto snapshot = session->snapshot().get();
             while (snapshot.broker_state() != ::trading::BROKER_STATE_READY

@@ -57,6 +57,13 @@ struct BrokerOrder
     int error_code = 0;
 };
 
+// What a login needs besides the account's identity. The front and AppID may
+// change between logins without making it another account.
+struct BrokerLogin
+{
+    std::string front, app_id, password, auth_code;
+};
+
 struct BrokerTrade
 {
     std::string trade_id; // "<venue>:<exchange trade id>", unique per trading day

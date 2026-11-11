@@ -79,9 +79,10 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
     begin = time.monotonic()
 
     def call(method, params=None):
-        core.stdin.write(json.dumps({"version": 1, "method": method, "params": params or {}}) + "\n")
+        request = {"version": 1, "method": method, "params": params or {}}
+        core.stdin.write(json.dumps({"id": 1, "request": request}) + "\n")
         core.stdin.flush()
-        response = json.loads(core.stdout.readline())
+        response = json.loads(core.stdout.readline())["reply"]
         if "error" in response:
             raise RuntimeError(f"{method}: {response['error']['code']}: {response['error']['message']}")
         return response["result"]
