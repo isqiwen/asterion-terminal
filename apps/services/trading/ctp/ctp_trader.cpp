@@ -6,6 +6,8 @@
 #include <ThostFtdcTraderApi.h>
 #include <asterion/base/error.hpp>
 #include <charconv>
+#include <chrono>
+#include <cstdio>
 #include <condition_variable>
 #include <deque>
 #include <future>
@@ -52,6 +54,33 @@ bool is_query(Kind kind)
 bool is_rate_query(Kind kind)
 {
     return kind == Kind::query_margin || kind == Kind::query_commission;
+}
+
+// CZCE reports a night session's quotes under their civil date, not the
+// trading day. Such a quote is of the session when its night is the latest one
+// begun: today's after 20:00 Beijing, otherwise yesterday's.
+bool czce_night_of_session(
+    const std::string& venue,
+    const std::string& day,
+    const std::string& time)
+{
+    if (venue != "CZCE" || time < "20:00:00")
+        return false;
+    using namespace std::chrono;
+    const auto now = system_clock::now() + hours(8);
+    auto night = floor<days>(now);
+    if (now - night < hours(20))
+        night -= days(1);
+    const year_month_day date{night};
+    char text[9];
+    std::snprintf(
+        text,
+        sizeof(text),
+        "%04d%02u%02u",
+        static_cast<int>(date.year()),
+        static_cast<unsigned>(date.month()),
+        static_cast<unsigned>(date.day()));
+    return day == text;
 }
 
 struct FrontConnectedEvent
@@ -1064,6 +1093,11 @@ struct Trader::Impl final : CThostFtdcTraderSpi
             quote.lower_limit = price(row->LowerLimitPrice);
             quote.trading_day = field(row->TradingDay);
             quote.update_time = field(row->UpdateTime);
+            if (czce_night_of_session(
+                    answer.instrument.venue,
+                    quote.trading_day,
+                    quote.update_time))
+                quote.trading_day = state.trading_day;
             answer.quote = std::move(quote);
         }
         if (last || code) {

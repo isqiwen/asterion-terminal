@@ -27,7 +27,7 @@ struct MarketQuote
     // Per-unit session average price; absent when the provider cannot normalize it.
     std::optional<Decimal> average_price;
     std::int64_t bid_quantity = 0, ask_quantity = 0, volume = 0;
-    std::string action_day, trading_day, update_time;
+    std::string trading_day, update_time;
     std::int64_t source_ms = 0, received_ms = 0;
 };
 enum class SubscriptionState

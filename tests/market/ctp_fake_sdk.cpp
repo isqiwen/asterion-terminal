@@ -44,6 +44,21 @@ class Fake final : public CThostFtdcMdApi
     std::optional<CThostFtdcDepthMarketDataField> publication_tick;
     // The connection stays up while its quotes move on to the next trading day.
     bool next_day = false;
+    // Now is a night session of tomorrow's trading day, dated as DCE or CZCE date it.
+    std::string night;
+
+    // Minutes past Beijing midnight when the connection logged in.
+    int login_minute = 0;
+
+    static std::string beijing_date(int days_after)
+    {
+        auto epoch = std::time(nullptr) + 8 * 3600 + days_after * 86400;
+        std::tm tm{};
+        gmtime_r(&epoch, &tm);
+        char text[9];
+        std::strftime(text, sizeof(text), "%Y%m%d", &tm);
+        return text;
+    }
 
 public:
     explicit Fake(const char* path)
@@ -78,9 +93,10 @@ public:
                     spi->OnFrontDisconnected(4097);
                 if (publication && publication_tick) {
                     auto& tick = *publication_tick;
-                    // Explicit test observations advance a minute per callback so delayed
-                    // intraday publication is exercised without a minute-long test sleep.
-                    const int minute = n % (24 * 60);
+                    // Explicit test observations advance a minute per callback from the
+                    // current one, so delayed intraday publication is exercised without
+                    // a minute-long test sleep.
+                    const int minute = (login_minute + n) % (24 * 60);
                     std::snprintf(
                         tick.UpdateTime,
                         sizeof(tick.UpdateTime),
@@ -113,6 +129,12 @@ public:
                     gmtime_r(&day, &trading);
                     std::strftime(tick.TradingDay, sizeof(tick.TradingDay), "%Y%m%d", &trading);
                     std::strftime(tick.UpdateTime, sizeof(tick.UpdateTime), "%H:%M:%S", &tm);
+                    if (!night.empty()) {
+                        // DCE names the trading day in both dates; CZCE the civil day.
+                        const auto day = beijing_date(night == "DCE" ? 1 : 0);
+                        std::strcpy(tick.ActionDay, day.c_str());
+                        std::strcpy(tick.TradingDay, day.c_str());
+                    }
                     tick.UpdateMillisec = std::chrono::duration_cast<std::chrono::milliseconds>(
                                               now.time_since_epoch())
                                               .count()
@@ -178,7 +200,7 @@ public:
                 continue;
             CThostFtdcDepthMarketDataField tick{};
             std::strncpy(tick.InstrumentID, names[i], sizeof(tick.InstrumentID) - 1);
-            std::strcpy(tick.ExchangeID, "SHFE");
+            std::strcpy(tick.ExchangeID, night.empty() ? "SHFE" : night.c_str());
             auto epoch = std::time(nullptr) + 8 * 3600;
             std::tm tm{};
             gmtime_r(&epoch, &tm);
@@ -220,7 +242,12 @@ public:
                 continue; // The worker emits only fresh, ordered observations.
             }
             if (publication) {
-                std::strcpy(tick.UpdateTime, "00:00:00");
+                std::snprintf(
+                    tick.UpdateTime,
+                    sizeof(tick.UpdateTime),
+                    "%02d:%02d:00",
+                    login_minute / 60,
+                    login_minute % 60);
                 if (!publication_tick)
                     publication_tick = tick;
             }
@@ -261,14 +288,18 @@ public:
         publication = user == "publication" || user == "concurrency";
         flood = user == "flood";
         next_day = user == "next-day";
-        strategy_stream = user == "strategy" || next_day;
+        night = user == "dce-night" ? "DCE" : user == "czce-night" ? "CZCE" : "";
+        login_minute = static_cast<int>((std::time(nullptr) + 8 * 3600) % 86400 / 60);
+        strategy_stream = user == "strategy" || next_day || !night.empty();
         reconnect = user != "steady" && user != "catalog-large" && !publication && !flood
             && !strategy_stream;
         CThostFtdcRspInfoField info{};
         if (std::string(login->Password) == "reject-test-only")
             info.ErrorID = 3;
+        CThostFtdcRspUserLoginField session{};
+        std::strcpy(session.TradingDay, beijing_date(1).c_str());
         if (spi)
-            spi->OnRspUserLogin(nullptr, &info, id, true);
+            spi->OnRspUserLogin(night.empty() ? nullptr : &session, &info, id, true);
         return 0;
     }
 

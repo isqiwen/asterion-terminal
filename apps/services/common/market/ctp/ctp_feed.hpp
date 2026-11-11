@@ -17,7 +17,8 @@ void validate_instruments(const std::vector<InstrumentId>&);
 std::optional<Decimal> price(double value);
 std::optional<Decimal> open_interest_change(double current, double previous);
 MarketDepthLevel depth_level(double price, int quantity);
-std::int64_t source_time(const std::string& day, const std::string& time, int millisecond);
+// UpdateTime on the Beijing civil day nearest to receipt.
+std::int64_t source_time(const std::string& time, int millisecond, std::int64_t received_ms);
 // CTP reports CZCE AveragePrice per unit and other exchanges as turnover /
 // volume, which includes the contract multiplier.
 std::optional<Decimal>

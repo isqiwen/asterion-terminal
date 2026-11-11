@@ -26,10 +26,20 @@ TEST(Ctp, MissingNumbersAndSourceClockRemainExplicit)
     EXPECT_FALSE(asterion::ctp::price(std::numeric_limits<double>::quiet_NaN()));
     ASSERT_TRUE(asterion::ctp::price(3510.2));
     EXPECT_EQ(asterion::ctp::price(3510.2)->str(), "3510.2");
-    EXPECT_EQ(asterion::ctp::source_time("20260926", "09:00:00", 0), 1790384400000);
-    EXPECT_EQ(asterion::ctp::source_time("20260230", "09:00:00", 0), 0);
-    EXPECT_EQ(asterion::ctp::source_time("", "09:00:00", 0), 0);
-    EXPECT_EQ(asterion::ctp::source_time("20260926", "24:00:00", 0), 0);
+    EXPECT_EQ(asterion::ctp::source_time("24:00:00", 0, 1790384400000), 0);
+}
+
+TEST(Ctp, AQuoteTimeIsItsClockOnTheCivilDayNearestReceipt)
+{
+    using asterion::ctp::source_time;
+    constexpr std::int64_t morning = 1790384400000; // 2026-09-26 09:00 Beijing
+    EXPECT_EQ(source_time("09:00:00", 0, morning + 1000), morning);
+    // A DCE night quote: its ActionDay names the next trading day, the clock does not.
+    const auto night = morning + 2 * 86400000LL + 12 * 3600000LL; // 2026-09-28 21:00
+    EXPECT_EQ(source_time("21:00:00", 500, night + 30), night + 500);
+    const auto midnight = night + 3 * 3600000LL;
+    EXPECT_EQ(source_time("00:00:00", 0, midnight - 100), midnight);
+    EXPECT_EQ(source_time("23:59:59", 900, midnight + 200), midnight - 100);
 }
 
 TEST(Ctp, VendorPricesPreserveDecimalPrecisionAndBounds)
@@ -67,7 +77,6 @@ TEST(Ctp, ProtocolPreservesMissingPricesAndSourceDates)
     asterion::LiveMarketSnapshot state;
     asterion::MarketQuote q;
     q.instrument = {"SHFE", "rb2610"};
-    q.action_day = "20260925";
     q.trading_day = "20260928";
     q.source_ms = 0;
     state.subscriptions.push_back({q.instrument, asterion::SubscriptionState::subscribed, 0, q});
@@ -305,6 +314,39 @@ TEST(CtpEvents, SubscriptionReorderingAndVenueReplacementKeepQuotesBoundToExactC
     ASSERT_EQ(replaced.subscriptions.size(), 1U);
     ASSERT_TRUE(replaced.subscriptions[0].quote);
     EXPECT_EQ(replaced.subscriptions[0].quote->instrument.symbol, "rb2610");
+}
+
+TEST(CtpEvents, NightQuotesKeepTheirClockAndTheSessionTradingDayAsEachExchangeDatesThem)
+{
+    for (const auto& [user, contract] :
+        {std::pair{"dce-night", asterion::InstrumentId{"DCE", "m2701"}},
+            std::pair{"czce-night", asterion::InstrumentId{"CZCE", "SR701"}}}) {
+        SCOPED_TRACE(user);
+        CtpDirectory directory;
+        asterion::ctp::Feed feed(directory.sdk, ASTERION_TEST_CTP, directory.path);
+        feed.connect({"tcp://localhost:12345", "test", user, "test-only"}, {contract});
+        std::vector<asterion::MarketQuote> quotes;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (quotes.size() < 3 && std::chrono::steady_clock::now() < deadline) {
+            for (const auto& event : feed.poll().events)
+                if (const auto* quote = std::get_if<asterion::MarketQuoteObservation>(&event)) {
+                    EXPECT_FALSE(quote->out_of_order);
+                    quotes.push_back(quote->quote);
+                }
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        ASSERT_GE(quotes.size(), 3U);
+        const auto tomorrow = std::time(nullptr) + 8 * 3600 + 86400;
+        std::tm tm{};
+        gmtime_r(&tomorrow, &tm);
+        char day[9];
+        std::strftime(day, sizeof(day), "%Y%m%d", &tm);
+        for (const auto& quote : quotes) {
+            EXPECT_LT(std::abs(quote.source_ms - quote.received_ms), 2000);
+            EXPECT_EQ(quote.trading_day, day);
+        }
+        feed.disconnect();
+    }
 }
 
 TEST(CtpEvents, ARefusedSubscriptionIsCountedAndRetriedAlone)

@@ -49,6 +49,26 @@ void put(char (&dest)[N], const std::string& value)
     std::memcpy(dest, value.data(), std::min(value.size(), N - 1));
 }
 
+// The Beijing civil date the latest night session began on, `back` nights earlier.
+std::string night_date(int back)
+{
+    using namespace std::chrono;
+    const auto now = system_clock::now() + hours(8);
+    auto night = floor<days>(now) - days(back);
+    if (now - floor<days>(now) < hours(20))
+        night -= days(1);
+    const year_month_day date{night};
+    char text[9];
+    std::snprintf(
+        text,
+        sizeof(text),
+        "%04d%02u%02u",
+        static_cast<int>(date.year()),
+        static_cast<unsigned>(date.month()),
+        static_cast<unsigned>(date.day()));
+    return text;
+}
+
 struct Position
 {
     int today = 0, yesterday = 0;
@@ -948,6 +968,11 @@ public:
             put(row.InstrumentID, mode == 4 ? "rb2612" : instrument);
             put(row.TradingDay, mode == 3 ? "20260925" : day);
             put(row.UpdateTime, "10:15:00");
+            // CZCE night quotes carry their civil date: this night's, or an earlier one's.
+            if (mode == 8 || mode == 9) {
+                put(row.TradingDay, night_date(mode == 9));
+                put(row.UpdateTime, "21:30:00");
+            }
             row.LastPrice = instrument == "rb2611" ? 1.7976931348623157e308 : 3500;
             row.PreSettlementPrice = 3490;
             row.UpperLimitPrice = 3700;

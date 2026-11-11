@@ -539,6 +539,13 @@ TEST_F(CtpTrader, PartialQuoteResponsesRequireSuccessfulCompletionAndCurrentIden
             EXPECT_NE(std::string(error.what()).find(reason), std::string::npos) << error.what();
         }
     }
+    // A CZCE night quote under its civil date is of this session; an earlier night's is not.
+    fake.call<void (*)(int)>("asterion_fake_trader_quote_mode", 8);
+    const auto night = await(trader, trader.quote({"CZCE", "SR701"}));
+    ASSERT_TRUE(night);
+    EXPECT_EQ(night->trading_day, trader.snapshot().trading_day);
+    fake.call<void (*)(int)>("asterion_fake_trader_quote_mode", 9);
+    EXPECT_THROW((void)await(trader, trader.quote({"CZCE", "SR701"})), std::invalid_argument);
     // A counter may leave the exchange blank, as market data does.
     fake.call<void (*)(int)>("asterion_fake_trader_quote_mode", 6);
     const auto blank = await(trader, trader.quote({"SHFE", "rb2610"}));

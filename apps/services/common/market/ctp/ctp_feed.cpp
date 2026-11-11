@@ -90,9 +90,9 @@ MarketDepthLevel depth_level(double value, int quantity)
     return {converted, quantity >= 0 ? std::optional<std::int64_t>(quantity) : std::nullopt};
 }
 
-std::int64_t source_time(const std::string& day, const std::string& time, int millisecond)
+std::int64_t source_time(const std::string& time, int millisecond, std::int64_t received_ms)
 {
-    if (day.size() != 8 || time.size() != 8 || time[2] != ':' || time[5] != ':' || millisecond < 0
+    if (time.size() != 8 || time[2] != ':' || time[5] != ':' || millisecond < 0
         || millisecond > 999)
         return 0;
     auto number = [](const std::string& s, std::size_t pos, std::size_t count) {
@@ -100,19 +100,20 @@ std::int64_t source_time(const std::string& day, const std::string& time, int mi
         const auto [p, e] = std::from_chars(s.data() + pos, s.data() + pos + count, n);
         return e == std::errc{} && p == s.data() + pos + count ? n : -1;
     };
-    const auto y = number(day, 0, 4), m = number(day, 4, 2), d = number(day, 6, 2),
-               h = number(time, 0, 2), min = number(time, 3, 2), sec = number(time, 6, 2);
-    const std::chrono::year_month_day date{
-        std::chrono::year{y},
-        std::chrono::month{static_cast<unsigned>(m)},
-        std::chrono::day{static_cast<unsigned>(d)}
-    };
-    if (!date.ok() || y < 2000 || h < 0 || h > 23 || min < 0 || min > 59 || sec < 0 || sec > 59)
+    const auto h = number(time, 0, 2), min = number(time, 3, 2), sec = number(time, 6, 2);
+    if (h < 0 || h > 23 || min < 0 || min > 59 || sec < 0 || sec > 59)
         return 0;
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-               std::chrono::sys_days{date}.time_since_epoch())
-               .count()
-        + ((h - 8) * 3600LL + min * 60 + sec) * 1000 + millisecond;
+    // The Beijing civil day nearest to receipt. ActionDay cannot be used: DCE
+    // reports the trading day there during night sessions.
+    constexpr std::int64_t day_ms = 86400000, beijing_ms = 8 * 3600000;
+    const auto clock = ((h * 3600LL + min * 60 + sec) * 1000 + millisecond) - beijing_ms;
+    const auto midnight = (received_ms + beijing_ms) / day_ms * day_ms;
+    auto result = midnight + clock;
+    if (result - received_ms > day_ms / 2)
+        result -= day_ms;
+    else if (received_ms - result > day_ms / 2)
+        result += day_ms;
+    return result;
 }
 
 struct Feed::Impl final
@@ -132,6 +133,7 @@ struct Feed::Impl final
     {
         int code;
         bool last;
+        std::string trading_day;
     };
 
     struct Subscription
@@ -229,6 +231,9 @@ struct Feed::Impl final
     std::vector<std::string> retrying;
     std::map<InstrumentId, int> multipliers;
     bool closing = true, logged_in = false;
+    // The session's trading day: the login's, moved on by any later one a quote
+    // reports. CZCE reports the civil date during night sessions.
+    std::string trading_day;
     bool login_pending = false, subscription_pending = false;
 
     struct Bridge final : CThostFtdcMdSpi
@@ -252,12 +257,14 @@ struct Feed::Impl final
         }
 
         void OnRspUserLogin(
-            CThostFtdcRspUserLoginField*,
+            CThostFtdcRspUserLoginField* login,
             CThostFtdcRspInfoField* info,
             int,
             bool last) override
         {
-            owner.deliver(generation, Login{info ? info->ErrorID : 0, last});
+            owner.deliver(
+                generation,
+                Login{info ? info->ErrorID : 0, last, login ? field(login->TradingDay) : ""});
         }
 
         void OnRspSubMarketData(
@@ -512,10 +519,10 @@ struct Feed::Impl final
             return;
         MarketQuote q;
         q.instrument = s.instrument;
-        q.action_day = field(tick->ActionDay);
-        q.trading_day = field(tick->TradingDay);
+        trading_day = std::max(trading_day, field(tick->TradingDay));
+        q.trading_day = trading_day;
         q.update_time = field(tick->UpdateTime);
-        q.source_ms = source_time(q.action_day, q.update_time, tick->UpdateMillisec);
+        q.source_ms = source_time(q.update_time, tick->UpdateMillisec, received_ms);
         q.received_ms = received_ms;
         q.last = price(tick->LastPrice);
         q.bid = price(tick->BidPrice1);
@@ -595,6 +602,7 @@ struct Feed::Impl final
                             ++state.sequence;
                         } else if (value.last) {
                             logged_in = true;
+                            trading_day = value.trading_day;
                             state.phase = MarketPhase::connected;
                             state.error_code = 0;
                             subscription_pending = true;
