@@ -136,8 +136,8 @@ with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["AS
                                                        environment="ENVIRONMENT_SIMULATION")}, error=True)
         # The fill is in the record before the service stops.
         today = session(terminal, "simulation")["tradingDay"]
-        wait(lambda: trading(terminal, "simulation", {"getTrades": {"tradingDay": today}})
-             ["getTrades"].get("trades"))
+        wait(lambda: trading(terminal, "simulation", {"getDay": {"tradingDay": today}})
+             ["getDay"].get("trades"))
         children["simulation"].terminate()
         children["simulation"].wait(timeout=15)
         os.kill(real_pid, 0)
@@ -154,7 +154,7 @@ with tempfile.TemporaryDirectory(prefix="trading-instances-", dir=os.environ["AS
         assert restarted["broker"]["front"] == "tcp://127.0.0.1:41207"
         assert restarted["session"]["policyRevision"] == reviewed["policyRevision"]
         assert "authorizedMs" not in restarted["session"]
-        kept = trading(terminal, "simulation", {"getTrades": {"tradingDay": today}})["getTrades"]
+        kept = trading(terminal, "simulation", {"getDay": {"tradingDay": today}})["getDay"]
         assert [trade["orderId"] for trade in kept["trades"]] == ["remote-order"], kept
         # A new Terminal process reads the same reference; remote records stay remote.
         terminal.communicate(timeout=15)

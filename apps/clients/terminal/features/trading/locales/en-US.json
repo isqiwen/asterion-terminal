@@ -259,5 +259,7 @@
   "还没有交易连接": "No trading connections yet",
   "在设置里添加交易连接后，这里显示账户、委托和策略。": "Add a trading connection in Settings to see accounts, orders and strategies here.",
   "交易日": "Trading day",
-  "当日": "Current day"
+  "当日": "Current day",
+  "收盘持仓": "Positions at close",
+  "导出 CSV": "Export CSV"
 }

@@ -7,7 +7,15 @@ import { useWorkspaceDraft } from "../contract";
 import { AccountRecords } from "./AccountRecords";
 import { type Activity } from "./ActivityTabs";
 import { OrderTicket } from "./OrderTicket";
-import { t, phases, command, environmentName, type CommandAction, type Run } from "./live-shared";
+import {
+  t,
+  phases,
+  command,
+  environmentName,
+  fundFields,
+  type CommandAction,
+  type Run,
+} from "./live-shared";
 
 export function LiveAccount({
   account,
@@ -202,16 +210,7 @@ export function LiveAccount({
       )}
       {live.funds && (
         <dl className="paper-metrics">
-          {(
-            [
-              ["balance", "动态权益"],
-              ["available", "可用资金"],
-              ["margin", "占用保证金"],
-              ["positionProfit", "持仓盈亏"],
-              ["closeProfit", "平仓盈亏"],
-              ["commission", "手续费"],
-            ] as const
-          ).map(([field, label]) => (
+          {fundFields.map(([field, label]) => (
             <div key={field}>
               <dt>{t(label)}</dt>
               <dd data-testid={`live-${field}`}>{decimalText(live.funds![field])}</dd>

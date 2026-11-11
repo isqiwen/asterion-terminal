@@ -2,6 +2,7 @@
 #include <asterion/base/id.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <asterion/system/process/child.hpp>
+#include <google/protobuf/util/json_util.h>
 #include <stdexcept>
 
 namespace asterion::trading {
@@ -277,6 +278,17 @@ JournalRecord parse_record(const Json& record)
             result.trades.push_back(protocol::encode_trade(trade));
         return result;
     }
+    if (record.is_object() && record.contains("day_closed")) {
+        require_fields(record, {"day_closed"});
+        DayClosed result;
+        if (!google::protobuf::util::JsonStringToMessage(
+                record.at("day_closed").dump(),
+                &result.close)
+                .ok()
+            || result.close.trading_day().size() != 8)
+            throw std::invalid_argument("invalid recorded day close");
+        return result;
+    }
     if (record.is_object() && record.contains("order_not_sent")) {
         require_fields(record, {"order_not_sent", "error_code"});
         if (!record.at("error_code").is_number_integer()
@@ -448,6 +460,17 @@ JournalEntry entry(const TradesRecorded& record)
     JournalEntry result;
     result.body = {{"trades_recorded", std::move(trades)}};
     result.trace.outcome = "trades_recorded";
+    return result;
+}
+
+JournalEntry entry(const DayClosed& record)
+{
+    std::string close;
+    if (!google::protobuf::util::MessageToJsonString(record.close, &close).ok())
+        throw std::runtime_error("a day close could not be encoded");
+    JournalEntry result;
+    result.body = {{"day_closed", Json::parse(close)}};
+    result.trace.outcome = "day_closed";
     return result;
 }
 

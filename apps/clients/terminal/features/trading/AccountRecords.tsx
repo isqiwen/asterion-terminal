@@ -7,23 +7,98 @@ import {
   CostsState,
   OrderState,
   type Account,
+  type DayClose,
+  type Position,
   type Session,
   type Trade,
 } from "../../src/generated/asterion/trading_pb";
 import { notify, type TerminalContext } from "../contract";
 import { AccountPolicyEditor } from "./AccountPolicyEditor";
 import { ActivityTabs, type Activity } from "./ActivityTabs";
-import { key, offsets, statuses, t, type Run } from "./live-shared";
+import { fundFields, key, offsets, statuses, t, type Run } from "./live-shared";
 
 const working = [OrderState.SUBMITTED, OrderState.ACCEPTED, OrderState.PARTIALLY_FILLED];
 
-// The account's positions, orders, fills, rates and risk policy, one tab at a
-// time. A working order can be cancelled from its row.
-// The fills of the session's trading day as the counter reports them, or of
-// an earlier trading day as the account recorded them.
+// Rows of positions and fills, the same on the page and in an exported day.
+const positionColumns = ["合约", "方向", "今仓", "昨仓"];
+const positionRow = (p: Position) => [
+  p.instrument?.symbol ?? "",
+  p.side === Side.BUY ? t("多头") : t("空头"),
+  decimalText(p.todayLots),
+  decimalText(p.yesterdayLots),
+];
+const fillColumns = ["合约", "方向", "时间", "价格", "手数"];
+const fillRow = (f: Trade) => [
+  f.instrument?.symbol ?? "",
+  `${f.side === Side.BUY ? t("买入") : t("卖出")} / ${t(offsets[f.offset])}`,
+  f.tradeTime,
+  decimalText(f.price),
+  decimalText(f.lots),
+];
+
+function Rows({ label, columns, rows }: { label: string; columns: string[]; rows: string[][] }) {
+  return (
+    <table aria-label={t(label)}>
+      <thead>
+        <tr>
+          {columns.map(column => (
+            <th key={column}>{t(column)}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(row => (
+          <tr key={row.join(" ")}>
+            {row.map((cell, index) => (
+              <td key={index}>{cell}</td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+// A recorded day as CSV: its close, when recorded, then its fills.
+export function dayCsv(tradingDay: string, close: DayClose | undefined, fills: string[][]) {
+  const lines: string[][] = [[t("交易日"), tradingDay]];
+  if (close) {
+    lines.push(
+      [],
+      fundFields.map(([, label]) => t(label)),
+    );
+    lines.push(fundFields.map(([field]) => decimalText(close.funds?.[field])));
+    lines.push(
+      [],
+      positionColumns.map(column => t(column)),
+      ...close.positions.map(positionRow),
+    );
+  }
+  lines.push(
+    [],
+    fillColumns.map(column => t(column)),
+    ...fills,
+  );
+  const cell = (value: string) =>
+    /[",\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+  return lines.map(line => line.map(cell).join(",")).join("\n") + "\n";
+}
+
+function download(name: string, text: string) {
+  // The byte order mark lets spreadsheet programs read the Chinese headers as UTF-8.
+  const url = URL.createObjectURL(new Blob(["\uFEFF" + text], { type: "text/csv" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+// The fills of the session's trading day as the counter reports them, or an
+// earlier trading day as the account recorded it: its close and its fills.
 function Fills({ account, live }: { account: string; live: Session }) {
   const [day, setDay] = useState("");
-  const [recorded, setRecorded] = useState<{ days: string[]; trades: Trade[] }>({
+  const [recorded, setRecorded] = useState<{ days: string[]; trades: Trade[]; close?: DayClose }>({
     days: [],
     trades: [],
   });
@@ -31,12 +106,13 @@ function Fills({ account, live }: { account: string; live: Session }) {
   const today = live.trades.length > 0;
   useEffect(() => {
     let active = true;
-    void tradingRequest(account, { case: "getTrades", value: { tradingDay: day } })
+    void tradingRequest(account, { case: "getDay", value: { tradingDay: day } })
       .then(reply => {
-        if (active && reply.result.case === "getTrades")
+        if (active && reply.result.case === "getDay")
           setRecorded({
             days: reply.result.value.tradingDays,
             trades: reply.result.value.trades,
+            close: reply.result.value.close,
           });
       })
       .catch(failure => active && notify(failure, { namespace: "asterion.terminal.trading" }));
@@ -44,7 +120,8 @@ function Fills({ account, live }: { account: string; live: Session }) {
       active = false;
     };
   }, [account, day, today]);
-  const trades = day ? recorded.trades : live.trades;
+  const fills = (day ? recorded.trades : live.trades).slice().reverse().map(fillRow);
+  const close = day ? recorded.close : undefined;
   const earlier = recorded.days.filter(item => item !== live.tradingDay).reverse();
   return (
     <div className="paper-table" role="region" aria-label={t("CTP 成交")} tabIndex={0}>
@@ -58,38 +135,36 @@ function Fills({ account, live }: { account: string; live: Session }) {
           ))}
         </select>
       )}
-      <table aria-label={t("CTP 成交")}>
-        <thead>
-          <tr>
-            <th>{t("合约")}</th>
-            <th>{t("方向")}</th>
-            <th>{t("时间")}</th>
-            <th>{t("价格")}</th>
-            <th>{t("手数")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {trades
-            .slice()
-            .reverse()
-            .map(f => (
-              <tr key={f.id}>
-                <td>{f.instrument?.symbol}</td>
-                <td>
-                  {f.side === Side.BUY ? t("买入") : t("卖出")} / {t(offsets[f.offset])}
-                </td>
-                <td>{f.tradeTime}</td>
-                <td>{decimalText(f.price)}</td>
-                <td>{decimalText(f.lots)}</td>
-              </tr>
+      {day && (
+        <button onClick={() => download(`${account}-${day}.csv`, dayCsv(day, close, fills))}>
+          {t("导出 CSV")}
+        </button>
+      )}
+      {close && (
+        <>
+          <dl className="paper-metrics">
+            {fundFields.map(([field, label]) => (
+              <div key={field}>
+                <dt>{t(label)}</dt>
+                <dd>{decimalText(close.funds?.[field])}</dd>
+              </div>
             ))}
-        </tbody>
-      </table>
-      {!trades.length && <p className="subtle">{t("暂无成交")}</p>}
+          </dl>
+          <Rows
+            label="收盘持仓"
+            columns={positionColumns}
+            rows={close.positions.map(positionRow)}
+          />
+        </>
+      )}
+      <Rows label="CTP 成交" columns={fillColumns} rows={fills} />
+      {!fills.length && <p className="subtle">{t("暂无成交")}</p>}
     </div>
   );
 }
 
+// The account's positions, orders, fills, rates and risk policy, one tab at a
+// time. A working order can be cancelled from its row.
 export function AccountRecords({
   record,
   busy,
@@ -117,26 +192,7 @@ export function AccountRecords({
       <ActivityTabs value={activity} onChange={setActivity} />
       <div hidden={activity !== "positions"}>
         <div className="paper-table" role="region" aria-label={t("CTP 持仓")} tabIndex={0}>
-          <table aria-label={t("CTP 持仓")}>
-            <thead>
-              <tr>
-                <th>{t("合约")}</th>
-                <th>{t("方向")}</th>
-                <th>{t("今仓")}</th>
-                <th>{t("昨仓")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {live.positions.map(p => (
-                <tr key={`${key(p.instrument)}.${p.side}`}>
-                  <td>{p.instrument?.symbol}</td>
-                  <td>{p.side === Side.BUY ? t("多头") : t("空头")}</td>
-                  <td>{decimalText(p.todayLots)}</td>
-                  <td>{decimalText(p.yesterdayLots)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <Rows label="CTP 持仓" columns={positionColumns} rows={live.positions.map(positionRow)} />
           {!live.positions.length && <p className="subtle">{t("暂无持仓")}</p>}
         </div>
       </div>

@@ -64,7 +64,7 @@ public:
     advance_strategy_target(StrategyAuthorityPtr authority, std::vector<MarketQuote> quotes = {});
     // Detached transport value constructed on the account owner; JSON belongs to Terminal.
     std::future<::trading::Session> snapshot() const;
-    std::future<::trading::Trades> trades(std::string trading_day) const;
+    std::future<::trading::Day> day(std::string trading_day) const;
 
     bool recovery_required() const noexcept;
 

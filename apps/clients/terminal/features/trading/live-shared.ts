@@ -43,6 +43,15 @@ export const offsets: Record<Offset, string> = {
   [Offset.CLOSE_YESTERDAY]: "平昨",
   [Offset.CLOSE]: "平仓",
 };
+// The counter's funds as the page and an exported day show them.
+export const fundFields = [
+  ["balance", "动态权益"],
+  ["available", "可用资金"],
+  ["margin", "占用保证金"],
+  ["positionProfit", "持仓盈亏"],
+  ["closeProfit", "平仓盈亏"],
+  ["commission", "手续费"],
+] as const;
 export const environmentName = (environment: Environment | undefined) =>
   environment === Environment.REAL ? "真实资金" : "CTP 仿真";
 export const key = (item: { exchange: string; symbol: string } | undefined) =>

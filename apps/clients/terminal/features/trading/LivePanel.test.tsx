@@ -70,7 +70,7 @@ beforeEach(() => {
   read = () => live(session);
   vi.mocked(tradingRequest).mockReset();
   vi.mocked(tradingRequest).mockImplementation(async (_account, operation) =>
-    operation?.case === "getStrategies" || operation?.case === "getTrades"
+    operation?.case === "getStrategies" || operation?.case === "getDay"
       ? create(ResponseSchema, { result: { case: operation.case, value: {} } })
       : operation?.case === "getAccount" || operation?.case === "getHealth"
         ? read()
@@ -84,7 +84,7 @@ const commands = () =>
     .mocked(tradingRequest)
     .mock.calls.filter(
       ([, operation]) =>
-        !["getAccount", "getHealth", "getStrategies", "getTrades"].includes(operation.case!),
+        !["getAccount", "getHealth", "getStrategies", "getDay"].includes(operation.case!),
     );
 const button = (name: string) => screen.getByRole("button", { name }) as HTMLButtonElement;
 const show = (namespace: string) =>
@@ -188,7 +188,7 @@ test("the account's broker facts follow each read", async () => {
   expect(commands()).toEqual([]);
 });
 
-test("an earlier trading day shows the fills the account recorded", async () => {
+test("an earlier trading day shows its recorded close and fills and exports them", async () => {
   const recorded = create(TradeSchema, {
     id: "SHFE:     1",
     instrument: { exchange: "SHFE", symbol: "rb2610" },
@@ -201,13 +201,28 @@ test("an earlier trading day shows the fills the account recorded", async () => 
   });
   read = () => live({ ...session, tradingDay: "20260928" });
   vi.mocked(tradingRequest).mockImplementation(async (_account, operation) =>
-    operation?.case === "getTrades"
+    operation?.case === "getDay"
       ? create(ResponseSchema, {
           result: {
-            case: "getTrades",
+            case: "getDay",
             value: {
               tradingDays: ["20260925", "20260928"],
               trades: operation.value.tradingDay === "20260925" ? [recorded] : [],
+              close:
+                operation.value.tradingDay === "20260925"
+                  ? {
+                      tradingDay: "20260925",
+                      funds: { balance: { text: "1000123.5" }, available: { text: "990000" } },
+                      positions: [
+                        {
+                          instrument: { exchange: "SHFE", symbol: "rb2610" },
+                          side: Side.BUY,
+                          todayLots: { text: "1" },
+                          yesterdayLots: { text: "0" },
+                        },
+                      ],
+                    }
+                  : undefined,
             },
           },
         })
@@ -224,4 +239,22 @@ test("an earlier trading day shows the fills the account recorded", async () => 
   fireEvent.change(day, { target: { value: "20260925" } });
   expect(await screen.findByText("20260925 09:30:00")).toBeTruthy();
   expect(screen.queryByText("暂无成交")).toBeNull();
+  expect(screen.getByText("1000123.5")).toBeTruthy();
+  expect(screen.getByRole("table", { name: "收盘持仓" }).textContent).toContain("rb2610");
+  // The export is what the page shows.
+  let exported: Blob | undefined;
+  URL.createObjectURL = vi.fn((blob: Blob) => {
+    exported = blob;
+    return "blob:day";
+  });
+  URL.revokeObjectURL = vi.fn();
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  fireEvent.click(screen.getByRole("button", { name: "导出 CSV" }));
+  expect(click).toHaveBeenCalled();
+  const text = await exported!.text();
+  expect(text).toContain("交易日,20260925");
+  expect(text).toContain("1000123.5,990000");
+  expect(text).toContain("rb2610,多头,1,0");
+  expect(text).toContain("rb2610,买入 / 开仓,20260925 09:30:00,3500,1");
+  click.mockRestore();
 });

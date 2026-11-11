@@ -143,8 +143,14 @@ struct TradesRecorded
     std::vector<::trading::Trade> trades;
 };
 
-using JournalRecord =
-    std::variant<CommandRecord, OrdersTerminal, OrderNotSent, CancelResult, TradesRecorded>;
+// A trading day's funds and positions as last synchronized before the next began.
+struct DayClosed
+{
+    ::trading::DayClose close;
+};
+
+using JournalRecord = std::
+    variant<CommandRecord, OrdersTerminal, OrderNotSent, CancelResult, TradesRecorded, DayClosed>;
 // Any record after the journal header. Throws for content this engine never writes.
 JournalRecord parse_record(const Json& record);
 
@@ -179,6 +185,7 @@ JournalEntry entry(const OrdersTerminal& record);
 JournalEntry entry(const OrderNotSent& record);
 JournalEntry entry(const CancelResult& record);
 JournalEntry entry(const TradesRecorded& record);
+JournalEntry entry(const DayClosed& record);
 
 std::string_view status_name(BrokerOrderStatus status) noexcept;
 

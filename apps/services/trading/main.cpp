@@ -95,7 +95,7 @@ int main(int argc, char** argv)
             std::future<void> action;
             std::future<wire::Session> snapshot;
             std::future<wire::Strategies> strategy;
-            std::future<wire::Trades> trades;
+            std::future<wire::Day> day;
             bool needs_account = false;
             // The Terminal logs the same id when it sends the request.
             std::string trace_id;
@@ -158,10 +158,10 @@ int main(int argc, char** argv)
                         work->needs_account = true;
                         break;
                     }
-                    case wire::Request::kGetTrades:
+                    case wire::Request::kGetDay:
                         if (!work->session)
                             throw std::invalid_argument("the account is not open");
-                        work->trades = work->session->trades(request.get_trades().trading_day());
+                        work->day = work->session->day(request.get_day().trading_day());
                         break;
                     default:
                         if (!work->session)
@@ -198,10 +198,10 @@ int main(int argc, char** argv)
                             return {};
                         result(response, request)->CopyFrom(work->strategy.get());
                     }
-                    if (work->trades.valid()) {
-                        if (work->trades.wait_for(0ms) != std::future_status::ready)
+                    if (work->day.valid()) {
+                        if (work->day.wait_for(0ms) != std::future_status::ready)
                             return {};
-                        result(response, request)->CopyFrom(work->trades.get());
+                        result(response, request)->CopyFrom(work->day.get());
                     }
                     if (work->initialization.valid()) {
                         if (work->initialization.wait_for(0ms) != std::future_status::ready)
@@ -241,7 +241,7 @@ int main(int argc, char** argv)
                     request,
                     response,
                     request.has_get_account() || request.has_get_health()
-                        || request.has_get_strategies() || request.has_get_trades(),
+                        || request.has_get_strategies() || request.has_get_day(),
                     {{"account_id", command.account_id()},
                         {"request_id", command.request_id()},
                         {"order_id", order}});

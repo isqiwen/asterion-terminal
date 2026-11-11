@@ -58,6 +58,30 @@ void put(::common::Instrument* field, const InstrumentId& id)
     return result;
 }
 
+// The broker's funds and positions of its trading day.
+::trading::DayClose close_of(const BrokerSnapshot& state)
+{
+    ::trading::DayClose result;
+    result.set_trading_day(state.trading_day);
+    if (state.funds) {
+        auto* funds = result.mutable_funds();
+        put(funds->mutable_balance(), state.funds->balance);
+        put(funds->mutable_available(), state.funds->available);
+        put(funds->mutable_margin(), state.funds->margin);
+        put(funds->mutable_commission(), state.funds->commission);
+        put(funds->mutable_close_profit(), state.funds->close_profit);
+        put(funds->mutable_position_profit(), state.funds->position_profit);
+    }
+    for (const auto& position : state.positions) {
+        auto* item = result.add_positions();
+        put(item->mutable_instrument(), position.instrument);
+        item->set_side(position.side == Side::buy ? ::common::SIDE_BUY : ::common::SIDE_SELL);
+        put(item->mutable_today_lots(), position.today);
+        put(item->mutable_yesterday_lots(), position.yesterday);
+    }
+    return result;
+}
+
 constexpr auto quote_validity = std::chrono::seconds(10);
 
 std::string text(const Json& value, const char* key)
@@ -183,6 +207,10 @@ LiveAccountState::LiveAccountState(
             if (const auto* recorded = std::get_if<TradesRecorded>(&record)) {
                 for (const auto& trade : recorded->trades)
                     record_trade(trade);
+                return;
+            }
+            if (const auto* closed = std::get_if<DayClosed>(&record)) {
+                closes_[closed->close.trading_day()] = closed->close;
                 return;
             }
             if (const auto* terminal = std::get_if<OrdersTerminal>(&record)) {
@@ -824,21 +852,40 @@ std::vector<::trading::Trade> LiveAccountState::unrecorded() const
     });
 }
 
-::trading::Trades LiveAccountState::trades(const std::string& trading_day) const
+std::optional<::trading::DayClose> LiveAccountState::unclosed() const
 {
-    ::trading::Trades result;
-    for (const auto& [day, trades] : trades_)
+    return observed([&](const BrokerSnapshot& state) -> std::optional<::trading::DayClose> {
+        const auto& day = latest_.trading_day();
+        if (!day.empty() && state.trading_day > day && !closes_.contains(day))
+            return latest_;
+        if (state.funds && state.positions_reconciled && state.trading_day >= day)
+            latest_ = close_of(state);
+        return std::nullopt;
+    });
+}
+
+::trading::Day LiveAccountState::day(const std::string& trading_day) const
+{
+    ::trading::Day result;
+    std::set<std::string> days;
+    for (const auto& [day, _] : trades_)
+        days.insert(day);
+    for (const auto& [day, _] : closes_)
+        days.insert(day);
+    for (const auto& day : days)
         result.add_trading_days(day);
     if (const auto found = trades_.find(trading_day); found != trades_.end())
         for (const auto& trade : found->second)
             *result.add_trades() = trade;
+    if (const auto found = closes_.find(trading_day); found != closes_.end())
+        *result.mutable_close() = found->second;
     return result;
 }
 
 bool LiveAccountState::storage_work_pending() const
 {
     return !failed_
-        && (strategy_cancellation_pending() || !unrecorded().empty()
+        && (strategy_cancellation_pending() || !unrecorded().empty() || unclosed()
             || (!attribution_.day.empty() && !attribution_.complete)
             || std::ranges::any_of(intents_, [](const auto& entry) {
                    return bool(entry.second.terminal);
@@ -881,6 +928,11 @@ AccountCommand LiveAccountState::advance_storage()
             co_await append(entry(recorded));
             for (auto& trade : recorded.trades)
                 record_trade(std::move(trade));
+            co_return;
+        }
+        if (auto close = unclosed()) {
+            co_await append(entry(DayClosed{*close}));
+            closes_[close->trading_day()] = std::move(*close);
             co_return;
         }
         const auto scope = attribution_;
@@ -965,25 +1017,13 @@ bool LiveAccountState::authorized(const BrokerSnapshot& state) const
         result.set_authorized_ms(authorization_->authorized_at_ms);
     result.set_positions_reconciled(state.positions_reconciled);
     result.set_recovery_required(failed_);
-    if (state.funds) {
-        auto* funds = result.mutable_funds();
-        put(funds->mutable_balance(), state.funds->balance);
-        put(funds->mutable_available(), state.funds->available);
-        put(funds->mutable_margin(), state.funds->margin);
-        put(funds->mutable_commission(), state.funds->commission);
-        put(funds->mutable_close_profit(), state.funds->close_profit);
-        put(funds->mutable_position_profit(), state.funds->position_profit);
-    }
+    auto close = close_of(state);
+    if (close.has_funds())
+        *result.mutable_funds() = std::move(*close.mutable_funds());
+    *result.mutable_positions() = std::move(*close.mutable_positions());
     const auto wire_side = [](Side side) {
         return side == Side::buy ? ::common::SIDE_BUY : ::common::SIDE_SELL;
     };
-    for (const auto& position : state.positions) {
-        auto* item = result.add_positions();
-        put(item->mutable_instrument(), position.instrument);
-        item->set_side(wire_side(position.side));
-        put(item->mutable_today_lots(), position.today);
-        put(item->mutable_yesterday_lots(), position.yesterday);
-    }
     for (const auto& order : state.orders) {
         auto* item = result.add_orders();
         item->set_id(order.order_id);

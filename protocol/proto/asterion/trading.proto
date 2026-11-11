@@ -15,7 +15,7 @@ message Request {
     common.Empty disconnect_broker = 14;
     common.Empty query_costs = 15;
     Command send_command = 16;
-    GetTrades get_trades = 17;
+    GetDay get_day = 17;
 
     common.Empty get_strategies = 20;
     strategy.Package publish_strategy = 21;
@@ -37,7 +37,7 @@ message Response {
     Account disconnect_broker = 14;
     Account query_costs = 15;
     Account send_command = 16;
-    Trades get_trades = 17;
+    Day get_day = 17;
 
     Strategies get_strategies = 20;
     Strategies publish_strategy = 21;
@@ -204,16 +204,25 @@ message Trade {
   string trade_time = 9;
 }
 
-// The fills the account recorded on one trading day, oldest first.
-message GetTrades {
+// What the account recorded of one trading day: its fills, oldest first, and its close.
+message GetDay {
   // YYYYMMDD, as the counter labels it.
   string trading_day = 1;
 }
 
-message Trades {
-  // Every trading day with recorded fills, ascending.
+message Day {
+  // Every trading day with a record, ascending.
   repeated string trading_days = 1;
   repeated Trade trades = 2;
+  // Absent until the next trading day began while Trading ran.
+  DayClose close = 3;
+}
+
+// Funds and positions as last synchronized before the next trading day began.
+message DayClose {
+  string trading_day = 1;
+  Funds funds = 2;
+  repeated Position positions = 3;
 }
 
 message UnconfirmedOrder {
