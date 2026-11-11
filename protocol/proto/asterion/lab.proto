@@ -74,6 +74,8 @@ message Health {
 // No contract lists them all.
 message ListStoredContracts {
   string contract = 1;
+  // Empty: the current version.
+  string dataset_version = 2;
 }
 
 message StoredContracts {

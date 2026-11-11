@@ -284,7 +284,7 @@ function DataCoverage({
               onFill={
                 fills
                   ? (product, month) =>
-                      setAcquiring({ exchange: product.split("/")[0]!, ...monthRange(month) })
+                      setAcquiring({ instruments: [product], ...monthRange(month) })
                   : undefined
               }
             />
@@ -299,7 +299,7 @@ function DataCoverage({
               }
             />
           ) : view === "stored" ? (
-            latest && <StoredContracts key={latest} context={context} />
+            latest && <StoredContracts key={viewed || latest} version={viewed} context={context} />
           ) : view === "history" ? (
             <DatasetHistory
               latest={latest}

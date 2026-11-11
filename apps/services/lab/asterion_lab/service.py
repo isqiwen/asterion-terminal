@@ -215,9 +215,9 @@ class Service:
             if indicator:
                 item.macd_diff, item.macd_signal, item.macd_histogram = indicator
 
-    def stored_contracts(self, only=""):
+    def stored_contracts(self, only="", pinned=""):
         warehouse = self.dataset()
-        version = warehouse.current()
+        version = warehouse.version(pinned) if pinned else warehouse.current()
         found = {}
         for contract, first, last, days in warehouse.query(version, """
                 select contract, min(day), max(day), count(distinct day) from daily
@@ -231,7 +231,8 @@ class Service:
         return version, found, names
 
     async def on_list_stored_contracts(self, request, result):
-        version, found, names = await self.read(self.stored_contracts, request.contract)
+        version, found, names = await self.read(self.stored_contracts, request.contract,
+                                                request.dataset_version)
         result.dataset_version = version.identity
         for contract in sorted(found):
             item = result.contracts.add(contract=contract, name=names.get(contract) or "")

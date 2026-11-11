@@ -256,16 +256,19 @@ test("daily bars of one contract ask for it and its price ticks, not its exchang
 const startInDialog = () =>
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "开始采集" }));
 
-test("a coverage gap opens an acquisition of its month", async () => {
+test("a coverage gap opens an acquisition of its product and month only", async () => {
   serveCoverage();
   render(<Coverage {...context()} />);
   fireEvent.click(await screen.findByRole("button", { name: "补采 SHFE/rb 2026-09" }));
+  const dialog = screen.getByRole("dialog");
+  expect((within(dialog).getByLabelText("品种或合约") as HTMLInputElement).checked).toBe(true);
+  expect(within(dialog).getByText("SHFE/rb")).toBeTruthy();
   startInDialog();
   await waitFor(() =>
     expect(submitted()).toMatchObject({
       table: Table.DAILY,
-      exchanges: ["SHFE"],
-      instruments: [],
+      exchanges: [],
+      instruments: ["SHFE/rb"],
       firstDay: "2026-09-01",
       lastDay: "2026-09-30",
     }),

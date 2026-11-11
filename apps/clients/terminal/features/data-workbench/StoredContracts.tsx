@@ -19,14 +19,21 @@ const shownAtOnce = 200;
 
 type Stored = { contract: string; name: string; dailyDays: number; minuteDays: number };
 
-// The contracts the research dataset holds, and the chosen one's history.
-export function StoredContracts({ context }: { context: TerminalContext }) {
+// The contracts a research dataset version holds, and the chosen one's history.
+// An empty version is the current one.
+export function StoredContracts({
+  context,
+  version,
+}: {
+  context: TerminalContext;
+  version: string;
+}) {
   const [selected, setSelected] = useWorkspaceDraft("stored-contracts-selected", "");
   const [search, setSearch] = useWorkspaceDraft("stored-contracts-search", "");
   const [stored, setStored] = useState<{ items: Stored[]; error: DisplayError } | null>(null);
   useEffect(() => {
     let active = true;
-    void lab({ case: "listStoredContracts", value: {} })
+    void lab({ case: "listStoredContracts", value: { datasetVersion: version } })
       .then(reply => {
         // Contracts with minutes first, then by identity.
         const items = reply.contracts
@@ -46,7 +53,7 @@ export function StoredContracts({ context }: { context: TerminalContext }) {
     return () => {
       active = false;
     };
-  }, []);
+  }, [version]);
   const items = stored?.items ?? [];
   const nameFor = (item: Stored) => identityName(item.contract, item.name) || item.contract;
   const matched = items.filter(item =>
@@ -130,6 +137,7 @@ export function StoredContracts({ context }: { context: TerminalContext }) {
                 venue={active.split("/")[0]}
                 symbol={active}
                 historyContractId={active}
+                datasetVersion={version}
                 context={context}
               />
             ) : (

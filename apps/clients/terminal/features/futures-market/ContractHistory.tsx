@@ -38,6 +38,7 @@ export function ContractHistory({
   venue,
   symbol,
   historyContractId,
+  datasetVersion = "",
   context,
   preferLongest = false,
   preferenceKey = preferLongest ? "history-long" : "history-main",
@@ -46,6 +47,8 @@ export function ContractHistory({
   venue: string;
   symbol: string;
   historyContractId?: string;
+  // A fixed research dataset version; empty for the current one.
+  datasetVersion?: string;
   context: TerminalContext;
   preferLongest?: boolean;
   preferenceKey?: string;
@@ -73,11 +76,11 @@ export function ContractHistory({
     endpoint && "host" in endpoint
       ? `${endpoint.host}:${endpoint.port}/${endpoint.fingerprint}`
       : "";
-  const storedKey = JSON.stringify([address, contractId, retry]);
+  const storedKey = JSON.stringify([address, contractId, datasetVersion, retry]);
   useEffect(() => {
     if (!contractId) return;
     let active = true;
-    void lab({ case: "listStoredContracts", value: { contract: contractId } })
+    void lab({ case: "listStoredContracts", value: { contract: contractId, datasetVersion } })
       .then(
         reply => active && setStored({ key: storedKey, contract: reply.contracts[0], error: "" }),
       )
@@ -85,7 +88,7 @@ export function ContractHistory({
     return () => {
       active = false;
     };
-  }, [contractId, storedKey]);
+  }, [contractId, datasetVersion, storedKey]);
   const known = stored?.key === storedKey ? stored : undefined;
   const hasDays = !!known?.contract?.daily?.days;
   const hasMinutes = !!known?.contract?.minutes?.days;
@@ -108,21 +111,21 @@ export function ContractHistory({
   const available = daily ? hasDays : hasMinutes;
   const [showMacd, setShowMacd] = useWorkspaceDraft(`${preferenceKey}.macd`, true);
   const [showAverages, setShowAverages] = useWorkspaceDraft(`${preferenceKey}.averages`, true);
-  const barsKey = JSON.stringify([address, contractId, activePeriod, retry]);
+  const barsKey = JSON.stringify([address, contractId, datasetVersion, activePeriod, retry]);
   const [drawn, setDrawn] = useState<{ key: string; bars?: LabChartBars; error: DisplayError }>();
   useEffect(() => {
     if (!contractId || activePeriod === undefined || !available) return;
     let active = true;
     void lab({
       case: "getChartBars",
-      value: { contract: contractId, period: protocolPeriod(activePeriod) },
+      value: { contract: contractId, period: protocolPeriod(activePeriod), datasetVersion },
     })
       .then(bars => active && setDrawn({ key: barsKey, bars, error: "" }))
       .catch(reason => active && setDrawn({ key: barsKey, error: asDisplayError(reason) }));
     return () => {
       active = false;
     };
-  }, [barsKey, contractId, activePeriod, available]);
+  }, [barsKey, contractId, datasetVersion, activePeriod, available]);
   const current = drawn?.key === barsKey ? drawn : undefined;
   const all = current?.bars?.bars ?? [];
   // The latest page first; paging keeps its place per contract and period.

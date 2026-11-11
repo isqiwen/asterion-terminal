@@ -618,6 +618,10 @@ class Backtests(unittest.TestCase):
             self.assertEqual(len(days), 30)
             self.assertFalse(any(item.HasField("macd_diff") for item in days))
             self.publish_incomplete()
+            pinned = Request(id=1, list_stored_contracts={"dataset_version": listed.dataset_version})
+            self.assertEqual((await service.reply(pinned)).list_stored_contracts, listed)
+            latest = (await service.reply(Request(id=1, list_stored_contracts={}))).list_stored_contracts
+            self.assertNotEqual(latest.dataset_version, listed.dataset_version)
             query.get_chart_bars.dataset_version = original.dataset_version
             self.assertEqual((await service.reply(query)).get_chart_bars, original)
             query.get_chart_bars.dataset_version = "a" * 64
