@@ -2,6 +2,7 @@
 #include "live.hpp"
 #include <asterion/protocol/common.hpp>
 #include <asterion/protocol/market.hpp>
+#include <asterion/system/log.hpp>
 #include <algorithm>
 #include <set>
 
@@ -97,6 +98,15 @@ ctp::FeedEvents Live::poll()
 void Live::apply(const ctp::FeedEvent& event)
 {
     if (const auto* status = std::get_if<ctp::FeedStatus>(&event)) {
+        if (status->phase != phase_ || status->error_code != feed_error_) {
+            if (!status->error_code)
+                log::info("market feed {}", market_phase_name(status->phase));
+            else
+                log::warn(
+                    "market feed {}: CTP {}",
+                    market_phase_name(status->phase),
+                    status->error_code);
+        }
         feed_error_ = status->error_code;
         // Each new login refreshes the catalog; a subscription change keeps the phase.
         if (status->phase == MarketPhase::connected && phase_ != MarketPhase::connected)
