@@ -182,7 +182,7 @@ LiveAccountState::LiveAccountState(
         [&](const JournalRecord& record) {
             if (const auto* recorded = std::get_if<TradesRecorded>(&record)) {
                 for (const auto& trade : recorded->trades)
-                    trades_[trade.trading_day()].push_back(trade);
+                    record_trade(trade);
                 return;
             }
             if (const auto* terminal = std::get_if<OrdersTerminal>(&record)) {
@@ -793,16 +793,29 @@ void LiveAccountState::check_terminal(const TerminalOrder& order, const Intent& 
         throw std::invalid_argument("invalid persisted terminal order evidence");
 }
 
+void LiveAccountState::record_trade(::trading::Trade trade)
+{
+    recorded_ids_[trade.trading_day()].insert(trade.id());
+    trades_[trade.trading_day()].push_back(std::move(trade));
+}
+
 std::vector<::trading::Trade> LiveAccountState::unrecorded() const
 {
     return observed([&](const BrokerSnapshot& state) {
+        const std::pair list{state.connection_generation, state.trading_day};
+        if (list != recorded_list_ || recorded_through_ > state.trades.size()) {
+            recorded_list_ = list;
+            recorded_through_ = 0;
+        }
         std::vector<::trading::Trade> result;
-        for (const auto& trade : state.trades) {
-            const auto day = trades_.find(trade.trading_day);
-            if (day != trades_.end() && std::ranges::any_of(day->second, [&](const auto& known) {
-                    return known.id() == trade.trade_id;
-                }))
+        for (auto i = recorded_through_; i < state.trades.size(); ++i) {
+            const auto& trade = state.trades[i];
+            const auto day = recorded_ids_.find(trade.trading_day);
+            if (day != recorded_ids_.end() && day->second.contains(trade.trade_id)) {
+                if (result.empty())
+                    recorded_through_ = i + 1;
                 continue;
+            }
             result.push_back(wire_trade(trade));
             if (result.size() == TradesRecorded::batch)
                 break;
@@ -867,7 +880,7 @@ AccountCommand LiveAccountState::advance_storage()
         if (TradesRecorded recorded{unrecorded()}; !recorded.trades.empty()) {
             co_await append(entry(recorded));
             for (auto& trade : recorded.trades)
-                trades_[trade.trading_day()].push_back(std::move(trade));
+                record_trade(std::move(trade));
             co_return;
         }
         const auto scope = attribution_;

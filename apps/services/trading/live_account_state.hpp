@@ -12,6 +12,7 @@
 #include <asterion/system/process/file_lock.hpp>
 #include <map>
 #include <optional>
+#include <unordered_set>
 
 namespace asterion::trading {
 
@@ -283,6 +284,12 @@ private:
     std::map<std::string, Intent> intents_;
     // Recorded fills by trading day, oldest first; rebuilt from the journal on start.
     std::map<std::string, std::vector<::trading::Trade>> trades_;
+    std::map<std::string, std::unordered_set<std::string>> recorded_ids_;
+    void record_trade(::trading::Trade trade);
+    // The leading broker fills known recorded. The broker rebuilds its list on
+    // a new connection or trading day, which restarts the check.
+    mutable std::size_t recorded_through_ = 0;
+    mutable std::pair<std::uint64_t, std::string> recorded_list_;
     // Broker fills not yet recorded, at most one batch.
     std::vector<::trading::Trade> unrecorded() const;
     // Lasts across connections and trading days; never restored.

@@ -1851,12 +1851,19 @@ TEST_F(Live, FillsAreRecordedOnceAndRemainReadableAfterRestartAndRollover)
         ready(session);
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
         EXPECT_EQ(session.trades("20260928").trades_size(), 1);
+        // The broker rebuilt its fill list; a fill after it is still recorded.
+        act(session, authorize("authorize.after.reconnect"));
+        act(session, submit("after", "1"));
+        for (int attempt = 0; attempt < 200 && session.trades("20260928").trades_size() < 2;
+            ++attempt)
+            std::this_thread::sleep_for(std::chrono::milliseconds(25));
+        EXPECT_EQ(session.trades("20260928").trades_size(), 2);
     }
     exchange.call<void (*)(const char*)>("asterion_fake_trader_next_day", "20260929");
     LiveSession next_day(directory.path, ASTERION_TEST_CTP_TRADER, owners.path);
     EXPECT_TRUE(ready(next_day).at("trades").empty());
     const auto trades = next_day.trades("20260928");
-    ASSERT_EQ(trades.trades_size(), 1);
+    ASSERT_EQ(trades.trades_size(), 2);
     EXPECT_EQ(trades.trades(0).order_id(), "filled");
     EXPECT_EQ(trades.trading_days_size(), 1);
     EXPECT_EQ(trades.trading_days(0), "20260928");
