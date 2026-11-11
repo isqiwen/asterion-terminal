@@ -1,9 +1,9 @@
 """Backtests: a strategy of the user's repository over the warehouse's daily
-bars, through asterion_engine (core's Replay).
+or minute bars, through asterion_engine (core's Replay).
 
 The data are read this way:
 
-- A contract has a bar on a trading day where it traded in the auction (open,
+- A contract has a daily bar when it traded in the auction (open,
   high and low present) and settled; the bar is labelled 15:00 Shanghai.
 - Its multiplier is the contract table's, times the lot in the unit the
   price is quoted per; most days with turnover must agree with it within 5%.
@@ -11,9 +11,9 @@ The data are read this way:
   its effective intervals must cover each replayed trading day.
 - A product's dominant series (symbol EXCHANGE/product) trades its dominant
   months by the rule of dominant.py; a later month joins a day before its
-  roll, and a month that hands over stays until its bar on or after the roll
-  day and the next one. A strategy reads it adjusted as of each bar (see
-  asterion_strategy.py).
+  roll. Months remain available through the requested range or delisting so
+  paused positions can settle and roll after a new target. A strategy reads
+  the series adjusted as of each bar (see asterion_strategy.py).
 
 Margins and fees are the exchange's settlement parameters of each trading
 day in the pinned dataset; a day without them stops the run. Slippage, order
@@ -21,8 +21,8 @@ limits and the weight budgets are the run's, as the user gives them. Weights
 are sized into lots once, when given. Lots stand and what is left of them is
 placed again at every bar's close, each order at most the order limit. A
 strategy that is not ready places nothing and keeps what it holds; once ready
-again, only the targets it then gives stand. Minute bars must cover every
-trading day a contract settles on in the run.
+again, only the targets it then gives stand. Minute runs require daily settlements
+on open days within the contract's listed life, and minutes unless daily volume is zero.
 
 The service runs each backtest in a child process:
 
@@ -166,6 +166,26 @@ class Data:
         return chart.minute_bars(
             [(day.isoformat(), *values) for day, *values in rows], minutes)
 
+    def contract_days(self, exchange: str, contract: str, begin: str, end: str) -> list:
+        rows = self.warehouse.query(self.version, """
+            select distinct list_date, delist_date from contracts where contract = ?""",
+            ("contracts",), (contract,), exchange=exchange)
+        if len(rows) != 1 or None in rows[0]:
+            raise ValueError(f"the contract table has no unique listed life of {contract}")
+        listed, delisted = rows[0]
+        begin = max(datetime.date.fromisoformat(begin), listed)
+        end = min(datetime.date.fromisoformat(end), delisted)
+        rows = self.warehouse.query(self.version, """
+            select day, open from calendar where exchange = ?
+            and day between ?::date and ?::date order by day""", ("calendar",),
+            (exchange, begin, end), exchange=exchange)
+        days = [(begin + datetime.timedelta(days=n)).isoformat() for n in range((end - begin).days + 1)]
+        calendar = {day.isoformat(): opened for day, opened in rows}
+        missing = [day for day in days if calendar.get(day) is None]
+        if missing:
+            raise ValueError(f"the calendar of {exchange} is incomplete on {spans(missing, days)}")
+        return [day for day in days if calendar[day]]
+
     def price_increments(self, exchange: str, contract: str, days: list) -> dict:
         rows = self.warehouse.query(self.version, """
             select effective_from, effective_until, price_tick from price_ticks
@@ -286,9 +306,18 @@ def spans(missing: list, days: list) -> str:
 def contract_input(data: Data, config: Config, contract: str, begin: str, end: str) -> dict:
     exchange, product, _ = contract.split("/")
     month = data.product(exchange, product).get(contract)
-    if month is None:
-        raise ValueError(f"no daily bars of {contract}")
-    days = month.bars(begin, end)
+    if config.minutes:
+        days = data.contract_days(exchange, contract, begin, end)
+        missing = [day for day in days if month is None or day not in month.days]
+        if missing:
+            raise ValueError(f"daily bars of {contract} are not stored on {spans(missing, days)}")
+        unsettled = [day for day in days if month.days[day]["settlement"] is None]
+        if unsettled:
+            raise ValueError(f"settlement prices of {contract} are missing on {spans(unsettled, days)}")
+    else:
+        if month is None:
+            raise ValueError(f"no daily bars of {contract}")
+        days = month.bars(begin, end)
     if not days:
         raise ValueError(f"no bars of {contract} fall inside the requested trading days")
     interest = lambda value: math.nan if value is None else float(value)
@@ -299,7 +328,7 @@ def contract_input(data: Data, config: Config, contract: str, begin: str, end: s
         minutes = [bar for bar in data.minute_bars(contract, begin, end, config.minutes)
                    if bar["trading_day"] in settled]
         stored = {bar["trading_day"] for bar in minutes}
-        missing = [day for day in days if day not in stored]
+        missing = [day for day in days if day not in stored and month.days[day]["volume"] != 0]
         if missing:
             raise ValueError(f"minutes of {contract} are not stored on {spans(missing, days)}")
         excluded = [bar["trading_day"] for bar in minutes if bar["partial"]]
@@ -367,16 +396,9 @@ def series_input(data: Data, config: Config, exchange: str, product: str):
     contracts, rolls = [], []
     for i, segment in enumerate(plan.segments):
         month = months[segment.month]
-        # A later month joins a day early; one that hands over stays for its
-        # bar on or after the roll day, and the next.
+        # A paused strategy can keep the old month until it gives a new target.
         begin = segment.before if i else segment.begin
-        if i + 1 < len(plan.segments):
-            bars = traded[month.contract]
-            closed = next(n for n, day in enumerate(bars) if day >= plan.segments[i + 1].begin)
-            end = bars[min(closed + 1, len(bars) - 1)]
-        else:
-            end = plan.days[-1]
-        contracts.append(contract_input(data, config, month.contract, begin, end))
+        contracts.append(contract_input(data, config, month.contract, begin, config.end_day))
         contracts[-1]["roll_ratio"] = float(plan.ratios[i])
         rolls.append((segment.begin, i))
     return contracts, rolls
@@ -449,21 +471,15 @@ def replay(engine, strategy, symbols: dict, contracts: list, config: Config,
     symbol; `decided` sees each time's bars and what the strategy asked for."""
     context = Context([symbols[unit] for unit in sorted(symbols)], rolls(contracts))
     units = {symbol: unit for unit, symbol in symbols.items()}
-    paused = False
     for bars in observations(engine, symbols, contracts):
         if not bars:
             continue
         wanted = step(strategy, context, bars)
         decided(bars, wanted)
         if not context.ready:
-            # As in Trading: nothing new is placed and what is held stays.
-            paused = True
-            continue
-        if paused:
-            # Targets from before are void; only what the strategy asks for now stands.
             for unit in symbols:
                 engine.want(unit, None)
-            paused = False
+            continue
         if context.mode == "weights" and wanted:
             # Weights are sized once, when given, at the closes of that time.
             wanted = engine.weights(

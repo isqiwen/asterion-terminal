@@ -178,6 +178,33 @@ TEST(Replay, ATargetAboveTheOrderLimitFillsInLegs)
     EXPECT_EQ(fills[1].execution.quantity, d("1"));
 }
 
+TEST(Replay, WithdrawingATargetCancelsItsPendingLegAndKeepsItsPosition)
+{
+    const auto item = contract("rb2605", {100, 100, 100, 100});
+    Replay replay(d("1000000"), {item}, {settled(item)}, {}, limits("1"));
+    Seen seen;
+    replay.next(seen);
+    replay.want(0, d("3"));
+    replay.decide();
+    replay.settle(seen);
+    replay.next(seen);
+    replay.decide();
+    replay.want(0, std::nullopt);
+    replay.settle(seen);
+    replay.next(seen);
+    const auto& account = replay.execution().account();
+    ASSERT_EQ(account.fills().size(), 1U);
+    EXPECT_EQ(account.fills()[0].execution.quantity, d("1"));
+    ASSERT_EQ(account.positions().size(), 1U);
+    replay.want(0, d("0"));
+    replay.decide();
+    replay.settle(seen);
+    replay.next(seen);
+    replay.settle(seen);
+    EXPECT_EQ(account.fills().size(), 2U);
+    EXPECT_TRUE(account.positions().empty());
+}
+
 TEST(Replay, RiskRejectionsAreReportedAndPlaceNothing)
 {
     const auto item = contract("rb2605", {100, 110, 120, 115});

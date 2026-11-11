@@ -120,12 +120,10 @@ def follow(engine, strategies: list, symbols: dict, contracts: list, followed: l
                 if context.mode == "weights":
                     raise ValueError("rolling validation follows strategies that target lots")
                 if not context.ready:
+                    standing[n].clear()
                     paused.add(n)
                     continue
-                if n in paused:
-                    # As in a backtest: targets from before it was not ready are void.
-                    standing[n] = {}
-                    paused.discard(n)
+                paused.discard(n)
                 for symbol, lots in wanted.items():
                     standing[n][units[symbol]] = lots
             wants(followed[day])

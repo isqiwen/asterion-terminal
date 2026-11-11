@@ -123,7 +123,7 @@ public:
     const std::vector<Bar>& next(Observer& observer, std::stop_token stop = {});
 
     // What the account wants of a unit from now on: lots, positive long and
-    // negative short; none leaves it alone.
+    // negative short; none withdraws its targets and preserves its positions.
     void want(std::size_t unit, std::optional<Decimal> lots);
 
     // Places what is wanted of the units with a bar at the last timestamp,

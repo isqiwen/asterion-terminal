@@ -21,7 +21,7 @@ from asterion.lab_pb2 import AdmittedRun, Request, RunState  # noqa: E402
 
 INVALID = ErrorCode.ERROR_CODE_INVALID_REQUEST
 SUCCEEDED = RunState.RUN_STATE_SUCCEEDED
-from asterion_lab import backtest, chart, repository  # noqa: E402
+from asterion_lab import backtest, chart, repository, rolling  # noqa: E402
 from asterion_strategy import Bar, FIELDS, Strategy, step  # noqa: E402
 from asterion_lab.runs import Runs  # noqa: E402
 from service_fixture import Service  # noqa: E402
@@ -59,6 +59,147 @@ class Chart(unittest.TestCase):
         diff, signal, histogram = values[33]
         self.assertAlmostEqual(histogram, 2 * (diff - signal))
         self.assertGreater(diff, 0)
+
+
+class Readiness(unittest.TestCase):
+    def contract(self, symbol, days, closes, times=None):
+        r = backtest.R
+        times = times or [backtest.close_ns(day) for day in days]
+        bars = [(day, stamp, close * r, (close + 10) * r, (close - 10) * r,
+                 close * r, 1000 * r) for day, stamp, close in zip(days, times, closes)]
+        return dict(venue="SHFE", symbol=symbol, price_increment=r, quantity_increment=r,
+                    multiplier=10 * r, increments=[], slippage_ticks=0, bars=bars,
+                    costs=[dict(effective_from=days[0], source="test",
+                                values=[0, 0, 0, 0, r // 10, 0, 0, 0])],
+                    settlements=list(dict((day, (day, close * r))
+                                          for day, close in zip(days, closes)).values()),
+                    open_interest={stamp: 1000 for stamp in times})
+
+    def engine(self, contracts, series=(), order_lots=10):
+        import asterion_engine
+        r = backtest.R
+        return asterion_engine.Replay(1_000_000 * r, contracts, list(series),
+                                     (order_lots * r, 10 * r, 10))
+
+    def test_not_ready_cancels_another_contracts_pending_target(self):
+        first, second = "SHFE/rb/2026-05", "SHFE/rb/2026-10"
+        day = "2026-01-05"
+        minute = 60 * 10 ** 9
+        start = backtest.close_ns(day) - 180 * minute
+        contracts = [self.contract(first, [day] * 3, [100] * 3,
+                                   [start, start + minute, start + 3 * minute]),
+                     self.contract(second, [day] * 2, [100] * 2, [start, start + 2 * minute])]
+
+        class Once(Strategy):
+            def __init__(self):
+                super().__init__()
+                self.count = 0
+
+            def on_bars(self, ctx, bars):
+                self.count += 1
+                if self.count == 1:
+                    ctx.target(second, 1)
+
+            def ready(self, ctx):
+                return self.count == 1
+
+        for followed in (False, True):
+            with self.subTest(rolling=followed):
+                engine = self.engine(contracts)
+                if followed:
+                    rolling.follow(engine, [Once()], {0: first, 1: second}, contracts, [0])
+                else:
+                    backtest.replay(engine, Once(), {0: first, 1: second}, contracts, None)
+                self.assertEqual(engine.orders(), [])
+
+    def test_not_ready_neither_opens_nor_closes_a_position_at_a_roll(self):
+        days = [day.isoformat() for day in DAYS[:4]]
+
+        class Once(Strategy):
+            def __init__(self):
+                super().__init__()
+                self.count = 0
+
+            def on_bar(self, ctx, bar):
+                self.count += 1
+                if self.count == 1:
+                    ctx.target(bar.symbol, 3)
+
+            def ready(self, ctx):
+                return self.count == 1
+
+        for filled in (False, True):
+            for followed in (False, True):
+                with self.subTest(filled=filled, rolling=followed):
+                    closes = [100] * 4 if filled else [100, 130, 130, 130]
+                    contracts = [self.contract("SHFE/rb/2026-05", days, closes),
+                                 self.contract("SHFE/rb/2026-10", days, [130] * 4)]
+                    contracts[1]["roll_ratio"] = 1.0
+                    engine = self.engine(contracts, [[(days[0], 0), (days[2], 1)]], order_lots=1)
+                    if followed:
+                        rolling.follow(engine, [Once()], {0: "SHFE/rb"}, contracts, [0] * 4)
+                    else:
+                        backtest.replay(engine, Once(), {0: "SHFE/rb"}, contracts, None)
+                    self.assertEqual(len(engine.orders()), 1)
+                    self.assertEqual(len(engine.fills()), int(filled))
+                    held = [(row[1], row[2], row[3]) for row in engine.positions if row[0] == days[-1]]
+                    self.assertEqual(held, [(0, backtest.R, 0)] if filled else [])
+
+    def test_switching_to_an_unready_candidate_discards_the_previous_target(self):
+        symbol = "SHFE/rb/2026-05"
+        days = [day.isoformat() for day in DAYS[:4]]
+        contracts = [self.contract(symbol, days, [100] * 4)]
+
+        class Ready(Strategy):
+            def on_bar(self, ctx, bar):
+                ctx.target(bar.symbol, 3)
+
+            def ready(self, ctx):
+                return True
+
+        class Waiting(Strategy):
+            def on_bar(self, ctx, bar):
+                pass
+
+            def ready(self, ctx):
+                return False
+
+        for followed in ([0, 1, 1, 1], [0, 0, 1, 1]):
+            with self.subTest(followed=followed):
+                engine = self.engine(contracts, order_lots=1)
+                rolling.follow(engine, [Ready(), Waiting()], {0: symbol}, contracts, followed)
+                self.assertEqual(len(engine.fills()), followed.count(0) - 1)
+
+    def test_ready_again_waits_for_a_new_target_and_keeps_partial_fills(self):
+        symbol = "SHFE/rb/2026-05"
+        days = [day.isoformat() for day in DAYS[:8]]
+        contracts = [self.contract(symbol, days, [100] * 8)]
+
+        class Resume(Strategy):
+            def __init__(self):
+                super().__init__()
+                self.count = 0
+
+            def on_bar(self, ctx, bar):
+                self.count += 1
+                if self.count == 1:
+                    ctx.target(bar.symbol, 3)
+                if self.count == 5:
+                    ctx.target(bar.symbol, 2)
+
+            def ready(self, ctx):
+                return self.count != 2
+
+        for followed in (False, True):
+            with self.subTest(rolling=followed):
+                engine = self.engine(contracts, order_lots=1)
+                if followed:
+                    rolling.follow(engine, [Resume()], {0: symbol}, contracts, [0] * 8)
+                else:
+                    backtest.replay(engine, Resume(), {0: symbol}, contracts, None)
+                self.assertEqual([fill[5] for fill in engine.fills()],
+                                 [backtest.close_ns(days[1]), backtest.close_ns(days[5])])
+                self.assertEqual(engine.positions[-1][2], 2 * backtest.R)
 
 
 class Backtests(unittest.TestCase):
@@ -283,7 +424,7 @@ class Backtests(unittest.TestCase):
         self.assertEqual(rolls,
                          [(DAYS[1].isoformat(), 0), (DAYS[16].isoformat(), 1)])
         self.assertEqual(contracts[1]["bars"][0][0], DAYS[15].isoformat())
-        self.assertEqual(contracts[0]["bars"][-1][0], DAYS[17].isoformat())
+        self.assertEqual(contracts[0]["bars"][-1][0], DAYS[-1].isoformat())
 
     def test_later_days_never_change_what_a_series_showed_before(self):
         import asterion_engine
@@ -369,6 +510,104 @@ class Backtests(unittest.TestCase):
         self.assertEqual(row["error"], f"minutes of SHFE/rb/2026-05 are not stored on "
                                        f"{DAYS[1].isoformat()} to {DAYS[-1].isoformat()} (29 days)")
 
+    def test_a_minute_run_requires_calendar_status_for_every_requested_date(self):
+        contract = "SHFE/rb/2026-05"
+        warehouse = Warehouse(self.directory)
+        writer = warehouse.writer()
+        calendar = warehouse.read(writer.base, "calendar/SHFE/2026").to_dicts()
+        for row in calendar:
+            row["day"] = row["day"].isoformat()
+        for day in DAYS:
+            start = int(datetime.datetime.combine(day, datetime.time(9), backtest.BEIJING).timestamp()) * 1000
+            writer.put_rows(f"minutes/SHFE/{day.isoformat()}/rb/2026-05", "minutes", [
+                dict(exchange="SHFE", product="rb", contract=contract, day=day.isoformat(),
+                     start_ms=start, partial=False, open=Decimal(3000), high=Decimal(3005),
+                     low=Decimal(2995), close=Decimal(3000), volume=Decimal(100),
+                     average_price=None, open_interest=Decimal(900))], days=[day.isoformat()])
+        writer.commit()
+        closed = (DAYS[4] + datetime.timedelta(days=1)).isoformat()
+        extended = (DAYS[-1] + datetime.timedelta(days=3)).isoformat()
+        first_missing = (DAYS[-1] + datetime.timedelta(days=1)).isoformat()
+        for damage, end, missing in (("tail", extended, f"{first_missing} to {extended} (3 days)"),
+                                     ("closed", DAYS[-1].isoformat(), closed),
+                                     ("status", DAYS[-1].isoformat(), closed)):
+            with self.subTest(damage=damage):
+                writer = warehouse.writer()
+                rows = [dict(row, open=None) if damage == "status" and row["day"] == closed else row
+                        for row in calendar if damage != "closed" or row["day"] != closed]
+                writer.put_rows("calendar/SHFE/2026", "calendar", rows)
+                writer.commit()
+                with self.assertRaises(ValueError) as failure:
+                    backtest.run(self.directory, damage, self.config(
+                        (contract,), end_day=end, minutes=1))
+                self.assertEqual(str(failure.exception), f"the calendar of SHFE is incomplete on {missing}")
+                row = next(row for row in Runs(self.directory).list() if row["id"] == damage)
+                self.assertEqual(row["state"], "failed")
+
+    def test_a_listed_open_day_cannot_disappear_from_a_minute_run(self):
+        from warehouse_fixture import daily
+
+        contract, missing = "SHFE/rb/2026-05", DAYS[1].isoformat()
+        for damage, message in (("row", "daily bars of {contract} are not stored on {missing}"),
+                                ("settlement", "settlement prices of {contract} are missing on {missing}"),
+                                ("prices", "minutes of {contract} are not stored on {missing}")):
+            with self.subTest(damage=damage):
+                writer = Warehouse(self.directory).writer()
+                rows = [daily("SHFE/rb/2026-10", day, 3000, 1000) for day in DAYS[:3]]
+                for day in DAYS[:3]:
+                    if day == DAYS[1] and damage == "row":
+                        continue
+                    row = daily(contract, day, 3000, 1000, auction=day != DAYS[1] or damage != "prices")
+                    if day == DAYS[1] and damage == "settlement":
+                        row["settlement"] = None
+                    rows.append(row)
+                writer.put_rows("daily/SHFE/2026-01", "daily", rows,
+                                days=[day.isoformat() for day in DAYS[:3]])
+                for day in (DAYS[0], DAYS[2]):
+                    start = int(datetime.datetime.combine(day, datetime.time(9), backtest.BEIJING).timestamp()) * 1000
+                    writer.put_rows(f"minutes/SHFE/{day.isoformat()}/rb/2026-05", "minutes", [
+                        dict(exchange="SHFE", product="rb", contract=contract, day=day.isoformat(),
+                             start_ms=start, partial=False, open=Decimal(3000), high=Decimal(3005),
+                             low=Decimal(2995), close=Decimal(3000), volume=Decimal(100),
+                             average_price=None, open_interest=Decimal(900))], days=[day.isoformat()])
+                writer.commit()
+                with self.assertRaisesRegex(ValueError, message.format(contract=contract, missing=missing)):
+                    backtest.run(self.directory, damage, self.config(
+                        (contract,), end_day=DAYS[2].isoformat(), minutes=1))
+                row = next(row for row in Runs(self.directory).list() if row["id"] == damage)
+                self.assertEqual(row["state"], "failed")
+
+    def test_minute_coverage_respects_listed_life_and_zero_volume_days(self):
+        from warehouse_fixture import contract_row, daily
+
+        contract = "SHFE/rb/2026-05"
+        writer = Warehouse(self.directory).writer()
+        listed = contract_row(contract)
+        listed.update(list_date=DAYS[1].isoformat(), delist_date=DAYS[3].isoformat())
+        writer.put_rows("contracts/SHFE", "contracts", [listed, contract_row("SHFE/rb/2026-10")])
+        rows = [daily("SHFE/rb/2026-10", day, 3000, 1000) for day in DAYS[:5]]
+        for day in DAYS[1:4]:
+            row = daily(contract, day, 3000, 1000, auction=day != DAYS[2])
+            if day == DAYS[2]:
+                row.update(volume=Decimal(0), amount=Decimal(0))
+            rows.append(row)
+        writer.put_rows("daily/SHFE/2026-01", "daily", rows,
+                        days=[day.isoformat() for day in DAYS[:5]])
+        for day in (DAYS[1], DAYS[3]):
+            start = int(datetime.datetime.combine(day, datetime.time(9), backtest.BEIJING).timestamp()) * 1000
+            writer.put_rows(f"minutes/SHFE/{day.isoformat()}/rb/2026-05", "minutes", [
+                dict(exchange="SHFE", product="rb", contract=contract, day=day.isoformat(),
+                     start_ms=start, partial=False, open=Decimal(3000), high=Decimal(3005),
+                     low=Decimal(2995), close=Decimal(3000), volume=Decimal(100),
+                     average_price=None, open_interest=Decimal(900))], days=[day.isoformat()])
+        writer.commit()
+        backtest.run(self.directory, "listed", self.config(
+            (contract,), end_day=DAYS[4].isoformat(), minutes=1))
+        runs = Runs(self.directory)
+        self.assertEqual(runs.list()[0]["state"], "succeeded")
+        self.assertEqual(runs.table("listed", "settlements")["trading_day"].to_list(), DAYS[1:4])
+        self.assertEqual(runs.record("listed")["data"]["excluded"], {"bars": 0, "days": []})
+
     def test_a_strategy_that_is_not_ready_places_no_more_orders(self):
         import asterion_engine
 
@@ -395,6 +634,34 @@ class Backtests(unittest.TestCase):
         # One lot of the first leg; the rest of the target is never placed, and stays void once ready again.
         self.assertEqual([order[4] for order in engine.orders()], [backtest.R])
         self.assertEqual(engine.positions[-1][2], backtest.R)
+
+    def test_a_paused_series_keeps_its_old_month_until_a_new_target_arrives(self):
+        import asterion_engine
+
+        class Pause(Strategy):
+            def on_bar(self, ctx, bar):
+                if bar.time.date() == DAYS[2]:
+                    ctx.target(bar.symbol, 3)
+                if bar.time.date() == DAYS[22]:
+                    ctx.target(bar.symbol, 2)
+
+            def ready(self, ctx):
+                return ctx.time.date() <= DAYS[2] or ctx.time.date() >= DAYS[22]
+
+        config = self.config(("SHFE/rb",), max_order_lots=Decimal(1))
+        contracts, series, first = backtest.prepare(backtest.open_data(self.directory, config), config)
+        engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
+                                        (backtest.R, 10 * backtest.R, 10))
+        backtest.replay(engine, Pause(), {engine.unit(index): symbol for symbol, index in first.items()},
+                        contracts, config)
+        held = [row for row in engine.positions
+                if DAYS[3].isoformat() <= row[0] <= DAYS[22].isoformat()]
+        self.assertEqual([row[0] for row in held], [day.isoformat() for day in DAYS[3:23]])
+        self.assertTrue(all(row[1:4] == (0, backtest.R, 0) for row in held))
+        self.assertEqual([fill[5] for fill in engine.fills()
+                          if fill[5] <= backtest.close_ns(DAYS[22].isoformat())],
+                         [backtest.close_ns(DAYS[3].isoformat())])
+        self.assertEqual(engine.positions[-1][1:4], (1, 2 * backtest.R, 0))
 
     def test_minute_bars_are_read_gathered_and_traded(self):
         # Ten minutes 09:00-09:10 Beijing on each of the first ten days, up

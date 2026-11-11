@@ -131,7 +131,7 @@ const std::vector<Replay::Bar>& Replay::next(Observer& observer, std::stop_token
         const auto member = series_[current.contract];
         const auto* roll = member == none ? nullptr : &rolls_[member].on(bar.trading_day);
         const bool leading = !roll || roll->contract == current.contract;
-        if (roll) {
+        if (roll && target(current.contract)) {
             // A roll moves what the series holds and decides nothing, so it waits
             // for no price: both months trade at the open of a bar, which every
             // bar reaches. On daily bars both happen on the roll day where both
@@ -173,6 +173,10 @@ const std::vector<Replay::Bar>& Replay::next(Observer& observer, std::stop_token
 void Replay::want(std::size_t unit, std::optional<Decimal> lots)
 {
     wanted_.at(unit) = lots;
+    if (!lots)
+        for (std::size_t contract = 0; contract < unit_.size(); ++contract)
+            if (unit_[contract] == unit)
+                pending_[contract].reset();
 }
 
 void Replay::issue(const Bar& bar)

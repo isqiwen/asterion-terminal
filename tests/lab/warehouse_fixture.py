@@ -82,9 +82,11 @@ def warehouse(directory: Path):
         rows.append(daily("SHFE/rb/2026-05", day, close, 1000 if i < 15 else 100))
         rows.append(daily("SHFE/rb/2026-10", day, close + 20, 500 if i < 15 else 2000))
     writer = Warehouse(directory).writer()
+    calendar_days = [FIRST + datetime.timedelta(days=n)
+                     for n in range((DAYS[-1] - FIRST).days + 1)]
     writer.put_rows("calendar/SHFE/2026", "calendar", [
-        dict(exchange="SHFE", day=day.isoformat(), open=True, previous_trading_day=None)
-        for day in DAYS])
+        dict(exchange="SHFE", day=day.isoformat(), open=day in DAYS, previous_trading_day=None)
+        for day in calendar_days])
     writer.put_rows("contracts/SHFE", "contracts",
                     [contract_row("SHFE/rb/2026-05"), contract_row("SHFE/rb/2026-10")])
     writer.put_rows("price_ticks/SHFE", "price_ticks",
