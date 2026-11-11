@@ -2120,6 +2120,31 @@ protected:
         return quote;
     }
 
+    static auto filled(std::size_t count)
+    {
+        return [count](const Json& s) {
+            return s.at("orders").size() == count && s.at("orders").back().at("status") == "filled"
+                && s.at("positions_reconciled") == true;
+        };
+    }
+
+    static auto resting(std::size_t count)
+    {
+        return [count](const Json& s) {
+            return s.at("orders").size() == count
+                && s.at("orders").back().at("status") == "accepted";
+        };
+    }
+
+    static std::string held(const Json& state)
+    {
+        Decimal lots;
+        for (const auto& position : state.at("positions"))
+            lots = lots + Decimal::parse(position.at("today").get<std::string>())
+                + Decimal::parse(position.at("yesterday").get<std::string>());
+        return lots.str();
+    }
+
     template <class Predicate>
     static Json
     progress(LiveSession& session, asterion::trading::StrategyAuthorityPtr owner, Predicate done)
@@ -2305,12 +2330,6 @@ TEST_F(StrategyTarget, APausedInstanceOnlyReducesAndFlatteningClosesItsPosition)
     ASSERT_EQ(ready(session).at("phase"), "ready");
     act(session, authorize());
     auto owner = session.register_strategy().get();
-    const auto filled = [](std::size_t count) {
-        return [count](const Json& s) {
-            return s.at("orders").size() == count && s.at("orders").back().at("status") == "filled"
-                && s.at("positions_reconciled") == true;
-        };
-    };
     session.accept_target(owner, lots(2), {quote()});
     ASSERT_EQ(progress(session, owner, filled(1)).at("orders").size(), 1U);
     session.advance_target(owner).get(); // Retire the settled batch.
@@ -2334,6 +2353,153 @@ TEST_F(StrategyTarget, APausedInstanceOnlyReducesAndFlatteningClosesItsPosition)
                 return e.starts_with("sent ");
             }),
         2);
+}
+
+TEST_F(StrategyTarget, PausingDuringDurableSubmissionStopsTheOpeningButNotLaterReductions)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy().get();
+    session.accept_target(owner, lots(2), {quote()});
+    ASSERT_EQ(progress(session, owner, filled(1)).at("orders").size(), 1U);
+    session.advance_target(owner).get();
+    session.accept_target(owner, lots(4, 2), {quote()});
+    HeldCommit hold;
+    auto sending = session.advance_target(owner);
+    ASSERT_TRUE(hold.waiting());
+    session.pause_strategy(owner, true);
+    hold.release();
+    EXPECT_NO_THROW(sending.get());
+    EXPECT_EQ(session.snapshot().at("orders").size(), 1U)
+        << "paused: the recorded open is not sent";
+    EXPECT_TRUE(session.snapshot().at("unconfirmed").empty());
+    session.accept_target(owner, lots(0, 3), {quote()});
+    const auto state = progress(session, owner, filled(2));
+    ASSERT_EQ(state.at("orders").size(), 2U);
+    EXPECT_EQ(state.at("orders")[1].at("side"), "sell");
+    EXPECT_TRUE(session.strategy_failure(owner).empty());
+}
+
+TEST_F(StrategyTarget, AFailedLegInFlightDoesNotDropTheFlatteningOrTargetThatReplacedIt)
+{
+    for (const bool flatten : {true, false}) {
+        exchange.reset();
+        Directory journal, lock;
+        LiveSession session(journal.path, ASTERION_TEST_CTP_TRADER, lock.path, manifest());
+        ASSERT_EQ(ready(session).at("phase"), "ready");
+        act(session, authorize());
+        auto owner = session.register_strategy().get();
+        session.accept_target(owner, lots(2), {quote()});
+        ASSERT_EQ(progress(session, owner, filled(1)).at("orders").size(), 1U);
+        session.advance_target(owner).get();
+        session.accept_target(owner, lots(4, 2), {quote()});
+        HeldCommit hold;
+        auto adding = session.advance_target(owner);
+        ASSERT_TRUE(hold.waiting());
+        if (flatten)
+            session.flatten_strategy(owner, {quote()});
+        else
+            session.accept_target(owner, lots(0, 3), {quote()});
+        hold.release();
+        EXPECT_NO_THROW(adding.get());
+        const auto state = progress(session, owner, filled(2));
+        ASSERT_EQ(state.at("orders").size(), 2U) << "flatten=" << flatten;
+        EXPECT_EQ(state.at("orders")[1].at("side"), "sell");
+        EXPECT_EQ(decimal(state.at("orders")[1].at("quantity")), "2");
+        EXPECT_TRUE(session.strategy_failure(owner).empty());
+    }
+}
+
+TEST_F(StrategyTarget, TargetsAboveTheOrderLimitAreSentAsSeveralLegs)
+{
+    // Lots are whole, so a 5.5 limit still sends 5-lot legs.
+    for (const char* limit : {"5", "5.5"}) {
+        exchange.reset();
+        Directory journal, lock;
+        auto definition = manifest();
+        definition["policy"]["risk"]["max_order_quantity"] = limit;
+        LiveSession session(journal.path, ASTERION_TEST_CTP_TRADER, lock.path, definition);
+        ASSERT_EQ(ready(session).at("phase"), "ready");
+        act(session, authorize());
+        auto owner = session.register_strategy().get();
+        session.accept_target(owner, lots(6), {quote()});
+        ASSERT_EQ(progress(session, owner, resting(1)).at("orders").size(), 1U) << limit;
+        exchange.call<void (*)(int, int)>("asterion_fake_trader_fill", 0, 5);
+        auto state = progress(session, owner, filled(2));
+        ASSERT_EQ(state.at("orders").size(), 2U) << limit;
+        EXPECT_EQ(held(state), "6");
+        session.advance_target(owner).get(); // Retire the settled batch.
+        session.flatten_strategy(owner, {quote()});
+        ASSERT_EQ(progress(session, owner, resting(3)).at("orders").size(), 3U) << limit;
+        exchange.call<void (*)(int, int)>("asterion_fake_trader_fill", 2, 5);
+        state = progress(session, owner, filled(4));
+        ASSERT_EQ(state.at("orders").size(), 4U) << limit;
+        for (int i : {0, 1, 2, 3}) {
+            EXPECT_EQ(decimal(state.at("orders")[i].at("quantity")), i % 2 ? "1" : "5");
+            EXPECT_EQ(state.at("orders")[i].at("side"), i < 2 ? "buy" : "sell");
+        }
+        EXPECT_EQ(held(state), "0");
+        EXPECT_TRUE(session.strategy_failure(owner).empty());
+    }
+}
+
+TEST_F(StrategyTarget, PausingRevokesAnOpeningQueuedToTheBrokerButNotAReduction)
+{
+    for (const bool opening : {true, false}) {
+        exchange.reset();
+        Directory journal, lock;
+        LiveSession session(journal.path, ASTERION_TEST_CTP_TRADER, lock.path, manifest());
+        ASSERT_EQ(ready(session).at("phase"), "ready");
+        act(session, authorize());
+        act(session, submit("seed", "2"));
+        ASSERT_EQ(held(wait_for(session, filled(1))), "2");
+
+        struct Release
+        {
+            FakeExchange& exchange;
+
+            ~Release()
+            {
+                exchange.call<void (*)(int)>("asterion_fake_trader_hold_quote_return", 0);
+            }
+        } release{exchange};
+
+        // A manual order's broker quote occupies the SDK thread.
+        exchange.call<void (*)(int)>("asterion_fake_trader_hold_quote_return", 1);
+        const auto before = session.snapshot();
+        auto manual = session.execute(
+            before.at("account_id").get<std::string>(),
+            before.at("policy_revision").get<std::string>(),
+            submit("manual", "1"));
+        const auto deadline = std::chrono::steady_clock::now() + 3s;
+        while (!exchange.call<int (*)()>("asterion_fake_trader_quote_return_waiting")
+            && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(10ms);
+        ASSERT_TRUE(exchange.call<int (*)()>("asterion_fake_trader_quote_return_waiting"));
+        auto owner = session.register_strategy().get();
+        session.accept_target(owner, lots(opening ? 4 : 0), {quote()});
+        auto sending = session.advance_target(owner);
+        // Recorded, so its dispatch waits behind the held quote.
+        ASSERT_EQ(
+            wait_for(
+                session,
+                [](const Json& s) {
+                    return !s.at("unconfirmed").empty();
+                })
+                .at("unconfirmed")
+                .size(),
+            1U);
+        session.pause_strategy(owner, true);
+        exchange.call<void (*)(int)>("asterion_fake_trader_hold_quote_return", 0);
+        EXPECT_NO_THROW(sending.get());
+        EXPECT_ANY_THROW(manual.get());
+        const auto state = progress(session, owner, filled(opening ? 1 : 2));
+        EXPECT_TRUE(state.at("unconfirmed").empty());
+        ASSERT_EQ(state.at("orders").size(), opening ? 1U : 2U) << "opening=" << opening;
+        EXPECT_EQ(held(state), opening ? "2" : "0");
+        EXPECT_TRUE(session.strategy_failure(owner).empty());
+    }
 }
 
 TEST_F(StrategyTarget, FlatteningBeforeTheFirstDecisionClosesOnlyFromAFreshQuote)

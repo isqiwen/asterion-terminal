@@ -172,6 +172,7 @@ AccountCommand LiveAccountState::advance_strategy_target(
 {
     if (!strategy_ || strategy_->authority != authority)
         throw Error(ErrorCode::conflict, "strategy execution owner no longer matches");
+    std::string sent;
     try {
         if (!strategy_->batch)
             co_return;
@@ -242,7 +243,14 @@ AccountCommand LiveAccountState::advance_strategy_target(
         }
         if (plan.orders.empty())
             co_return;
-        const auto& leg = plan.orders.front();
+        // Above the order limit, the move goes out in whole-lot legs replanned after each fill.
+        auto leg = plan.orders.front();
+        leg.quantity = std::min(
+            leg.quantity,
+            quantize(
+                policy_->definition.limits.max_order_quantity,
+                allowed(leg.instrument).quantity_increment,
+                Rounding::floor));
         const auto quote = std::ranges::find_if(batch.quotes, [&](const auto& q) {
             return q.instrument == leg.instrument;
         });
@@ -281,11 +289,11 @@ AccountCommand LiveAccountState::advance_strategy_target(
                 batch.targets[index].quantity
             };
         }
-        const auto id = unique_process_id();
+        sent = unique_process_id();
         const auto request = AccountRequest::strategy_order(
-            {{id, leg.instrument, leg.side, leg.quantity, *price}, leg.offset},
+            {{sent, leg.instrument, leg.side, leg.quantity, *price}, leg.offset},
             origin);
-        batch.last_order = id;
+        batch.last_order = sent;
         // Not std::format: macOS 13.0 libc++ lacks the to_chars it instantiates.
         strategy_->events.push_back(
             "sent " + leg.instrument.venue + "/" + leg.instrument.symbol
@@ -302,7 +310,9 @@ AccountCommand LiveAccountState::advance_strategy_target(
     } catch (const std::exception& error) {
         if (!strategy_ || strategy_->authority != authority || !strategy_->failure.empty())
             throw;
-        abandon_strategy_batch(error.what());
+        // A replacement batch must survive the old leg's asynchronous failure.
+        if (sent.empty() || (strategy_->batch && strategy_->batch->last_order == sent))
+            abandon_strategy_batch(error.what());
     }
 }
 
@@ -334,6 +344,11 @@ void LiveAccountState::pause_strategy(const StrategyAuthorityPtr& authority, boo
     if (!strategy_ || strategy_->authority != authority)
         throw Error(ErrorCode::conflict, "strategy execution owner no longer matches");
     strategy_->paused = paused;
+    // An opening leg already queued to the SDK would otherwise still use its permit.
+    if (paused && strategy_->batch)
+        if (const auto leg = intents_.find(strategy_->batch->last_order);
+            leg != intents_.end() && leg->second.offset == Offset::open && !leg->second.terminal)
+            send_gate_.invalidate();
 }
 
 void LiveAccountState::flatten_strategy(

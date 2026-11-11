@@ -559,10 +559,11 @@ AccountCommand LiveAccountState::submit(
     std::optional<StrategyOrderBasis> strategy)
 {
     const auto check_source = [&] {
-        if (strategy)
-            check_strategy(*strategy);
-        else
-            require_manual_order();
+        if (!strategy)
+            return require_manual_order();
+        check_strategy(*strategy);
+        if (submission.offset == Offset::open && strategy_->paused)
+            throw Error(ErrorCode::conflict, "strategy is paused; the opening order was not sent");
     };
     check_source();
     const auto& order = submission.order;
