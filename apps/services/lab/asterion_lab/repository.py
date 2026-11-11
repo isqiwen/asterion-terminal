@@ -13,9 +13,11 @@ a slow or broken module never holds up the service and every listing sees the
 files as they are now. The child runs `main` in the repository and writes a
 `Strategies` message (asterion/lab.proto) to standard output.
 """
+import ast
 from dataclasses import dataclass
 import hashlib
 import importlib
+import importlib.util
 import inspect
 import os
 from pathlib import Path
@@ -30,6 +32,9 @@ from asterion.lab_pb2 import Source, Strategies
 from asterion_strategy import FIELDS, KINDS, Strategy
 
 LISTING_SECONDS = 30
+# What a strategy may import from outside its directory: what Trading's runtime
+# provides. A factor runs only in Lab, which may import what Lab has.
+RUNTIME_MODULES = frozenset(sys.stdlib_module_names) | {"numpy", "asterion_strategy"}
 SNAPSHOT_BYTES = 16 * 1024 * 1024
 
 
@@ -66,16 +71,6 @@ def commit_of(root: Path) -> str:
         return ""
 
 
-def python_files(root: Path) -> list:
-    """The directory's Python files, Git's ignored ones left out."""
-    if commit_of(root):
-        names = [os.fsdecode(name) for name in git(
-            root, "ls-files", "-co", "--exclude-standard", "-z", "--", "*.py").split(b"\0") if name]
-    else:
-        names = [path.relative_to(root).as_posix() for path in root.rglob("*.py")]
-    return sorted(name for name in names if (root / name).is_file())
-
-
 def revision(root: Path) -> Revision:
     commit = commit_of(root)
     if not commit:
@@ -92,14 +87,69 @@ def revision(root: Path) -> Revision:
     return Revision(commit, digest.hexdigest())
 
 
-def snapshot(root: Path, destination: Path) -> Revision:
-    """Copies the repository's Python files to `destination` for an admitted
-    run, which then never reads the repository itself."""
+def local(root: Path, name: str):
+    """The directory's file of module `name`, "" for a directory without one
+    (a namespace package), or None when the directory has neither."""
+    path = "/".join(name.split("."))
+    for candidate in (f"{path}.py", f"{path}/__init__.py"):
+        if (root / candidate).is_file():
+            return candidate
+    return "" if (root / path).is_dir() else None
+
+
+def trading_provides(name: str) -> bool:
+    return name in RUNTIME_MODULES
+
+
+def lab_provides(name: str) -> bool:
+    return importlib.util.find_spec(name) is not None
+
+
+def closure(root: Path, entry: str, provided=trading_provides) -> list:
+    """`entry` and every module of the directory it imports, directly or not,
+    with the packages holding them. Modules are read, never imported. An import
+    neither in the directory nor `provided` (by top-level name) fails by name."""
+    files, pending = set(), [entry]
+    while pending:
+        path = pending.pop()
+        if path in files:
+            continue
+        files.add(path)
+        folders = path.split("/")[:-1]
+        package = ".".join(folders)
+        for depth in range(1, len(folders) + 1):
+            if found := local(root, ".".join(folders[:depth])):
+                pending.append(found)
+        for node in ast.walk(ast.parse((root / path).read_bytes(), filename=path)):
+            if isinstance(node, ast.Import):
+                required, optional = [alias.name for alias in node.names], []
+            elif isinstance(node, ast.ImportFrom):
+                anchor = package.split(".")[:len(folders) - node.level + 1] if node.level else []
+                base = ".".join([*anchor, *([node.module] if node.module else [])])
+                # `from a import b` names a module b or a value b of module a.
+                required = [base] if base else []
+                optional = [f"{base}.{alias.name}" if base else alias.name for alias in node.names]
+            else:
+                continue
+            for name in required:
+                found = local(root, name)
+                if found is None and not provided(name.split(".")[0]):
+                    raise ValueError(f"{path} imports {name}, which is neither in the strategy "
+                                     "directory nor in the runtime")
+                if found:
+                    pending.append(found)
+            pending.extend(found for found in map(lambda name: local(root, name), optional) if found)
+    return sorted(files)
+
+
+def snapshot(root: Path, destination: Path, entry: str, provided=trading_provides) -> Revision:
+    """Copies `entry` and the modules it needs (closure) to `destination` for
+    an admitted run, which then never reads the repository itself."""
     root = checked(root)
     taken = revision(root)
-    files = python_files(root)
+    files = closure(root, entry, provided)
     if sum((root / name).stat().st_size for name in files) > SNAPSHOT_BYTES:
-        raise ValueError(f"the repository's Python files exceed {SNAPSHOT_BYTES >> 20} MiB")
+        raise ValueError(f"the strategy's Python files exceed {SNAPSHOT_BYTES >> 20} MiB")
     destination.mkdir(parents=True, exist_ok=True)
     for name in files:
         (destination / name).parent.mkdir(parents=True, exist_ok=True)

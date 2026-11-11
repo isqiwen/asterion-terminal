@@ -87,7 +87,8 @@ class Backtests(unittest.TestCase):
         if "source" not in values:
             # As the service does at admission: runs import this copy, never the repository.
             source = Path(tempfile.mkdtemp(dir=self.directory))
-            taken = repository.snapshot(self.repository, source)
+            taken = repository.snapshot(self.repository, source,
+                                        f"strategies/{values['strategy'].split('.')[0]}.py")
             values.update(source=str(source), commit=taken.commit, changes=taken.changes)
         return backtest.Config(**values)
 

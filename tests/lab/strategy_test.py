@@ -172,16 +172,34 @@ class Repository(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
-    def test_a_package_is_the_directorys_python_code_without_importing_it(self):
+    def test_a_package_holds_the_strategy_and_what_it_imports_without_importing_it(self):
         from asterion_lab.package import build
         from asterion.lab_pb2 import BuildPackage as Build
+        # A large module the strategy does not use is left out of its package and its run.
+        (self.root / "strategies/huge.py").write_text("x = 1\n" * (3 << 20))
         package = build(Build(repository=str(self.root), strategy="ma_cross.MaCross"))
         self.assertEqual(package.manifest.entry, "strategies.ma_cross:MaCross")
-        self.assertEqual([file.path for file in package.files], repository.python_files(self.root))
-        self.assertIn("strategies/broken.py", package.manifest.files)  # never imported
-        self.assertIn("helpers.py", package.manifest.files)
+        self.assertEqual([file.path for file in package.files],
+                         ["strategies/_rules.py", "strategies/ma_cross.py"])
+        self.assertEqual(list(package.manifest.files), ["strategies/_rules.py", "strategies/ma_cross.py"])
+        copy = Path(self.temporary.name) / "copy"
+        repository.snapshot(self.root, copy, "strategies/ma_cross.py")
+        self.assertEqual(sorted(path.relative_to(copy).as_posix() for path in copy.rglob("*.py")),
+                         ["strategies/_rules.py", "strategies/ma_cross.py"])
+        noisy = build(Build(repository=str(self.root), strategy="noisy.Noisy"))
+        self.assertEqual([file.path for file in noisy.files], ["helpers.py", "strategies/noisy.py"])
+        (self.root / "helpers.py").unlink()
+        with self.assertRaisesRegex(ValueError, "strategies/noisy.py imports helpers, which is "
+                                                "neither in the strategy directory"):
+            build(Build(repository=str(self.root), strategy="noisy.Noisy"))
         with self.assertRaisesRegex(ValueError, "no strategy"):
             build(Build(repository=str(self.root), strategy="missing.Missing"))
+        # A factor runs in Lab: it may import what Lab has and Trading does not.
+        (self.root / "factors/frames.py").write_text("import polars\n")
+        with self.assertRaisesRegex(ValueError, "imports polars"):
+            repository.closure(self.root, "factors/frames.py")
+        self.assertEqual(repository.closure(self.root, "factors/frames.py", repository.lab_provides),
+                         ["factors/frames.py"])
 
     def test_listing(self):
         listed = repository.list_strategies(str(self.root))
@@ -273,7 +291,6 @@ class Repository(unittest.TestCase):
         self.assertEqual(repository.revision(research).changes, "")
         (research / "strategies/ma_cross.py").write_text("x = 2\n")
         self.assertNotEqual(repository.revision(research).changes, "")
-        self.assertNotIn("elsewhere.py", repository.python_files(research))
 
     def test_service(self):
         class Log:
