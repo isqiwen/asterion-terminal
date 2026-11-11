@@ -5,8 +5,12 @@
 
 namespace asterion::trading {
 
-// One instance's fresh observation window. A later provider observation seals a
-// period; silence never manufactures bars or proves that a session has closed.
+// One instance's fresh observation window. A period is delivered once every
+// contract has an observation after it, or once any contract's observation is
+// past its end by the freshness limit, when no quote of it can still arrive.
+// A contract silent in a period, closed or halted, is absent from it: silence
+// never manufactures bars, and a quote of a period already delivered goes to
+// that contract's next bar.
 class StrategyBars
 {
 public:
@@ -15,6 +19,8 @@ public:
     std::vector<::strategy::Bars> observe(const MarketQuote&);
 
 private:
+    std::vector<::strategy::Bars> deliver();
+
     struct Current
     {
         ::strategy::Bar bar;
@@ -28,6 +34,8 @@ private:
     std::vector<std::string> contracts_;
     std::map<std::string, Current> current_;
     std::map<std::int64_t, std::map<std::string, ::strategy::Bar>> pending_;
+    // The latest observation of any contract, and the last period delivered.
+    std::int64_t now_ = 0, delivered_ = -1;
     std::uint64_t sequence_ = 0;
 };
 

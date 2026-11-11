@@ -188,3 +188,44 @@ TEST(StrategyBars, OneMinuteBarsAreTheMinutesMarketRecords)
         EXPECT_EQ(bar.volume(), minute.volume);
     }
 }
+
+TEST(StrategyBars, AHaltedContractNeitherBlocksNorRepeatsTheOthers)
+{
+    StrategyBars bars(configuration(::common::PERIOD_MINUTES_1, true), start);
+    std::vector<wire::Bars> steps;
+    const auto observe = [&](std::int64_t time, int volume, const char* symbol) {
+        for (auto& step : bars.observe(tick(time, volume, "100", "20260928", symbol)))
+            steps.push_back(std::move(step));
+    };
+    for (const auto* symbol : {"rb2610", "cu2610"}) {
+        observe(start + 1000, 10, symbol);
+        observe(start + 60000, 11, symbol);
+    }
+    // cu halts. rb's next minute alone delivers nothing until no cu quote of it can arrive.
+    observe(start + 120000, 12, "rb2610");
+    EXPECT_TRUE(steps.empty());
+    observe(start + 130000, 13, "rb2610");
+    ASSERT_EQ(steps.size(), 1);
+    EXPECT_EQ(steps[0].bars_size(), 2);
+    // rb goes on alone for longer than the old backlog allowed.
+    for (int minute = 3; minute < 300; ++minute)
+        observe(start + minute * 60000, 13 + minute, "rb2610");
+    // cu resumes: its quote of a minute already delivered is not delivered again.
+    observe(start + 125000, 15, "cu2610");
+    observe(start + 299 * 60000 + 1000, 16, "cu2610");
+    observe(start + 300 * 60000, 400, "rb2610");
+    observe(start + 300 * 60000, 17, "cu2610");
+    ASSERT_EQ(steps.size(), 299);
+    std::int64_t previous = 0;
+    for (std::size_t n = 0; n < steps.size(); ++n) {
+        EXPECT_EQ(steps[n].sequence(), n + 1);
+        // One time per step, each once, as a backtest groups bars by time.
+        for (const auto& bar : steps[n].bars())
+            EXPECT_EQ(bar.end_ms(), steps[n].bars(0).end_ms());
+        EXPECT_GT(steps[n].bars(0).end_ms(), previous);
+        previous = steps[n].bars(0).end_ms();
+        EXPECT_EQ(steps[n].bars_size(), n == 0 || n + 1 == steps.size() ? 2 : 1);
+    }
+    // The late quote's volume goes to cu's next bar.
+    EXPECT_EQ(steps.back().bars(1).volume(), 5);
+}
