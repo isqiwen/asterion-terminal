@@ -46,6 +46,43 @@ test("status refreshes preserve a pending comparison of the same two runs", asyn
   expect(screen.getByRole("columnheader", { name: "second" })).not.toBeNull();
 });
 
+test.each(["result", "error"])(
+  "changing the comparison selection clears the previous %s",
+  async previous => {
+    let release!: () => void;
+    const pending = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const request = vi.mocked(lab);
+    request.mockReset();
+    request.mockImplementation(async operation => {
+      if (operation?.case !== "getRun") throw new Error("expected run read");
+      const id = operation.value.id;
+      if (id === "third" || id === "fourth") await pending;
+      else if (previous === "error") throw new Error("previous comparison failed");
+      return create(RunDetailSchema, {
+        summary: { id },
+        record: JSON.stringify({ costs: { deposit: "1000000" } }),
+      }) as never;
+    });
+    const view = render(<RunComparison ids={["first", "second"]} />);
+    if (previous === "error") await screen.findByText("previous comparison failed");
+    else await screen.findByRole("columnheader", { name: "first" });
+
+    view.rerender(<RunComparison ids={["third", "fourth"]} />);
+    expect(screen.getByText("正在读取结果…")).not.toBeNull();
+    expect(screen.queryByText("previous comparison failed")).toBeNull();
+    expect(screen.queryByRole("columnheader", { name: "first" })).toBeNull();
+    expect(screen.queryByRole("columnheader", { name: "second" })).toBeNull();
+    await act(async () => {
+      release();
+      await pending;
+    });
+    expect(screen.getByRole("columnheader", { name: "third" })).not.toBeNull();
+    expect(screen.getByRole("columnheader", { name: "fourth" })).not.toBeNull();
+  },
+);
+
 test.each([
   { period: Period.DAY, datasetVersion: "a".repeat(64) },
   { period: Period.MINUTES_5, datasetVersion: "a".repeat(64) },

@@ -70,8 +70,9 @@ class Runs:
     def __init__(self, directory: Path):
         self.root = directory / "runs"
         self.root.mkdir(parents=True, exist_ok=True)
+        # Shared cached statements can lose rows during concurrent reads (CPython #118172).
         self.index = sqlite3.connect(directory / "runs.sqlite", check_same_thread=False,
-                                     isolation_level=None)
+                                     isolation_level=None, cached_statements=0)
         self.index.executescript("""
             pragma journal_mode = wal;
             pragma synchronous = full;

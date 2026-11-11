@@ -6,6 +6,7 @@ python3 -I -B backtest_test.py <source> <generated-python> <engine-directory>
 import asyncio
 import datetime
 from decimal import Decimal
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -954,6 +955,33 @@ class Backtests(unittest.TestCase):
             self.assertEqual(Decimal(detail.days[-1].equity.text), Decimal(detail.equity[-1].equity.text))
             run.id, run.repository = "elsewhere", str(Path(self.temporary.name) / "missing")
             self.assertEqual((await service.reply(request)).error.code, INVALID)
+
+        asyncio.run(scenario())
+
+    def test_completed_runs_can_be_read_concurrently_for_comparison(self):
+        class Log:
+            def write(self, *args, **kwargs):
+                pass
+
+        for identity, fast in (("first", 2), ("second", 3)):
+            backtest.run(self.directory, identity, self.config(
+                ("SHFE/rb/2026-05",), params={"fast": fast, "slow": 4}))
+
+        async def scenario():
+            service = Service("lab", self.directory, Log())
+            identities = ("first", "second")
+            try:
+                for _ in range(1000):
+                    replies = await asyncio.gather(*(service.reply(
+                        Request(id=n + 1, get_run={"id": identity}))
+                        for n, identity in enumerate(identities)))
+                    for identity, reply in zip(identities, replies):
+                        self.assertEqual(reply.WhichOneof("result"), "get_run", reply.error)
+                        self.assertEqual(reply.get_run.summary.id, identity)
+                        self.assertEqual(json.loads(reply.get_run.record)["id"], identity)
+            finally:
+                service.reads.shutdown()
+                service.runs.index.close()
 
         asyncio.run(scenario())
 

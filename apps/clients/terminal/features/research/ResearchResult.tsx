@@ -405,7 +405,11 @@ function RunDetails({
 }
 
 // Two runs side by side: their figures, and their equity on the days both have.
-export function RunComparison({ ids: [firstId, secondId] }: { ids: readonly [string, string] }) {
+export function RunComparison({ ids }: { ids: readonly [string, string] }) {
+  return <Comparison key={ids.join(":")} ids={ids} />;
+}
+
+function Comparison({ ids: [firstId, secondId] }: { ids: readonly [string, string] }) {
   const [details, setDetails] = useState<LabRunDetail[]>([]);
   const [error, setError] = useState<DisplayError>("");
   useEffect(() => {
