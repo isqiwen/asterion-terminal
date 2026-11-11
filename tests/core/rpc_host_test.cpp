@@ -253,14 +253,23 @@ TEST(RpcHost, PendingRepliesLeaveReadAndControlConnectionsAvailable)
     control.send(std::string(30, 'x'), 1s);
     EXPECT_EQ(control.receive(1s), "24");
     auto excess = ipc::Channel::connect(endpoint, 1s);
-    excess.send(std::string(33, 'x'), 1s);
-    EXPECT_THROW(excess.receive(1s), Error);
+    // Rejection after the header can reach either send or receive.
+    EXPECT_THROW(
+        {
+            excess.send(std::string(33, 'x'), 1s);
+            excess.receive(1s);
+        },
+        Error);
     auto private_client = ipc::Channel::connect(endpoint + ".workers", 1s);
     private_client.send(std::string(32, 'x'), 1s);
     ASSERT_EQ(accepted.wait_for(1s), std::future_status::ready);
     auto oversized = ipc::Channel::connect(endpoint + ".health", 1s);
-    oversized.send(std::string(32, 'x'), 1s);
-    EXPECT_THROW(oversized.receive(1s), Error);
+    EXPECT_THROW(
+        {
+            oversized.send(std::string(32, 'x'), 1s);
+            oversized.receive(1s);
+        },
+        Error);
     auto health = ipc::Channel::connect(endpoint + ".health", 1s);
     health.send("read", 1s);
     EXPECT_EQ(health.receive(1s), std::to_string(static_cast<int>(Host::Stage::running)));
