@@ -324,13 +324,6 @@
     "runs runs runs";
   height: 100%;
 }
-.lab-research.lab-factors {
-  grid-template-rows: auto auto minmax(0, 1fr);
-  grid-template-areas:
-    "header header header"
-    "notice notice notice"
-    "modules center config";
-}
 .lab-research.lab-empty {
   display: grid;
   align-content: start;
@@ -454,7 +447,8 @@ button.lab-link.strong {
   font-size: 12px;
 }
 .lab-module-error pre,
-.lab-details pre {
+.lab-details pre,
+.lab-code {
   white-space: pre-wrap;
   font-size: 11px;
   color: var(--muted);

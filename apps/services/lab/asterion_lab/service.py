@@ -14,12 +14,13 @@ from pathlib import Path
 import tempfile
 
 from asterion.common_pb2 import ErrorCode, Period, Side, Offset
-from asterion.lab_pb2 import (AdmittedFactor, AdmittedRun, Adjustment, NightSession, Request,
-                              Response, RollingRun, RunState)
+from asterion.lab_pb2 import (AdmittedFactor, AdmittedRun, Adjustment, FactorResult, NightSession,
+                              Request, Response, RollingRun, RunState)
 
 from asterion_lab import backtest, chart, dominant, repository, package
 from asterion_lab.runs import IDENTITY, Runs
 from asterion_lab.sessions import Sessions, holiday_between
+from asterion_lab.warehouse import write_durably
 from asterion_lab.warehouse_client import Client, Dataset, WarehouseError
 
 MODULE = "lab-service"
@@ -165,8 +166,49 @@ class Service:
         return version.identity
 
     def pin_factor(self, request):
-        return AdmittedFactor(evaluation=request,
-                              dataset_version=self.data_version("", ("daily",)))
+        """The evaluation with the research dataset version it reads and its own
+        copy of the repository's code."""
+        if not IDENTITY.fullmatch(request.id) or self.factor_path(request.id).exists():
+            raise ValueError("factor result id is invalid or already used")
+        admitted = AdmittedFactor(evaluation=request)
+        admitted.pinned.dataset_version = self.data_version("", ("daily",))
+        admitted.source, revision = self.copy_source(request.repository, f"factor-{request.id}")
+        admitted.pinned.commit, admitted.pinned.changes = revision.commit, revision.changes
+        return admitted
+
+    def factor_path(self, identity):
+        return self.directory / "factors" / f"{identity}.binpb"
+
+    def save_factor(self, admitted, result):
+        module = admitted.evaluation.factor.partition(".")[0]
+        result.id = admitted.evaluation.id
+        result.evaluation.CopyFrom(admitted.evaluation)
+        result.code = (Path(admitted.source) / "factors" / f"{module}.py").read_text()
+        result.evaluated_ms = int(datetime.datetime.now().timestamp() * 1000)
+        write_durably(self.factor_path(result.id), result.SerializeToString())
+
+    def factor_results(self):
+        results = []
+        for path in (self.directory / "factors").glob("*.binpb"):
+            result = FactorResult()
+            result.ParseFromString(path.read_bytes())
+            del result.days[:], result.groups[:]
+            results.append(result)
+        return sorted(results, key=lambda item: item.evaluated_ms, reverse=True)
+
+    def factor_result(self, identity):
+        path = self.factor_path(identity)
+        if not IDENTITY.fullmatch(identity) or not path.exists():
+            raise ValueError(f"no factor result {identity}")
+        result = FactorResult()
+        result.ParseFromString(path.read_bytes())
+        return result
+
+    async def on_list_factor_results(self, _, result):
+        result.results.extend(await self.read(self.factor_results))
+
+    async def on_get_factor_result(self, request, result):
+        result.CopyFrom(await self.read(self.factor_result, request.id))
 
     def pin_backtest(self, request, version=""):
         """The run with the research dataset version it reads."""
@@ -333,19 +375,16 @@ class Service:
         repository.delete_source(Path(request.repository), request.path)
 
     async def on_evaluate_factor(self, request, result):
-        """Evaluates a factor in a child process and replies with its result,
-        within the time the Terminal waits for a reply."""
-        root = Path(request.repository)
-        if not root.is_absolute() or not root.is_dir():
-            raise ValueError(f"strategy repository is not a directory: {root}")
-        request = await self.read(self.pin_factor, request)
+        """Evaluates a factor in a child process, keeps its result and replies
+        with it, within the time the Terminal waits for a reply."""
+        admitted = await self.read(self.pin_factor, request)
         process = await asyncio.create_subprocess_exec(
-            *repository.child("asterion_lab.factor"), str(self.directory), cwd=root,
+            *repository.child("asterion_lab.factor"), str(self.directory), cwd=admitted.source,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE)
         try:
             output, error = await asyncio.wait_for(
-                process.communicate(request.SerializeToString()), FACTOR_SECONDS)
+                process.communicate(admitted.SerializeToString()), FACTOR_SECONDS)
         except TimeoutError:
             process.kill()
             await process.wait()
@@ -355,6 +394,7 @@ class Service:
             lines = error.decode(errors="replace").strip().splitlines()
             raise ValueError(lines[-1] if lines else f"the factor exited with {process.returncode}")
         result.ParseFromString(output)
+        await self.read(self.save_factor, admitted, result)
 
     async def on_get_run_report(self, request, reply):
         """QuantStats figures of a finished run, computed in a child process."""
@@ -391,12 +431,15 @@ class Service:
             raise ValueError(f"strategy repository is not a directory: {root}")
         await asyncio.to_thread(lambda: repository.revision(repository.checked(root)))
 
-    def with_source(self, admitted, name):
-        """The run with the repository's code copied for it alone."""
+    def copy_source(self, root, name):
+        """A copy of the repository's code for one admission alone, and its revision."""
         (self.directory / "sources").mkdir(exist_ok=True)
         destination = Path(tempfile.mkdtemp(prefix=f"{name}-", dir=self.directory / "sources"))
-        taken = repository.snapshot(Path(admitted.backtest.repository), destination)
-        admitted.source = str(destination)
+        return str(destination), repository.snapshot(Path(root), destination)
+
+    def with_source(self, admitted, name):
+        """The run with the repository's code copied for it alone."""
+        admitted.source, taken = self.copy_source(admitted.backtest.repository, name)
         admitted.pinned.commit, admitted.pinned.changes = taken.commit, taken.changes
         return admitted
 
@@ -594,7 +637,8 @@ class Service:
                            fees=decimal(day["fees"]), margin=decimal(day["margin"]))
         for fill in tables["fills"].iter_rows(named=True):
             reply.fills.add(id=fill["fill"], order_id=fill["order"],
-                            time_ms=fill["time_ns"] // 1_000_000, contract=fill["contract"],
+                            time_ms=fill["time_ns"] // 1_000_000,
+                            trading_day=fill["trading_day"].isoformat(), contract=fill["contract"],
                             side=Side.Value(f"SIDE_{fill['side'].upper()}"),
                             offset=Offset.Value(f"OFFSET_{fill['offset'].upper()}"),
                             lots=decimal(fill["quantity"]), price=decimal(fill["price"]),

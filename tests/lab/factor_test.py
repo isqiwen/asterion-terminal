@@ -135,6 +135,7 @@ class Repository(unittest.TestCase):
             service = Service("lab", self.directory, Log())
             request = Request(id=1)
             run = request.evaluate_factor
+            run.id = "momentum-1"
             run.repository, run.factor = str(self.repository), "price.momentum"
             run.params["lookback"].integer = 2
             run.symbols.extend(["SHFE/rb/2026-05", "SHFE/rb/2026-10", "SHFE/rb"])
@@ -153,12 +154,27 @@ class Repository(unittest.TestCase):
             self.assertGreater(result.horizons[0].days, 0)
             self.assertEqual(len(result.groups), 3)
             self.assertEqual(len(result.days[-1].groups), 3)
+            self.assertIn("used", (await service.reply(request)).error.message)
+            run.id = "momentum-2"
             run.params["lookback"].integer = 0
             failed = await service.reply(request)
             self.assertIn("lookback is at least one bar", failed.error.message)
+            # The result keeps the code it evaluated; a later edit is a later evaluation's.
+            module = self.repository / "factors" / "price.py"
+            evaluated = module.read_text()
+            module.write_text(evaluated + "\n# edited\n")
+            run.id = "momentum-3"
             run.params.clear()
             run.symbols[:] = ["SHFE"]
             exchange = (await service.reply(request)).evaluate_factor
+            kept = (await service.reply(Request(id=2, get_factor_result={"id": "momentum-1"})))
+            self.assertEqual(kept.get_factor_result.code, evaluated)
+            self.assertEqual(kept.get_factor_result.evaluation.factor, "price.momentum")
+            self.assertEqual(kept.get_factor_result, result)
+            self.assertTrue(exchange.code.endswith("# edited\n"))
+            listed = (await service.reply(Request(id=3, list_factor_results={}))).list_factor_results
+            self.assertEqual([item.id for item in listed.results], ["momentum-3", "momentum-1"])
+            self.assertFalse(listed.results[0].days)
             self.assertEqual(list(exchange.symbols), ["SHFE/rb"])
             self.assertEqual(exchange.pinned.dataset_version,
                              Warehouse(self.directory).current().identity)

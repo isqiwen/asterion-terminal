@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActionError,
   lab,
   useActionError,
   translate,
+  getLocale,
+  notify,
   type LabFactorResult,
   type MessageValues,
   type TerminalContext,
@@ -12,6 +14,7 @@ import {
   defaultFactorForm,
   defaultText,
   factorRequest,
+  identity,
   parameterKind,
   type FactorForm,
 } from "./research-lab";
@@ -28,6 +31,18 @@ export function FactorLab(context: TerminalContext) {
   const [chosen, setChosen] = useState("");
   const [form, setForm] = useState<FactorForm>(defaultFactorForm);
   const [result, setResult] = useState<LabFactorResult | null>(null);
+  // Every kept evaluation, newest first, without its days and groups.
+  const [kept, setKept] = useState<LabFactorResult[]>([]);
+  const readKept = useCallback(async () => {
+    try {
+      setKept((await lab({ case: "listFactorResults", value: {} })).results);
+    } catch (failure) {
+      notify(failure);
+    }
+  }, []);
+  useEffect(() => void readKept(), [readKept]);
+  const open = (id: string) =>
+    attempt(async () => setResult(await lab({ case: "getFactorResult", value: { id } })));
   const [busy, setBusy] = useState(false);
   const { error, attempt } = useActionError();
   const source = useSource(repository, result);
@@ -44,8 +59,12 @@ export function FactorLab(context: TerminalContext) {
       setSaved(written);
       if (written.length) await read();
       setResult(
-        await lab({ case: "evaluateFactor", value: factorRequest(form, repository, factor) }),
+        await lab({
+          case: "evaluateFactor",
+          value: { ...factorRequest(form, repository, factor), id: identity(factor.id) },
+        }),
       );
+      await readKept();
     });
     setBusy(false);
   };
@@ -176,6 +195,39 @@ export function FactorLab(context: TerminalContext) {
           </>
         )}
       </aside>
+      <footer className="lab-runs">
+        <header>
+          <h4>{t("评价记录")}</h4>
+        </header>
+        <table className="lab-table">
+          <thead>
+            <tr>
+              <th>{t("名称")}</th>
+              <th>{t("因子")}</th>
+              <th>{t("区间")}</th>
+              <th>{t("评价时间")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {kept.map(item => (
+              <tr key={item.id} className={item.id === result?.id ? "current" : undefined}>
+                <td>
+                  <button className="lab-link strong" onClick={() => void open(item.id)}>
+                    {item.id}
+                  </button>
+                </td>
+                <td className="subtle">{item.evaluation?.factor}</td>
+                <td className="subtle">
+                  {item.evaluation?.firstDay} – {item.evaluation?.lastDay}
+                </td>
+                <td className="subtle numeric-left">
+                  {new Date(Number(item.evaluatedMs)).toLocaleString(getLocale())}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </footer>
     </section>
   );
 }

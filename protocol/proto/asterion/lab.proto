@@ -32,6 +32,8 @@ message Request {
     Sweep start_sweep = 46;
     RunId get_sweep = 47;
     RunId cancel_sweep = 48;
+    common.Empty list_factor_results = 49;
+    RunId get_factor_result = 50;
   }
 }
 
@@ -62,6 +64,8 @@ message Response {
     common.Empty start_sweep = 46;
     SweepRuns get_sweep = 47;
     common.Empty cancel_sweep = 48;
+    FactorResults list_factor_results = 49;
+    FactorResult get_factor_result = 50;
   }
 }
 
@@ -279,6 +283,8 @@ message ModuleError {
 
 // Symbols are contracts, products (their dominant series) or exchanges.
 message EvaluateFactor {
+  // Names the result, as a run's id does.
+  string id = 9;
   string repository = 1;
   string factor = 2;
   map<string, strategy.ParameterValue> params = 3;
@@ -290,13 +296,24 @@ message EvaluateFactor {
   uint32 groups = 8;
 }
 
+// An evaluation as it was asked for and evaluated; kept by Lab.
 message FactorResult {
+  string id = 7;
+  EvaluateFactor evaluation = 8;
+  // The factor's module as it was evaluated, from the copy taken at admission.
+  string code = 9;
+  int64 evaluated_ms = 10;
   Pinned pinned = 1;
   repeated string symbols = 2;
   repeated Skipped skipped = 3;
   repeated FactorHorizon horizons = 4;
   repeated FactorDay days = 5;
   repeated FactorGroup groups = 6;
+}
+
+message FactorResults {
+  // Newest first, each without its days and groups.
+  repeated FactorResult results = 1;
 }
 
 message Skipped {
@@ -423,7 +440,9 @@ message RunDay {
 message Fill {
   string id = 1;
   string order_id = 2;
+  // When it filled; trading_day is the day it belongs to, a Monday for a Friday night.
   int64 time_ms = 3;
+  string trading_day = 10;
   string contract = 4;
   common.Side side = 5;
   common.Offset offset = 6;
@@ -488,5 +507,7 @@ message RollingRun {
 
 message AdmittedFactor {
   EvaluateFactor evaluation = 1;
-  string dataset_version = 2;
+  Pinned pinned = 2;
+  // The copy of the repository's Python files the factor is imported from.
+  string source = 3;
 }

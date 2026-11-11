@@ -155,5 +155,10 @@
   "选择左侧的策略、填写右侧的配置后运行；结果显示在这里。": "Choose a strategy on the left and fill in the settings on the right; the result shows here.",
   "选择左侧的因子、填写右侧的设置后评价；结果显示在这里。": "Choose a factor on the left and fill in the settings on the right; the result shows here.",
   "先选择一个因子。": "Choose a factor first.",
-  "未设置": "not set"
+  "未设置": "not set",
+  "时间": "Time",
+  "评价记录": "Evaluations",
+  "区间": "Range",
+  "评价时间": "Evaluated",
+  "评价时的源码": "Code as evaluated"
 }

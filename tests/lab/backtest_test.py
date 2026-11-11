@@ -214,6 +214,12 @@ class Backtests(unittest.TestCase):
                 engine.decide()
             engine.settle()
         self.assertEqual([fill[3] for fill in engine.fills()], [3021 * backtest.R, 3038 * backtest.R])
+        # Monday's first fill came on Friday night: it belongs to Monday, at Friday's time.
+        fill = engine.fills()[0]
+        self.assertEqual(fill[6], first)
+        self.assertEqual(datetime.datetime.fromtimestamp(fill[5] / 10 ** 9, backtest.BEIJING).date(),
+                         DAYS[0] - datetime.timedelta(days=3))
+        self.assertEqual(engine.orders()[0][9], first)
         later = self.config((symbol,), begin_day=second, end_day=second, minutes=1)
         contracts, _, _ = backtest.prepare(backtest.open_data(self.directory, later), later)
         self.assertEqual(contracts[0]["price_increment"], 2 * backtest.R)

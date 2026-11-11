@@ -112,3 +112,42 @@ test("a minute run says which bars it left out for an incomplete minute", async 
   render(<RunResult id="partial" state="succeeded" />);
   expect(await screen.findByText("{bars} 根 K 线含不完整的分钟，未参与回测：{days}")).toBeDefined();
 });
+
+test("a Friday night fill shows Monday's trading day and Friday's time", async () => {
+  const request = vi.mocked(lab);
+  request.mockReset();
+  request.mockImplementation(async operation => {
+    if (operation?.case === "getChartBars")
+      return create(ChartBarsSchema, { datasetVersion: "a".repeat(64) }) as never;
+    if (operation?.case !== "getRun") throw new Error("expected run read");
+    return create(RunDetailSchema, {
+      summary: { id: "night", state: RunState.SUCCEEDED },
+      fills: [
+        {
+          id: "fill",
+          contract: "SHFE/rb/2026-05",
+          // Friday 2026-01-02 21:05 Beijing time.
+          timeMs: BigInt(Date.UTC(2026, 0, 2, 13, 5)),
+          tradingDay: "2026-01-05",
+          lots: { text: "1" },
+          price: { text: "3000" },
+        },
+      ],
+      record: JSON.stringify({
+        strategy: { id: "ma_cross.MaCross", commit: "commit", changes: "" },
+        costs: { deposit: "1000000" },
+        engine: { version: "test" },
+        data: {
+          dataset_version: "a".repeat(64),
+          symbols: ["SHFE/rb/2026-05"],
+          begin_day: "2026-01-05",
+          end_day: "2026-01-06",
+          bars: { period: "1m" },
+        },
+      }),
+    }) as never;
+  });
+  render(<RunResult id="night" state="succeeded" />);
+  const row = (await screen.findByText("2026-01-05", { selector: "td" })).closest("tr")!;
+  expect(row.textContent).toContain("01-02 21:05");
+});

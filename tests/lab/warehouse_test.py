@@ -334,6 +334,7 @@ class RemoteResearch(unittest.TestCase):
                 self.research.write_text(self.original.identity)
                 factor = Request(id=1)
                 run = factor.evaluate_factor
+                run.id = 'factor-1'
                 run.repository, run.factor = str(self.repository), 'price.momentum'
                 run.params['lookback'].integer = 2
                 run.symbols.extend(['SHFE/rb/2026-05', 'SHFE/rb/2026-10', 'SHFE/rb'])

@@ -12,6 +12,7 @@ import {
 import {
   defaultForm,
   defaultText,
+  identity,
   parameterKind,
   runState,
   runRequest,
@@ -22,16 +23,6 @@ import { RunComparison, RunResult, SweepResult, metric, signed, states } from ".
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
-
-// Runs and sweeps are named by strategy and the time they were asked for,
-// to the millisecond so that two runs asked for in one second differ.
-function identity(strategy: string) {
-  const stamp = new Date()
-    .toISOString()
-    .replace(/[-:T.]/g, "")
-    .slice(0, 17);
-  return `${strategy.split(".")[0].replace(/[^A-Za-z0-9_-]/g, "-")}-${stamp}`;
-}
 
 type Shown =
   { kind: "run"; id: string } | { kind: "sweep"; id: string } | { kind: "compare" } | null;

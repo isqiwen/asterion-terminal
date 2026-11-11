@@ -30,10 +30,12 @@ AMOUNT = pl.Decimal(19, 8)
 TABLES = {
     # Every observation: "mark" after a bar, "settlement" at a day's end.
     "equity": {"time_ns": pl.Int64, "equity": AMOUNT, "event": pl.String},
-    "orders": {"order": pl.String, "time_ns": pl.Int64, "symbol": pl.String,
+    # time_ns is when it happened; trading_day the day it belongs to, a Monday for a Friday night.
+    "orders": {"order": pl.String, "time_ns": pl.Int64, "trading_day": pl.Date, "symbol": pl.String,
                "contract": pl.String, "side": pl.String, "offset": pl.String,
                "quantity": AMOUNT, "price": AMOUNT, "state": pl.String},
-    "fills": {"fill": pl.String, "order": pl.String, "time_ns": pl.Int64, "contract": pl.String,
+    "fills": {"fill": pl.String, "order": pl.String, "time_ns": pl.Int64, "trading_day": pl.Date,
+              "contract": pl.String,
               "side": pl.String, "offset": pl.String, "quantity": AMOUNT, "price": AMOUNT,
               "fee": AMOUNT},
     "positions": {"trading_day": pl.Date, "contract": pl.String, "long": AMOUNT,

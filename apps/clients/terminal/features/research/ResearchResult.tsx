@@ -179,7 +179,7 @@ export function RunResult({
     .map(fill => ({
       // A day's fills sit on its bar; a minute fill on the bar that ends at its time.
       index: bars.findIndex(bar =>
-        daily ? bar.tradingDay === day(fill.timeMs * 1_000_000n) : bar.endMs === fill.timeMs,
+        daily ? bar.tradingDay === fill.tradingDay : bar.endMs === fill.timeMs,
       ),
       side: fill.side === Side.BUY ? ("buy" as const) : ("sell" as const),
       text: `${fill.side === Side.BUY ? t("买") : t("卖")} ${Number(fill.lots?.text)}@${Number(fill.price?.text)}`,
@@ -267,7 +267,7 @@ export function RunResult({
           <table className="lab-table">
             <thead>
               <tr>
-                {["交易日", "合约", "方向", "开平", "手数", "价格", "手续费"].map(label => (
+                {["交易日", "时间", "合约", "方向", "开平", "手数", "价格", "手续费"].map(label => (
                   <th key={label}>{t(label)}</th>
                 ))}
               </tr>
@@ -275,7 +275,8 @@ export function RunResult({
             <tbody>
               {detail.fills.map(fill => (
                 <tr key={fill.id}>
-                  <td>{day(fill.timeMs * 1_000_000n)}</td>
+                  <td>{fill.tradingDay}</td>
+                  <td>{minute(fill.timeMs * 1_000_000n)}</td>
                   <td>{fill.contract}</td>
                   <td>{fill.side === Side.BUY ? t("买") : t("卖")}</td>
                   <td>{t(offsets[Offset[fill.offset].toLowerCase()] ?? Offset[fill.offset])}</td>

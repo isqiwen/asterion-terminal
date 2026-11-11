@@ -125,8 +125,9 @@ struct Record final : Replay::Observer
     std::vector<py::tuple> positions;
     // (event, intent, lots, reason)
     std::vector<py::tuple> rejections;
-    // When each order was placed and each fill made.
+    // When each order was placed and each fill made, and on which trading day.
     std::vector<std::int64_t> order_times, fill_times;
+    std::vector<std::string> order_days, fill_days;
 
     std::int64_t value() const
     {
@@ -141,9 +142,11 @@ struct Record final : Replay::Observer
         std::size_t) override
     {
         const auto& execution = replay->execution();
-        const auto time = execution.bar(execution.event(index)).timestamp_ns;
-        order_times.resize(execution.account().orders().size(), time);
-        fill_times.resize(execution.account().fills().size(), time);
+        const auto& bar = execution.bar(execution.event(index));
+        order_times.resize(execution.account().orders().size(), bar.timestamp_ns);
+        fill_times.resize(execution.account().fills().size(), bar.timestamp_ns);
+        order_days.resize(execution.account().orders().size(), bar.trading_day);
+        fill_days.resize(execution.account().fills().size(), bar.trading_day);
         if (!decision.allowed() && intent)
             rejections.push_back(
                 py::make_tuple(
@@ -333,7 +336,7 @@ public:
         return record_;
     }
 
-    // (id, contract, side, offset, lots, limit, state, filled, time_ns)
+    // (id, contract, side, offset, lots, limit, state, filled, time_ns, trading_day)
     py::list orders() const
     {
         const auto& account = replay_->execution().account();
@@ -351,12 +354,13 @@ public:
                     request.limit_price.raw(),
                     state_name(item.order.state()),
                     item.order.filled_quantity().raw(),
-                    record_.order_times.at(n)));
+                    record_.order_times.at(n),
+                    record_.order_days.at(n)));
         }
         return result;
     }
 
-    // (id, order, lots, price, fee, time_ns)
+    // (id, order, lots, price, fee, time_ns, trading_day)
     py::list fills() const
     {
         const auto& account = replay_->execution().account();
@@ -370,7 +374,8 @@ public:
                     fill.execution.quantity.raw(),
                     fill.execution.price.raw(),
                     fill.fee.raw(),
-                    record_.fill_times.at(n)));
+                    record_.fill_times.at(n),
+                    record_.fill_days.at(n)));
         }
         return result;
     }

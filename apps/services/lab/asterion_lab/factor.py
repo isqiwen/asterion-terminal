@@ -17,7 +17,8 @@ ones, which is also when a strategy could act on it.
 Each day, the symbols with a value are ranked against their returns from that
 close to the close `horizon` bars later (Spearman's rank correlation, the IC),
 and split into `groups` equal groups by value, whose next-bar returns are
-averaged. The child reads an AdmittedFactor on standard input and writes a
+averaged. The child reads an AdmittedFactor on standard input, imports the
+factor from the copy of the repository taken at admission, and writes a
 FactorResult to standard output:
 
     python3 -I -B -c "...; from asterion_lab.factor import main; main()" <lab-directory>
@@ -224,20 +225,17 @@ def run(directory: Path, admitted, reply):
         raise ValueError("a factor is split into at least two groups")
     if not request.symbols:
         raise ValueError("a factor is evaluated over one or more symbols")
-    root = repository.checked(Path(request.repository))
-    revision = repository.revision(root)
-    function, inputs, defaults = repository.factor(root, request.factor)
+    function, inputs, defaults = repository.factor(Path(admitted.source), request.factor)
     settings = settings_of(request, defaults)
     data = Data(Dataset(directory), request.first_day, request.last_day,
-                version=admitted.dataset_version)
+                version=admitted.pinned.dataset_version)
     symbols, skipped = symbols_of(data, list(request.symbols))
     if not symbols:
         raise ValueError("no symbol has daily bars in the range")
     result = evaluate(values(function, inputs, settings,
                              {symbol: bars(data, symbol) for symbol in symbols}),
                       list(request.horizons), request.groups)
-    reply.pinned.commit, reply.pinned.changes = revision.commit, revision.changes
-    reply.pinned.dataset_version = data.version.identity
+    reply.pinned.CopyFrom(admitted.pinned)
     reply.symbols.extend(symbols)
     for symbol, reason in skipped:
         reply.skipped.add(symbol=symbol, reason=reason)

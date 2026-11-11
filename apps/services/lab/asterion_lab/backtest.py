@@ -496,6 +496,7 @@ def tables(engine, contracts: list) -> dict:
                                schema=TABLES["equity"]),
         "orders": pl.DataFrame({
             "order": [order[0] for order in orders], "time_ns": [order[8] for order in orders],
+            "trading_day": [datetime.date.fromisoformat(order[9]) for order in orders],
             "symbol": [owners[order[1]] for order in orders],
             "contract": [names[order[1]] for order in orders],
             "side": [order[2] for order in orders], "offset": [order[3] for order in orders],
@@ -505,6 +506,7 @@ def tables(engine, contracts: list) -> dict:
         "fills": pl.DataFrame({
             "fill": [fill[0] for fill in fills], "order": [fill[1] for fill in fills],
             "time_ns": [fill[5] for fill in fills],
+            "trading_day": [datetime.date.fromisoformat(fill[6]) for fill in fills],
             "contract": [names[by_order[fill[1]][1]] for fill in fills],
             "side": [by_order[fill[1]][2] for fill in fills],
             "offset": [by_order[fill[1]][3] for fill in fills],

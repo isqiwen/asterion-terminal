@@ -33,6 +33,16 @@ export function FactorResult({ result }: { result: LabFactorResult }) {
         )}
         {result.pinned?.changes && ` · ${t("含未提交改动")}`}
       </p>
+      <p className="subtle">
+        {result.evaluation?.factor}
+        {Object.entries(result.evaluation?.params ?? {}).map(
+          ([name, value]) => ` · ${name}=${String(value.value.value)}`,
+        )}
+      </p>
+      <details className="lab-section">
+        <summary>{t("评价时的源码")}</summary>
+        <pre className="lab-code">{result.code}</pre>
+      </details>
       {result.skipped.length > 0 && (
         <details className="lab-section">
           <summary>{t("未参与（{count}）", { count: result.skipped.length })}</summary>

@@ -232,6 +232,16 @@ export function defaultFactorForm(): FactorForm {
 
 // The evaluation the factor form describes. A factor takes one value of each
 // setting: comparing values is a matter of evaluating again.
+// Runs, sweeps and factor results are named by their module and the time they
+// were asked for, to the millisecond so that two asked for in one second differ.
+export function identity(code: string) {
+  const stamp = new Date()
+    .toISOString()
+    .replace(/[-:T.]/g, "")
+    .slice(0, 17);
+  return `${code.split(".")[0].replace(/[^A-Za-z0-9_-]/g, "-")}-${stamp}`;
+}
+
 export function factorRequest(form: FactorForm, repository: string, factor: FactorEntry) {
   const symbols = symbolsOf(form.symbols);
   if (!symbols.length) throw new Error(t("请填写品种"));
