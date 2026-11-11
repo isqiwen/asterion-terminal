@@ -4,6 +4,7 @@ Run with the bundled interpreter:
 python3 -I -B backtest_test.py <source> <generated-python> <engine-directory>
 """
 import asyncio
+from contextlib import asynccontextmanager
 import datetime
 from decimal import Decimal
 import json
@@ -15,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "apps/services/comm
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 sys.path[:0] = [sys.argv.pop(1), sys.argv.pop(1), sys.argv.pop(1), str(Path(__file__).parent)]
 from asterion.common_pb2 import ErrorCode, Period  # noqa: E402
@@ -1007,6 +1009,196 @@ class Backtests(unittest.TestCase):
             for value in values:
                 item.values.add(integer=value)
         return request
+
+    @asynccontextmanager
+    async def service(self):
+        service = Service("lab", self.directory, type("Log", (), {"write": lambda *a, **k: None})())
+        try:
+            yield service
+        finally:
+            service.waiting.clear()
+            service.rolling.clear()
+            processes = list(service.backtests.values())
+            for process in processes:
+                if process.returncode is None:
+                    process.terminate()
+            await asyncio.gather(*(process.wait() for process in processes))
+            watchers = [task for task in asyncio.all_tasks()
+                        if task.get_coro().__qualname__ == "Service.watch"]
+            await asyncio.gather(*watchers, return_exceptions=True)
+            service.reads.shutdown()
+            service.runs.index.close()
+
+    async def idle(self, service):
+        async with asyncio.timeout(30):
+            while service.backtests or service.waiting or service.rolling:
+                await asyncio.sleep(0.01)
+
+    def child_before(self, code):
+        child = repository.child
+
+        def command(module):
+            result = child(module)
+            result[-1] = result[-1].rsplit("; from ", 1)[0] + "\n" + code + \
+                f"\nfrom {module} import main\nmain()"
+            return result
+        return patch.object(repository, "child", command)
+
+    def test_a_candidate_that_cannot_spawn_is_failed_and_the_sweep_continues(self):
+        async def scenario():
+            spawn, calls = asyncio.create_subprocess_exec, 0
+
+            async def fail_first(*args, **kwargs):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    raise OSError("fixture process could not start")
+                return await spawn(*args, **kwargs)
+
+            async with self.service() as service:
+                version = Dataset(self.directory).current().identity
+                with patch("asyncio.create_subprocess_exec", fail_first):
+                    reply = await service.reply(self.sweep_request("spawn", [2, 3], [4], 1))
+                    self.assertEqual(reply.WhichOneof("result"), "start_sweep", reply.error)
+                    await self.idle(service)
+                sweep = (await service.reply(Request(id=1, get_sweep={"id": "spawn"}))).get_sweep
+                self.assertEqual([run.state for run in sweep.runs],
+                                 [RunState.RUN_STATE_FAILED, SUCCEEDED])
+                self.assertFalse(sweep.active)
+                detail = (await service.reply(Request(id=1, get_run={"id": "spawn-0"}))).get_run
+                self.assertIn("fixture process could not start", detail.summary.error)
+                self.assertEqual(detail.summary.pinned.dataset_version, version)
+                self.assertEqual(json.loads(detail.record)["params"], {"fast": 2, "slow": 4})
+        asyncio.run(scenario())
+
+    def test_a_child_exit_before_acknowledgement_keeps_its_record_after_restart(self):
+        async def scenario(registered):
+            identity = "registered" if registered else "json-only"
+            code = f"""
+import sqlite3
+from asterion_lab.runs import Runs
+original_start = Runs.start
+def interrupted_start(self, identity, plan):
+    if not {registered!r}:
+        self.index.set_authorizer(lambda operation, table, *args:
+            sqlite3.SQLITE_DENY if operation == sqlite3.SQLITE_INSERT and table == 'runs'
+            else sqlite3.SQLITE_OK)
+    try:
+        original_start(self, identity, plan)
+    finally:
+        (self.root.parent / 'before-exit.json').write_text(
+            (self.root / identity / 'run.json').read_text())
+    raise RuntimeError('fixture exited before acknowledgement')
+Runs.start = interrupted_start
+"""
+            async with self.service() as service:
+                request = Request(id=1)
+                request.start_backtest.CopyFrom(self.sweep_request("base", [2], [4], 1).start_sweep.base)
+                request.start_backtest.id = identity
+                version = Dataset(self.directory).current().identity
+                with self.child_before(code):
+                    response = await asyncio.wait_for(service.reply(request), 30)
+                self.assertEqual(response.WhichOneof("result"), "error")
+                await self.idle(service)
+                reply = await service.reply(Request(id=1, get_run={"id": identity}))
+                self.assertEqual(reply.WhichOneof("result"), "get_run", reply.error)
+                detail = reply.get_run
+                self.assertEqual(detail.summary.state, RunState.RUN_STATE_FAILED)
+                self.assertIn("acknowledgement" if registered else "not authorized", detail.summary.error)
+                self.assertEqual(detail.summary.pinned.dataset_version, version)
+                original = json.loads((self.directory / "before-exit.json").read_text())
+                self.assertEqual(json.loads(detail.record), original)
+            async with self.service() as restarted:
+                again = (await restarted.reply(Request(id=1, get_run={"id": identity}))).get_run
+                self.assertEqual(again, detail)
+
+        for registered in (False, True):
+            with self.subTest(registered=registered):
+                asyncio.run(scenario(registered))
+
+    def test_rolling_failure_before_selection_keeps_candidates_and_fixed_inputs(self):
+        async def scenario(spawn_fails):
+            identity = "spawn-roll" if spawn_fails else "short"
+            spawn = asyncio.create_subprocess_exec
+
+            async def start(*args, **kwargs):
+                if spawn_fails and "asterion_lab.rolling" in args[args.index("-c") + 1]:
+                    raise OSError("fixture rolling process could not start")
+                return await spawn(*args, **kwargs)
+
+            async with self.service() as service:
+                request = self.sweep_request(identity, [2, 3], [4], 2)
+                request.start_sweep.base.holdout_day = ""
+                request.start_sweep.walk_forward.training_days = len(DAYS)
+                request.start_sweep.walk_forward.validation_days = 3
+                version = Dataset(self.directory).current().identity
+                with patch("asyncio.create_subprocess_exec", start):
+                    self.assertEqual((await service.reply(request)).WhichOneof("result"), "start_sweep")
+                    await self.idle(service)
+                sweep = (await service.reply(Request(id=1, get_sweep={"id": identity}))).get_sweep
+                self.assertEqual([run.state for run in sweep.runs], [SUCCEEDED, SUCCEEDED])
+                self.assertFalse(sweep.active)
+                self.assertEqual(sweep.rolling.state, RunState.RUN_STATE_FAILED)
+                self.assertIn("fixture rolling process" if spawn_fails else "validation days after them",
+                              sweep.rolling.error)
+                reply = await service.reply(Request(id=1, get_run={"id": f"{identity}-rolling"}))
+                self.assertEqual(reply.WhichOneof("result"), "get_run", reply.error)
+                record = json.loads(reply.get_run.record)
+                self.assertEqual(record["params"]["candidates"],
+                                 [{"fast": 2, "slow": 4}, {"fast": 3, "slow": 4}])
+                self.assertEqual(record["data"]["dataset_version"], version)
+                self.assertEqual((record["data"]["begin_day"], record["data"]["end_day"]),
+                                 (DAYS[0].isoformat(), DAYS[-1].isoformat()))
+                self.assertEqual(record["statistics"]["rolling"], {
+                    "sweep": identity, "candidates": [f"{identity}-0", f"{identity}-1"],
+                    "training_days": len(DAYS), "validation_days": 3, "rounds": []})
+        for spawn_fails in (False, True):
+            with self.subTest(spawn_fails=spawn_fails):
+                asyncio.run(scenario(spawn_fails))
+
+    def test_cancelling_the_start_request_keeps_the_child_and_unblocks_the_sweep(self):
+        async def scenario():
+            entered, release = self.directory / "entered", self.directory / "release"
+            code = f"""
+import builtins
+import time
+from pathlib import Path
+original_print = builtins.print
+def delayed_print(*args, **kwargs):
+    if args == ('started',):
+        Path({str(entered)!r}).touch()
+        while not Path({str(release)!r}).exists():
+            time.sleep(0.01)
+    return original_print(*args, **kwargs)
+builtins.print = delayed_print
+"""
+            async with self.service() as service:
+                service.processes = 1
+                request = Request(id=1)
+                request.start_backtest.CopyFrom(self.sweep_request("base", [2], [4], 1).start_sweep.base)
+                request.start_backtest.id = "detached"
+                with self.child_before(code):
+                    pending = asyncio.create_task(service.reply(request))
+                    async with asyncio.timeout(30):
+                        while not entered.exists():
+                            await asyncio.sleep(0.01)
+                pending.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await pending
+                reply = await service.reply(self.sweep_request("next", [2, 3], [4], 1))
+                self.assertEqual(reply.WhichOneof("result"), "start_sweep", reply.error)
+                self.assertEqual(len(service.waiting), 2)
+                watcher = next(task for task in asyncio.all_tasks()
+                               if task.get_coro().__qualname__ == "Service.watch")
+                release.touch()
+                await asyncio.wait_for(asyncio.shield(watcher), 30)
+                await self.idle(service)
+                detached = (await service.reply(Request(id=1, get_run={"id": "detached"}))).get_run
+                self.assertEqual(detached.summary.state, SUCCEEDED, detached.summary.error)
+                sweep = (await service.reply(Request(id=1, get_sweep={"id": "next"}))).get_sweep
+                self.assertEqual([run.state for run in sweep.runs], [SUCCEEDED, SUCCEEDED])
+                self.assertFalse(sweep.active)
+        asyncio.run(scenario())
 
     def test_a_sweep_runs_every_combination_in_parallel_and_selects_by_development_sharpe(self):
         class Log:

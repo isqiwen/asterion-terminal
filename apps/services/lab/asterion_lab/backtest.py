@@ -620,6 +620,16 @@ def bars_record(config: Config) -> dict:
     return {"period": f"{config.minutes}m" if config.minutes else "day"}
 
 
+def plan(config: Config, version: str) -> Plan:
+    return Plan(
+        repository=config.repository, strategy=config.strategy,
+        revision=repository.Revision(config.commit, config.changes),
+        params=config.params, dataset_version=version,
+        symbols=tuple(config.symbols), begin_day=config.begin_day, end_day=config.end_day,
+        costs=costs_record(config), risk=risk_record(config), statistics=statistics_record(config),
+        bars=bars_record(config))
+
+
 def run(directory: Path, identity: str, config: Config, started=lambda: None):
     """One backtest from start to its record. A failure is recorded as failed;
     `started` is called once the record exists."""
@@ -628,14 +638,8 @@ def run(directory: Path, identity: str, config: Config, started=lambda: None):
     runs = Runs(directory)
     if not config.source:
         raise ValueError("research runs read the source copied at admission")
-    revision = repository.Revision(config.commit, config.changes)
     data = open_data(directory, config)
-    runs.start(identity, Plan(
-        repository=config.repository, strategy=config.strategy, revision=revision,
-        params=config.params, dataset_version=data.version.identity,
-        symbols=tuple(config.symbols), begin_day=config.begin_day, end_day=config.end_day,
-        costs=costs_record(config), risk=risk_record(config), statistics=statistics_record(config),
-        bars=bars_record(config)))
+    runs.start(identity, plan(config, data.version.identity))
     started()
     try:
         strategy = repository.load(Path(config.source), config.strategy, config.params)

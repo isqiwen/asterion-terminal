@@ -101,6 +101,9 @@ class Runs:
         directory = self.root / identity
         if directory.exists():
             raise ValueError(f"run {identity} already exists")
+        self._insert(self._write_record(identity, plan), "running")
+
+    def _write_record(self, identity: str, plan: Plan) -> dict:
         started = time.time_ns()
         record = {"id": identity, "started_ns": started,
                   "strategy": {"repository": plan.repository, "id": plan.strategy,
@@ -111,13 +114,24 @@ class Runs:
                            "end_day": plan.end_day, "bars": plan.bars},
                   "engine": {"version": VERSION, "commit": COMMIT},
                   "costs": plan.costs, "risk": plan.risk, "statistics": plan.statistics}
-        write_durably(directory / "run.json",
+        write_durably(self.root / identity / "run.json",
                       json.dumps(record, indent=2, ensure_ascii=False).encode() + b"\n")
+        return record
+
+    def _insert(self, record: dict, state: str, error: str = ""):
+        strategy = record["strategy"]
         self.index.execute(
-            "insert into runs (id, strategy, commit_id, changes, dataset_version, state, started_ns)"
-            " values (?, ?, ?, ?, ?, 'running', ?)",
-            (identity, plan.strategy, plan.revision.commit, plan.revision.changes,
-             plan.dataset_version, started))
+            "insert into runs (id, strategy, commit_id, changes, dataset_version, state, error,"
+            " started_ns, finished_ns) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (record["id"], strategy["id"], strategy["commit"], strategy["changes"],
+             record["data"]["dataset_version"], state, error, record["started_ns"],
+             None if state == "running" else time.time_ns()))
+
+    def fail_start(self, identity: str, plan: Plan, error: str, state: str = "failed"):
+        # The child may have written run.json before dying at its index insert.
+        record = self.record(identity) if (self.root / identity / "run.json").exists() \
+            else self._write_record(identity, plan)
+        self._insert(record, state, error)
 
     def succeed(self, identity: str, tables: dict, metrics: dict, data: dict = {}):
         """Write the run's tables, each a polars frame of exactly its schema, then

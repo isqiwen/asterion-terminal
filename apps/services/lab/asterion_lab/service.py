@@ -17,7 +17,7 @@ from asterion.common_pb2 import ErrorCode, Period, Side, Offset
 from asterion.lab_pb2 import (AdmittedFactor, AdmittedRun, Adjustment, FactorResult, NightSession,
                               Request, Response, RollingRun, RunState)
 
-from asterion_lab import backtest, chart, dominant, repository, package
+from asterion_lab import backtest, chart, dominant, repository, package, rolling
 from asterion_lab.runs import IDENTITY, Runs
 from asterion_lab.sessions import Sessions, holiday_between
 from asterion_lab.warehouse import write_durably
@@ -451,15 +451,31 @@ class Service:
     async def launch(self, request, module="asterion_lab.backtest", source=None):
         """Starts the child of an AdmittedRun, or with `source` of a RollingRun."""
         identity = request.id if source else request.backtest.id
-        process = await asyncio.create_subprocess_exec(
-            *repository.child(module), str(self.directory), cwd=source or request.source,
-            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE)
-        process.stdin.write(request.SerializeToString())
-        process.stdin.close()
+        config = backtest.config_of(request.base if source else request)
+        plan = backtest.plan(config, config.dataset_version)
+        if source:
+            members = await self.read(self.runs.sweep, request.sweep_id)
+            plan = rolling.plan(config, config.dataset_version, request.sweep_id, members,
+                                request.walk_forward.training_days,
+                                request.walk_forward.validation_days, [])
+        process = None
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *repository.child(module), str(self.directory), cwd=source or request.source,
+                stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE)
+            process.stdin.write(request.SerializeToString())
+            process.stdin.close()
+        except Exception as error:
+            if process is not None:
+                if process.returncode is None:
+                    process.kill()
+                await process.communicate()
+            self.finish_child(identity, plan, "failed", str(error))
+            raise
         self.backtests[identity] = process
         started = asyncio.get_running_loop().create_future()
-        asyncio.create_task(self.watch(identity, process, started))
+        asyncio.create_task(self.watch(identity, process, started, plan))
         self.log.write("info", MODULE, "backtest.started", run=identity)
         return started
 
@@ -493,6 +509,9 @@ class Service:
                 else:
                     await self.launch(rolling.request, "asterion_lab.rolling",
                                       rolling.request.base.source)
+            except Exception as error:
+                self.log.write("error", MODULE, "backtest.not_started", run=rolling.request.id,
+                               message=str(error))
             finally:
                 del self.rolling[sweep]
 
@@ -501,7 +520,7 @@ class Service:
         admitted = await self.read(self.pin_backtest, request)
         admitted = await asyncio.to_thread(self.with_source, admitted, f"run-{request.id}")
         # Accepted once recorded: whoever asked can read the run at once.
-        error = await (await self.launch(admitted))
+        error = await asyncio.shield(await self.launch(admitted))
         if error:
             raise ValueError(error)
 
@@ -577,12 +596,19 @@ class Service:
         members = {row["id"] for row in rows} | {f"{request.id}-rolling"}
         reply.active = bool(waiting or members & set(self.backtests) or request.id in self.rolling)
 
-    async def watch(self, identity, process, started):
+    def finish_child(self, identity, plan, state, error):
+        row = next((row for row in self.runs.list() if row["id"] == identity), None)
+        if row is None:
+            self.runs.fail_start(identity, plan, error, state)
+        elif row["state"] == "running":
+            self.runs.end(identity, state, error)
+        else:
+            return row["state"]
+        return state
+
+    async def watch(self, identity, process, started, plan):
         """Resolves `started` with "" once the child has written its run's
         record, or with why it ended before it could."""
-        recorded = await process.stdout.readline() == b"started\n"
-        if recorded:
-            started.set_result("")
         # What the strategy prints is read and dropped, so the child never blocks on
         # it; only the end of standard error is kept, for the failure message.
         async def drain(stream):
@@ -595,21 +621,28 @@ class Service:
                 kept = (kept + chunk)[-65536:]
             return kept
 
+        if await process.stdout.readline() == b"started\n":
+            started.set_result("")
         _, error = await asyncio.gather(drain(process.stdout), tail(process.stderr))
         error = error.decode(errors="replace").strip()
-        code = await process.wait()
-        if not recorded:
-            started.set_result(error.splitlines()[-1] if error else f"exited with {code}")
-        del self.backtests[identity]
-        await self.pump()
-        if code == 0:
-            self.log.write("info", MODULE, "backtest.finished", run=identity)
-            return
-        self.log.write("warning", MODULE, "backtest.failed", run=identity, exit_code=code,
-                       stack=error)
-        # A child stopped from outside could not record how it ended.
-        if any(row["id"] == identity and row["state"] == "running" for row in self.runs.list()):
-            self.runs.end(identity, "interrupted", "cancelled" if code < 0 else error)
+        await process.wait()
+        code = process.returncode
+        message = "cancelled" if code < 0 else error or f"exited with {code} before completing its run"
+        try:
+            state = self.finish_child(identity, plan, "interrupted" if code < 0 else "failed", message)
+            if state == "succeeded":
+                self.log.write("info", MODULE, "backtest.finished", run=identity)
+            else:
+                self.log.write("warning", MODULE, "backtest.failed", run=identity, exit_code=code,
+                               stack=error)
+        except Exception as failure:
+            message = str(failure)
+            self.log.write("error", MODULE, "backtest.record_failed", run=identity, message=message)
+        finally:
+            if not started.done():
+                started.set_result(message.splitlines()[-1])
+            del self.backtests[identity]
+            await self.pump()
 
     async def on_cancel_run(self, request, _):
         process = self.backtests.get(request.id)

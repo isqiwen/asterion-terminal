@@ -16,11 +16,12 @@ The service runs it in a child process once every candidate has succeeded:
 reads its RollingRun (asterion/lab.proto) from standard input.
 """
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 from asterion_lab import backtest, repository
 from asterion_lab.backtest import R, raw
-from asterion_lab.runs import Plan, Runs
+from asterion_lab.runs import Runs
 from asterion_strategy import Context, step
 
 MIN_TRAINING = 20
@@ -138,7 +139,17 @@ def follow(engine, strategies: list, symbols: dict, contracts: list, followed: l
                 engine.redecide()
 
 
-def run(directory: Path, identity: str, sweep: str, config, training: int, validation: int):
+def plan(config, version, sweep, members, training, validation, rounds):
+    base = backtest.plan(config, version)
+    return replace(base, params={"candidates": [row["params"] for row in members]},
+                   statistics={**base.statistics,
+                               "rolling": {"sweep": sweep, "candidates": [row["id"] for row in members],
+                                           "training_days": training, "validation_days": validation,
+                                           "rounds": rounds}})
+
+
+def run(directory: Path, identity: str, sweep: str, config, training: int, validation: int,
+        started=lambda: None):
     import asterion_engine
 
     runs = Runs(directory)
@@ -147,19 +158,9 @@ def run(directory: Path, identity: str, sweep: str, config, training: int, valid
         raise ValueError("rolling validation needs two or more candidates that all succeeded")
     candidates = [row["id"] for row in members]
     chosen, followed = select(runs, candidates, config, training, validation)
-    # Candidates and this run share the sweep's source, copied at admission.
-    revision = repository.Revision(config.commit, config.changes)
     data = backtest.open_data(directory, config)
-    runs.start(identity, Plan(
-        repository=config.repository, strategy=config.strategy, revision=revision,
-        params={"candidates": [row["params"] for row in members]},
-        dataset_version=data.version.identity, symbols=tuple(config.symbols),
-        begin_day=config.begin_day, end_day=config.end_day, costs=backtest.costs_record(config),
-        risk=backtest.risk_record(config),
-        statistics={**backtest.statistics_record(config),
-                    "rolling": {"sweep": sweep, "candidates": candidates, "training_days": training,
-                                "validation_days": validation, "rounds": chosen}},
-        bars=backtest.bars_record(config)))
+    runs.start(identity, plan(config, data.version.identity, sweep, members, training, validation, chosen))
+    started()
     try:
         for candidate in candidates:
             recorded = runs.record(candidate)["data"]
@@ -192,7 +193,8 @@ def main():
     request.ParseFromString(sys.stdin.buffer.read())
     try:
         run(Path(sys.argv[1]), request.id, request.sweep_id, backtest.config_of(request.base),
-            request.walk_forward.training_days, request.walk_forward.validation_days)
+            request.walk_forward.training_days, request.walk_forward.validation_days,
+            lambda: print("started", flush=True))
     except BaseException:
         import traceback
         traceback.print_exc()
