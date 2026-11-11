@@ -1071,6 +1071,38 @@ class Backtests(unittest.TestCase):
                 self.assertEqual(json.loads(detail.record)["params"], {"fast": 2, "slow": 4})
         asyncio.run(scenario())
 
+    def test_a_sweep_stays_active_while_its_last_candidate_starts(self):
+        async def scenario():
+            spawn, calls = asyncio.create_subprocess_exec, 0
+            starting, release = asyncio.Event(), asyncio.Event()
+
+            async def delayed_spawn(*args, **kwargs):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    starting.set()
+                    await release.wait()
+                return await spawn(*args, **kwargs)
+
+            async with self.service() as service:
+                with patch("asyncio.create_subprocess_exec", delayed_spawn):
+                    response = await service.reply(self.sweep_request("handoff", [2, 3], [4], 1))
+                    self.assertEqual(response.WhichOneof("result"), "start_sweep", response.error)
+                    try:
+                        await asyncio.wait_for(starting.wait(), 30)
+                        reply = (await service.reply(Request(id=1, get_sweep={"id": "handoff"}))).get_sweep
+                    finally:
+                        release.set()
+                        await service.pump()
+                    await self.idle(service)
+                self.assertTrue(reply.active)
+                self.assertEqual([run.state for run in reply.runs],
+                                 [SUCCEEDED, RunState.RUN_STATE_UNSPECIFIED])
+                finished = (await service.reply(Request(id=1, get_sweep={"id": "handoff"}))).get_sweep
+                self.assertEqual([run.state for run in finished.runs], [SUCCEEDED, SUCCEEDED])
+                self.assertFalse(finished.active)
+        asyncio.run(scenario())
+
     def test_a_child_exit_before_acknowledgement_keeps_its_record_after_restart(self):
         async def scenario(registered):
             identity = "registered" if registered else "json-only"

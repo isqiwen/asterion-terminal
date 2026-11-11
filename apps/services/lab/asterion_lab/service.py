@@ -488,12 +488,13 @@ class Service:
         sweep's rolling validation once all its candidates have ended.
         Called with the admission lock held."""
         while self.waiting and len(self.backtests) < self.processes:
-            _, run = self.waiting.popleft()
+            _, run = self.waiting[0]
             try:
                 await self.launch(run)
             except Exception as error:
                 self.log.write("error", MODULE, "backtest.not_started", run=run.backtest.id,
                                message=str(error))
+            self.waiting.popleft()
         for sweep, rolling in list(self.rolling.items()):
             members = {f"{sweep}-{n}" for n in range(rolling.candidates)}
             if rolling.starting or any(item[0] == sweep for item in self.waiting) \
