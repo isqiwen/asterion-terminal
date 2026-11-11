@@ -17,7 +17,7 @@ import time
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--build', default=str(Path(__file__).parents[2] / 'build/Debug'))
 parser.add_argument('--host', required=True)
-parser.add_argument('--port', type=int, default=7450)
+parser.add_argument('--port', type=int, default=7451)
 parser.add_argument('--fingerprint', required=True, help='Market server certificate fingerprint')
 parser.add_argument('--client-identity', required=True, help='Directory containing registered client.crt and client.key')
 parser.add_argument('--instrument', action='append', required=True, help='VENUE:SYMBOL')

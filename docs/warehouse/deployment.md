@@ -11,6 +11,7 @@ sudo bash "Asterion-Warehouse-<版本>-linux-x86_64.sh"         # 第一次：�
 sudo /opt/asterion/warehouse/bin/setup.sh     # 只修改配置
 ```
 
+- 主机开启时间同步（如 `systemd-timesyncd`）。理由：各来源按主机时钟的北京日期只采到前一天，时钟超前会把未结束的当日数据当作整天存入，之后不再重采。
 - 安装时写入并启用 `asterion-warehouse.service`：以执行 `sudo` 的账户运行，只能写 `logs/` 和数据目录，`Restart=always`。
 - 配置时依次询问监听地址、端口、数据目录（默认 `/opt/asterion/warehouse/data`，可以放到单独的磁盘），登记 Terminal 证书（Terminal 的“设置 → 关于”，写成 `<指纹>=read` 或 `<指纹>=manage`），选择交易所来源和 Tushare 每分钟请求数（默认 500），最后隐藏输入 Tushare token；已保存的 token 可以保留。
 - 升级只替换程序，保留配置、TLS 身份、仓库和采集任务，随时可以重启，不影响行情和交易。
@@ -33,7 +34,7 @@ sudo /opt/asterion/warehouse/bin/setup.sh     # 只修改配置
 │       └── server.key          # 服务端私钥
 ├── logs/                       # 默认按日保存服务日志
 └── data/                       # 可通过配置改到其他绝对路径
-    ├── history.lock             # 同一份数据只允许一个 Warehouse 进程
+    ├── warehouse.lock           # 同一份数据只允许一个 Warehouse 进程
     ├── acquisition/
     │   └── <任务ID>.pb         # 采集请求、进度和结果
     ├── warehouse/              # Tushare 正式仓库

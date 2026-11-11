@@ -53,7 +53,7 @@ Market 与 Trading 由 systemd 独立启动。关闭 Terminal 或客户端连接
 ```sh
 python3 tests/acceptance/ctp_trading.py --simulation \
   --terminal-directory <Terminal安装目录>/terminal --trading-connection <连接ID> \
-  --market-host <Market主机> --market-port 7450 \
+  --market-host <Market主机> \
   --market-fingerprint <Market服务证书SHA-256指纹> \
   --trade-front tcp://<仿真交易前置> \
   --broker <经纪商代码> --user <投资者账号> \

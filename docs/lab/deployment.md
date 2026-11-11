@@ -26,8 +26,9 @@ Lab 使用 `python3 -I -B -m asterion_lab` 启动。`LabSupervisor` 提供拥有
     ├── config/logging.json
     ├── logs/
     └── data/lab/
-        ├── history-cache/research/  # 固定版本清单与分区缓存
+        ├── warehouse-cache/research/  # 固定版本清单与分区缓存
         ├── sources/                # 研究接纳时复制的源码
+        ├── factors/<评价ID>.binpb  # 因子评价结果
         ├── runs.sqlite             # 运行状态和指标索引
         └── runs/<运行ID>/
             ├── run.json            # 输入、版本、参数与复现信息

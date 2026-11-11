@@ -331,7 +331,8 @@ export type Bars = Message<"strategy.Bars"> & {
   sequence: bigint;
 
   /**
-   * One bar per instrument, in the instance's order, all ending together.
+   * The bars ending together, in the instance's order; a contract closed or
+   * halted in that period is absent.
    *
    * @generated from field: repeated strategy.Bar bars = 2;
    */

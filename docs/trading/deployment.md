@@ -1,6 +1,6 @@
 # Trading 部署与运行
 
-Trading 运行于 Ubuntu 24.04 x86_64，每个账户一个 systemd 服务实例。程序和 Python 策略运行时由同一服务包提供，Terminal 只连接服务，不管理其部署。
+Trading 运行于 Ubuntu 24.04 x86_64，每个账户一个 systemd 服务实例。主机必须开启时间同步（如 `systemd-timesyncd`），理由：Trading 丢弃落后 10 秒的报价，行情时间超前主机 2 秒就结束策略实例。程序和 Python 策略运行时由同一服务包提供，Terminal 只连接服务，不管理其部署。
 
 ## 安装与账户配置
 

@@ -85,7 +85,8 @@ message WeightLimits {
 
 message Bars {
   uint64 sequence = 1;
-  // One bar per instrument, in the instance's order, all ending together.
+  // The bars ending together, in the instance's order; a contract closed or
+  // halted in that period is absent.
   repeated Bar bars = 2;
 }
 
