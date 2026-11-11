@@ -238,6 +238,9 @@ private:
         std::uint64_t connection_generation = 0;
         std::optional<StrategyWeightBudget> budget = std::nullopt;
         std::optional<StrategyTargetBatch> batch = std::nullopt;
+        // The last ready targets, in lots, or a flattening's zeros. Each later
+        // ready decision without targets replans what is left of them.
+        std::vector<PositionTarget> held = {};
         bool paused = false;
         std::vector<std::string> events = {};
     };

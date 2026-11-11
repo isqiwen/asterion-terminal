@@ -92,11 +92,10 @@ void LiveAccountState::accept_strategy_target(
         strategy_->sequence = decision.sequence();
         strategy_->next_leg = 0;
         strategy_->deadline = expires_at;
-        if (!decision.targets_size()) {
-            if (!quotes.empty())
-                throw std::invalid_argument("empty strategy decisions have no execution quotes");
+        if (!decision.ready())
+            strategy_->held.clear();
+        if (!decision.targets_size() && strategy_->held.empty())
             return;
-        }
         if (expires_at > now + std::chrono::seconds(10))
             throw std::invalid_argument("strategy targets have at most 10 seconds of validity");
         check_strategy({authority, decision.sequence(), 0, decision.ready(), expires_at});
@@ -105,11 +104,39 @@ void LiveAccountState::accept_strategy_target(
             throw Error(
                 ErrorCode::unavailable,
                 "authorize and synchronize the account before strategy execution");
-        if (quotes.size() != static_cast<std::size_t>(decision.targets_size()))
-            throw std::invalid_argument("each strategy target requires its direct execution quote");
         StrategyTargetBatch batch;
         batch.accepted_at = now;
         const auto wall = wall_ms();
+        // A contract's fresh quote of this session; its age shortens the batch.
+        const auto direct = [&](const InstrumentId& contract) {
+            const auto quote = std::ranges::find_if(quotes, [&](const auto& q) {
+                return q.instrument == contract;
+            });
+            if (quote == quotes.end() || quote->trading_day != state.trading_day || !quote->last
+                || *quote->last <= Decimal{} || quote->source_ms <= 0 || quote->received_ms <= 0
+                || quote->source_ms - wall > 2000 || quote->received_ms > wall
+                || quote->source_ms - quote->received_ms > 2000)
+                throw Error(
+                    ErrorCode::unavailable,
+                    "strategy execution quote has invalid identity, date or timestamps");
+            const auto age = quote_age_ms(*quote, wall);
+            if (age >= 10000)
+                throw Error(ErrorCode::unavailable, "strategy execution quote is stale");
+            strategy_->deadline =
+                std::min(strategy_->deadline, now + std::chrono::milliseconds(10000 - age));
+            return *quote;
+        };
+        if (!decision.targets_size()) {
+            // The last ready targets stand: what is left of them is planned again
+            // from the positions, as a backtest places it again at each bar.
+            for (const auto& target : strategy_->held)
+                batch.quotes.push_back(direct(target.instrument));
+            batch.targets = strategy_->held;
+            batch.sized = true;
+            batch.decision = std::move(decision);
+            strategy_->batch = std::move(batch);
+            return;
+        }
         const bool weighted = decision.targets(0).has_weight();
         if (weighted
             && (!strategy_->budget
@@ -127,22 +154,7 @@ void LiveAccountState::accept_strategy_target(
                 || (weighted ? !target.has_weight() : !target.has_lots()))
                 throw std::invalid_argument(
                     "strategy targets require unique selected contracts and one value kind");
-            const auto quote = std::ranges::find_if(quotes, [&](const auto& q) {
-                return q.instrument == *selected;
-            });
-            if (quote == quotes.end() || quote->trading_day != state.trading_day || !quote->last
-                || *quote->last <= Decimal{} || quote->source_ms <= 0 || quote->received_ms <= 0
-                || quote->source_ms - wall > 2000 || quote->received_ms > wall
-                || quote->source_ms - quote->received_ms > 2000)
-                throw Error(
-                    ErrorCode::unavailable,
-                    "strategy execution quote has invalid identity, date or timestamps");
-            const auto age = quote_age_ms(*quote, wall);
-            if (age >= 10000)
-                throw Error(ErrorCode::unavailable, "strategy execution quote is stale");
-            strategy_->deadline =
-                std::min(strategy_->deadline, now + std::chrono::milliseconds(10000 - age));
-            batch.quotes.push_back(*quote);
+            batch.quotes.push_back(direct(*selected));
             if (!weighted) {
                 const auto quantity = Decimal::parse(std::to_string(target.lots()));
                 if (!quantity.multiple_of(allowed(*selected).quantity_increment))
@@ -154,6 +166,8 @@ void LiveAccountState::accept_strategy_target(
         batch.decision = std::move(decision);
         if (weighted)
             trader_->refresh_account();
+        // Lots stand from here; weights once sized, as a backtest sizes them once.
+        strategy_->held = batch.targets;
         strategy_->batch = std::move(batch);
     } catch (const Error& error) {
         if (error.code() == ErrorCode::unavailable && strategy_->failure.empty()) {
@@ -223,6 +237,7 @@ AccountCommand LiveAccountState::advance_strategy_target(
             for (const auto& member : sized.members)
                 batch.targets.push_back({member.contract.instrument, member.quantity});
             batch.sized = true;
+            strategy_->held = batch.targets;
         }
         if (!batch.last_order.empty()) {
             const auto last = std::ranges::find_if(state.orders, [&](const auto& order) {
@@ -372,6 +387,8 @@ void LiveAccountState::flatten_strategy(
     batch.sized = true;
     for (const auto& contract : authority->contracts_)
         batch.targets.push_back({contract, Decimal{}});
+    // Flattening replaces the strategy's targets until it gives new ones.
+    strategy_->held = batch.targets;
     strategy_->next_leg = 0;
     strategy_->deadline = now + std::chrono::seconds(10);
     strategy_->batch = std::move(batch);

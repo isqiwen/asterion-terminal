@@ -2166,6 +2166,30 @@ namespace {
 class StrategyTarget : public Live
 {
 protected:
+    // A later bar's decision that gives no new targets.
+    static ::strategy::Decision none(std::uint64_t sequence, bool ready = true)
+    {
+        ::strategy::Decision decision;
+        decision.set_sequence(sequence);
+        decision.set_ready(ready);
+        return decision;
+    }
+
+    // Three lots wanted, one filled, then the batch expires: two lots are left.
+    void fill_one_of_three(LiveSession& session, asterion::trading::StrategyAuthorityPtr owner)
+    {
+        session.accept_target(owner, lots(3), {quote()}, std::chrono::steady_clock::now() + 1500ms);
+        session.advance_target(owner).get();
+        exchange.call<void (*)(int, int)>("asterion_fake_trader_fill", 0, 1);
+        wait_for(session, [](const Json& s) {
+            return !s.at("orders").empty() && s.at("orders")[0].at("status") == "partially_filled";
+        });
+        progress(session, owner, [](const Json& s) {
+            return s.at("orders")[0].at("status") == "cancelled"
+                && s.at("positions_reconciled") == true;
+        });
+    }
+
     static ::strategy::Decision lots(std::int64_t quantity, std::uint64_t sequence = 1)
     {
         ::strategy::Decision decision;
@@ -2330,6 +2354,43 @@ TEST_F(StrategyTarget, PartialFillWaitsAndOriginalBatchExpiryCancelsWithoutResen
     // Expiry drops the batch, not the instance; the next target is admitted.
     EXPECT_TRUE(session.strategy_failure(owner).empty());
     EXPECT_NO_THROW(session.accept_target(owner, lots(3, 2), {quote()}));
+}
+
+TEST_F(StrategyTarget, ATargetStandsAcrossLaterBarsUntilItIsReached)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy().get();
+    fill_one_of_three(session, owner);
+    // Paused: the next bar only reduces, so nothing is sent.
+    session.pause_strategy(owner, true);
+    session.accept_target(owner, none(2), {quote()});
+    for (int i = 0; i < 5; ++i)
+        session.advance_target(owner).get();
+    EXPECT_EQ(session.snapshot().at("orders").size(), 1U);
+    // Resumed: the bar after sends what is left of the three lots.
+    session.pause_strategy(owner, false);
+    session.accept_target(owner, none(3), {quote()});
+    const auto state = progress(session, owner, filled(2));
+    ASSERT_EQ(state.at("orders").size(), 2U);
+    EXPECT_EQ(decimal(state.at("orders")[1].at("quantity")), "2");
+    EXPECT_EQ(held(state), "3");
+    EXPECT_TRUE(session.strategy_failure(owner).empty());
+}
+
+TEST_F(StrategyTarget, AStrategyThatIsNotReadyDropsItsStandingTarget)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy().get();
+    fill_one_of_three(session, owner);
+    session.accept_target(owner, none(2, false), {});
+    session.accept_target(owner, none(3), {quote()});
+    for (int i = 0; i < 5; ++i)
+        session.advance_target(owner).get();
+    EXPECT_EQ(session.snapshot().at("orders").size(), 1U);
 }
 
 TEST_F(StrategyTarget, ManualCancellationDropsTheBatchWithoutReplacingItsOrder)

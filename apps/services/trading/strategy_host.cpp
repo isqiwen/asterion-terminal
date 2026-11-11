@@ -332,11 +332,7 @@ struct StrategyHost::State
         if (!execute)
             return;
         save();
-        std::vector<MarketQuote> selected;
-        for (const auto& target : decision.targets())
-            selected.push_back(
-                quotes.at({target.instrument().exchange(), target.instrument().symbol()}));
-        account->accept_strategy_target(authority, decision, std::move(selected), expires_at).get();
+        account->accept_strategy_target(authority, decision, latest_quotes(), expires_at).get();
     }
 
     void advance()
