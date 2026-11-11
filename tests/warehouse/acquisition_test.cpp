@@ -6,8 +6,10 @@
 #include <asterion/warehouse.pb.h>
 #include <gtest/gtest.h>
 #include <atomic>
+#include <condition_variable>
 #include <fstream>
 #include <future>
+#include <mutex>
 #include <set>
 
 namespace {
@@ -559,6 +561,8 @@ TEST_F(Acquisition, TasksRunInTurnTheQueueIsBoundedAndShutdownInterruptsProvider
     manager.stop();
     EXPECT_LT(std::chrono::steady_clock::now() - start, 2s);
     EXPECT_EQ(manager.get("task-0").state(), ac::wire::TASK_STATE_CANCELLED);
+    EXPECT_THROW(manager.get("task-1"), Error);
+    EXPECT_THROW(manager.list({}), Error);
 }
 
 TEST_F(Acquisition, ALaterSourceFillsOnlyWhatTheOneBeforeItLacksAndAFailureKeepsTheRest)
@@ -648,31 +652,111 @@ TEST_F(Acquisition, ALaterSourceFillsOnlyWhatTheOneBeforeItLacksAndAFailureKeeps
 TEST_F(Acquisition, FailedTaskPersistenceIsVisibleAndRecoveryDoesNotResubmit)
 {
     auto vendor = std::make_shared<Vendor>();
-    std::promise<void> entered;
+    std::promise<void> entered, fenced;
+    std::mutex mutex;
+    std::condition_variable_any changed;
+    bool release_failure = false, release_fence = false;
     std::atomic<int> attempts = 0;
-    vendor->before = [&](const Json&, std::stop_token) {
-        ++attempts;
-        fail_next_directory_syncs_for_testing(1);
-        entered.set_value();
-        throw ac::SourceError("unavailable", "fixture provider stopped");
+    std::atomic<int> notifications = 0;
+    vendor->before = [&](const Json&, std::stop_token stop) {
+        const auto attempt = ++attempts;
+        if (attempt > 2)
+            return;
+        std::unique_lock lock(mutex);
+        (attempt == 1 ? entered : fenced).set_value();
+        changed.wait(lock, stop, [&] {
+            return attempt == 1 ? release_failure : release_fence;
+        });
+        ac::check_stop(stop);
+        if (attempt == 1) {
+            fail_next_directory_syncs_for_testing(1);
+            throw ac::SourceError("unavailable", "fixture provider stopped");
+        }
     };
+    ac::wire::AcquisitionTask failed;
     {
-        ac::Manager manager(root, {{"tushare", factory(vendor)}});
+        ac::Manager manager(root, {{"tushare", factory(vendor)}}, [&](const auto&) {
+            ++notifications;
+        });
         manager.submit(request("disk"));
         ASSERT_EQ(entered.get_future().wait_for(5s), std::future_status::ready);
+        manager.submit(request("fence"));
+        {
+            std::lock_guard lock(mutex);
+            release_failure = true;
+        }
+        changed.notify_all();
+        // The next worker has started, so the failed task's future is ready.
+        ASSERT_EQ(fenced.get_future().wait_for(5s), std::future_status::ready);
+        EXPECT_EQ(notifications, 1);
+        failed = manager.get("disk");
+        EXPECT_EQ(failed.state(), ac::wire::TASK_STATE_FAILED);
+        EXPECT_TRUE(failed.has_finished_ms());
+        EXPECT_EQ(failed.error().code(), ::common::ERROR_CODE_UNAVAILABLE);
+        EXPECT_NE(failed.error().message().find("fixture provider stopped"), std::string::npos);
+        EXPECT_NE(failed.error().message().find("task state was not saved"), std::string::npos);
+        const auto listed = manager.list({});
+        EXPECT_EQ(listed.tasks_size(), 2);
+        for (const auto& task : listed.tasks())
+            if (task.request().id() == "disk")
+                EXPECT_EQ(task.SerializeAsString(), failed.SerializeAsString());
+
+        fail_next_directory_syncs_for_testing(1);
+        EXPECT_THROW(manager.submit(request("blocked")), std::runtime_error);
+        EXPECT_FALSE(fs::exists(root / "acquisition/blocked.pb"));
+        EXPECT_EQ(manager.get("disk").SerializeAsString(), failed.SerializeAsString());
+        EXPECT_EQ(attempts, 2);
+        EXPECT_EQ(notifications, 1);
+        fail_next_directory_syncs_for_testing(0);
+        EXPECT_EQ(manager.submit(request("next")).state(), ac::wire::TASK_STATE_QUEUED);
+        EXPECT_EQ(manager.get("disk").SerializeAsString(), failed.SerializeAsString());
+        EXPECT_EQ(attempts, 2);
+        EXPECT_EQ(notifications, 1);
+        {
+            std::lock_guard lock(mutex);
+            release_fence = true;
+        }
+        changed.notify_all();
+        EXPECT_EQ(finished(manager, "fence").state(), ac::wire::TASK_STATE_SUCCEEDED);
+        EXPECT_EQ(finished(manager, "next").state(), ac::wire::TASK_STATE_SUCCEEDED);
         manager.stop();
-        EXPECT_THROW(manager.get("disk"), std::runtime_error);
-        EXPECT_THROW(manager.list({}), std::runtime_error);
     }
-    fail_next_directory_syncs_for_testing(0);
+    const auto calls = attempts.load();
     ac::Manager restarted(root, {{"tushare", factory(vendor)}});
-    const auto task = restarted.get("disk");
-    // Failed directory synchronization permits the old or the complete new
-    // record. Neither outcome may implicitly repeat a provider request.
-    EXPECT_TRUE(
-        task.state() == ac::wire::TASK_STATE_FAILED
-        || task.state() == ac::wire::TASK_STATE_INTERRUPTED);
-    EXPECT_EQ(attempts, 1);
+    EXPECT_EQ(restarted.get("disk").SerializeAsString(), failed.SerializeAsString());
+    EXPECT_EQ(attempts, calls);
+}
+
+TEST_F(Acquisition, FailedCompletionPersistenceKeepsCommittedDataAndReportsFailure)
+{
+    auto vendor = std::make_shared<Vendor>();
+    auto sources = wh::source_versions(root);
+    wh::SourceVersions committed;
+    std::promise<void> completed;
+    int notifications = 0;
+    ac::Manager manager(root, {{"tushare", factory(vendor)}}, [&](const auto& versions) {
+        committed = versions;
+        ++notifications;
+        fail_next_directory_syncs_for_testing(1);
+        completed.set_value();
+    });
+    manager.submit(request("disk"));
+    ASSERT_EQ(completed.get_future().wait_for(5s), std::future_status::ready);
+    manager.stop();
+    const auto task = manager.get("disk");
+    EXPECT_EQ(task.state(), ac::wire::TASK_STATE_FAILED);
+    EXPECT_FALSE(task.error().message().empty());
+    EXPECT_EQ(task.items_done(), task.items());
+    EXPECT_EQ(manager.list({}).tasks(0).SerializeAsString(), task.SerializeAsString());
+    EXPECT_EQ(notifications, 1);
+    wh::Store source(root, "tushare");
+    ASSERT_EQ(committed.at("tushare"), source.current().identity);
+    EXPECT_TRUE(source.current().partitions.contains("daily/SHFE/2026-01-05"));
+    wh::Store research(wh::source_directory(root, "research"), "research");
+    sources["tushare"] = committed.at("tushare");
+    const auto published = wh::compose(root, research, sources);
+    EXPECT_TRUE(published.partitions.contains("daily/SHFE/2026-01-05"));
+    EXPECT_EQ(notifications, 1);
 }
 
 TEST_F(Acquisition, ADamagedTaskFileCostsOnlyThatTask)

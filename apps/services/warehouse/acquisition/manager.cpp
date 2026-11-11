@@ -177,8 +177,13 @@ void Manager::reap()
             ++it;
             continue;
         }
-        // Persistence errors are service faults, never silently turned into success.
-        it->second->finished.get();
+        try {
+            it->second->finished.get();
+        } catch (...) {
+            if (it->second->task.state() != wire::TASK_STATE_FAILED)
+                throw;
+            persist(it->second->task);
+        }
         it = active_.erase(it);
     }
 }
@@ -311,7 +316,19 @@ void Manager::work(
         finished_(active.versions);
     // The source may have committed data immediately before a status write
     // failed. The warehouse remains authoritative; never roll it back.
-    publish(task, active);
+    try {
+        publish(task, active);
+    } catch (const std::exception& error) {
+        task.set_state(wire::TASK_STATE_FAILED);
+        if (task.has_error())
+            task.mutable_error()->set_message(
+                task.error().message() + "; task state was not saved: " + error.what());
+        else
+            *task.mutable_error() = protocol::error(error);
+        std::lock_guard lock(mutex_);
+        active.task = std::move(task);
+        throw;
+    }
 }
 
 void Manager::publish(const wire::AcquisitionTask& task, Active& active)
@@ -326,7 +343,8 @@ wire::AcquisitionTask Manager::get(const std::string& id) const
     require_id(id);
     std::lock_guard lock(mutex_);
     if (const auto at = active_.find(id); at != active_.end()) {
-        if (at->second->finished.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        if (pending(at->second->task)
+            && at->second->finished.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
             at->second->finished.get();
         return at->second->task;
     }
@@ -338,12 +356,15 @@ wire::AcquisitionTasks Manager::list(const wire::ListAcquisitionTasks& query) co
     if (!query.after_id().empty())
         require_id(query.after_id());
     std::lock_guard lock(mutex_);
-    for (const auto& [id, active] : active_)
-        if (active->finished.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
-            active->finished.get();
     std::vector<wire::AcquisitionTask> tasks;
+    for (const auto& [id, active] : active_) {
+        if (pending(active->task)
+            && active->finished.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+            active->finished.get();
+        tasks.push_back(active->task);
+    }
     for (const auto& entry : fs::directory_iterator(directory_)) {
-        if (entry.path().extension() != ".pb")
+        if (entry.path().extension() != ".pb" || active_.contains(entry.path().stem().string()))
             continue;
         try {
             tasks.push_back(load(entry.path()));
