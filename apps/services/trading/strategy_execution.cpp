@@ -40,18 +40,24 @@ StrategyAuthorityPtr LiveAccountState::register_strategy(
     if (budget && (budget->gross < Decimal{} || budget->net < Decimal{}))
         throw std::invalid_argument("strategy weight budgets must be nonnegative");
     std::set<InstrumentId> identities;
+    std::vector<std::string> symbols;
     for (const auto& contract : contracts) {
         (void)allowed(contract);
         if (!identities.insert(contract).second)
             throw std::invalid_argument("strategy execution contracts must be unique");
+        const auto* terms = policy_->find(contract);
+        symbols.push_back(contract.venue + "/" + terms->product + "/" + terms->delivery_month);
     }
     for (const auto& [id, intent] : intents_)
         if (intent.strategy && intent.strategy->instance == instance)
             throw Error(
                 ErrorCode::conflict,
                 "strategy instance still has unretired orders; use a new instance id");
-    StrategyAuthorityPtr authority(
-        new StrategyAuthority(std::move(instance), std::move(contracts), policy_->revision));
+    StrategyAuthorityPtr authority(new StrategyAuthority(
+        std::move(instance),
+        std::move(contracts),
+        std::move(symbols),
+        policy_->revision));
     // Fence manual submissions which were accepted before this claim, including
     // a command currently suspended on its journal or quote.
     send_gate_.invalidate();

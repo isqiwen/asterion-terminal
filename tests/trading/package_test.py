@@ -116,7 +116,8 @@ class Test(Strategy):
                         return wire.Response.FromString(exact(size))
                     config = wire.Instance(instruments=[dict(exchange='SHFE', symbol='rb2610')],
                         params={'memory': wire.ParameterValue(flag=memory)})
-                    reply = exchange(wire.Request(load=config))
+                    reply = exchange(wire.Request(load=wire.Load(instance=config,
+                                                                 symbols=['SHFE/rb/2026-10'])))
                     if memory:
                         assert 'MemoryError' in reply.error.message, reply
                     else:

@@ -25,6 +25,8 @@ class TwoBars(Strategy):
         return all(len(ctx.history(s, "close", self.params["window"])) == self.params["window"]
                    for s in ctx.symbols)
     def on_bar(self, ctx, bar):
+        # As a backtest names the contract; another name ends the instance.
+        assert bar.symbol == "SHFE/rb/2026-10", bar.symbol
         # Deliberately asks before readiness: the shared driver must discard it.
         ctx.target(bar.symbol, self.params["lots"])
 '''
@@ -96,7 +98,8 @@ def main():
             assert 'batch abandoned: strategy target expired before completion' in events, events
             assert len(rows) >= 3
             namespace = {}; exec(CODE, namespace)
-            strategy, context = namespace['TwoBars'](), Context(['SHFE/rb2610'])
+            symbol = 'SHFE/rb/2026-10'
+            strategy, context = namespace['TwoBars'](), Context([symbol])
             for index, (raw, result) in enumerate(rows, 1):
                 batch, decision = wire.Bars.FromString(raw), wire.Decision.FromString(result)
                 assert batch.sequence == decision.sequence == index
@@ -104,7 +107,7 @@ def main():
                 for row in batch.bars:
                     assert row.end_ms % 60000 == 0 and row.end_ms - 60000 > started_ms
                     assert row.HasField('open_interest') and row.volume > 0
-                    symbol = f'{row.instrument.exchange}/{row.instrument.symbol}'
+                    assert (row.instrument.exchange, row.instrument.symbol) == ('SHFE', 'rb2610')
                     bars.append(Bar(symbol, symbol,
                         datetime.datetime.fromtimestamp(row.end_ms / 1000,
                             datetime.timezone(datetime.timedelta(hours=8))),
@@ -112,7 +115,8 @@ def main():
                         float(row.close.text), row.volume, float(row.open_interest.text)))
                 wanted = step(strategy, context, bars)
                 assert context.ready == decision.ready
-                assert wanted == {f'{t.instrument.exchange}/{t.instrument.symbol}': t.lots for t in decision.targets}
+                assert wanted == {symbol: t.lots for t in decision.targets}
+                assert all(t.instrument.symbol == 'rb2610' for t in decision.targets)
             assert rpc(host, 'start_strategy', config, True).code == 'conflict'
             # A warm restart replays the ended instance's record before live bars.
             resumed_config = wire.Instance()

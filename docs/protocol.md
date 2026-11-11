@@ -201,7 +201,7 @@ sequenceDiagram
 sequenceDiagram
     participant Trading
     participant Child as 策略进程
-    Trading->>Child: load(Instance)
+    Trading->>Child: load(Load)
     Child-->>Trading: load
     loop 每组已结束的 K 线
         Trading->>Child: bars(Bars)
@@ -212,6 +212,7 @@ sequenceDiagram
 ```
 
 - `Instance` 写明策略包名和版本、合约、周期、参数和权重上限。`resume_from` 指向一个已结束的实例，启动时先重放它记录的 K 线。
+- `Load` 带上 `Instance`，以及按其合约顺序、由账户政策的品种和交割月得出的合约标识 `EXCHANGE/product/YYYY-MM`。策略看到的 `bar.symbol` 和下目标用的都是这个标识，与回测相同；`Bars` 和 `Decision` 里仍是柜台合约。
 - `Bars` 是所有合约同一时刻结束的一组 K 线，按 `Instance` 中的合约顺序排列。
 - `Decision` 的每个 `Target` 是一个合约的目标手数或目标权重；同一批只能用其中一种。`ready` 为假时目标只记录、不执行。
 - 策略进程出错时回复 `error`，Trading 结束这个实例。

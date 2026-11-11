@@ -563,7 +563,9 @@ struct StrategyHost::State
             }
             channel = ipc::Channel::connect(endpoint.string(), 1s);
             wire::Request request;
-            *request.mutable_load() = configuration;
+            *request.mutable_load()->mutable_instance() = configuration;
+            for (const auto& symbol : authority->symbols())
+                request.mutable_load()->add_symbols(symbol);
             channel.send(request.SerializeAsString(), 1s);
             wire::Response reply;
             if (!reply.ParseFromString(channel.receive(10s)) || !reply.has_load())

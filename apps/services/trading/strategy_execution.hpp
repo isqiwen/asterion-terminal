@@ -26,17 +26,29 @@ public:
         return instance_;
     }
 
+    // Each contract as research names it, EXCHANGE/product/YYYY-MM, from the policy.
+    const std::vector<std::string>& symbols() const noexcept
+    {
+        return symbols_;
+    }
+
 private:
     friend class LiveAccountState;
 
-    StrategyAuthority(std::string instance, std::vector<InstrumentId> contracts, std::string policy)
+    StrategyAuthority(
+        std::string instance,
+        std::vector<InstrumentId> contracts,
+        std::vector<std::string> symbols,
+        std::string policy)
         : instance_(std::move(instance)),
           contracts_(std::move(contracts)),
+          symbols_(std::move(symbols)),
           policy_(std::move(policy))
     {}
 
     std::string instance_;
     std::vector<InstrumentId> contracts_;
+    std::vector<std::string> symbols_;
     std::string policy_;
 };
 

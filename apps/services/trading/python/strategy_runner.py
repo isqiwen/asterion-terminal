@@ -90,13 +90,17 @@ def main():
                 if cls.ready is Strategy.ready:
                     raise ValueError('a live strategy must explicitly report readiness')
                 params = {}
-                for key, value in request.load.params.items():
+                load = request.load
+                for key, value in load.instance.params.items():
                     field = value.WhichOneof('value')
                     if field is None:
                         raise ValueError(f'missing parameter value: {key}')
                     params[key] = getattr(value, field)
                 strategy = cls(**params)
-                context = Context([f'{i.exchange}/{i.symbol}' for i in request.load.instruments])
+                # The strategy names contracts as a backtest does; the counter's instruments stay here.
+                instruments = dict(zip(load.symbols, load.instance.instruments))
+                symbols = {f'{i.exchange}/{i.symbol}': s for s, i in instruments.items()}
+                context = Context(list(load.symbols))
                 reply(channel, Response(load={}))
                 sequence = 0
                 while True:
@@ -106,20 +110,18 @@ def main():
                         break
                     if operation != 'bars' or request.bars.sequence != sequence + 1:
                         raise ValueError('strategy inputs must arrive once in sequence')
-                    bars = [Bar(f'{row.instrument.exchange}/{row.instrument.symbol}',
-                        f'{row.instrument.exchange}/{row.instrument.symbol}',
-                        datetime.datetime.fromtimestamp(row.end_ms / 1000,
+                    bars = [Bar(symbol, symbol, datetime.datetime.fromtimestamp(row.end_ms / 1000,
                             datetime.timezone(datetime.timedelta(hours=8))),
                         float(row.open.text), float(row.high.text),
                         float(row.low.text), float(row.close.text),
                         row.volume, float(row.open_interest.text))
-                        for row in request.bars.bars]
+                        for row in request.bars.bars
+                        for symbol in [symbols[f'{row.instrument.exchange}/{row.instrument.symbol}']]]
                     wanted = step(strategy, context, bars)
                     sequence = request.bars.sequence
                     decision = Decision(sequence=sequence, ready=context.ready)
-                    for contract, value in wanted.items():
-                        exchange, symbol = contract.split('/')
-                        target = decision.targets.add(instrument=dict(exchange=exchange, symbol=symbol))
+                    for symbol, value in wanted.items():
+                        target = decision.targets.add(instrument=instruments[symbol])
                         if context.mode == 'target':
                             target.lots = value
                         else:

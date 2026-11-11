@@ -7,10 +7,17 @@ import "asterion/common.proto";
 
 message Request {
   oneof call {
-    Instance load = 1;
+    Load load = 1;
     Bars bars = 2;
     common.Empty stop = 3;
   }
+}
+
+// The strategy sees each contract as a backtest names it, EXCHANGE/product/YYYY-MM,
+// in the instance's order; bars and targets keep the counter's instrument.
+message Load {
+  Instance instance = 1;
+  repeated string symbols = 2;
 }
 
 message Response {
