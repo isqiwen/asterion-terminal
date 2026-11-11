@@ -80,7 +80,7 @@ class Engine(unittest.TestCase):
     def test_risk_rejections_and_untouched_units(self):
         replay = asterion_engine.Replay(1_000_000 * R, [contract("rb2605", DAYS, [100, 110, 120, 115]),
                                                         contract("rb2610", DAYS, [100, 110, 120, 115])],
-                                        [], (2 * R, 2 * R, 10))
+                                        [], (5 * R, 2 * R, 10))
 
         def decide(replay, bars):
             replay.want(0, 5 * R)
@@ -89,7 +89,7 @@ class Engine(unittest.TestCase):
 
         run(replay, decide)
         self.assertTrue(replay.rejections)
-        self.assertEqual(replay.rejections[0][1:], ("strategy.0", 5 * R, "order_quantity"))
+        self.assertEqual(replay.rejections[0][1:], ("strategy.0", 5 * R, "gross_quantity"))
         self.assertEqual(replay.fills(), [])
 
     def test_invalid_input_is_refused(self):

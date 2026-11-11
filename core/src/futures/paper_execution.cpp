@@ -53,12 +53,12 @@ std::vector<ContractTerms> terms_of(const std::vector<ContractBars>& contracts)
 PaperExecution::PaperExecution(
     Decimal deposit,
     std::vector<ContractBars> contracts,
-    std::shared_ptr<const RiskPort> risk)
+    OrderLimitsConfig limits)
     : account_(deposit, terms_of(contracts)),
-      risk_(std::move(risk))
+      risk_(limits),
+      max_order_quantity_(limits.max_order_quantity)
 {
-    if (!risk_)
-        throw std::invalid_argument("risk policy is required");
+    risk_.start();
     auto data = std::make_shared<Data>();
     data->contracts = std::move(contracts);
     std::size_t total = 0;
@@ -122,7 +122,7 @@ void PaperExecution::submit(LimitOrder order, Offset offset)
     require_running();
     if (cursor_ == size())
         throw std::invalid_argument("replay has finished; no new orders accepted");
-    const auto decision = assess_order(*risk_, account_, order, offset);
+    const auto decision = assess_order(risk_, account_, order, offset);
     if (!decision.allowed())
         throw PaperRiskRejected(decision.reason);
     try {
@@ -202,7 +202,6 @@ RiskDecision PaperExecution::advance(const std::optional<Target>& target)
                     target->limit_price);
             } catch (const PaperRiskRejected& rejection) {
                 switch (rejection.reason()) {
-                    case RiskReason::order_quantity:
                     case RiskReason::gross_quantity:
                     case RiskReason::working_orders:
                     case RiskReason::insufficient_funds:
@@ -368,6 +367,7 @@ void PaperExecution::reconcile_target(
     const auto slippage =
         increment * Decimal::parse(std::to_string(data_->contracts[index].slippage_ticks));
     const auto orders = target_orders(target, held, account_.close_policy(instrument));
+    const auto leg = quantize(max_order_quantity_, spec.quantity_increment, Rounding::floor);
     const auto working = std::ranges::any_of(account_.working_orders(), [&](const auto index) {
         return account_.orders()[index].order.request().instrument == instrument;
     });
@@ -391,7 +391,7 @@ void PaperExecution::reconcile_target(
                 {order_id + std::string(order.suffix),
                     instrument,
                     order.side,
-                    order.quantity,
+                    std::min(order.quantity, leg),
                     order.side == Side::buy
                         ? quantize(price, increment, Rounding::ceiling) + slippage
                         : quantize(price, increment, Rounding::floor) - slippage},

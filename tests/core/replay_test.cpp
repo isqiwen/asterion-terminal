@@ -44,11 +44,9 @@ std::vector<DaySettlement> settled(const ContractBars& item)
     return result;
 }
 
-std::shared_ptr<const RiskPort> limits(const char* lots = "10")
+OrderLimitsConfig limits(const char* order = "10", const char* gross = "10")
 {
-    auto value = std::make_shared<OrderLimits>(OrderLimitsConfig{d(lots), d(lots), 10});
-    value->start();
-    return value;
+    return {d(order), d(gross), 10};
 }
 
 // What a replay reported, in order.
@@ -168,16 +166,28 @@ TEST(Replay, NothingIsPlacedWithoutADecision)
     EXPECT_TRUE(replay.execution().account().orders().empty());
 }
 
+TEST(Replay, ATargetAboveTheOrderLimitFillsInLegs)
+{
+    const auto item = contract("rb2605", {100, 110, 120, 115});
+    Replay replay(d("1000000"), {item}, {settled(item)}, {}, limits("5"));
+    Seen seen;
+    run(replay, seen, d("6"));
+    const auto& fills = replay.execution().account().fills();
+    ASSERT_EQ(fills.size(), 2U);
+    EXPECT_EQ(fills[0].execution.quantity, d("5"));
+    EXPECT_EQ(fills[1].execution.quantity, d("1"));
+}
+
 TEST(Replay, RiskRejectionsAreReportedAndPlaceNothing)
 {
     const auto item = contract("rb2605", {100, 110, 120, 115});
-    Replay replay(d("1000000"), {item}, {settled(item)}, {}, limits("2"));
+    Replay replay(d("1000000"), {item}, {settled(item)}, {}, limits("5", "2"));
     Seen seen;
     run(replay, seen, d("5"));
     EXPECT_TRUE(replay.execution().account().orders().empty());
     ASSERT_EQ(seen.decisions.size(), 4U);
     EXPECT_TRUE(seen.decisions[0].allowed());
-    EXPECT_EQ(seen.decisions[1].reason, RiskReason::order_quantity);
+    EXPECT_EQ(seen.decisions[1].reason, RiskReason::gross_quantity);
 }
 
 TEST(Replay, ADayWithoutBarsIsSettledAtItsClose)

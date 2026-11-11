@@ -87,7 +87,7 @@ public:
         std::vector<ContractBars> contracts,
         const std::vector<std::vector<DaySettlement>>& days,
         std::vector<DominantSeries> series,
-        std::shared_ptr<const RiskPort> risk,
+        OrderLimitsConfig limits,
         std::map<std::string, Decimal> margins = {});
 
     std::size_t units() const noexcept

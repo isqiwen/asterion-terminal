@@ -1,6 +1,6 @@
 #pragma once
 #include <asterion/futures/account.hpp>
-#include <asterion/futures/risk_port.hpp>
+#include <asterion/futures/order_limits.hpp>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -75,10 +75,7 @@ public:
         std::size_t contract, bar;
     };
 
-    PaperExecution(
-        Decimal deposit,
-        std::vector<ContractBars> contracts,
-        std::shared_ptr<const RiskPort> risk);
+    PaperExecution(Decimal deposit, std::vector<ContractBars> contracts, OrderLimitsConfig limits);
 
     void start()
     {
@@ -130,7 +127,8 @@ public:
     // when a bar reaches `price`: their limits lie the contract's slippage
     // beyond it. Routed through normal account checks. Replaces the contract's working
     // orders. A position on the other side is closed first; the target's own
-    // side opens on a later call, once that close has filled.
+    // side opens on a later call, once that close has filled. Each order is at
+    // most the order limit in whole lots; later calls place the rest, as Trading does.
     void reconcile_target(
         const std::string& order_id,
         const InstrumentId& instrument,
@@ -203,7 +201,8 @@ private:
     // Whether a new day can bring other costs or price increments.
     bool changes_terms() const;
     FuturesAccount account_;
-    std::shared_ptr<const RiskPort> risk_;
+    OrderLimits risk_;
+    Decimal max_order_quantity_;
     std::shared_ptr<const Data> data_;
     std::size_t cursor_ = 0;
     std::uint64_t execution_sequence_ = 0;

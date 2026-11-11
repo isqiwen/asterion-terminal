@@ -345,6 +345,50 @@ class Backtests(unittest.TestCase):
         equity = runs.table("partial", "equity")
         self.assertEqual((equity["event"] == "mark").sum(), 19)
 
+    def test_minutes_missing_on_a_settled_day_stop_the_run(self):
+        writer = Warehouse(self.directory).writer()
+        day = DAYS[0].isoformat()
+        start = int(datetime.datetime.combine(DAYS[0], datetime.time(9), backtest.BEIJING).timestamp()) * 1000
+        writer.put_rows(f"minutes/SHFE/{day}/rb/2026-05", "minutes", [
+            dict(exchange="SHFE", product="rb", contract="SHFE/rb/2026-05", day=day,
+                 start_ms=start + minute * 60000, partial=False, open=Decimal(3000),
+                 high=Decimal(3005), low=Decimal(2995), close=Decimal(3000), volume=Decimal(100),
+                 average_price=None, open_interest=Decimal(900)) for minute in range(10)], days=[day])
+        writer.commit()
+        with self.assertRaises(ValueError):
+            backtest.run(self.directory, "gap", self.config(("SHFE/rb/2026-05",), minutes=1))
+        (row,) = Runs(self.directory).list()
+        self.assertEqual(row["state"], "failed")
+        self.assertEqual(row["error"], f"minutes of SHFE/rb/2026-05 are not stored on "
+                                       f"{DAYS[1].isoformat()} to {DAYS[-1].isoformat()} (29 days)")
+
+    def test_a_strategy_that_is_not_ready_places_no_more_orders(self):
+        import asterion_engine
+
+        class Once(Strategy):
+            """Wants three lots at the first bar, is ready only then and at the tenth."""
+            def __init__(self):
+                super().__init__()
+                self.bars = 0
+
+            def on_bar(self, ctx, bar):
+                self.bars += 1
+                if self.bars == 1:
+                    ctx.target(bar.symbol, 3)
+
+            def ready(self, ctx):
+                return self.bars in (1, 10)
+
+        config = self.config(("SHFE/rb/2026-05",), max_order_lots=Decimal(1))
+        contracts, series, first = backtest.prepare(backtest.open_data(self.directory, config), config)
+        engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
+                                        (backtest.R, 10 * backtest.R, 10))
+        backtest.replay(engine, Once(), {engine.unit(index): symbol for symbol, index in first.items()},
+                        contracts, config)
+        # One lot of the first leg; the rest of the target is never placed, and stays void once ready again.
+        self.assertEqual([order[4] for order in engine.orders()], [backtest.R])
+        self.assertEqual(engine.positions[-1][2], backtest.R)
+
     def test_minute_bars_are_read_gathered_and_traded(self):
         # Ten minutes 09:00-09:10 Beijing on each of the first ten days, up
         # then down, on top of the days' settlements.

@@ -17,8 +17,12 @@ The data are read this way:
 
 Margins and fees are the exchange's settlement parameters of each trading
 day in the pinned dataset; a day without them stops the run. Slippage, order
-limits and the weight budgets are the run's, as the user gives them. Lots a strategy targets stand and are placed again at every
-bar's close; weights are sized into lots once, when given.
+limits and the weight budgets are the run's, as the user gives them. Weights
+are sized into lots once, when given. Lots stand and what is left of them is
+placed again at every bar's close, each order at most the order limit. A
+strategy that is not ready places nothing and keeps what it holds; once ready
+again, only the targets it then gives stand. Minute bars must cover every
+trading day a contract settles on in the run.
 
 The service runs each backtest in a child process:
 
@@ -267,6 +271,18 @@ def quoted_lots(trade_unit, quote_unit):
     return None
 
 
+def spans(missing: list, days: list) -> str:
+    """`missing` days as runs of consecutive `days`."""
+    runs = []
+    for day in missing:
+        if runs and days.index(day) == days.index(runs[-1][-1]) + 1:
+            runs[-1].append(day)
+        else:
+            runs.append([day])
+    return ", ".join(run[0] if len(run) == 1 else f"{run[0]} to {run[-1]} ({len(run)} days)"
+                     for run in runs)
+
+
 def contract_input(data: Data, config: Config, contract: str, begin: str, end: str) -> dict:
     exchange, product, _ = contract.split("/")
     month = data.product(exchange, product).get(contract)
@@ -282,6 +298,10 @@ def contract_input(data: Data, config: Config, contract: str, begin: str, end: s
         settled = set(days)
         minutes = [bar for bar in data.minute_bars(contract, begin, end, config.minutes)
                    if bar["trading_day"] in settled]
+        stored = {bar["trading_day"] for bar in minutes}
+        missing = [day for day in days if day not in stored]
+        if missing:
+            raise ValueError(f"minutes of {contract} are not stored on {spans(missing, days)}")
         excluded = [bar["trading_day"] for bar in minutes if bar["partial"]]
         bars = [(bar["trading_day"], bar["time_ms"] * 10 ** 6,
                  *(raw(bar[name]) for name in ("open", "high", "low", "close", "volume")),
@@ -429,24 +449,33 @@ def replay(engine, strategy, symbols: dict, contracts: list, config: Config,
     symbol; `decided` sees each time's bars and what the strategy asked for."""
     context = Context([symbols[unit] for unit in sorted(symbols)], rolls(contracts))
     units = {symbol: unit for unit, symbol in symbols.items()}
+    paused = False
     for bars in observations(engine, symbols, contracts):
-        wanted = step(strategy, context, bars) if bars else {}
-        if bars:
-            decided(bars, wanted)
-        if context.mode != "weights":
-            # Lots stand: each bar places them again at its close.
-            for symbol, lots in wanted.items():
-                engine.want(units[symbol], lots * R)
-            engine.decide()
-        elif wanted:
+        if not bars:
+            continue
+        wanted = step(strategy, context, bars)
+        decided(bars, wanted)
+        if not context.ready:
+            # As in Trading: nothing new is placed and what is held stays.
+            paused = True
+            continue
+        if paused:
+            # Targets from before are void; only what the strategy asks for now stands.
+            for unit in symbols:
+                engine.want(unit, None)
+            paused = False
+        if context.mode == "weights" and wanted:
             # Weights are sized once, when given, at the closes of that time.
-            lots = engine.weights(
+            wanted = engine.weights(
                 {units[symbol]: raw(Decimal(weight).quantize(PLACES))
                  for symbol, weight in wanted.items()},
                 raw(config.max_gross_weight), raw(config.max_net_weight))
-            for unit, quantity in lots.items():
-                engine.want(unit, quantity)
-            engine.decide()
+        else:
+            wanted = {units[symbol]: lots * R for symbol, lots in wanted.items()}
+        for unit, quantity in wanted.items():
+            engine.want(unit, quantity)
+        # Lots stand: each bar places what is left of them again at its close.
+        engine.decide()
     return context
 
 

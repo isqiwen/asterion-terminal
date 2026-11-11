@@ -379,8 +379,6 @@ void FuturesAccount::submit(LimitOrder request, Offset offset)
     validate_offset(offset);
     if (request.side != Side::buy && request.side != Side::sell)
         throw std::invalid_argument("invalid order side");
-    if (orders_.size() >= 10000)
-        throw std::invalid_argument("paper account holds at most 10000 orders");
     if (order_index_.contains(request.id))
         throw std::invalid_argument("duplicate order identity");
     if (request.limit_price <= zero)

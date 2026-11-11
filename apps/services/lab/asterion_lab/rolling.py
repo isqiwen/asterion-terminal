@@ -98,6 +98,7 @@ def follow(engine, strategies: list, symbols: dict, contracts: list, followed: l
     contexts = [Context(order, backtest.rolls(contracts)) for _ in strategies]
     units = {symbol: unit for unit, symbol in symbols.items()}
     standing = [{} for _ in strategies]  # unit -> lots each candidate wants
+    paused = set()  # candidates not ready at their last bar
 
     def wants(whom):
         for unit in range(engine.units):
@@ -112,20 +113,31 @@ def follow(engine, strategies: list, symbols: dict, contracts: list, followed: l
     while not engine.finished:
         while not engine.day_done:
             bars = backtest.visible(engine.next(), symbols, contracts)
-            for strategy, context, wanted in zip(strategies, contexts, standing):
-                if bars:
-                    for symbol, lots in step(strategy, context, bars).items():
-                        wanted[units[symbol]] = lots
-                    if context.mode == "weights":
-                        raise ValueError("rolling validation follows strategies that target lots")
+            for n, (strategy, context) in enumerate(zip(strategies, contexts)):
+                if not bars:
+                    continue
+                wanted = step(strategy, context, bars)
+                if context.mode == "weights":
+                    raise ValueError("rolling validation follows strategies that target lots")
+                if not context.ready:
+                    paused.add(n)
+                    continue
+                if n in paused:
+                    # As in a backtest: targets from before it was not ready are void.
+                    standing[n] = {}
+                    paused.discard(n)
+                for symbol, lots in wanted.items():
+                    standing[n][units[symbol]] = lots
             wants(followed[day])
-            engine.decide()
+            if followed[day] not in paused:
+                engine.decide()
         engine.settle()
         day += 1
         # What the next round's choice wanted after the day before is what it trades.
         if not engine.finished and followed[day] != followed[day - 1]:
             wants(followed[day])
-            engine.redecide()
+            if followed[day] not in paused:
+                engine.redecide()
 
 
 def run(directory: Path, identity: str, sweep: str, config, training: int, validation: int):

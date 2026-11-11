@@ -231,9 +231,6 @@ public:
         if (limits.size() != 3)
             throw std::invalid_argument("limits are order lots, gross lots and working orders");
         OrderLimitsConfig config{raw(limits[0]), raw(limits[1]), limits[2].cast<std::size_t>()};
-        config.validate();
-        auto risk = std::make_shared<OrderLimits>(config);
-        risk->start();
         std::map<std::string, Decimal> revalued;
         for (const auto& [day, rate] : margins)
             revalued.emplace(day.cast<std::string>(), raw(rate));
@@ -242,7 +239,7 @@ public:
             std::move(items),
             days,
             std::move(rolls),
-            std::move(risk),
+            config,
             std::move(revalued));
         record_.replay = replay_.get();
     }
