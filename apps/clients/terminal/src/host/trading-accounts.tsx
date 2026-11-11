@@ -8,13 +8,16 @@ import {
   type ReactNode,
 } from "react";
 import { tradingRequest, type TradingCall } from "../bridge/trading";
-import type {
-  Account,
-  Health,
-  Progress,
-  Response,
-  Session,
+import {
+  InstanceState,
+  type Account,
+  type Health,
+  type InstanceStatus,
+  type Progress,
+  type Response,
+  type Session,
 } from "../generated/asterion/trading_pb";
+import { translate } from "../i18n";
 import { BackendError, asDisplayError, type DisplayError } from "../i18n/errors";
 import { notify } from "./notifications";
 
@@ -47,6 +50,33 @@ export function stalled(health: Health | undefined) {
   );
 }
 
+// How far an account's instance alerts have gone: the instance, its latest
+// event seen and whether its failure was told.
+type Alerted = { instance: string; eventMs: bigint; failed: boolean };
+
+// An instance that fails or drops a batch: the notification centre and a
+// desktop notification, seen with the window hidden. Events from before
+// Terminal first read the account are history; a failure is told once.
+function alert(account: string, status: InstanceStatus | undefined, before: Alerted | undefined) {
+  const instance = status?.instance?.id;
+  if (!status || !instance) return before;
+  const same = before?.instance === instance;
+  const since = !before ? (status.events.at(-1)?.timeMs ?? 0n) : same ? before.eventMs : -1n;
+  const bodies = status.events
+    .filter(event => event.timeMs > since && event.text.startsWith("batch abandoned"))
+    .map(event => event.text);
+  const failed = status.state === InstanceState.FAILED;
+  if (failed && !(same && before?.failed)) bodies.push(status.error);
+  for (const body of bodies) {
+    notify(new BackendError("strategy_instance", `${account}/${instance}: ${body}`), {
+      namespace: "asterion.terminal.trading",
+    });
+    if (typeof Notification !== "undefined")
+      new Notification(translate("host", "策略实例 {id}", { id: instance }), { body });
+  }
+  return { instance, eventMs: status.events.at(-1)?.timeMs ?? since, failed };
+}
+
 const Accounts = createContext<TradingAccounts>({ views: {}, send: tradingRequest });
 export const useTradingAccounts = () => useContext(Accounts);
 
@@ -60,7 +90,7 @@ function merge(view: TradingView, response: Response): TradingView {
 }
 
 // Every registered account is read once a second with one read in flight, and
-// its health every five seconds, hidden window or not.
+// its health and strategy instance every five seconds, hidden window or not.
 export function TradingAccountsProvider({
   ids,
   protocol,
@@ -75,6 +105,7 @@ export function TradingAccountsProvider({
   // A read that began before a command was answered may show the account as
   // it was before that command, so it is dropped.
   const commands = useRef<Record<string, number>>({});
+  const alerted = useRef<Record<string, Alerted | undefined>>({});
   const accept = useCallback((id: string, responses: Response[]) => {
     setViews(current => ({ ...current, [id]: responses.reduce(merge, current[id] ?? {}) }));
   }, []);
@@ -108,6 +139,9 @@ export function TradingAccountsProvider({
             stalling.add(id);
             notify(new BackendError("trading_stalled", id));
           }
+          const strategies = await tradingRequest(id, { case: "getStrategies", value: {} });
+          if (strategies.result.case === "getStrategies")
+            alerted.current[id] = alert(id, strategies.result.value.instance, alerted.current[id]);
         }
         if (!stopped && command === commands.current[id]) accept(id, responses);
         failing.delete(id);

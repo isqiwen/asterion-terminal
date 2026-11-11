@@ -69,17 +69,21 @@ beforeEach(() => {
   read = () => live(session);
   vi.mocked(tradingRequest).mockReset();
   vi.mocked(tradingRequest).mockImplementation(async (_account, operation) =>
-    operation?.case === "getAccount" || operation?.case === "getHealth"
-      ? read()
-      : new Promise(resolve => {
-          answer = resolve;
-        }),
+    operation?.case === "getStrategies"
+      ? create(ResponseSchema, { result: { case: "getStrategies", value: {} } })
+      : operation?.case === "getAccount" || operation?.case === "getHealth"
+        ? read()
+        : new Promise(resolve => {
+            answer = resolve;
+          }),
   );
 });
 const commands = () =>
   vi
     .mocked(tradingRequest)
-    .mock.calls.filter(([, operation]) => !["getAccount", "getHealth"].includes(operation.case!));
+    .mock.calls.filter(
+      ([, operation]) => !["getAccount", "getHealth", "getStrategies"].includes(operation.case!),
+    );
 const button = (name: string) => screen.getByRole("button", { name }) as HTMLButtonElement;
 const show = (namespace: string) =>
   render(

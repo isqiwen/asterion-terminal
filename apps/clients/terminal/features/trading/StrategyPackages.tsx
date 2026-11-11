@@ -1,16 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Package } from "../../src/generated/asterion/strategy_pb";
-import {
-  InstanceState,
-  type Account,
-  type InstanceStatus,
-  type Strategies,
-} from "../../src/generated/asterion/trading_pb";
+import type { Account, Strategies } from "../../src/generated/asterion/trading_pb";
 import { lab } from "../../src/bridge/lab";
 import { strategyRequest, type StrategyCall } from "../../src/bridge/strategy";
 import {
   ActionError,
-  BackendError,
   ErrorNotice,
   asDisplayError,
   useActionError,
@@ -23,25 +17,6 @@ import { StrategyMonitor } from "./StrategyMonitor";
 import "./strategy.css";
 
 type Props = { account: string; repository: string; record?: Account; connected?: boolean };
-
-// An instance that fails or drops a batch while Terminal is open: a desktop
-// notification, seen with the window hidden, and the notification centre.
-function notifyDesktop(previous: InstanceStatus | undefined, next: InstanceStatus | undefined) {
-  const id = next?.instance?.id;
-  if (!id || previous?.instance?.id !== id) return;
-  const seen = previous.events.at(-1)?.timeMs ?? 0n;
-  const alerts = next.events
-    .filter(event => event.timeMs > seen && event.text.startsWith("batch abandoned"))
-    .map(event => event.text);
-  if (next.state === InstanceState.FAILED && previous.state !== InstanceState.FAILED)
-    alerts.push(next.error);
-  for (const body of alerts) {
-    notify(new BackendError("strategy_instance", `${id}: ${body}`), {
-      namespace: "asterion.terminal.trading",
-    });
-    if (typeof Notification !== "undefined") new Notification(t("策略实例 {id}", { id }), { body });
-  }
-}
 
 export function StrategyPackages(props: Props) {
   return <AccountStrategies key={props.account} {...props} />;
@@ -65,10 +40,7 @@ function AccountStrategies({ account, repository, record, connected = false }: P
   const commandPending = useRef(false);
   const stopPending = useRef(false);
   const preparing = useRef(false);
-  const seen = useRef<InstanceStatus | undefined>(undefined);
   const accept = (next: Strategies) => {
-    notifyDesktop(seen.current, next.instance);
-    seen.current = next.instance;
     setState(next);
     setFresh(true);
     setReadError("");

@@ -193,16 +193,7 @@ test("an ended instance resumes from its record under a new id after review", as
   expect(configuration.resumeFrom).toBe("");
 });
 
-test("pause and flatten act on the inspected instance; a failure raises a desktop notification", async () => {
-  const shown = vi.fn();
-  vi.stubGlobal(
-    "Notification",
-    class {
-      constructor(title: string, options: { body: string }) {
-        shown(title, options.body);
-      }
-    },
-  );
+test("pause and flatten act on the inspected instance", async () => {
   const ready = create(HostStrategiesSchema, {
     packages: [code.manifest!],
     instance: {
@@ -211,18 +202,7 @@ test("pause and flatten act on the inspected instance; a failure raises a deskto
       events: [{ timeMs: 1n, text: "sent SHFE/rb2610 buy open 1 @ 3501" }],
     },
   });
-  vi.mocked(strategyRequest).mockImplementation(async (_account, operation) =>
-    operation.case === "flattenStrategy"
-      ? create(HostStrategiesSchema, {
-          packages: [code.manifest!],
-          instance: {
-            instance: configuration,
-            state: InstanceState.FAILED,
-            error: "broker rejected a strategy order",
-          },
-        })
-      : ready,
-  );
+  vi.mocked(strategyRequest).mockResolvedValue(ready);
   render(<StrategyPackages account="account-a" repository="" record={record} connected />);
   await waitFor(() => expect(screen.getByText(/sent SHFE\/rb2610/)).toBeDefined());
   await click("暂停新增");
@@ -231,8 +211,6 @@ test("pause and flatten act on the inspected instance; a failure raises a deskto
   expect(writes()).toHaveLength(1);
   await click("确认平仓");
   expect(writes()[1][1]).toEqual({ case: "flattenStrategy", value: { id: "run-a" } });
-  expect(shown).toHaveBeenCalledWith("策略实例 run-a", "broker rejected a strategy order");
-  vi.unstubAllGlobals();
 });
 
 test("stop remains available during an inspection and a late reply cannot resurrect the stopped instance", async () => {
