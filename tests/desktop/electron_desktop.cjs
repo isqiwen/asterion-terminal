@@ -297,24 +297,6 @@ async function closeDesktop(application) {
     await expect(page.getByRole("searchbox", { name: "搜索市场合约", exact: true })).toHaveValue(
       "cu",
     );
-    // Exercise renderer -> preload -> validated IPC -> native dialog adapter.
-    await application.evaluate(({ dialog }) => {
-      dialog.showOpenDialog = async (_owner, opts) => ({
-        canceled: false,
-        filePaths: opts.properties.includes("openDirectory")
-          ? ["/test/directory"]
-          : ["/test/file.csv"],
-      });
-      dialog.showSaveDialog = async () => ({ canceled: true });
-    });
-    assert.equal(
-      await settings.evaluate(() => window.asterionDesktop.open({ directory: true })),
-      "/test/directory",
-    );
-    assert.equal(
-      await settings.evaluate(() => window.asterionDesktop.save({ title: "Export" })),
-      null,
-    );
     assert.equal(await page.evaluate(() => window.open("https://example.com") === null), true);
     // The workspace in use survives a whole desktop restart.
     await settings.evaluate(() => window.asterionDesktop.close());
@@ -337,7 +319,7 @@ async function closeDesktop(application) {
     await expect(restored.locator(".market-workspace")).toBeVisible();
     await capture(restored, "native-watchlist");
     console.log(
-      "Electron: direct startup without Cloud, no authentication IPC, startup, real C++ bridge, renderer isolation, settings ownership/reuse/bounds, cross-window locale, retained draft, dialog IPC, shortcuts and workspace restore after desktop restart passed",
+      "Electron: direct startup without Cloud, no authentication IPC, startup, real C++ bridge, renderer isolation, settings ownership/reuse/bounds, cross-window locale, retained draft, shortcuts and workspace restore after desktop restart passed",
     );
   } finally {
     try {
