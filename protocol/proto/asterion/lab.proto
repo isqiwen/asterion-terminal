@@ -32,6 +32,9 @@ message Request {
     RunId cancel_sweep = 48;
     common.Empty list_factor_results = 49;
     RunId get_factor_result = 50;
+    // With its results and code copy; a run of a sweep takes the whole sweep.
+    RunId delete_run = 51;
+    RunId delete_factor_result = 52;
   }
 }
 
@@ -62,6 +65,8 @@ message Response {
     common.Empty cancel_sweep = 48;
     FactorResults list_factor_results = 49;
     FactorResult get_factor_result = 50;
+    common.Empty delete_run = 51;
+    common.Empty delete_factor_result = 52;
   }
 }
 

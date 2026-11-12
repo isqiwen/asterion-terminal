@@ -10,6 +10,7 @@ import math
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 import os
+import shutil
 from pathlib import Path
 import tempfile
 
@@ -90,6 +91,7 @@ class Service:
         self.runs = Runs(directory)
         # Runs a stopped service left running ended with it.
         self.runs.interrupt()
+        self.prune_sources()
         self.backtests = {}  # run id -> its child process, while it runs
         self.waiting = collections.deque()  # (sweep, AdmittedRun) not started yet
         self.processes = max(1, (os.cpu_count() or 2) - 1)
@@ -546,6 +548,49 @@ class Service:
                 started.set_result(message.splitlines()[-1])
             del self.backtests[identity]
             await self.pump()
+
+    def prune_sources(self):
+        """Removes code copies no record refers to: those of deleted records, and
+        of admissions that never recorded. Only at start, when nothing is queued."""
+        kept = {f"run-{row['id']}" for row in self.runs.list()}
+        kept |= {f"sweep-{sweep}" for sweep in self.runs.sweep_ids()}
+        kept |= {f"factor-{path.stem}" for path in (self.directory / "factors").glob("*.binpb")}
+        # Each copy is named "<kind>-<record id>-<random>".
+        for path in (self.directory / "sources").glob("*"):
+            if path.name.split("-", 1)[0] in ("run", "sweep", "factor") \
+                    and path.name.rsplit("-", 1)[0] not in kept:
+                shutil.rmtree(path)
+
+    def remove_sources(self, *names):
+        for name in names:
+            for path in (self.directory / "sources").glob(f"{name}-*"):
+                if path.name.rsplit("-", 1)[0] == name:
+                    shutil.rmtree(path)
+
+    async def on_delete_run(self, request, _):
+        async with self.admission:
+            rows = {row["id"]: row for row in await self.read(self.runs.list)}
+            row = rows.get(request.id)
+            if row is None:
+                raise ValueError(f"no run {request.id}")
+            sweep = row["sweep"]
+            members = [request.id]
+            if sweep:
+                members = [item["id"] for item in await self.read(self.runs.sweep, sweep)]
+                members.append(f"{sweep}-rolling")
+            if set(members) & set(self.backtests) or sweep and (
+                    sweep in self.rolling or any(item[0] == sweep for item in self.waiting)):
+                raise ValueError("a running or waiting run cannot be deleted")
+            await asyncio.to_thread(self.runs.delete, members)
+            await asyncio.to_thread(self.remove_sources, *[f"run-{item}" for item in members],
+                                    *([f"sweep-{sweep}"] if sweep else []))
+
+    async def on_delete_factor_result(self, request, _):
+        path = self.factor_path(request.id)
+        if not IDENTITY.fullmatch(request.id) or not path.exists():
+            raise ValueError(f"no factor result {request.id}")
+        path.unlink()
+        await asyncio.to_thread(self.remove_sources, f"factor-{request.id}")
 
     async def on_cancel_run(self, request, _):
         process = self.backtests.get(request.id)

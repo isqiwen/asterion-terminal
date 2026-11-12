@@ -17,6 +17,7 @@ import {
 import { FactorResultView } from "./FactorResultView";
 import {
   ConfigFold,
+  DeleteRecord,
   LabCentre,
   LabHeader,
   ModuleErrors,
@@ -229,6 +230,7 @@ export function FactorLab(context: TerminalContext) {
               <th>{t("因子")}</th>
               <th>{t("区间")}</th>
               <th>{t("评价时间")}</th>
+              <th />
             </tr>
           </thead>
           <tbody>
@@ -245,6 +247,18 @@ export function FactorLab(context: TerminalContext) {
                 </td>
                 <td className="subtle numeric-left">
                   {new Date(Number(item.evaluatedMs)).toLocaleString(getLocale())}
+                </td>
+                <td>
+                  <DeleteRecord
+                    name={item.id}
+                    remove={() =>
+                      void attempt(async () => {
+                        await lab({ case: "deleteFactorResult", value: { id: item.id } });
+                        if (result?.id === item.id) setResult(null);
+                        await readKept();
+                      })
+                    }
+                  />
                 </td>
               </tr>
             ))}

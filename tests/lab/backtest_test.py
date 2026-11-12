@@ -958,6 +958,53 @@ class Backtests(unittest.TestCase):
             self.assertLess(len(current.bars), len(original.bars))
         asyncio.run(scenario())
 
+    def test_a_deleted_run_takes_its_results_and_code_copy_and_start_prunes_strays(self):
+        class Log:
+            def write(self, *args, **kwargs):
+                pass
+
+        # Code copies; the fixture's dataset also lives under sources/.
+        copies = lambda: sorted(path.name.rsplit("-", 1)[0]
+                                for path in (self.directory / "sources").glob("run-*"))
+
+        async def scenario():
+            service = Service("lab", self.directory, Log())
+            for identity in ("keep", "drop"):
+                request = Request(id=1)
+                run = request.start_backtest
+                run.id, run.repository, run.strategy = identity, str(self.repository), "ma_cross.MaCross"
+                run.symbols.append("SHFE/rb/2026-05")
+                self.fill(run)
+                reply = await service.reply(request)
+                self.assertEqual(reply.WhichOneof("result"), "start_backtest", reply.error)
+            deadline = time.monotonic() + 30
+            while service.backtests and time.monotonic() < deadline:
+                await asyncio.sleep(0.1)
+            self.assertEqual(copies(), ["run-drop", "run-keep"])
+            reply = await service.reply(Request(id=1, delete_run={"id": "drop"}))
+            self.assertEqual(reply.WhichOneof("result"), "delete_run", reply.error)
+            listed = await service.reply(Request(id=1, list_runs={}))
+            self.assertEqual([row.id for row in listed.list_runs.runs], ["keep"])
+            self.assertFalse((self.directory / "runs" / "drop").exists())
+            self.assertEqual(copies(), ["run-keep"])
+            missing = await service.reply(Request(id=1, delete_run={"id": "drop"}))
+            self.assertEqual(missing.error.code, INVALID)
+
+        asyncio.run(scenario())
+        # A copy no record refers to goes when Lab starts; the kept run's stays.
+        (self.directory / "sources" / "run-gone-abcd1234").mkdir()
+        (self.directory / "factors").mkdir(exist_ok=True)
+        (self.directory / "factors" / "ic.binpb").write_bytes(b"")
+        (self.directory / "sources" / "factor-ic-abcd1234").mkdir()
+        service = Service("lab", self.directory, Log())
+        self.assertEqual(copies(), ["run-keep"])
+        self.assertTrue((self.directory / "sources" / "factor-ic-abcd1234").exists())
+        # A factor evaluation goes with its code copy.
+        reply = asyncio.run(service.reply(Request(id=1, delete_factor_result={"id": "ic"})))
+        self.assertEqual(reply.WhichOneof("result"), "delete_factor_result", reply.error)
+        self.assertFalse((self.directory / "factors" / "ic.binpb").exists())
+        self.assertFalse((self.directory / "sources" / "factor-ic-abcd1234").exists())
+
     def test_the_service_runs_a_backtest_in_a_child_process(self):
         class Log:
             def write(self, *args, **kwargs):

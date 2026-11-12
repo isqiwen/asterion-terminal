@@ -4,7 +4,12 @@ import { EditorView } from "codemirror";
 import { expect, test, vi } from "vitest";
 import { lab } from "../../src/bridge/lab";
 import type { TerminalContext } from "../../src/host/feature-registry";
-import { RunsSchema, SourceSchema, StrategiesSchema } from "../../src/generated/asterion/lab_pb";
+import {
+  RunState,
+  RunsSchema,
+  SourceSchema,
+  StrategiesSchema,
+} from "../../src/generated/asterion/lab_pb";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "../../src/host/workspace/drafts";
 import { StrategyLab } from "./StrategyLab";
 
@@ -93,4 +98,29 @@ test("the run configuration folds away to give the result the width", async () =
   expect(screen.queryByText("先选择一个策略。")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "展开配置" }));
   expect(screen.getByText("先选择一个策略。")).toBeTruthy();
+});
+
+test("a run is deleted only on the second click", async () => {
+  vi.mocked(lab).mockReset();
+  vi.mocked(lab).mockImplementation(async operation =>
+    operation?.case === "listStrategies"
+      ? (create(StrategiesSchema, { strategies: [] }) as never)
+      : operation?.case === "listRuns"
+        ? (create(RunsSchema, {
+            runs: [{ id: "r1", strategy: "once.Once", state: RunState.SUCCEEDED }],
+          }) as never)
+        : ({} as never),
+  );
+  const context = { snapshot: { research_directory: "/research" } } as unknown as TerminalContext;
+  render(
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.lab-strategies">
+      <StrategyLab {...context} />
+    </WorkspaceDraftScope>,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "删除 {name} r1" }));
+  expect(vi.mocked(lab).mock.calls.some(([call]) => call?.case === "deleteRun")).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "确认删除 {name} r1" }));
+  await waitFor(() =>
+    expect(vi.mocked(lab)).toHaveBeenCalledWith({ case: "deleteRun", value: { id: "r1" } }),
+  );
 });

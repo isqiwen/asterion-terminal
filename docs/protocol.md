@@ -163,6 +163,7 @@ sequenceDiagram
 | `list_runs` / `get_run` / `get_run_report` | — / 运行 ID / 运行 ID | 运行列表 / 运行详情 / QuantStats 指标 |
 | `cancel_run` | 运行 ID | — |
 | `start_sweep` / `get_sweep` / `cancel_sweep` | 扫描设置 / 扫描 ID / 扫描 ID | — / 扫描的各次运行 / — |
+| `delete_run` / `delete_factor_result` | 运行 ID / 评价名称 | 删除已结束的运行或评价，连同结果和源码副本；扫描中的运行连同整个扫描删除 |
 
 - 回测和因子评估在接受时由 Lab 固定研究数据版本和代码副本；副本只含策略或因子模块及它从策略目录导入的模块，与策略包的范围相同。结果中的 `pinned` 记录数据版本、代码提交和未提交改动摘要；因子结果还带着评价时的模块源码。理由：界面的请求只描述要算什么；读哪一版由 Lab 在同一时刻决定，扫描的每次运行都相同。
 - Lab 交给子进程的是 `AdmittedRun`、`RollingRun` 和 `AdmittedFactor`：界面的请求加上 Lab 选定的版本和代码副本。它们也定义在 lab.proto 里，但只在 Lab 内部使用。

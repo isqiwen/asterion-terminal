@@ -17,6 +17,7 @@ import {
 } from "./research-lab";
 import {
   ConfigFold,
+  DeleteRecord,
   LabCentre,
   LabHeader,
   ModuleErrors,
@@ -478,6 +479,21 @@ export function StrategyLab(context: TerminalContext) {
                         {t("取消")}
                       </button>
                     )}
+                    {runState(run.state) !== "running" &&
+                      !(group && members.some(item => runState(item.state) === "running")) && (
+                        <DeleteRecord
+                          name={group || run.id}
+                          remove={() =>
+                            void cancelled.attempt(async () => {
+                              // A run of a sweep takes the whole sweep.
+                              await lab({ case: "deleteRun", value: { id: run.id } });
+                              if (shown && "id" in shown && shown.id === (group || run.id))
+                                setShown(null);
+                              await readRuns();
+                            })
+                          }
+                        />
+                      )}
                   </td>
                 </tr>
               );

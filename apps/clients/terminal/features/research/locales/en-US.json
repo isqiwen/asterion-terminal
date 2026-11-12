@@ -172,5 +172,7 @@
   "超过在途委托上限": "Over the working order limit",
   "资金不足": "Insufficient funds",
   "展开配置": "Show settings",
-  "收起配置": "Hide settings"
+  "收起配置": "Hide settings",
+  "删除 {name}": "Delete {name}",
+  "确认删除 {name}": "Confirm deleting {name}"
 }

@@ -284,3 +284,21 @@ export function ConfigFold({ folded, fold }: { folded: boolean; fold: (folded: b
     </button>
   );
 }
+
+// Deleting a record takes a second click; its results and code copy go with it.
+export function DeleteRecord({ name, remove }: { name: string; remove: () => void }) {
+  const [armed, setArmed] = useState(false);
+  return armed ? (
+    <button className="danger" onClick={remove} onBlur={() => setArmed(false)}>
+      {t("确认删除 {name}", { name })}
+    </button>
+  ) : (
+    <button
+      className="lab-link"
+      aria-label={t("删除 {name}", { name })}
+      onClick={() => setArmed(true)}
+    >
+      {t("删除")}
+    </button>
+  );
+}

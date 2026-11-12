@@ -17,6 +17,7 @@ import json
 import math
 from pathlib import Path
 import re
+import shutil
 import sqlite3
 import time
 
@@ -182,6 +183,21 @@ class Runs:
         if name not in TABLES:
             raise ValueError(f"no run table {name}")
         return pl.read_parquet(self.root / identity / f"{name}.parquet")
+
+    def sweep_ids(self) -> set:
+        return {row[0] for row in self.index.execute("select distinct sweep from sweeps")}
+
+    def delete(self, identities: list):
+        """Removes ended runs: their index rows, metrics, sweep places and results."""
+        with self.index:
+            self.index.execute("begin")
+            for run in identities:
+                self.index.execute("delete from metrics where run = ?", (run,))
+                self.index.execute("delete from runs where id = ?", (run,))
+                self.index.execute("delete from sweeps where run = ?", (run,))
+        for run in identities:
+            if (self.root / run).exists():
+                shutil.rmtree(self.root / run)
 
     def interrupt(self):
         """Marks the runs a stopped service left running as interrupted; they
