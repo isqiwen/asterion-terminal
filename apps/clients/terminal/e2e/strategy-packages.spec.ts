@@ -19,13 +19,17 @@ test(
     await expect(packages.getByText(/^ma_cross\.MaCross · \d{8}-\d{6}$/)).toBeVisible();
     await expect(packages.getByText(/strategies\/ma_cross\.py/)).toBeVisible();
     await packages.getByRole("button", { name: "发布到此交易主机", exact: true }).click();
-    await expect(packages.getByRole("listitem")).toContainText("strategies.ma_cross:MaCross");
+    await expect(packages.getByRole("table", { name: "已发布的策略包" })).toContainText(
+      "strategies.ma_cross:MaCross",
+    );
     await expect(
       packages.getByRole("button", { name: "发布到此交易主机", exact: true }),
     ).toHaveCount(0);
     await tradingHost.restart();
     await packages.getByRole("button", { name: "读取主机策略包", exact: true }).click();
-    await expect(packages.getByRole("listitem")).toContainText("ma_cross.MaCross");
+    await expect(packages.getByRole("table", { name: "已发布的策略包" })).toContainText(
+      "ma_cross.MaCross",
+    );
     const account = tradingHost.connection;
     const state = await strategies(page.request, account);
     expect(state.packages).toHaveLength(1);
@@ -49,8 +53,12 @@ test(
     });
     expect((await strategies(page.request, account)).instance).toBeUndefined();
     await form.getByRole("button", { name: "确认启动", exact: true }).click();
-    const monitor = packages.getByRole("region", { name: "策略运行状态", exact: true });
+    // The running instance sits with the account, above its order ticket.
+    const monitor = page.getByRole("region", { name: "策略运行状态", exact: true });
     await expect(monitor).toContainText("正在现场预热", { timeout: 20000 });
+    // Targets and positions are in view without scrolling.
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expect(monitor.getByRole("table", { name: "目标与实际持仓" })).toBeInViewport();
     const started = (await strategies(page.request, account)).instance;
     expect(started.instance.id).toBe("ui-run-a");
     expect((await liveAccount(page.request, account)).session.authorizedMs).toBeUndefined();

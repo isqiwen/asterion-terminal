@@ -169,6 +169,35 @@ test("a buy order names the account, the reviewed policy and exact decimals", as
   ]);
 });
 
+test("a real-money order is sent only after its summary is confirmed", async () => {
+  read = () =>
+    create(ResponseSchema, {
+      result: {
+        case: "getAccount",
+        value: create(AccountSchema, { ...account, environment: Environment.REAL, session }),
+      },
+    });
+  show("real");
+  fireEvent.click(await screen.findByRole("checkbox", { name: "我已核对账户与柜台环境" }));
+  fireEvent.change(await screen.findByRole("textbox", { name: "限价" }), {
+    target: { value: "3561" },
+  });
+  fireEvent.click(button("买入 account-b"));
+  const summary = screen.getByRole("alertdialog", { name: "确认委托" });
+  expect(summary.textContent).toContain("SHFE · rb2610");
+  expect(commands()).toEqual([]);
+  fireEvent.click(button("取消"));
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(commands()).toEqual([]);
+  fireEvent.click(button("买入 account-b"));
+  fireEvent.click(button("确认发送"));
+  expect(commands()).toHaveLength(1);
+  expect(commands()[0][1]).toMatchObject({
+    case: "sendCommand",
+    value: { action: { case: "submitOrder", value: { side: Side.BUY } } },
+  });
+});
+
 test("an account without a policy offers to open trading in the service's environment", async () => {
   read = () =>
     create(ResponseSchema, {

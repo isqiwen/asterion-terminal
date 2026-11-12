@@ -1,5 +1,10 @@
 import { useState } from "react";
-import { InstanceState, type InstanceStatus } from "../../src/generated/asterion/trading_pb";
+import { Side } from "../../src/generated/asterion/common_pb";
+import {
+  InstanceState,
+  type InstanceStatus,
+  type Position,
+} from "../../src/generated/asterion/trading_pb";
 import { decimalText } from "../../src/bridge/decimal";
 import { getLocale, listSeparator } from "../../src/i18n";
 import { BackendError, ErrorNotice } from "../../src/i18n/errors";
@@ -15,8 +20,20 @@ const states: Partial<Record<InstanceState, string>> = {
   [InstanceState.FAILED]: "策略运行失败",
 };
 
+// Long minus short lots of a contract, today's and earlier ones together.
+function held(positions: readonly Position[], contract: string) {
+  let lots = 0;
+  for (const position of positions)
+    if (key(position.instrument) === contract)
+      lots +=
+        (position.side === Side.BUY ? 1 : -1) *
+        (Number(decimalText(position.todayLots)) + Number(decimalText(position.yesterdayLots)));
+  return String(lots);
+}
+
 export function StrategyMonitor({
   instance,
+  positions,
   observedAt,
   fresh,
   stopping,
@@ -26,6 +43,8 @@ export function StrategyMonitor({
   flatten,
 }: {
   instance?: InstanceStatus;
+  // The account's positions, to set beside each target.
+  positions: readonly Position[];
   observedAt?: Date;
   fresh: boolean;
   stopping: boolean;
@@ -85,40 +104,39 @@ export function StrategyMonitor({
           {t("预热是否完成由策略按参数和实际收到的数据判断；批次数不是预热百分比。")}
         </p>
       )}
-      {instance.lastDecision && (
-        <div>
-          <h4>{t("最近目标批次 {n}", { n: instance.lastDecision.sequence.toString() })}</h4>
-          {instance.lastDecision.targets.length ? (
-            <table>
-              <thead>
-                <tr>
-                  <th>{t("实际合约")}</th>
-                  <th>{t("目标类型")}</th>
-                  <th>{t("目标值")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {instance.lastDecision.targets.map(target => (
-                  <tr key={key(target.instrument)}>
-                    <td>{key(target.instrument)}</td>
-                    <td>{t(target.size.case === "lots" ? "手数" : "权重")}</td>
-                    <td>
-                      {target.size.case === "lots"
-                        ? target.size.value.toString()
-                        : target.size.case === "weight"
-                          ? decimalText(target.size.value)
-                          : "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <p>{t("本批没有可执行目标")}</p>
-          )}
-          <p className="subtle">{t("目标不代表成交；实际持仓和委托请查看下方账户记录。")}</p>
-        </div>
-      )}
+      <table aria-label={t("目标与实际持仓")}>
+        <thead>
+          <tr>
+            <th>{t("实际合约")}</th>
+            <th className="numeric">
+              {instance.lastDecision
+                ? t("目标（批次 {n}）", { n: instance.lastDecision.sequence.toString() })
+                : t("目标")}
+            </th>
+            <th className="numeric">{t("实际净持仓")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {configuration.instruments.map(instrument => {
+            const target = instance.lastDecision?.targets.find(
+              item => key(item.instrument) === key(instrument),
+            );
+            return (
+              <tr key={key(instrument)}>
+                <td>{key(instrument)}</td>
+                <td className="numeric">
+                  {target?.size.case === "lots"
+                    ? target.size.value.toString()
+                    : target?.size.case === "weight"
+                      ? `${decimalText(target.size.value)} ${t("权重")}`
+                      : "—"}
+                </td>
+                <td className="numeric">{held(positions, key(instrument))}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
       {instance.events.length > 0 && (
         <div>
           <h4>{t("最近事件")}</h4>

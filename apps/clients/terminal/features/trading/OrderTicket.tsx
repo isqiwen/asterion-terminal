@@ -16,20 +16,24 @@ const offsetValues = {
 
 // The owner's limit order on one allowed contract. Buying and selling are
 // separate buttons that name the account, so pressing Enter in a field never
-// sends an order.
+// sends an order. With `confirm` (a real-money account) either button first
+// shows what will be sent.
 export function OrderTicket({
   record,
   snapshot,
   busy,
   accountName,
+  confirm,
   run,
   onSent,
 }: Pick<TerminalContext, "snapshot" | "busy"> & {
   record: Account;
   accountName: string;
+  confirm: boolean;
   run: Run;
   onSent: () => void;
 }) {
+  const [pending, setPending] = useState<Side>();
   const [order, setOrder] = useState<{
     contract: string;
     offset: keyof typeof offsetValues;
@@ -57,8 +61,16 @@ export function OrderTicket({
   const quote = useMarket()?.board.rows.find(
     row => row.instrument?.exchange === exchange && row.instrument?.symbol === symbol,
   )?.quote;
+  const offsetLabels = {
+    open: "开仓",
+    close_today: "平今",
+    close_yesterday: "平昨",
+    close: "平仓",
+  };
   const submit = (side: Side, form: HTMLFormElement | null) => {
     if (!traded || !form?.reportValidity()) return;
+    if (confirm && pending !== side) return setPending(side);
+    setPending(undefined);
     void command(run, record, () => ({
       case: "submitOrder",
       value: {
@@ -156,14 +168,41 @@ export function OrderTicket({
             <button
               key={side}
               type="button"
-              className="primary"
+              className={side === Side.BUY ? "order-buy" : "order-sell"}
+              disabled={pending !== undefined}
               onClick={event => submit(side, event.currentTarget.form)}
             >
               {t(side === Side.BUY ? "买入" : "卖出")} <small>{accountName}</small>
             </button>
           ))}
-          <span className="subtle">{t("委托先写入本机交易记录再发送；断线后不会自动重发。")}</span>
+          <span className="subtle">
+            {t("委托先写入交易主机的交易记录再发送；断线后不会自动重发。")}
+          </span>
         </div>
+        {pending !== undefined && (
+          <div className="order-confirm" role="alertdialog" aria-label={t("确认委托")}>
+            <p>
+              {t("{side} {contract} {offset} {lots} 手，限价 {price}，账户 {account}", {
+                side: t(pending === Side.BUY ? "买入" : "卖出"),
+                contract: `${exchange} · ${symbol}`,
+                offset: t(offsetLabels[offset]),
+                lots: order.quantity,
+                price: order.price,
+                account: accountName,
+              })}
+            </p>
+            <button
+              type="button"
+              className="danger"
+              onClick={event => submit(pending, event.currentTarget.form)}
+            >
+              {t("确认发送")}
+            </button>
+            <button type="button" onClick={() => setPending(undefined)}>
+              {t("取消")}
+            </button>
+          </div>
+        )}
       </fieldset>
     </form>
   );

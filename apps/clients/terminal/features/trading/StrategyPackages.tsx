@@ -1,65 +1,34 @@
 import { listSeparator } from "../../src/i18n";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Package } from "../../src/generated/asterion/strategy_pb";
-import type { Account, Strategies } from "../../src/generated/asterion/trading_pb";
+import type { Account } from "../../src/generated/asterion/trading_pb";
 import { lab } from "../../src/bridge/lab";
-import { strategyRequest, type StrategyCall } from "../../src/bridge/strategy";
-import { ActionError, useActionError } from "../../src/host/action-error";
+import { ActionError } from "../../src/host/action-error";
 import { notify } from "../../src/host/notifications";
-import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/errors";
+import { ErrorNotice } from "../../src/i18n/errors";
 import { t } from "./live-shared";
 import { StrategyInstance } from "./StrategyInstance";
-import { StrategyMonitor } from "./StrategyMonitor";
+import type { StrategyHost } from "./strategy-host";
 import "./strategy.css";
 
-type Props = { account: string; repository: string; record?: Account; connected?: boolean };
-
-export function StrategyPackages(props: Props) {
-  return <AccountStrategies key={props.account} {...props} />;
-}
-
-function AccountStrategies({ account, repository, record, connected = false }: Props) {
+// Packages of the account's host: prepare from research, publish, start an instance.
+export function StrategyPackages({
+  host,
+  repository,
+  record,
+  connected = false,
+}: {
+  host: StrategyHost;
+  repository: string;
+  record?: Account;
+  connected?: boolean;
+}) {
+  const { state, busy, stopping, reading, fresh, readError, error, refresh, mutate, perform } =
+    host;
   const [strategies, setStrategies] = useState<string[]>([]);
   const [strategy, setStrategy] = useState("");
   const [preparation, setPreparation] = useState<{ repository: string; value: Package }>();
   const prepared = preparation?.repository === repository ? preparation.value : undefined;
-  const [state, setState] = useState<Strategies>();
-  const [busy, setBusy] = useState(false);
-  const [stopping, setStopping] = useState(false);
-  const [reading, setReading] = useState(false);
-  const [fresh, setFresh] = useState(false);
-  const [observedAt, setObservedAt] = useState<Date>();
-  const [readError, setReadError] = useState<DisplayError>("");
-  const sequence = useRef(0);
-  const active = useRef(true);
-  const readPending = useRef(false);
-  const commandPending = useRef(false);
-  const stopPending = useRef(false);
-  const preparing = useRef(false);
-  const accept = (next: Strategies) => {
-    setState(next);
-    setFresh(true);
-    setReadError("");
-    setObservedAt(new Date());
-  };
-  const refresh = useCallback(async () => {
-    if (readPending.current || commandPending.current || stopPending.current) return;
-    readPending.current = true;
-    setReading(true);
-    const current = ++sequence.current;
-    try {
-      const next = await strategyRequest(account, { case: "getStrategies", value: {} });
-      if (active.current && current === sequence.current) accept(next);
-    } catch (reason) {
-      if (active.current && current === sequence.current) {
-        setFresh(false);
-        setReadError(asDisplayError(reason));
-      }
-    } finally {
-      readPending.current = false;
-      if (active.current) setReading(false);
-    }
-  }, [account]);
   useEffect(() => {
     if (!repository) return;
     let current = true;
@@ -71,43 +40,6 @@ function AccountStrategies({ account, repository, record, connected = false }: P
       current = false;
     };
   }, [repository]);
-  useEffect(() => {
-    active.current = true;
-    ++sequence.current;
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 3000);
-    return () => {
-      active.current = false;
-      window.clearInterval(timer);
-    };
-  }, [refresh]);
-
-  const { error, attempt } = useActionError();
-  async function mutate(operation: StrategyCall) {
-    const stop = operation.case === "stopStrategy";
-    const pending = stop ? stopPending : commandPending;
-    if (pending.current || (!stop && (preparing.current || stopPending.current || !fresh)))
-      return false;
-    pending.current = true;
-    (stop ? setStopping : setBusy)(true);
-    const current = ++sequence.current;
-    const done = await attempt(async () => {
-      const next = await strategyRequest(account, operation);
-      if (active.current && current === sequence.current) accept(next);
-    });
-    if (!done && active.current && current === sequence.current) setFresh(false);
-    pending.current = false;
-    if (active.current) (stop ? setStopping : setBusy)(false);
-    return done;
-  }
-  async function perform(action: () => Promise<void>) {
-    if (preparing.current || commandPending.current) return;
-    preparing.current = true;
-    setBusy(true);
-    await attempt(action);
-    preparing.current = false;
-    setBusy(false);
-  }
   return (
     <section className="ctp-strategies" aria-label={t("策略包")}>
       <div className="workflow-heading">
@@ -193,24 +125,28 @@ function AccountStrategies({ account, repository, record, connected = false }: P
       )}
       {state && (
         <>
-          <ul>
-            {state.packages.map(item => (
-              <li key={`${item.name}/${item.version}`}>
-                {item.name} · {item.version} · {item.entry}
-              </li>
-            ))}
-          </ul>
-          {!state.packages.length && <p>{t("此账户尚未安装策略包。")}</p>}
-          <StrategyMonitor
-            instance={state.instance}
-            observedAt={observedAt}
-            fresh={fresh}
-            stopping={stopping}
-            busy={busy}
-            stop={id => mutate({ case: "stopStrategy", value: { id } })}
-            pause={(id, paused) => mutate({ case: "pauseStrategy", value: { id, paused } })}
-            flatten={id => mutate({ case: "flattenStrategy", value: { id } })}
-          />
+          {state.packages.length ? (
+            <table aria-label={t("已发布的策略包")}>
+              <thead>
+                <tr>
+                  <th>{t("名称")}</th>
+                  <th>{t("版本")}</th>
+                  <th>{t("入口")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {state.packages.map(item => (
+                  <tr key={`${item.name}/${item.version}`}>
+                    <td>{item.name}</td>
+                    <td>{item.version}</td>
+                    <td>{item.entry}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p>{t("此账户尚未安装策略包。")}</p>
+          )}
           <StrategyInstance
             state={state}
             account={record}

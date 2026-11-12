@@ -1,9 +1,10 @@
 import { listSeparator } from "../../src/i18n";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { TradingConnection, Snapshot } from "../../src/bridge/client";
 import { groupedText } from "../../src/bridge/decimal";
 import { BrokerState, Environment, type Account } from "../../src/generated/asterion/trading_pb";
 import { FlowSteps } from "../../src/ui/FlowSteps";
+import { StatusBadge, type Tone } from "../../src/ui/StatusBadge";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { AccountRecords } from "./AccountRecords";
 import { type Activity } from "./ActivityTabs";
@@ -18,6 +19,12 @@ import {
   type Run,
 } from "./live-shared";
 
+// The counter link: ready, on its way, or down.
+function phaseTone(stale: boolean, state: BrokerState): Tone {
+  if (stale || state === BrokerState.FAILED || state === BrokerState.DISCONNECTED) return "danger";
+  return state === BrokerState.READY ? "ok" : "attention";
+}
+
 export function LiveAccount({
   account,
   record,
@@ -26,6 +33,7 @@ export function LiveAccount({
   busy,
   run,
   control,
+  monitor,
 }: {
   account: TradingConnection;
   // The account as Trading reports it, with its open session.
@@ -36,6 +44,8 @@ export function LiveAccount({
   busy: boolean;
   run: Run;
   control: Run;
+  // The running strategy, shown between the account state and the order ticket.
+  monitor?: ReactNode;
 }) {
   const [activity, setActivity] = useState<Activity>("positions");
   const live = record.session!;
@@ -110,11 +120,11 @@ export function LiveAccount({
   };
   return (
     <>
-      <div className="ctp-identity">
+      <div className="ctp-identity" data-real={(environmentReady && real) || undefined}>
         <strong>
           {account.instance} · {broker.brokerId} · {broker.userId}
         </strong>
-        <strong>
+        <StatusBadge tone={!environmentReady ? "attention" : real ? "danger" : "neutral"}>
           {t(
             !environmentReady
               ? "CTP 环境待确认"
@@ -122,11 +132,15 @@ export function LiveAccount({
                 ? "真实资金 · 用户确认"
                 : "CTP 仿真 · 用户确认",
           )}
-        </strong>
-        <span data-testid="live-phase">
-          {t(stale ? "服务失联" : (phases[live.brokerState] ?? BrokerState[live.brokerState]))}
-        </span>
-        <span>{authorized ? t("已授权") : t("尚未允许发送委托")}</span>
+        </StatusBadge>
+        <StatusBadge tone={phaseTone(stale, live.brokerState)}>
+          <span data-testid="live-phase">
+            {t(stale ? "服务失联" : (phases[live.brokerState] ?? BrokerState[live.brokerState]))}
+          </span>
+        </StatusBadge>
+        <StatusBadge tone={authorized ? "ok" : "neutral"}>
+          {authorized ? t("已授权") : t("尚未允许发送委托")}
+        </StatusBadge>
         <span>{broker.front}</span>
         {/* The account's actions stay together when the line wraps. */}
         <div className="ctp-identity-actions">
@@ -222,6 +236,7 @@ export function LiveAccount({
           ))}
         </dl>
       )}
+      {monitor}
       {stage !== "stale" && stage !== "trade" && (
         <FlowSteps
           labels={[t("核对并连接"), t("允许发送委托"), t("下单")]}
@@ -296,6 +311,7 @@ export function LiveAccount({
           snapshot={snapshot}
           busy={busy}
           accountName={account.instance}
+          confirm={real}
           run={run}
           onSent={() => setActivity("orders")}
         />

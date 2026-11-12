@@ -140,7 +140,6 @@
   "费率": "Rates",
   "风控": "Risk",
   "连接柜台后可查询账户费率。": "Connect to the counter to query the account's rates.",
-  "委托先写入本机交易记录再发送；断线后不会自动重发。": "Orders are recorded locally before they are sent and are never resent after a disconnect.",
   "无": "None",
   "授权长期有效，断线重连和换交易日后不需要再次授权；撤销授权、修改风控政策或交易服务重启后失效。": "The authorization lasts across reconnects and trading days; it ends when you revoke it, change the risk policy or the trading service restarts.",
   "已授权": "Authorized",
@@ -261,5 +260,17 @@
   "交易日": "Trading day",
   "当日": "Current day",
   "收盘持仓": "Positions at close",
-  "导出 CSV": "Export CSV"
+  "导出 CSV": "Export CSV",
+  "委托先写入交易主机的交易记录再发送；断线后不会自动重发。": "Orders are recorded on the trading host before they are sent and are never resent after a disconnect.",
+  "确认委托": "Confirm the order",
+  "{side} {contract} {offset} {lots} 手，限价 {price}，账户 {account}": "{side} {contract} {offset} {lots} lots at limit {price}, account {account}",
+  "确认发送": "Send",
+  "目标与实际持仓": "Targets and positions",
+  "目标（批次 {n}）": "Target (batch {n})",
+  "目标": "Target",
+  "实际净持仓": "Net position",
+  "已发布的策略包": "Published packages",
+  "名称": "Name",
+  "版本": "Version",
+  "入口": "Entry"
 }

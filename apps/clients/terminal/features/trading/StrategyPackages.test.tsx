@@ -16,12 +16,42 @@ import { registerTerminalFeatures } from "../../src/host/feature-registry";
 import { lab } from "../../src/bridge/lab";
 import { strategyRequest } from "../../src/bridge/strategy";
 import { StrategyPackages } from "./StrategyPackages";
+import { StrategyMonitor } from "./StrategyMonitor";
+import { useStrategyHost } from "./strategy-host";
+import type { Account } from "../../src/generated/asterion/trading_pb";
 import { NotificationCenter } from "../../src/host/notifications";
 import { feature } from "./feature";
 
 vi.mock("../../src/bridge/lab", () => ({ lab: vi.fn() }));
 vi.mock("../../src/bridge/strategy", () => ({ strategyRequest: vi.fn() }));
 registerTerminalFeatures([feature]);
+
+type Props = { account: string; repository: string; record?: Account; connected?: boolean };
+// The account column's strategy parts, sharing one host as the trading page does.
+function Packages(props: Props) {
+  return <AccountPackages key={props.account} {...props} />;
+}
+function AccountPackages({ account, ...rest }: Props) {
+  const host = useStrategyHost(account);
+  return (
+    <>
+      {host.state && (
+        <StrategyMonitor
+          instance={host.state.instance}
+          positions={rest.record?.session?.positions ?? []}
+          observedAt={host.observedAt}
+          fresh={host.fresh}
+          stopping={host.stopping}
+          busy={host.busy}
+          stop={id => host.mutate({ case: "stopStrategy", value: { id } })}
+          pause={(id, paused) => host.mutate({ case: "pauseStrategy", value: { id, paused } })}
+          flatten={id => host.mutate({ case: "flattenStrategy", value: { id } })}
+        />
+      )}
+      <StrategyPackages host={host} {...rest} />
+    </>
+  );
+}
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(strategyRequest).mockResolvedValue(installed());
@@ -83,7 +113,7 @@ test("the prepared files are reviewed and published only to the selected account
   vi.mocked(strategyRequest).mockResolvedValue(
     create(HostStrategiesSchema, { packages: [code.manifest!] }),
   );
-  render(<StrategyPackages account="account-a" repository="/strategies" />);
+  render(<Packages account="account-a" repository="/strategies" />);
   await choose();
   await act(async () => fireEvent.click(screen.getByText("准备策略包")));
   expect(lab).toHaveBeenCalledWith({
@@ -115,7 +145,7 @@ test("a repository change discards a late preparation; publishing an uncertain o
   );
   const view = render(
     <>
-      <StrategyPackages account="account-a" repository="/old" />
+      <Packages account="account-a" repository="/old" />
       <NotificationCenter />
     </>,
   );
@@ -123,7 +153,7 @@ test("a repository change discards a late preparation; publishing an uncertain o
   fireEvent.click(screen.getByText("准备策略包"));
   view.rerender(
     <>
-      <StrategyPackages account="account-a" repository="/new" />
+      <Packages account="account-a" repository="/new" />
       <NotificationCenter />
     </>,
   );
@@ -146,7 +176,7 @@ test("review sends explicit configuration and exact values only on confirmation,
         })
       : installed(),
   );
-  render(<StrategyPackages account="account-a" repository="" record={record} connected />);
+  render(<Packages account="account-a" repository="" record={record} connected />);
   await waitFor(() => expect(screen.getByLabelText("实例 ID")).toBeDefined());
   fireEvent.change(screen.getByLabelText("实例 ID"), { target: { value: "new-run" } });
   fireEvent.change(screen.getByLabelText("已发布版本"), { target: { value: "example/one" } });
@@ -180,7 +210,7 @@ test("review sends explicit configuration and exact values only on confirmation,
 
 test("an ended instance resumes from its record under a new id after review", async () => {
   vi.mocked(strategyRequest).mockResolvedValue(runtime(InstanceState.INTERRUPTED));
-  render(<StrategyPackages account="account-a" repository="" record={record} connected />);
+  render(<Packages account="account-a" repository="" record={record} connected />);
   await waitFor(() => expect(screen.getByLabelText("实例 ID")).toBeDefined());
   fireEvent.change(screen.getByLabelText("实例 ID"), { target: { value: "run-b" } });
   await click("从实例 run-a 的记录恢复");
@@ -203,7 +233,7 @@ test("pause and flatten act on the inspected instance", async () => {
     },
   });
   vi.mocked(strategyRequest).mockResolvedValue(ready);
-  render(<StrategyPackages account="account-a" repository="" record={record} connected />);
+  render(<Packages account="account-a" repository="" record={record} connected />);
   await waitFor(() => expect(screen.getByText(/sent SHFE\/rb2610/)).toBeDefined());
   await click("暂停新增");
   expect(writes()[0][1]).toEqual({ case: "pauseStrategy", value: { id: "run-a", paused: true } });
@@ -215,7 +245,7 @@ test("pause and flatten act on the inspected instance", async () => {
 
 test("stop remains available during an inspection and a late reply cannot resurrect the stopped instance", async () => {
   vi.mocked(strategyRequest).mockResolvedValue(runtime(InstanceState.WARMING));
-  render(<StrategyPackages account="account-a" repository="" />);
+  render(<Packages account="account-a" repository="" />);
   await waitFor(() => expect(screen.getByText("正在现场预热")).toBeDefined());
   let reply!: (value: Strategies) => void;
   vi.mocked(strategyRequest).mockReturnValueOnce(
@@ -236,14 +266,14 @@ test("stop remains available during an inspection and a late reply cannot resurr
 
 test("a changed account policy requires reviewing the configuration again before starting", async () => {
   const props = { account: "account-a", repository: "", connected: true };
-  const view = render(<StrategyPackages {...props} record={record} />);
+  const view = render(<Packages {...props} record={record} />);
   await waitFor(() => expect(screen.getByLabelText("实例 ID")).toBeDefined());
   fireEvent.change(screen.getByLabelText("实例 ID"), { target: { value: "new-run" } });
   fireEvent.change(screen.getByLabelText("已发布版本"), { target: { value: "example/one" } });
   fireEvent.click(screen.getByLabelText("SHFE.rb2610"));
   await click("核对启动配置");
   view.rerender(
-    <StrategyPackages
+    <Packages
       {...props}
       record={{ ...record, session: { ...record.session!, policyRevision: "policy-b" } }}
     />,
@@ -261,7 +291,7 @@ test("a changed account policy requires reviewing the configuration again before
 test("polling is read-only; failures preserve stale state and unmount never stops trading", async () => {
   vi.useFakeTimers();
   vi.mocked(strategyRequest).mockResolvedValue(runtime(InstanceState.READY));
-  const view = render(<StrategyPackages account="account-a" repository="" />);
+  const view = render(<Packages account="account-a" repository="" />);
   await act(async () => {});
   vi.mocked(strategyRequest).mockRejectedValue(new Error("connection lost"));
   await act(async () => {
@@ -286,8 +316,8 @@ test("switching accounts discards a previous host's late response", async () => 
       reply = resolve;
     }),
   );
-  const view = render(<StrategyPackages account="account-a" repository="" />);
-  view.rerender(<StrategyPackages account="account-b" repository="" />);
+  const view = render(<Packages account="account-a" repository="" />);
+  view.rerender(<Packages account="account-b" repository="" />);
   await act(async () => reply(runtime(InstanceState.READY)));
   expect(screen.queryByText("策略已就绪")).toBeNull();
   expect(strategyRequest).toHaveBeenLastCalledWith("account-b", {

@@ -2,12 +2,14 @@ import { useState } from "react";
 import { ActionError, useActionError } from "../../src/host/action-error";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
-import { ErrorNotice } from "../../src/i18n/errors";
+import { type DisplayError, ErrorNotice } from "../../src/i18n/errors";
 import type { TradingConnection } from "../../src/bridge/client";
 import { BrokerState } from "../../src/generated/asterion/trading_pb";
 import { useTradingAccounts, type TradingView } from "../../src/host/trading-accounts";
 import { t, phases, type Run } from "./live-shared";
 import { StrategyPackages } from "./StrategyPackages";
+import { StrategyMonitor } from "./StrategyMonitor";
+import { useStrategyHost } from "./strategy-host";
 import { CreateLive } from "./CreateLive";
 import { LiveAccount } from "./LiveAccount";
 
@@ -80,58 +82,109 @@ export function LivePanel(context: TerminalContext) {
             ))}
           </nav>
           {account && (
-            <div className="ctp-account-column" key={`${account.id}:${account.revision}`}>
-              <div className="ctp-account-panel">
-                <ActionError error={error} namespace="asterion.terminal.trading" />
-                {view?.live && view.account ? (
-                  <LiveAccount
-                    account={account}
-                    record={view.account}
-                    stale={!!view.failed || view.live.recoveryRequired}
-                    snapshot={snapshot}
-                    busy={busy}
-                    run={runFor(account.id, true)}
-                    control={runFor(account.id, false)}
-                  />
-                ) : view?.account && view.initialized === false ? (
-                  <div className="account-setup">
-                    <div className="workflow-heading">
-                      <h3>{t("开通交易：{name}", { name: account.instance })}</h3>
-                    </div>
-                    <CreateLive
-                      account={account}
-                      configuration={view.account}
-                      busy={busy}
-                      run={runFor(account.id, true)}
-                    />
-                  </div>
-                ) : (
-                  <div className="workflow-empty">
-                    <p>
-                      {account.instance} · {account.host}:{account.port}
-                    </p>
-                    {view?.failed ? (
-                      <p className="alert" role="alert">
-                        <ErrorNotice error={view.failed} namespace="asterion.terminal.trading" />
-                      </p>
-                    ) : (
-                      <p role="status">{t("正在读取交易服务…")}</p>
-                    )}
-                  </div>
-                )}
-              </div>
-              <div className="ctp-account-panel">
-                <StrategyPackages
-                  account={account.id}
-                  repository={repository}
-                  record={view?.account}
-                  connected={!!view && !view.failed}
-                />
-              </div>
-            </div>
+            <AccountColumn
+              key={`${account.id}:${account.revision}`}
+              account={account}
+              view={view}
+              error={error}
+              snapshot={snapshot}
+              busy={busy}
+              runFor={runFor}
+              repository={repository}
+            />
           )}
         </div>
       )}
     </section>
+  );
+}
+
+// One account: its trading panel, with the running strategy beside the account
+// state, and its strategy packages below.
+function AccountColumn({
+  account,
+  view,
+  error,
+  snapshot,
+  busy,
+  runFor,
+  repository,
+}: {
+  account: TradingConnection;
+  view: TradingView | undefined;
+  error: DisplayError;
+  snapshot: TerminalContext["snapshot"];
+  busy: boolean;
+  runFor: (id: string, hold: boolean) => Run;
+  repository: string;
+}) {
+  const host = useStrategyHost(account.id);
+  return (
+    <div className="ctp-account-column">
+      <div className="ctp-account-panel">
+        <ActionError error={error} namespace="asterion.terminal.trading" />
+        {view?.live && view.account ? (
+          <LiveAccount
+            account={account}
+            record={view.account}
+            monitor={
+              host.state && (
+                <StrategyMonitor
+                  instance={host.state.instance}
+                  positions={view.live.positions}
+                  observedAt={host.observedAt}
+                  fresh={host.fresh}
+                  stopping={host.stopping}
+                  busy={host.busy}
+                  stop={id => host.mutate({ case: "stopStrategy", value: { id } })}
+                  pause={(id, paused) =>
+                    host.mutate({ case: "pauseStrategy", value: { id, paused } })
+                  }
+                  flatten={id => host.mutate({ case: "flattenStrategy", value: { id } })}
+                />
+              )
+            }
+            stale={!!view.failed || view.live.recoveryRequired}
+            snapshot={snapshot}
+            busy={busy}
+            run={runFor(account.id, true)}
+            control={runFor(account.id, false)}
+          />
+        ) : view?.account && view.initialized === false ? (
+          <div className="account-setup">
+            <div className="workflow-heading">
+              <h3>{t("开通交易：{name}", { name: account.instance })}</h3>
+            </div>
+            <CreateLive
+              account={account}
+              configuration={view.account}
+              busy={busy}
+              run={runFor(account.id, true)}
+            />
+          </div>
+        ) : (
+          <div className="workflow-empty">
+            <p>
+              {account.instance} · {account.host}:{account.port}
+            </p>
+            {view?.failed ? (
+              <p className="alert" role="alert">
+                <ErrorNotice error={view.failed} namespace="asterion.terminal.trading" />
+              </p>
+            ) : (
+              <p role="status">{t("正在读取交易服务…")}</p>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="ctp-account-panel">
+        <StrategyPackages
+          host={host}
+          repository={repository}
+          record={view?.account}
+          connected={!!view && !view.failed}
+        />
+      </div>
+    </div>
   );
 }
