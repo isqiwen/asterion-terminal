@@ -15,7 +15,16 @@ import {
   runRequest,
   type RunForm,
 } from "./research-lab";
-import { LabCentre, LabHeader, ModuleErrors, NewModule, useModules, useSource } from "./LabParts";
+import {
+  ConfigFold,
+  LabCentre,
+  LabHeader,
+  ModuleErrors,
+  NewModule,
+  useConfigFold,
+  useModules,
+  useSource,
+} from "./LabParts";
 import { StatusBadge } from "../../src/ui/StatusBadge";
 import {
   RunComparison,
@@ -160,8 +169,9 @@ export function StrategyLab(context: TerminalContext) {
     </label>
   );
   const validation = { none: "不验证", holdout: "留出", rolling: "滚动验证" } as const;
+  const [folded, setFolded] = useConfigFold();
   return (
-    <section className="lab-research">
+    <section className="lab-research" data-folded={folded || undefined}>
       <LabHeader context={context} modules={strategies} refresh={() => void readStrategies()} />
       <aside className="lab-modules">
         <h4>{t("策略")}</h4>
@@ -248,112 +258,123 @@ export function StrategyLab(context: TerminalContext) {
         </>
       </LabCentre>
       <aside className="lab-config">
-        <h4>{t("运行配置")}</h4>
-        {!strategy ? (
-          <p className="subtle">{t("先选择一个策略。")}</p>
-        ) : (
+        <h4>
+          {!folded && t("运行配置")}
+          <ConfigFold folded={folded} fold={setFolded} />
+        </h4>
+        {!folded && (
           <>
-            <div className="lab-form">
-              <label className="wide">
-                <span>{t("品种")}</span>
-                <input
-                  value={form.symbols}
-                  placeholder="SHFE/rb, SHFE/au/2026-12"
-                  onChange={event => change({ symbols: event.target.value })}
-                />
-              </label>
-              {dateField("开始日", "begin")}
-              {dateField("结束日", "end")}
-              <label>
-                <span>{t("周期")}</span>
-                <select
-                  value={form.minutes}
-                  onChange={event => change({ minutes: event.target.value })}
-                >
-                  <option value="0">{t("日线")}</option>
-                  {[1, 5, 10, 15, 30, 60].map(value => (
-                    <option key={value} value={String(value)}>
-                      {t("{count} 分钟", { count: value })}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <h5 className="wide">{t("参数（多个值用逗号分隔即为扫描）")}</h5>
-              {strategy.parameters.map(parameter => (
-                <label key={parameter.name}>
-                  <span>
-                    {parameter.name} <small>{parameterKind(parameter)}</small>
-                  </span>
-                  <input
-                    value={form.params[parameter.name] ?? ""}
-                    onChange={event =>
-                      change({ params: { ...form.params, [parameter.name]: event.target.value } })
-                    }
-                  />
-                </label>
-              ))}
-              <h5 className="wide">{t("资金与交易")}</h5>
-              {field("初始资金", "deposit")}
-              {field("滑点（跳）", "slippage")}
-              {field("单笔手数", "maxOrderLots")}
-              {field("总持仓手数", "maxGrossLots")}
-              <details className="wide lab-section">
-                <summary>
-                  {t("更多限额与统计")}
-                  <small>{t("每年 {periods} 期", { periods: form.annualPeriods || "—" })}</small>
-                </summary>
+            {!strategy ? (
+              <p className="subtle">{t("先选择一个策略。")}</p>
+            ) : (
+              <>
                 <div className="lab-form">
-                  {field("在途委托数", "maxWorkingOrders")}
-                  {field("并行进程数", "processes", { placeholder: t("处理器数减一") })}
-                  {field("总权重上限", "maxGrossWeight")}
-                  {field("净权重上限", "maxNetWeight")}
-                  {field("每年期数", "annualPeriods")}
-                  <label className="lab-check">
+                  <label className="wide">
+                    <span>{t("品种")}</span>
                     <input
-                      type="checkbox"
-                      checked={form.zeroRiskFree}
-                      onChange={event => change({ zeroRiskFree: event.target.checked })}
+                      value={form.symbols}
+                      placeholder="SHFE/rb, SHFE/au/2026-12"
+                      onChange={event => change({ symbols: event.target.value })}
                     />
-                    {t("无风险利率为零")}
                   </label>
+                  {dateField("开始日", "begin")}
+                  {dateField("结束日", "end")}
+                  <label>
+                    <span>{t("周期")}</span>
+                    <select
+                      value={form.minutes}
+                      onChange={event => change({ minutes: event.target.value })}
+                    >
+                      <option value="0">{t("日线")}</option>
+                      {[1, 5, 10, 15, 30, 60].map(value => (
+                        <option key={value} value={String(value)}>
+                          {t("{count} 分钟", { count: value })}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <h5 className="wide">{t("参数（多个值用逗号分隔即为扫描）")}</h5>
+                  {strategy.parameters.map(parameter => (
+                    <label key={parameter.name}>
+                      <span>
+                        {parameter.name} <small>{parameterKind(parameter)}</small>
+                      </span>
+                      <input
+                        value={form.params[parameter.name] ?? ""}
+                        onChange={event =>
+                          change({
+                            params: { ...form.params, [parameter.name]: event.target.value },
+                          })
+                        }
+                      />
+                    </label>
+                  ))}
+                  <h5 className="wide">{t("资金与交易")}</h5>
+                  {field("初始资金", "deposit")}
+                  {field("滑点（跳）", "slippage")}
+                  {field("单笔手数", "maxOrderLots")}
+                  {field("总持仓手数", "maxGrossLots")}
+                  <details className="wide lab-section">
+                    <summary>
+                      {t("更多限额与统计")}
+                      <small>
+                        {t("每年 {periods} 期", { periods: form.annualPeriods || "—" })}
+                      </small>
+                    </summary>
+                    <div className="lab-form">
+                      {field("在途委托数", "maxWorkingOrders")}
+                      {field("并行进程数", "processes", { placeholder: t("处理器数减一") })}
+                      {field("总权重上限", "maxGrossWeight")}
+                      {field("净权重上限", "maxNetWeight")}
+                      {field("每年期数", "annualPeriods")}
+                      <label className="lab-check">
+                        <input
+                          type="checkbox"
+                          checked={form.zeroRiskFree}
+                          onChange={event => change({ zeroRiskFree: event.target.checked })}
+                        />
+                        {t("无风险利率为零")}
+                      </label>
+                    </div>
+                  </details>
+                  <h5 className="wide">{t("验证")}</h5>
+                  <div className="wide lab-segmented" role="radiogroup">
+                    {(["none", "holdout", "rolling"] as const).map(kind => (
+                      <button
+                        key={kind}
+                        role="radio"
+                        aria-checked={form.validation === kind}
+                        onClick={() => change({ validation: kind })}
+                      >
+                        {t(validation[kind])}
+                      </button>
+                    ))}
+                  </div>
+                  {form.validation === "holdout" && dateField("留出日", "holdoutDay")}
+                  {form.validation === "rolling" && (
+                    <>
+                      {field("训练交易日数", "trainingDays")}
+                      {field("每轮验证交易日数", "validationDays")}
+                    </>
+                  )}
                 </div>
-              </details>
-              <h5 className="wide">{t("验证")}</h5>
-              <div className="wide lab-segmented" role="radiogroup">
-                {(["none", "holdout", "rolling"] as const).map(kind => (
+                <footer className="lab-submit">
                   <button
-                    key={kind}
-                    role="radio"
-                    aria-checked={form.validation === kind}
-                    onClick={() => change({ validation: kind })}
+                    className="primary"
+                    disabled={busy || context.busy}
+                    onClick={() => void submit()}
                   >
-                    {t(validation[kind])}
+                    {t("运行")}
                   </button>
-                ))}
-              </div>
-              {form.validation === "holdout" && dateField("留出日", "holdoutDay")}
-              {form.validation === "rolling" && (
-                <>
-                  {field("训练交易日数", "trainingDays")}
-                  {field("每轮验证交易日数", "validationDays")}
-                </>
-              )}
-            </div>
-            <footer className="lab-submit">
-              <button
-                className="primary"
-                disabled={busy || context.busy}
-                onClick={() => void submit()}
-              >
-                {t("运行")}
-              </button>
-              {saved.length > 0 && (
-                <p className="subtle">
-                  {t("已保存 {files}", { files: saved.join(listSeparator()) })}
-                </p>
-              )}
-              <ActionError error={submitted.error} />
-            </footer>
+                  {saved.length > 0 && (
+                    <p className="subtle">
+                      {t("已保存 {files}", { files: saved.join(listSeparator()) })}
+                    </p>
+                  )}
+                  <ActionError error={submitted.error} />
+                </footer>
+              </>
+            )}
           </>
         )}
       </aside>

@@ -266,3 +266,21 @@ export function LabCentre({
     </main>
   );
 }
+
+// The configuration column folds to a strip so a result can use the width.
+export function useConfigFold() {
+  return useWorkspaceDraft("lab-config-folded", false);
+}
+export function ConfigFold({ folded, fold }: { folded: boolean; fold: (folded: boolean) => void }) {
+  return (
+    <button
+      className="lab-fold"
+      aria-expanded={!folded}
+      aria-label={t(folded ? "展开配置" : "收起配置")}
+      title={t(folded ? "展开配置" : "收起配置")}
+      onClick={() => fold(!folded)}
+    >
+      {folded ? "‹" : "›"}
+    </button>
+  );
+}

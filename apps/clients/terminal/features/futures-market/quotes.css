@@ -776,3 +776,13 @@
 .contract-months button {
   padding-right: 0;
 }
+/* Resting lots of each depth level, as a bar from the right. */
+.contract-depth td.depth-lots {
+  background: linear-gradient(to left, var(--depth-color) var(--depth), transparent var(--depth));
+}
+.contract-depth td.depth-lots[data-side="ask"] {
+  --depth-color: color-mix(in srgb, var(--quote-up) 18%, transparent);
+}
+.contract-depth td.depth-lots[data-side="bid"] {
+  --depth-color: color-mix(in srgb, var(--quote-down) 18%, transparent);
+}

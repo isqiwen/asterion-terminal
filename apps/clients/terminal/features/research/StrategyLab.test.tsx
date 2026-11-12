@@ -73,3 +73,24 @@ test("an unsaved edit survives the result and is saved before the run reads it",
   expect(screen.getByRole("button", { name: "保存" }).hasAttribute("disabled")).toBe(false);
   expect(files["strategies/once.py"]).toBe("LOTS = 2\n");
 });
+
+test("the run configuration folds away to give the result the width", async () => {
+  vi.mocked(lab).mockImplementation(async operation =>
+    operation?.case === "listStrategies"
+      ? (create(StrategiesSchema, { strategies: [] }) as never)
+      : operation?.case === "listRuns"
+        ? (create(RunsSchema, {}) as never)
+        : (new Promise(() => {}) as never),
+  );
+  const context = { snapshot: { research_directory: "/research" } } as unknown as TerminalContext;
+  const { container } = render(
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.lab-strategies">
+      <StrategyLab {...context} />
+    </WorkspaceDraftScope>,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "收起配置" }));
+  expect(container.querySelector(".lab-research")?.hasAttribute("data-folded")).toBe(true);
+  expect(screen.queryByText("先选择一个策略。")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "展开配置" }));
+  expect(screen.getByText("先选择一个策略。")).toBeTruthy();
+});

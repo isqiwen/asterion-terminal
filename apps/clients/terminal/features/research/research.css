@@ -508,13 +508,21 @@ button.lab-link.strong {
 }
 .lab-section summary {
   display: flex;
-  justify-content: space-between;
   gap: var(--space-2);
   padding: var(--space-2) 0;
   color: var(--text);
   font-size: var(--font-size-body);
 }
+/* A flex summary loses the browser's marker; this one shows the section folds. */
+.lab-section > summary::before {
+  content: "▸";
+  color: var(--muted);
+}
+.lab-section[open] > summary::before {
+  content: "▾";
+}
 .lab-section summary small {
+  margin-left: auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -790,4 +798,21 @@ label.lab-inline {
 }
 .lab-rejections summary {
   color: var(--warning);
+}
+.lab-research[data-folded] {
+  grid-template-columns: 220px minmax(0, 1fr) 40px;
+}
+.lab-config > h4 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.lab-research[data-folded] .lab-config {
+  padding-inline: var(--space-1);
+}
+button.lab-fold {
+  min-height: 0;
+  padding: 0 var(--space-2);
+  border: 0;
+  color: var(--muted);
 }

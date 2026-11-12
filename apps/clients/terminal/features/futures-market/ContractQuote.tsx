@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import type { QuoteRow } from "../../src/generated/asterion/market_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
 import { translate } from "../../src/i18n";
@@ -22,6 +23,13 @@ export function ContractQuote({ market, row }: { market: MarketView; row: QuoteR
     .filter(other => sameProduct(other, row))
     .sort((a, b) => a.instrument!.symbol.localeCompare(b.instrument!.symbol));
   const levels = [4, 3, 2, 1, 0];
+  // Each level's lots as a bar against the largest of the ten.
+  const most = Math.max(
+    1,
+    ...[...(q?.asks ?? []), ...(q?.bids ?? [])].map(l => Number(l.lots ?? 0)),
+  );
+  const bar = (lots: bigint | undefined) =>
+    ({ "--depth": `${(Number(lots ?? 0) / most) * 100}%` }) as CSSProperties;
   return (
     <section className="contract-quote" aria-label={t("盘口")}>
       <table className="contract-depth" aria-label={t("买卖盘")}>
@@ -35,7 +43,9 @@ export function ContractQuote({ market, row }: { market: MarketView; row: QuoteR
               <td data-tone={q?.asks[level]?.price ? "up" : undefined}>
                 {q?.asks[level]?.price?.text ?? "—"}
               </td>
-              <td>{q?.asks[level]?.lots?.toString() ?? "—"}</td>
+              <td className="depth-lots" data-side="ask" style={bar(q?.asks[level]?.lots)}>
+                {q?.asks[level]?.lots?.toString() ?? "—"}
+              </td>
             </tr>
           ))}
           {[0, 1, 2, 3, 4].map(level => (
@@ -47,7 +57,9 @@ export function ContractQuote({ market, row }: { market: MarketView; row: QuoteR
               <td data-tone={q?.bids[level]?.price ? "down" : undefined}>
                 {q?.bids[level]?.price?.text ?? "—"}
               </td>
-              <td>{q?.bids[level]?.lots?.toString() ?? "—"}</td>
+              <td className="depth-lots" data-side="bid" style={bar(q?.bids[level]?.lots)}>
+                {q?.bids[level]?.lots?.toString() ?? "—"}
+              </td>
             </tr>
           ))}
         </tbody>

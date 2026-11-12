@@ -108,6 +108,11 @@ function DataPage({ context }: { context: TerminalContext }) {
     );
   return (
     <div className="data-body">
+      {!options && (
+        <p className="workspace-empty" role="status">
+          {t("读取中")}
+        </p>
+      )}
       {options && (
         <DataCoverage
           key={`${options.tables.join()}/${options.exchanges.join()}/${opened?.version}`}

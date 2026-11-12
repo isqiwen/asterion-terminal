@@ -116,6 +116,12 @@ std::int64_t source_time(const std::string& time, int millisecond, std::int64_t 
     return result;
 }
 
+// Some counters report 0 before the day's first trade; no future trades at 0.
+static std::optional<Decimal> traded_price(double value)
+{
+    return value == 0 ? std::nullopt : price(value);
+}
+
 struct Feed::Impl final
 {
     // Only SDK command handoff uses this mutex. Normalized state belongs to poll().
@@ -524,15 +530,15 @@ struct Feed::Impl final
         q.update_time = field(tick->UpdateTime);
         q.source_ms = source_time(q.update_time, tick->UpdateMillisec, received_ms);
         q.received_ms = received_ms;
-        q.last = price(tick->LastPrice);
+        q.last = traded_price(tick->LastPrice);
         q.bid = price(tick->BidPrice1);
         q.ask = price(tick->AskPrice1);
         q.previous_settlement = price(tick->PreSettlementPrice);
-        q.open = price(tick->OpenPrice);
+        q.open = traded_price(tick->OpenPrice);
         q.upper_limit = price(tick->UpperLimitPrice);
         q.lower_limit = price(tick->LowerLimitPrice);
-        q.high = price(tick->HighestPrice);
-        q.low = price(tick->LowestPrice);
+        q.high = traded_price(tick->HighestPrice);
+        q.low = traded_price(tick->LowestPrice);
         q.open_interest = tick->OpenInterest >= 0 ? price(tick->OpenInterest) : std::nullopt;
         q.open_interest_change = open_interest_change(tick->OpenInterest, tick->PreOpenInterest);
         q.previous_close = price(tick->PreClosePrice);

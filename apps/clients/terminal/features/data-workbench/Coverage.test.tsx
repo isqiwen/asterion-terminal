@@ -326,3 +326,9 @@ test("each refresh reads one page of tasks; earlier ones are read on request", a
   });
   expect(screen.queryByRole("button", { name: "更早的任务" })).toBeNull();
 });
+
+test("the data page says it is reading while the data service has not answered", async () => {
+  request.mockImplementation(() => new Promise(() => {}));
+  render(<Coverage {...context()} />);
+  expect((await screen.findByRole("status")).textContent).toBe("读取中");
+});

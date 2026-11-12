@@ -274,6 +274,10 @@ TEST(CtpEvents, PreservesPreCoalescingQuotesAndReconnectBoundaries)
     EXPECT_FALSE(quotes[0].out_of_order);
     EXPECT_TRUE(quotes[1].out_of_order);
     EXPECT_FALSE(quotes[1].quote.previous_settlement);
+    // The counter's 0 before the day's first trade is no price.
+    EXPECT_EQ(quotes[0].quote.open->str(), "3490.25");
+    EXPECT_FALSE(quotes[0].quote.high);
+    EXPECT_FALSE(quotes[0].quote.low);
     EXPECT_EQ(quotes[1].quote.volume, 5);
     EXPECT_TRUE(reconnected);
     EXPECT_EQ(feed.snapshot().subscriptions[0].quote->last->str(), "3510");

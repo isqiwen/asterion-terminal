@@ -15,7 +15,16 @@ import {
   type FactorForm,
 } from "./research-lab";
 import { FactorResultView } from "./FactorResultView";
-import { LabCentre, LabHeader, ModuleErrors, NewModule, useModules, useSource } from "./LabParts";
+import {
+  ConfigFold,
+  LabCentre,
+  LabHeader,
+  ModuleErrors,
+  NewModule,
+  useConfigFold,
+  useModules,
+  useSource,
+} from "./LabParts";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
@@ -75,8 +84,9 @@ export function FactorLab(context: TerminalContext) {
     </label>
   );
 
+  const [folded, setFolded] = useConfigFold();
   return (
-    <section className="lab-research lab-factors">
+    <section className="lab-research lab-factors" data-folded={folded || undefined}>
       <LabHeader context={context} modules={modules} refresh={() => void read()} />
       <aside className="lab-modules">
         <h4>{t("因子")}</h4>
@@ -141,61 +151,70 @@ export function FactorLab(context: TerminalContext) {
         )}
       </LabCentre>
       <aside className="lab-config">
-        <h4>{t("因子评价")}</h4>
-        {!factor ? (
-          <p className="subtle">{t("先选择一个因子。")}</p>
-        ) : (
+        <h4>
+          {!folded && t("因子评价")}
+          <ConfigFold folded={folded} fold={setFolded} />
+        </h4>
+        {!folded && (
           <>
-            <div className="lab-form">
-              <label className="wide">
-                <span>{t("品种")}</span>
-                <input
-                  value={form.symbols}
-                  placeholder={t("SHFE（整个交易所）或 SHFE/rb, SHFE/au")}
-                  onChange={event => change({ symbols: event.target.value })}
-                />
-              </label>
-              <label>
-                <span>{t("开始日")}</span>
-                <DateInput value={form.begin} onChange={begin => change({ begin })} />
-              </label>
-              <label>
-                <span>{t("结束日")}</span>
-                <DateInput value={form.end} onChange={end => change({ end })} />
-              </label>
-              {factor.parameters.length > 0 && <h5 className="wide">{t("参数")}</h5>}
-              {factor.parameters.map(parameter => (
-                <label key={parameter.name}>
-                  <span>
-                    {parameter.name} <small>{parameterKind(parameter)}</small>
-                  </span>
-                  <input
-                    value={form.params[parameter.name] ?? ""}
-                    onChange={event =>
-                      change({ params: { ...form.params, [parameter.name]: event.target.value } })
-                    }
-                  />
-                </label>
-              ))}
-              <h5 className="wide">{t("评价")}</h5>
-              {field("持有期（K 线数）", "horizons")}
-              {field("分组数", "groups")}
-            </div>
-            <footer className="lab-submit">
-              <button
-                className="primary"
-                disabled={busy || context.busy}
-                onClick={() => void evaluate()}
-              >
-                {busy ? t("正在评价…") : t("评价")}
-              </button>
-              {saved.length > 0 && (
-                <p className="subtle">
-                  {t("已保存 {files}", { files: saved.join(listSeparator()) })}
-                </p>
-              )}
-              <ActionError error={error} />
-            </footer>
+            {!factor ? (
+              <p className="subtle">{t("先选择一个因子。")}</p>
+            ) : (
+              <>
+                <div className="lab-form">
+                  <label className="wide">
+                    <span>{t("品种")}</span>
+                    <input
+                      value={form.symbols}
+                      placeholder={t("SHFE（整个交易所）或 SHFE/rb, SHFE/au")}
+                      onChange={event => change({ symbols: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    <span>{t("开始日")}</span>
+                    <DateInput value={form.begin} onChange={begin => change({ begin })} />
+                  </label>
+                  <label>
+                    <span>{t("结束日")}</span>
+                    <DateInput value={form.end} onChange={end => change({ end })} />
+                  </label>
+                  {factor.parameters.length > 0 && <h5 className="wide">{t("参数")}</h5>}
+                  {factor.parameters.map(parameter => (
+                    <label key={parameter.name}>
+                      <span>
+                        {parameter.name} <small>{parameterKind(parameter)}</small>
+                      </span>
+                      <input
+                        value={form.params[parameter.name] ?? ""}
+                        onChange={event =>
+                          change({
+                            params: { ...form.params, [parameter.name]: event.target.value },
+                          })
+                        }
+                      />
+                    </label>
+                  ))}
+                  <h5 className="wide">{t("评价")}</h5>
+                  {field("持有期（K 线数）", "horizons")}
+                  {field("分组数", "groups")}
+                </div>
+                <footer className="lab-submit">
+                  <button
+                    className="primary"
+                    disabled={busy || context.busy}
+                    onClick={() => void evaluate()}
+                  >
+                    {busy ? t("正在评价…") : t("评价")}
+                  </button>
+                  {saved.length > 0 && (
+                    <p className="subtle">
+                      {t("已保存 {files}", { files: saved.join(listSeparator()) })}
+                    </p>
+                  )}
+                  <ActionError error={error} />
+                </footer>
+              </>
+            )}
           </>
         )}
       </aside>

@@ -170,5 +170,7 @@
   "超过单笔上限": "Over the order limit",
   "超过总持仓上限": "Over the gross position limit",
   "超过在途委托上限": "Over the working order limit",
-  "资金不足": "Insufficient funds"
+  "资金不足": "Insufficient funds",
+  "展开配置": "Show settings",
+  "收起配置": "Hide settings"
 }
