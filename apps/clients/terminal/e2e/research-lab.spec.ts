@@ -57,7 +57,7 @@ test(
     await backtest(page, "3", "6");
     const runs = page.locator(".lab-runs tbody tr");
     await expect(runs).toHaveCount(2);
-    await expect(runs.locator(".lab-state")).toHaveText(["已完成", "已完成"]);
+    await expect(runs.locator(".status-badge")).toHaveText(["已完成", "已完成"]);
     for (const box of await page.getByRole("checkbox", { name: /^比较 / }).all()) await box.check();
     await page.getByRole("button", { name: "比较所选两次" }).click();
     const comparison = page.locator(".lab-center table");
