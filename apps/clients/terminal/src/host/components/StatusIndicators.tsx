@@ -37,9 +37,9 @@ function WarehouseIndicator() {
     };
   }, []);
   const [tone, state] =
-    error === undefined ? ["", "连接中"] : error ? ["bad", "中断"] : ["good", ""];
+    error === undefined ? ["", "连接中"] : error ? ["danger", "中断"] : ["ok", ""];
   return (
-    <span className={`status-item ${tone}`} title={error || undefined}>
+    <span className="status-item" data-tone={tone || undefined} title={error || undefined}>
       {label(translate("host", "数据"), state)}
     </span>
   );
@@ -72,14 +72,14 @@ export function StatusIndicators({
   const feed = market?.board.feed;
   // The link to Market first, then Market' own link to the broker.
   const [marketTone, marketState] = !market?.online
-    ? ["bad", "中断"]
+    ? ["danger", "中断"]
     : feed?.state === FeedState.CONNECTED
-      ? ["good", ""]
+      ? ["ok", ""]
       : feed?.state === FeedState.CONNECTING ||
           feed?.state === FeedState.LOGGING_IN ||
           feed?.state === FeedState.RECONNECTING
         ? ["", "连接柜台中"]
-        : ["bad", "柜台未连接"];
+        : ["danger", "柜台未连接"];
   const warehouse = snapshot.warehouse_endpoint;
   // The sidebar's order; trading last, since there is one light per account.
   return (
@@ -94,7 +94,8 @@ export function StatusIndicators({
         </button>
       ) : (
         <span
-          className={`status-item ${marketTone}`}
+          className="status-item"
+          data-tone={marketTone || undefined}
           title={market.error || (feed?.ctpError ? `CTP ${feed.ctpError}` : undefined)}
         >
           {label(t("行情"), marketState)}
@@ -104,13 +105,17 @@ export function StatusIndicators({
         (() => {
           // Lab restarts by itself while the Terminal runs; this only says where it is.
           const [tone, state] = {
-            ready: ["good", ""],
+            ready: ["ok", ""],
             starting: ["", "启动中"],
-            unresponsive: ["bad", "异常"],
-            restarting: ["bad", "重启中"],
+            unresponsive: ["danger", "异常"],
+            restarting: ["danger", "重启中"],
           }[lab.state];
           return (
-            <span className={`status-item ${tone}`} title={lab.error || undefined}>
+            <span
+              className="status-item"
+              data-tone={tone || undefined}
+              title={lab.error || undefined}
+            >
               {label(t("研究"), state)}
             </span>
           );
@@ -132,16 +137,21 @@ export function StatusIndicators({
         const [tone, state] = !view
           ? ["", "连接中"]
           : view.failed
-            ? ["bad", "中断"]
+            ? ["danger", "中断"]
             : stalled(view.health)
-              ? ["bad", "停滞"]
+              ? ["danger", "停滞"]
               : view.live?.recoveryRequired
-                ? ["warning", "需恢复"]
+                ? ["attention", "需恢复"]
                 : view.live?.brokerState === BrokerState.READY
-                  ? ["good", view.live.authorizedMs !== undefined ? "已授权" : ""]
+                  ? ["ok", view.live.authorizedMs !== undefined ? "已授权" : ""]
                   : ["", "未就绪"];
         return (
-          <button key={connection.id} className={`status-item ${tone}`} onClick={openTrading}>
+          <button
+            key={connection.id}
+            className="status-item"
+            data-tone={tone || undefined}
+            onClick={openTrading}
+          >
             {label(`${t("交易")}·${connection.instance}`, state)}
           </button>
         );

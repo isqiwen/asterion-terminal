@@ -1,17 +1,17 @@
 .flow-steps {
   display: flex;
   flex-wrap: wrap;
-  gap: 20px;
+  gap: var(--space-5);
   list-style: none;
   padding: 0;
-  margin: 20px 0;
+  margin: var(--space-5) 0;
 }
 .flow-steps li {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .flow-steps li span {
   border: 1px solid var(--line-strong);
@@ -29,40 +29,40 @@
 }
 .workflow-heading {
   display: flex;
-  gap: 16px;
+  gap: var(--space-4);
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 .workflow-heading h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--font-size-lg);
 }
 .workflow-heading p {
-  margin: 8px 0 0;
+  margin: var(--space-2) 0 0;
 }
 .workflow-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 10px;
-  margin-top: 22px;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
 }
 .workflow-empty {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 12px;
+  gap: var(--space-3);
   padding: 32px 0;
   color: var(--muted);
 }
 .account-setup {
-  padding: 24px;
+  padding: var(--space-5);
   max-width: 1040px;
   margin: auto;
 }
 .account-setup details {
-  margin-block: 16px;
+  margin-block: var(--space-4);
 }
 /* Trading: the accounts on the left; the chosen account is one panel whose
    sections share a gutter and are separated by hairlines. */
@@ -78,13 +78,13 @@
 .ctp-accounts {
   display: grid;
   grid-template-columns: 200px minmax(0, 1fr);
-  gap: 16px;
+  gap: var(--space-4);
   align-items: start;
-  padding: 16px;
+  padding: var(--space-4);
 }
 .ctp-account-list {
   display: grid;
-  gap: 6px;
+  gap: var(--space-2);
 }
 .ctp-account-list button {
   display: grid;
@@ -92,7 +92,7 @@
   justify-content: stretch;
   justify-items: start;
   text-align: left;
-  padding: 10px 12px;
+  padding: var(--space-3) var(--space-3);
   border-radius: var(--panel-radius);
   min-width: 0;
   overflow-wrap: anywhere;
@@ -104,14 +104,14 @@
 }
 .ctp-account-column {
   display: grid;
-  gap: 16px;
+  gap: var(--space-4);
   min-width: 0;
 }
 .ctp-strategies {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px var(--space-page);
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-page);
 }
 .ctp-strategies > * {
   margin: 0;
@@ -120,7 +120,7 @@
   margin: 0;
 }
 .ctp-strategies ul {
-  padding-left: 18px;
+  padding-left: var(--space-4);
 }
 .ctp-account-panel {
   min-width: 0;
@@ -130,7 +130,7 @@
 }
 .ctp-account-panel > * {
   margin: 0;
-  padding: 12px var(--space-page);
+  padding: var(--space-3) var(--space-page);
   border-bottom: 1px solid var(--line);
 }
 .ctp-account-panel > :last-child {
@@ -151,12 +151,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
 }
 .ctp-account-panel h3 {
-  margin: 12px 0 8px;
+  margin: var(--space-3) 0 var(--space-2);
   color: var(--text-strong);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
 }
 .ctp-account-panel > .workflow-empty,
@@ -164,15 +164,15 @@
   padding: 32px var(--space-page);
 }
 .ctp-account-panel .source-actions {
-  padding: 0 0 16px;
+  padding: 0 0 var(--space-4);
 }
 .ctp-identity {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 14px;
+  gap: var(--space-2) var(--space-4);
   min-height: 44px;
-  font-size: 12px;
+  font-size: var(--font-size-body);
   /* The account being traded stays visible under the page heading. */
   position: sticky;
   top: 64px;
@@ -182,7 +182,7 @@
 .ctp-identity-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
   margin-left: auto;
 }
 .ctp-identity strong {
@@ -197,12 +197,12 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 10px 24px;
+  gap: var(--space-3) var(--space-5);
 }
 .environment-check > label:not(.checkbox) {
   flex-direction: row;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
 }
 .environment-check select {
   width: 180px;
@@ -213,10 +213,10 @@
   margin: 0;
 }
 .ctp-account-panel > form .environment-check {
-  margin-top: 16px;
+  margin-top: var(--space-4);
 }
 .trading-permission .checkbox {
-  margin-bottom: 10px;
+  margin-bottom: var(--space-3);
 }
 .trading-permission .source-actions {
   padding: 0;
@@ -224,16 +224,16 @@
 .paper-metrics {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 14px;
+  gap: var(--space-4);
 }
 .paper-metrics dt {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .paper-metrics dd {
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
   color: var(--text-strong);
-  font-size: 18px;
+  font-size: var(--font-size-xl);
 }
 .ctp-account-panel > form .futures-fields {
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -244,7 +244,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
 }
 .strategy-run-heading strong {
   color: var(--accent);
@@ -258,15 +258,15 @@
 .strategy-run-facts {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  margin: 14px 0;
+  gap: var(--space-4);
+  margin: var(--space-4) 0;
 }
 .strategy-run-facts dt {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .strategy-run-facts dd {
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
   color: var(--text-strong);
   overflow-wrap: anywhere;
 }
@@ -274,33 +274,26 @@
 .order-quotes {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin: -6px 0 14px;
+  gap: var(--space-2);
+  margin: -6px 0 var(--space-4);
 }
 .order-quotes button {
   min-height: 22px;
-  padding: 0 8px;
+  padding: 0 var(--space-2);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
   font-variant-numeric: tabular-nums;
 }
 .ctp-account-panel > form[aria-label] .source-actions .primary {
   min-width: 96px;
 }
 .ctp-account-panel > form[aria-label] .source-actions .primary small {
-  color: var(--muted);
-  font-size: 12px;
+  color: inherit;
+  opacity: 0.75;
+  font-size: var(--font-size-body);
 }
 .activity-tabs {
-  display: flex;
-  gap: 6px;
-  padding-block: 10px;
-  border-bottom: 0;
-}
-.activity-tabs button[aria-pressed="true"] {
-  color: var(--accent);
-  background: var(--accent-surface);
-  border-color: var(--accent-line);
+  padding-block: var(--space-3);
 }
 .activity-tabs ~ div:not([hidden]) {
   padding-top: 0;
@@ -312,7 +305,7 @@
   min-width: 560px;
 }
 .paper-table > p {
-  margin: 8px 10px;
+  margin: var(--space-2) var(--space-3);
 }
 .paper-table:focus-visible {
   outline: 1px solid var(--accent);
@@ -331,20 +324,20 @@
   }
 }
 .account-setup .account-field-group {
-  margin: 18px 0;
-  padding: 16px;
+  margin: var(--space-4) 0;
+  padding: var(--space-4);
   border: 1px solid var(--line);
   border-radius: var(--panel-radius);
 }
 .account-setup label {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .account-setup .futures-file {
-  margin: 10px 0 0;
+  margin: var(--space-3) 0 0;
 }
 .account-setup input {
   min-width: 0;
@@ -361,14 +354,14 @@
 .creation-review dl {
   display: grid;
   grid-template-columns: 120px minmax(0, 1fr);
-  margin: 0 0 12px;
+  margin: 0 0 var(--space-3);
   border-top: 1px solid var(--line);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .creation-review dt,
 .creation-review dd {
   margin: 0;
-  padding: 10px 0;
+  padding: var(--space-3) 0;
   border-bottom: 1px solid var(--line);
   line-height: 1.6;
 }
@@ -378,7 +371,7 @@
 .creation-review dd {
   display: flex;
   flex-wrap: wrap;
-  gap: 0 14px;
+  gap: 0 var(--space-4);
   color: var(--text-strong);
   overflow-wrap: anywhere;
 }

@@ -76,6 +76,12 @@ const shapes = {
       <path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4" />
     </>
   ),
+  calendar: (
+    <>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M3 10h18M8 3v4M16 3v4" />
+    </>
+  ),
   close: <path d="m6 6 12 12M6 18 18 6" />,
   refresh: (
     <>

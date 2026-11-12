@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { PriceChart, type Candle, type TradeMark } from "@asterion/terminal/charts/PriceChart";
+import { groupedText } from "../../src/bridge/decimal";
 import { lab } from "../../src/bridge/lab";
 import type {
   ChartBars,
@@ -7,9 +8,10 @@ import type {
   RunReport,
   RunSummary,
 } from "../../src/generated/asterion/lab_pb";
-import { type MessageValues, translate } from "../../src/i18n";
+import { type MessageValues, translate, listSeparator } from "../../src/i18n";
 import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/errors";
 import { protocolPeriod } from "../../src/ui/periods";
+import type { Tone } from "../../src/ui/StatusBadge";
 import { Offset, Side } from "../../src/generated/asterion/common_pb";
 import { heatmap, monthlyReturns, parameterText, runState } from "./research-lab";
 
@@ -193,7 +195,7 @@ export function RunResult({
         <p className="subtle">
           {t("{bars} 根 K 线含不完整的分钟，未参与回测：{days}", {
             bars: excluded.bars,
-            days: excluded.days.join("、"),
+            days: excluded.days.join(listSeparator()),
           })}
         </p>
       )}
@@ -309,9 +311,9 @@ export function RunResult({
                   <td>{fill.contract}</td>
                   <td>{fill.side === Side.BUY ? t("买") : t("卖")}</td>
                   <td>{t(offsets[Offset[fill.offset].toLowerCase()] ?? Offset[fill.offset])}</td>
-                  <td>{fill.lots?.text}</td>
+                  <td>{groupedText(fill.lots)}</td>
                   <td>{fill.price?.text}</td>
-                  <td>{fill.fee?.text}</td>
+                  <td>{groupedText(fill.fee)}</td>
                 </tr>
               ))}
             </tbody>
@@ -401,6 +403,11 @@ export const states: Record<string, string> = {
   failed: "失败",
   interrupted: "已中断",
 };
+export const runTones: Record<string, Tone> = {
+  succeeded: "ok",
+  failed: "danger",
+  interrupted: "attention",
+};
 
 // What reproduces the run: strategy version, data, engine, costs and limits.
 function RunDetails({
@@ -436,7 +443,8 @@ function RunDetails({
           ) : (
             <code>{value.data.dataset_version.slice(0, 12)}</code>
           )}{" "}
-          · {value.data.symbols.join(", ")} · {value.data.begin_day} → {value.data.end_day}
+          · {value.data.symbols.join(listSeparator())} · {value.data.begin_day} →{" "}
+          {value.data.end_day}
         </dd>
         <dt>{t("引擎")}</dt>
         <dd>{value.engine.version}</dd>

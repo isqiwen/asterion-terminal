@@ -3,29 +3,29 @@
 }
 .settings-sidebar {
   width: 168px;
-  padding: 24px 12px;
+  padding: var(--space-5) var(--space-3);
   background: var(--panel);
 }
 .settings-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 10px 28px;
+  gap: var(--space-3);
+  padding: 0 var(--space-3) var(--space-5);
   color: var(--accent);
 }
 .settings-brand span {
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   letter-spacing: 0.14em;
   color: var(--muted);
 }
 .settings-sidebar nav {
-  gap: 8px;
+  gap: var(--space-2);
 }
 .settings-sidebar nav button {
   display: flex;
   justify-content: flex-start;
-  gap: 10px;
-  padding: 12px 10px;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-3);
   min-height: 42px;
   border-radius: var(--panel-radius);
   white-space: normal;
@@ -35,17 +35,17 @@
   background: var(--accent-surface);
 }
 .settings-content {
-  padding: 28px;
+  padding: var(--space-5);
 }
 .settings-content > * {
   max-width: 880px;
 }
 .settings-content h1 {
-  font-size: 22px;
+  font-size: var(--font-size-2xl);
   color: var(--text-strong);
   font-weight: 500;
-  padding: 0 0 18px;
-  margin: 0 0 20px;
+  padding: 0 0 var(--space-4);
+  margin: 0 0 var(--space-5);
   border-bottom: 1px solid var(--line);
   background: transparent;
   letter-spacing: -0.02em;
@@ -56,10 +56,10 @@
 @media (max-width: 680px) {
   .settings-sidebar {
     width: 144px;
-    padding: 20px 8px;
+    padding: var(--space-5) var(--space-2);
   }
   .settings-content {
-    padding: 22px 18px;
+    padding: var(--space-5) var(--space-4);
   }
 }
 
@@ -77,9 +77,9 @@
    above, actions at the right, lists of items separated by hairlines. */
 .settings-section {
   display: grid;
-  gap: 16px;
-  margin: 0 0 16px;
-  padding: 18px 20px;
+  gap: var(--space-4);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-4) var(--space-5);
   border: 1px solid var(--line);
   border-radius: var(--panel-radius);
   background: var(--panel);
@@ -89,14 +89,14 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
 }
 .settings-section-header > div {
   min-width: 0;
 }
 .settings-section h2 {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-weight: 500;
   color: var(--text-strong);
 }
@@ -106,19 +106,19 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
   flex-shrink: 0;
 }
 .settings-fields {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 14px 18px;
+  gap: var(--space-4) var(--space-4);
 }
 .settings-field {
   display: grid;
-  gap: 6px;
+  gap: var(--space-2);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
   min-width: 0;
 }
 .settings-field input,
@@ -129,8 +129,8 @@
 .settings-check {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  gap: var(--space-2);
+  font-size: var(--font-size-md);
   min-width: 0;
 }
 .settings-check input {
@@ -141,8 +141,8 @@
 }
 .settings-item {
   display: grid;
-  gap: 8px;
-  padding: 12px 0;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
   border-top: 1px solid var(--line);
 }
 .settings-item:first-child {
@@ -156,35 +156,35 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
 }
 .settings-item-row > div {
   min-width: 0;
 }
 .settings-item h3 {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   color: var(--text-strong);
   overflow-wrap: anywhere;
 }
 .settings-item p {
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
   overflow-wrap: anywhere;
 }
 .settings-section details > summary {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
   cursor: pointer;
 }
 .settings-section details dl {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
-  gap: 6px 18px;
-  margin: 8px 0 0;
-  font-size: 12px;
+  gap: var(--space-2) var(--space-4);
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-body);
 }
 .settings-section details dt {
   color: var(--muted);
@@ -194,7 +194,7 @@
   overflow-wrap: anywhere;
 }
 .settings-section code {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   overflow-wrap: anywhere;
 }
 /* An item card inside a section, such as one account. */
@@ -209,30 +209,16 @@
 }
 .settings-content button {
   white-space: normal;
-  padding-inline: 14px;
+  padding-inline: var(--space-4);
   background: var(--raised);
   color: var(--text-strong);
 }
 /* A card's main action is the one solid button. */
-.settings-content button.primary,
-.settings-content button.primary:enabled:hover {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--canvas);
-  font-weight: 500;
-}
-/* The second click of a delete or clear. */
-.settings-content button.danger,
-.settings-content button.danger:enabled:hover {
-  background: var(--danger-surface);
-  border-color: var(--danger);
-  color: var(--danger);
-}
 
 .settings-table {
   overflow-x: auto;
   max-width: 100%;
-  margin-block: 20px;
+  margin-block: var(--space-5);
   border: 1px solid var(--line);
   border-radius: var(--panel-radius);
 }
@@ -245,7 +231,7 @@
 }
 .settings-table th,
 .settings-table td {
-  padding: 10px 12px;
+  padding: var(--space-3) var(--space-3);
 }
 .settings-table td button {
   margin: 2px;
@@ -254,9 +240,9 @@
 .native-plugin-choice {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   min-height: var(--row-height);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .native-plugin-manager code {
   color: var(--muted);
@@ -264,12 +250,12 @@
 .native-plugin-manager .data-table {
   width: 100%;
   min-width: 0;
-  margin: 4px 0 10px;
+  margin: var(--space-1) 0 var(--space-3);
   table-layout: fixed;
 }
 .native-plugin-manager .data-table th,
 .native-plugin-manager .data-table td {
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-3);
   white-space: normal;
   overflow-wrap: anywhere;
   vertical-align: top;
@@ -278,7 +264,7 @@
   display: block;
   margin-top: 2px;
   color: var(--subtle);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 /* The digest stays on one line; selecting it still copies all of it. */
 .native-plugin-manager .data-table td small code {
@@ -288,7 +274,7 @@
   white-space: nowrap;
 }
 .native-plugin-manager .data-table td button {
-  margin: 0 6px 4px 0;
+  margin: 0 var(--space-2) var(--space-1) 0;
 }
 .native-plugin-catalog th:nth-child(1) {
   width: 40%;
@@ -303,12 +289,12 @@
   width: 14%;
 }
 .native-plugin-install {
-  margin-top: 14px;
-  padding-top: 14px;
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
   border-top: 1px solid var(--line);
 }
 .native-plugin-install > button {
-  margin: 8px 0 2px;
+  margin: var(--space-2) 0 2px;
 }
 
 .service-action-dialog {
@@ -317,7 +303,7 @@
   border: 1px solid var(--line);
   border-radius: var(--panel-radius);
   width: min(480px, calc(100vw - 48px));
-  padding: 24px;
+  padding: var(--space-5);
   max-height: calc(100vh - 48px);
   overflow-y: auto;
   box-sizing: border-box;
@@ -326,7 +312,7 @@
   background: #0009;
 }
 .service-action-dialog h2 {
-  font-size: 17px;
+  font-size: var(--font-size-xl);
   margin-top: 0;
 }
 .service-action-dialog p {
@@ -336,13 +322,13 @@
 .service-action-dialog .source-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 24px;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
 }
 /* Settings lists: one card per item, facts aligned, actions at the bottom. */
 .settings-cards {
   display: grid;
-  gap: 14px;
+  gap: var(--space-4);
   justify-items: start;
 }
 .settings-cards > p {
@@ -352,8 +338,8 @@
 .settings-card {
   justify-self: stretch;
   display: grid;
-  gap: 14px;
-  padding: 18px 20px;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
   border: 1px solid var(--line);
   border-radius: var(--panel-radius);
   min-width: 0;
@@ -361,19 +347,19 @@
 .settings-card header {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   flex-wrap: wrap;
 }
 .settings-card h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--font-size-lg);
   font-weight: 500;
   color: var(--text-strong);
   overflow-wrap: anywhere;
 }
 .settings-badge {
-  font-size: 12px;
-  padding: 2px 8px;
+  font-size: var(--font-size-body);
+  padding: 2px var(--space-2);
   border: 1px solid var(--line);
   border-radius: 999px;
   color: var(--muted);
@@ -386,9 +372,9 @@
 .settings-card dl {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
-  gap: 6px 18px;
+  gap: var(--space-2) var(--space-4);
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 .settings-card dt {
   color: var(--muted);
@@ -400,7 +386,7 @@
 }
 .settings-card footer {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 .settings-card p {
@@ -418,15 +404,15 @@
 }
 .settings-dialog form {
   display: grid;
-  gap: 14px;
+  gap: var(--space-4);
 }
 /* Two fields per row: an address such as tcp://host:port stays readable. */
 .settings-dialog h2 {
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 .settings-dialog .futures-fields {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px 16px;
+  gap: var(--space-4) var(--space-4);
   margin: 0;
 }
 .settings-dialog .native-plugin-choice {
@@ -434,9 +420,9 @@
 }
 .settings-dialog label:not(.native-plugin-choice) {
   display: grid;
-  gap: 6px;
+  gap: var(--space-2);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .settings-dialog input,
 .settings-dialog select {
@@ -478,11 +464,11 @@
   margin: 0;
 }
 .settings-section td details {
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 .settings-section fieldset {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
   margin: 0;
   padding: 0;
@@ -490,12 +476,12 @@
 }
 .settings-section legend {
   padding: 0;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 .settings-error {
-  margin: 8px 0 0;
+  margin: var(--space-2) 0 0;
   color: var(--danger);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .settings-error .copy-diagnostic {
   border: 0;
@@ -506,10 +492,10 @@
 .settings-facts {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
-  gap: 12px 24px;
+  gap: var(--space-3) var(--space-5);
   align-items: center;
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 .settings-facts dt {
   color: var(--muted);
@@ -522,7 +508,7 @@
    wide enough for its 64 digits beside the label; a narrower one wraps them. */
 .client-fingerprint {
   font-family: var(--font-terminal);
-  font-size: 12px;
+  font-size: var(--font-size-body);
   color: var(--text);
   overflow-wrap: anywhere;
   user-select: all;

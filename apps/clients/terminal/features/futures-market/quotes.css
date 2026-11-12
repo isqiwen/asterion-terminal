@@ -2,7 +2,7 @@
   overflow: auto;
   max-height: min(560px, 65vh);
   font-variant-numeric: tabular-nums;
-  margin: 0 24px 24px;
+  margin: 0 var(--space-5) var(--space-5);
   border: 1px solid var(--grid);
   background: var(--panel);
 }
@@ -12,7 +12,7 @@
 .market-quote-table th,
 .market-quote-table td {
   white-space: nowrap;
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-3);
 }
 .market-quote-table th {
   text-align: left;
@@ -20,12 +20,12 @@
   position: sticky;
   top: 0;
   z-index: 1;
-  font-size: 12px;
+  font-size: var(--font-size-body);
   font-weight: 400;
   color: var(--muted);
 }
 .market-quote-table td {
-  font-size: 12px;
+  font-size: var(--font-size-body);
   height: var(--row-height);
 }
 .market-quote-table .numeric {
@@ -38,7 +38,7 @@
 .market-quote-table .quote-venue {
   display: block;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .market-quote-table:focus-visible {
   outline: 1px solid var(--accent);
@@ -55,9 +55,9 @@
 }
 .market-search-empty {
   grid-column: 1/-1;
-  padding: 20px 12px;
+  padding: var(--space-5) var(--space-3);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .futures-market-board .market-quote-table {
   margin: 0;
@@ -68,9 +68,9 @@
 }
 .futures-market-board .market-quote-table td,
 .futures-market-board .market-quote-table th {
-  padding: 1px 6px;
+  padding: 1px var(--space-2);
   height: 20px;
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .futures-market-board .quote-venue {
   display: none;
@@ -97,7 +97,7 @@
 .futures-market-board .quote-sort {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: var(--space-1);
   white-space: nowrap;
 }
 .futures-market-board th.numeric .quote-sort {
@@ -109,27 +109,27 @@
 }
 .market-chart-unavailable,
 .market-history-chart {
-  padding: 4px 6px;
+  padding: var(--space-1) var(--space-2);
   border-top: 1px solid var(--grid);
   min-width: 0;
 }
 .market-chart-unavailable p,
 .market-history-chart .subtle {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
   line-height: 1.5;
 }
 .market-contract .price-chart {
   --accent: var(--accent);
-  margin: 5px 0;
-  padding: 4px 0;
+  margin: var(--space-1) 0;
+  padding: var(--space-1) 0;
   border: 0;
 }
 .market-contract .price-chart-cursor {
   min-height: 16px;
-  font-size: 12px;
+  font-size: var(--font-size-body);
   line-height: 16px;
-  margin: 0 0 4px;
+  margin: 0 0 var(--space-1);
 }
 .market-contract .price-chart .price-chart-canvas {
   height: auto;
@@ -137,24 +137,24 @@
   max-height: none;
 }
 .market-contract .price-chart-controls {
-  gap: 3px;
+  gap: var(--space-1);
   margin-bottom: 2px;
 }
 .market-contract .price-chart-controls button {
   min-height: 20px;
-  padding: 1px 5px;
-  font-size: 12px;
+  padding: 1px var(--space-1);
+  font-size: var(--font-size-body);
 }
 .market-chart-title,
 .market-chart-toolbar {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .market-chart-title {
-  padding-bottom: 6px;
+  padding-bottom: var(--space-2);
 }
 .market-chart-title span {
   color: var(--muted);
@@ -163,22 +163,22 @@
 .market-chart-toolbar select {
   min-width: 0;
   flex: 1;
-  padding: 2px 4px;
+  padding: 2px var(--space-1);
   min-height: 23px;
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .market-chart-toolbar button {
   min-height: 18px;
-  padding: 0 4px;
-  font-size: 12px;
+  padding: 0 var(--space-1);
+  font-size: var(--font-size-body);
 }
 .market-history-pages > span {
   margin-right: auto;
   color: var(--muted);
 }
 .market-chart-source {
-  margin-top: 5px;
-  font-size: 12px;
+  margin-top: var(--space-1);
+  font-size: var(--font-size-body);
   color: var(--muted);
 }
 .market-chart-empty {
@@ -187,12 +187,12 @@
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  gap: 8px;
-  font-size: 12px;
+  gap: var(--space-2);
+  font-size: var(--font-size-body);
   color: var(--muted);
 }
 .market-chart-empty button {
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .futures-market-board .market-quote-table td {
   border-bottom-color: transparent;
@@ -202,14 +202,14 @@
 }
 :root[data-density="comfortable"] .futures-market-board .market-quote-table td {
   height: 34px;
-  padding-block: 6px;
-  font-size: 12px;
+  padding-block: var(--space-2);
+  font-size: var(--font-size-body);
 }
 /* Watchlist membership, next to the contract title. */
 .watchlist-toggle {
   min-height: 20px;
-  padding: 0 7px;
-  font-size: 12px;
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-body);
 }
 .watchlist-toggle[aria-pressed="true"] {
   border-color: var(--accent-line);
@@ -244,23 +244,16 @@
 }
 
 .market-periods {
-  display: flex;
-  gap: 2px;
   flex-wrap: wrap;
-}
-.market-periods button[aria-pressed="true"] {
-  background: var(--raised);
-  color: var(--text-strong);
-  border-color: var(--line);
 }
 .market-chart-toolbar {
   flex-wrap: wrap;
 }
 .market-quote-table .quote-inline-status {
   display: inline-block;
-  margin-left: 6px;
+  margin-left: var(--space-2);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 
 .quote-columns-dialog {
@@ -271,18 +264,18 @@
   width: min(420px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
   overflow: auto;
-  padding: 20px;
+  padding: var(--space-5);
 }
 .quote-columns-dialog::backdrop {
   background: var(--overlay);
 }
 .quote-columns-dialog h2 {
-  margin: 0 0 12px;
-  font-size: 16px;
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-lg);
 }
 .quote-columns-dialog p {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .quote-columns-dialog ul {
   list-style: none;
@@ -290,15 +283,15 @@
 }
 .quote-columns-dialog li {
   display: flex;
-  gap: 6px;
+  gap: var(--space-2);
   align-items: center;
-  padding: 5px 0;
+  padding: var(--space-1) 0;
   border-bottom: 1px solid var(--grid);
 }
 .quote-columns-dialog label {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   flex: 1;
 }
 .quote-columns-dialog input {
@@ -307,13 +300,13 @@
 .quote-columns-dialog footer {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
   justify-content: flex-end;
 }
 .futures-market-board .market-quote-table td,
 .futures-market-board .market-quote-table th {
   height: 24px;
-  font-size: 12px;
+  font-size: var(--font-size-body);
   font-family: var(--font-ui);
   font-variant-numeric: tabular-nums;
 }
@@ -353,12 +346,12 @@
 .futures-market-board .market-quote-table td,
 .futures-market-board .market-quote-table th {
   height: 26px;
-  font-size: 12px;
-  padding: 0 8px;
+  font-size: var(--font-size-body);
+  padding: 0 var(--space-2);
 }
 .futures-market-board .market-quote-table th {
   height: 22px;
-  font-size: 12px;
+  font-size: var(--font-size-body);
   font-weight: 400;
   color: var(--muted);
 }
@@ -372,9 +365,9 @@
 .quote-pane-header {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  padding: 6px 8px 2px;
-  font-size: 12px;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) 2px;
+  font-size: var(--font-size-body);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -391,28 +384,12 @@
 }
 .quote-pane-header small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 /* Button text lines up with the 8-pixel edge the rest of the side keeps. */
 .quote-pane-periods {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 2px 8px 4px 0;
+  padding: 2px var(--space-2) 0 0;
   border-bottom: 1px solid var(--grid);
-}
-.quote-pane-periods button {
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--muted);
-  font-size: 12px;
-  min-height: 20px;
-  padding: 0 7px;
-  border-radius: 2px;
-}
-.quote-pane-periods button[aria-pressed="true"] {
-  color: var(--text-strong);
-  border-color: var(--accent-line);
 }
 .quote-pane-more {
   position: relative;
@@ -441,7 +418,7 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 0 8px 4px;
+  padding: 0 var(--space-2) var(--space-1);
 }
 .quote-pane-body .market-history-chart,
 .quote-pane-body .contract-live-chart {
@@ -453,12 +430,12 @@
 .quote-pane-body .market-chart-empty {
   margin: auto;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
   text-align: center;
 }
 .intraday-legend {
   display: flex;
-  gap: 10px;
+  gap: var(--space-3);
   color: var(--muted);
 }
 .intraday-legend b {
@@ -471,7 +448,7 @@
 .intraday-note {
   margin: 2px 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .market-periods[hidden] {
   display: none;
@@ -479,13 +456,13 @@
 .market-service-status {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 24px;
+  gap: var(--space-1) var(--space-5);
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .market-service-status div {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .market-service-status dt {
   color: var(--muted);
@@ -501,44 +478,30 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 12px;
-  padding: 4px 8px;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-1) var(--space-2);
   border-bottom: 1px solid var(--line);
   background: var(--canvas);
-  font-size: 12px;
-}
-.market-sections,
-.market-scope {
-  display: flex;
-  min-width: 0;
+  font-size: var(--font-size-body);
 }
 .market-sections {
   overflow-x: auto;
   scrollbar-width: thin;
 }
 .market-scope {
-  padding-left: 12px;
+  padding-left: var(--space-3);
   border-left: 1px solid var(--line);
 }
-.market-sections button,
-.market-scope button,
 .market-bar-button {
   flex: 0 0 auto;
   min-height: 26px;
-  padding: 3px 10px;
+  padding: var(--space-1) var(--space-3);
   border: 0;
   border-radius: 2px;
   background: transparent;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
   white-space: nowrap;
-}
-.market-sections button {
-  font-size: 13px;
-}
-.market-bar [aria-pressed="true"] {
-  color: var(--text-strong);
-  background: var(--raised);
 }
 .market-bar-button:hover:not(:disabled) {
   color: var(--text);
@@ -550,8 +513,8 @@
   width: 180px;
   min-width: 0;
   height: 26px;
-  padding: 2px 8px;
-  font-size: 12px;
+  padding: 2px var(--space-2);
+  font-size: var(--font-size-body);
 }
 .market-phase {
   color: var(--warning);
@@ -607,19 +570,19 @@
   border-left: 1px solid var(--grid);
 }
 .market-exchange-column > section {
-  padding-bottom: 12px;
+  padding-bottom: var(--space-3);
 }
 .market-exchange-groups h3 {
   margin: 0;
-  padding: 8px 8px 2px;
-  font-size: 12px;
+  padding: var(--space-2) var(--space-2) 2px;
+  font-size: var(--font-size-body);
   font-weight: 600;
   color: var(--text-strong);
 }
 .futures-market-board .market-quote-table td,
 .futures-market-board .market-quote-table th {
   height: 26px;
-  padding: 0 8px;
+  padding: 0 var(--space-2);
 }
 .futures-market-board .market-quote-table th {
   height: 22px;
@@ -657,24 +620,24 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 12px;
-  padding: 8px;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2);
   border-bottom: 1px solid var(--grid);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .watchlist-editor form {
   display: flex;
-  gap: 6px;
+  gap: var(--space-2);
 }
 .watchlist-editor span {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   color: var(--muted);
 }
 .watchlist-editor span button {
   min-height: 0;
-  padding: 0 4px;
+  padding: 0 var(--space-1);
   border: 0;
   background: transparent;
 }
@@ -700,17 +663,17 @@
 }
 .quote-empty {
   margin: 0;
-  padding: 10px;
+  padding: var(--space-3);
   color: var(--subtle);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .quote-data-note {
-  padding: 2px 8px;
+  padding: 2px var(--space-2);
   color: var(--subtle);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .quote-data-note p {
-  margin: 3px 0;
+  margin: var(--space-1) 0;
 }
 
 /* Under the chart: depth beside the day's figures, then the other months. */
@@ -723,11 +686,11 @@
 .contract-quote {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 0 12px;
+  gap: 0 var(--space-3);
   flex-shrink: 0;
-  padding: 6px 8px 8px;
+  padding: var(--space-2) var(--space-2) var(--space-2);
   border-top: 1px solid var(--grid);
-  font-size: 12px;
+  font-size: var(--font-size-body);
   font-variant-numeric: tabular-nums;
 }
 .contract-depth {
@@ -735,7 +698,7 @@
 }
 .contract-depth :is(th, td) {
   height: 20px;
-  padding: 0 4px;
+  padding: 0 var(--space-1);
   font-weight: 400;
   text-align: right;
 }
@@ -766,10 +729,10 @@
 }
 .contract-months {
   grid-column: 1 / -1;
-  margin-top: 6px;
+  margin-top: var(--space-2);
 }
 .contract-months summary {
-  padding: 4px 0;
+  padding: var(--space-1) 0;
   color: var(--muted);
 }
 .contract-months button {
@@ -777,11 +740,11 @@
   grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr);
   width: 100%;
   min-height: 22px;
-  padding: 0 4px;
+  padding: 0 var(--space-1);
   border: 0;
   border-radius: 0;
   background: transparent;
-  font-size: 12px;
+  font-size: var(--font-size-body);
   text-align: right;
 }
 .contract-months button > :first-child {
@@ -798,8 +761,8 @@
 }
 .market-expand {
   min-height: 20px;
-  padding: 0 7px;
-  font-size: 12px;
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-body);
 }
 
 .quote-pane-body .market-history-chart {

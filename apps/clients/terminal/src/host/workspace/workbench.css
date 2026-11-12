@@ -9,7 +9,7 @@
   width: 36px;
   background: var(--canvas);
   border-right: 1px solid var(--line);
-  padding: 0 4px;
+  padding: 0 var(--space-1);
 }
 /* Business names remain legible in each locale. */
 .activity-rail.expanded {
@@ -26,15 +26,15 @@ html[lang="en-US"] .activity-rail.expanded {
   justify-content: center;
 }
 .activity-rail .workspace-tabs {
-  gap: 4px;
+  gap: var(--space-1);
 }
 .activity-rail .workspace-tabs button {
   position: relative;
   flex-direction: column;
   justify-content: center;
-  gap: 3px;
+  gap: var(--space-1);
   height: 56px;
-  padding: 4px 0;
+  padding: var(--space-1) 0;
   border: 0;
   border-radius: 2px;
   background: transparent;
@@ -46,7 +46,7 @@ html[lang="en-US"] .activity-rail.expanded {
   max-width: 100%;
   white-space: normal;
   overflow-wrap: anywhere;
-  font-size: 12px;
+  font-size: var(--font-size-body);
   line-height: 14px;
 }
 .activity-rail .workspace-tabs button.active {
@@ -73,8 +73,8 @@ html[lang="en-US"] .activity-rail.expanded {
   display: flex;
   flex-direction: column;
   margin-top: auto;
-  padding: 12px 0;
-  gap: 4px;
+  padding: var(--space-3) 0;
+  gap: var(--space-1);
 }
 .rail-actions button {
   background: transparent;
@@ -87,31 +87,31 @@ html[lang="en-US"] .activity-rail.expanded {
   align-items: stretch;
   min-height: 24px;
   flex-shrink: 0;
-  padding: 0 10px;
-  gap: 10px;
+  padding: 0 var(--space-3);
+  gap: var(--space-3);
   border-bottom: 1px solid var(--line);
 }
 .workbench-context {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--space-4);
 }
 .environment {
-  font-size: 12px;
+  font-size: var(--font-size-body);
   color: var(--muted);
   background: var(--panel);
   border-color: var(--line);
-  padding: 2px 8px;
+  padding: 2px var(--space-2);
 }
 .terminal-business {
   background: var(--canvas);
 }
 .status-bar {
   height: 24px;
-  padding: 0 16px;
+  padding: 0 var(--space-4);
   background: var(--canvas);
-  font-size: 12px;
-  gap: 4px;
+  font-size: var(--font-size-body);
+  gap: var(--space-1);
 }
 .status-bar button {
   min-height: 24px;
@@ -126,12 +126,12 @@ html[lang="en-US"] .activity-rail.expanded {
 .terminal-task-list button {
   background: var(--raised);
   border-color: transparent;
-  padding: 10px 12px;
+  padding: var(--space-3) var(--space-3);
 }
 @media (max-width: 1000px) {
   .workbench-header {
-    padding-inline: 12px;
-    gap: 4px;
+    padding-inline: var(--space-3);
+    gap: var(--space-1);
   }
 }
 @media (max-width: 700px) {
@@ -139,8 +139,8 @@ html[lang="en-US"] .activity-rail.expanded {
     display: none;
   }
   .status-bar {
-    padding-inline: 8px;
-    gap: 4px;
+    padding-inline: var(--space-2);
+    gap: var(--space-1);
   }
 }
 
@@ -165,7 +165,7 @@ html[lang="en-US"] .activity-rail.expanded {
 .workbench-header .environment {
   border: 0;
   background: var(--raised);
-  padding: 2px 8px;
+  padding: 2px var(--space-2);
   color: var(--text-strong);
 }
 
@@ -221,7 +221,7 @@ html[lang="en-US"] .activity-rail.expanded {
   display: flex;
   flex: none;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   min-height: 38px;
   padding: 0 var(--space-page);
   border-bottom: 1px solid var(--line);
@@ -236,13 +236,13 @@ html[lang="en-US"] .activity-rail.expanded {
 .module-views button {
   flex-shrink: 0;
   height: 38px;
-  padding: 0 12px;
+  padding: 0 var(--space-3);
   border: 0;
   border-bottom: 2px solid transparent;
   border-radius: 0;
   background: transparent;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 .module-views button:enabled:hover {
   background: transparent;

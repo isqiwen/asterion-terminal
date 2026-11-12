@@ -15,7 +15,7 @@
 .data-tasks {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .data-tasks > button {
   align-self: flex-start;
@@ -42,13 +42,13 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
-  padding: 10px 12px;
+  padding: var(--space-3) var(--space-3);
   border: 0;
   border-bottom: 1px solid var(--grid);
   border-radius: 0;
   background: transparent;
   text-align: left;
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 .data-views > button[aria-current] {
   background: var(--accent-surface);
@@ -56,36 +56,36 @@
 }
 .data-views small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
 }
 .data-view {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
 }
 .data-view > header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
 }
 .data-view h3 {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--font-size-lg);
 }
 .data-dialog {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-4);
   width: min(560px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
   overflow: auto;
-  padding: 20px;
+  padding: var(--space-5);
   color: var(--text);
   background: var(--panel);
   border: 1px solid var(--grid);
@@ -99,44 +99,44 @@
 }
 .data-dialog h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--font-size-lg);
 }
 .data-dialog .data-actions {
   justify-content: flex-end;
 }
 .data-choice {
   display: flex;
-  gap: 16px;
+  gap: var(--space-4);
 }
 .contract-picker {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-3);
   margin: 0;
   padding: 0;
   border: 0;
 }
 .contract-picker legend {
   padding: 0;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .data-fields {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px 16px;
+  gap: var(--space-3) var(--space-4);
 }
 .data-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 16px;
+  gap: var(--space-2) var(--space-4);
 }
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--font-size-body);
   font-variant-numeric: tabular-nums;
 }
 .data-table th {
@@ -145,18 +145,12 @@
   text-align: left;
 }
 .data-table :is(th, td) {
-  padding: 6px 10px;
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--grid);
   white-space: nowrap;
 }
 .data-table .numeric {
   text-align: right;
-}
-.data-table td[data-state="failed"] {
-  color: var(--danger);
-}
-.data-table td[data-state="running"] {
-  color: var(--accent);
 }
 
 .coverage-matrix {
@@ -190,7 +184,7 @@
 .contract-choices {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 12px;
+  gap: var(--space-1) var(--space-3);
   max-height: 10rem;
   overflow: auto;
 }
@@ -203,26 +197,26 @@
 .stored-contracts-list {
   overflow: auto;
   border-right: 1px solid var(--grid);
-  padding: 8px;
+  padding: var(--space-2);
 }
 .stored-contracts-list > input {
   width: 100%;
   min-width: 0;
-  margin-block: 8px;
-  font-size: 12px;
+  margin-block: var(--space-2);
+  font-size: var(--font-size-body);
 }
 .stored-contracts-list [role="group"] > button {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
+  gap: var(--space-1);
   width: 100%;
   text-align: left;
   border: 0;
   border-bottom: 1px solid var(--grid);
   border-radius: 0;
-  padding: 8px;
-  font-size: 12px;
+  padding: var(--space-2);
+  font-size: var(--font-size-body);
   background: transparent;
 }
 .stored-contracts-list [role="group"] > button[aria-pressed="true"] {
@@ -232,7 +226,7 @@
 }
 .stored-contracts-list small,
 .stored-contracts-list p {
-  font-size: 12px;
+  font-size: var(--font-size-body);
   color: var(--muted);
 }
 .stored-contracts-detail {
@@ -278,11 +272,11 @@
 /* Shown only while an earlier dataset version replaces the latest data. */
 .data-earlier {
   margin: 0;
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   border-top: 1px solid var(--warning);
   background: color-mix(in srgb, var(--warning) 10%, transparent);
   color: var(--warning);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .data-earlier code {
   color: inherit;

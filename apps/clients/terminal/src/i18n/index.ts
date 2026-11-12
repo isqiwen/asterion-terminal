@@ -35,6 +35,8 @@ function publish() {
 export function getLocale() {
   return locale;
 }
+// What separates the items of a list in running text.
+export const listSeparator = () => (locale === "zh-CN" ? "、" : ", ");
 export function setLocale(next: Locale) {
   if (next !== "zh-CN" && next !== "en-US") throw new Error("Unsupported locale");
   window.localStorage.setItem(preference, next);

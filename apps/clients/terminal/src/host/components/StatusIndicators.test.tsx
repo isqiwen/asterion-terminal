@@ -45,12 +45,12 @@ test("indicators follow the sidebar: market, research, warehouse, then each trad
     "● 数据 连接中",
     "● 交易·simnow 连接中",
   ]);
-  expect(screen.getByText("● 研究").className).toContain("good");
+  expect(screen.getByText("● 研究").dataset.tone).toBe("ok");
   expect(screen.getByRole("button", { name: "● 交易·simnow 连接中" })).toBeTruthy();
 
   snapshot.lab = { ...snapshot.lab!, state: "restarting" };
   view.rerender(show(structuredClone(snapshot)));
-  expect(screen.getByText("● 研究 重启中").className).toContain("bad");
+  expect(screen.getByText("● 研究 重启中").dataset.tone).toBe("danger");
 });
 
 test("an unset Market opens its settings; no trading connection says so", () => {
@@ -68,7 +68,7 @@ test("the market indicator shows the service's own link to the broker and why it
     ({ online, error, board: { feed: { state } } }) as unknown as MarketView;
   vi.mocked(useMarket).mockReturnValue(market(FeedState.FAILED));
   const view = render(show());
-  expect(screen.getByText("● 行情 柜台未连接").className).toContain("bad");
+  expect(screen.getByText("● 行情 柜台未连接").dataset.tone).toBe("danger");
 
   vi.mocked(useMarket).mockReturnValue(market(FeedState.LOGGING_IN));
   view.rerender(show());
@@ -76,7 +76,7 @@ test("the market indicator shows the service's own link to the broker and why it
 
   vi.mocked(useMarket).mockReturnValue(market(FeedState.CONNECTED));
   view.rerender(show());
-  expect(screen.getByText("● 行情").className).toContain("good");
+  expect(screen.getByText("● 行情").dataset.tone).toBe("ok");
 
   vi.mocked(useMarket).mockReturnValue(market(FeedState.CONNECTED, false, "connection refused"));
   view.rerender(show());
@@ -87,7 +87,7 @@ test("the market indicator shows the service's own link to the broker and why it
 test("the warehouse indicator reads the service and says why it failed", async () => {
   vi.mocked(warehouseData).mockResolvedValueOnce({} as never);
   const view = render(show());
-  await waitFor(() => expect(screen.getByText("● 数据").className).toContain("good"));
+  await waitFor(() => expect(screen.getByText("● 数据").dataset.tone).toBe("ok"));
   view.unmount();
 
   vi.mocked(warehouseData).mockRejectedValueOnce(new Error("connection refused"));

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { translate } from "../../src/i18n";
+import { translate, listSeparator } from "../../src/i18n";
 
 const t = (key: string) => translate("asterion.terminal.data-workbench", key);
 // EXCHANGE/product/YYYY-MM → EXCHANGE/product
@@ -82,7 +82,7 @@ export function ContractPicker({
       </div>
       {value.length > 0 && (
         <p className="subtle">
-          {t("已选")}: {value.join("、")}{" "}
+          {t("已选")}: {value.join(listSeparator())}{" "}
           <button type="button" onClick={() => onChange([])}>
             {t("清空")}
           </button>

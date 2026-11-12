@@ -288,7 +288,7 @@ export function QuotePane({
         {actions}
         <small className="quote-pane-symbol">{symbol}</small>
       </header>
-      <nav className="quote-pane-periods" aria-label={t("图表周期")}>
+      <nav className="quote-pane-periods tabs" aria-label={t("图表周期")}>
         {primary.map(value => (
           <button key={value} aria-pressed={period === value} onClick={() => setPeriod(value)}>
             {t(value)}

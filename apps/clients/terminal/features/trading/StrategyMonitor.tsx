@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { InstanceState, type InstanceStatus } from "../../src/generated/asterion/trading_pb";
 import { decimalText } from "../../src/bridge/decimal";
-import { getLocale } from "../../src/i18n";
+import { getLocale, listSeparator } from "../../src/i18n";
 import { BackendError, ErrorNotice } from "../../src/i18n/errors";
 import { key, t } from "./live-shared";
 import { activeStrategy, parameterText, periodText } from "./strategy-instance";
@@ -58,7 +58,7 @@ export function StrategyMonitor({
           {configuration.packageName} · {configuration.packageVersion}
         </dd>
         <dt>{t("实际合约")}</dt>
-        <dd>{configuration.instruments.map(key).join(", ")}</dd>
+        <dd>{configuration.instruments.map(key).join(listSeparator())}</dd>
         <dt>{t("K 线周期")}</dt>
         <dd>{periodText(configuration.period)}</dd>
         <dt>{t("已处理完整 K 线批次")}</dt>
@@ -69,7 +69,7 @@ export function StrategyMonitor({
         <dd>
           {Object.entries(configuration.params)
             .map(([name, value]) => `${name} = ${parameterText(value)}`)
-            .join(", ") || t("使用包内默认参数")}
+            .join(listSeparator()) || t("使用包内默认参数")}
         </dd>
         {configuration.weightLimits && (
           <>

@@ -1,5 +1,6 @@
+import { listSeparator } from "../../src/i18n";
 import { useEffect, useState } from "react";
-import { decimalText } from "../../src/bridge/decimal";
+import { decimalText, groupedText } from "../../src/bridge/decimal";
 import { tradingRequest } from "../../src/bridge/trading";
 import { Side } from "../../src/generated/asterion/common_pb";
 import {
@@ -25,8 +26,8 @@ const positionColumns = ["合约", "方向", "今仓", "昨仓"];
 const positionRow = (p: Position) => [
   p.instrument?.symbol ?? "",
   p.side === Side.BUY ? t("多头") : t("空头"),
-  decimalText(p.todayLots),
-  decimalText(p.yesterdayLots),
+  groupedText(p.todayLots),
+  groupedText(p.yesterdayLots),
 ];
 const fillColumns = ["合约", "方向", "时间", "价格", "手数"];
 const fillRow = (f: Trade) => [
@@ -34,7 +35,7 @@ const fillRow = (f: Trade) => [
   `${f.side === Side.BUY ? t("买入") : t("卖出")} / ${t(offsets[f.offset])}`,
   f.tradeTime,
   decimalText(f.price),
-  decimalText(f.lots),
+  groupedText(f.lots),
 ];
 
 function Rows({ label, columns, rows }: { label: string; columns: string[]; rows: string[][] }) {
@@ -68,7 +69,7 @@ export function dayCsv(tradingDay: string, close: DayClose | undefined, fills: s
       [],
       fundFields.map(([, label]) => t(label)),
     );
-    lines.push(fundFields.map(([field]) => decimalText(close.funds?.[field])));
+    lines.push(fundFields.map(([field]) => groupedText(close.funds?.[field])));
     lines.push(
       [],
       positionColumns.map(column => t(column)),
@@ -147,7 +148,7 @@ function Fills({ account, live }: { account: string; live: Session }) {
             {fundFields.map(([field, label]) => (
               <div key={field}>
                 <dt>{t(label)}</dt>
-                <dd>{decimalText(close.funds?.[field])}</dd>
+                <dd>{groupedText(close.funds?.[field])}</dd>
               </div>
             ))}
           </dl>
@@ -222,8 +223,8 @@ export function AccountRecords({
                       {o.side === Side.BUY ? t("买入") : t("卖出")} / {t(offsets[o.offset])}
                     </td>
                     <td>{decimalText(o.price)}</td>
-                    <td>{decimalText(o.lots)}</td>
-                    <td>{decimalText(o.filledLots)}</td>
+                    <td>{groupedText(o.lots)}</td>
+                    <td>{groupedText(o.filledLots)}</td>
                     <td>
                       {t(statuses[o.state] ?? OrderState[o.state])}
                       {o.ctpError ? ` (${o.ctpError})` : ""}
@@ -272,7 +273,8 @@ export function AccountRecords({
             {decimalText(policy?.maxPriceDeviation)}
           </p>
           <p>
-            {t("可交易合约")}: {policy?.contracts.map(item => key(item.instrument)).join("、")}
+            {t("可交易合约")}:{" "}
+            {policy?.contracts.map(item => key(item.instrument)).join(listSeparator())}
           </p>
         </section>
         <AccountPolicyEditor

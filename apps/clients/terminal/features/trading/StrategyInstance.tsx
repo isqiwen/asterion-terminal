@@ -1,3 +1,4 @@
+import { listSeparator } from "../../src/i18n";
 import { useState } from "react";
 import { clone, create } from "@bufbuild/protobuf";
 import { Period } from "../../src/generated/asterion/common_pb";
@@ -90,14 +91,14 @@ export function StrategyInstance({
               {review.configuration.packageName} · {review.configuration.packageVersion}
             </dd>
             <dt>{t("实际合约")}</dt>
-            <dd>{review.configuration.instruments.map(key).join(", ")}</dd>
+            <dd>{review.configuration.instruments.map(key).join(listSeparator())}</dd>
             <dt>{t("K 线周期")}</dt>
             <dd>{periodText(review.configuration.period)}</dd>
             <dt>{t("参数覆盖")}</dt>
             <dd>
               {Object.entries(review.configuration.params)
                 .map(([name, value]) => `${name} = ${parameterText(value)}`)
-                .join(", ") || t("使用包内默认参数")}
+                .join(listSeparator()) || t("使用包内默认参数")}
             </dd>
             {review.configuration.weightLimits && (
               <>

@@ -1,10 +1,11 @@
+import { DateInput } from "../../src/ui/DateInput";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { lab } from "../../src/bridge/lab";
 import type { RunSummary } from "../../src/generated/asterion/lab_pb";
 import { ActionError, useActionError } from "../../src/host/action-error";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { notify } from "../../src/host/notifications";
-import { type MessageValues, translate } from "../../src/i18n";
+import { type MessageValues, translate, listSeparator } from "../../src/i18n";
 import {
   defaultForm,
   defaultText,
@@ -15,7 +16,16 @@ import {
   type RunForm,
 } from "./research-lab";
 import { LabCentre, LabHeader, ModuleErrors, NewModule, useModules, useSource } from "./LabParts";
-import { RunComparison, RunResult, SweepResult, metric, signed, states } from "./ResearchResult";
+import { StatusBadge } from "../../src/ui/StatusBadge";
+import {
+  RunComparison,
+  RunResult,
+  SweepResult,
+  metric,
+  runTones,
+  signed,
+  states,
+} from "./ResearchResult";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
@@ -143,6 +153,12 @@ export function StrategyLab(context: TerminalContext) {
       />
     </label>
   );
+  const dateField = (label: string, key: "begin" | "end" | "holdoutDay") => (
+    <label>
+      <span>{t(label)}</span>
+      <DateInput value={form[key]} onChange={value => change({ [key]: value })} />
+    </label>
+  );
   const validation = { none: "不验证", holdout: "留出", rolling: "滚动验证" } as const;
   return (
     <section className="lab-research">
@@ -246,8 +262,8 @@ export function StrategyLab(context: TerminalContext) {
                   onChange={event => change({ symbols: event.target.value })}
                 />
               </label>
-              {field("开始日", "begin", { type: "date" })}
-              {field("结束日", "end", { type: "date" })}
+              {dateField("开始日", "begin")}
+              {dateField("结束日", "end")}
               <label>
                 <span>{t("周期")}</span>
                 <select
@@ -315,7 +331,7 @@ export function StrategyLab(context: TerminalContext) {
                   </button>
                 ))}
               </div>
-              {form.validation === "holdout" && field("留出日", "holdoutDay", { type: "date" })}
+              {form.validation === "holdout" && dateField("留出日", "holdoutDay")}
               {form.validation === "rolling" && (
                 <>
                   {field("训练交易日数", "trainingDays")}
@@ -332,7 +348,9 @@ export function StrategyLab(context: TerminalContext) {
                 {t("运行")}
               </button>
               {saved.length > 0 && (
-                <p className="subtle">{t("已保存 {files}", { files: saved.join("、") })}</p>
+                <p className="subtle">
+                  {t("已保存 {files}", { files: saved.join(listSeparator()) })}
+                </p>
               )}
               <ActionError error={submitted.error} />
             </footer>
@@ -404,13 +422,17 @@ export function StrategyLab(context: TerminalContext) {
                     </button>
                   </td>
                   <td className="subtle">{run.strategy}</td>
-                  <td className={`lab-state ${group ? "" : runState(run.state)}`}>
-                    {group
-                      ? t("已完成 {done} / {count}", {
-                          done: members.filter(item => runState(item.state) === "succeeded").length,
-                          count: members.length,
-                        })
-                      : t(states[runState(run.state)] ?? runState(run.state))}
+                  <td>
+                    {group ? (
+                      t("已完成 {done} / {count}", {
+                        done: members.filter(item => runState(item.state) === "succeeded").length,
+                        count: members.length,
+                      })
+                    ) : (
+                      <StatusBadge tone={runTones[runState(run.state)] ?? "neutral"}>
+                        {t(states[runState(run.state)] ?? runState(run.state))}
+                      </StatusBadge>
+                    )}
                   </td>
                   <td className={`numeric ${signed(run.metrics.total_return)}`}>
                     {group ? "" : metric(run.metrics.total_return, true)}

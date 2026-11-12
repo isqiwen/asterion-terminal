@@ -1,10 +1,11 @@
+import { DateInput } from "../../src/ui/DateInput";
 import { useCallback, useEffect, useState } from "react";
 import { lab } from "../../src/bridge/lab";
 import type { FactorResult } from "../../src/generated/asterion/lab_pb";
 import { ActionError, useActionError } from "../../src/host/action-error";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { notify } from "../../src/host/notifications";
-import { type MessageValues, getLocale, translate } from "../../src/i18n";
+import { type MessageValues, getLocale, translate, listSeparator } from "../../src/i18n";
 import {
   defaultFactorForm,
   defaultText,
@@ -98,7 +99,7 @@ export function FactorLab(context: TerminalContext) {
                 >
                   <strong>{name}</strong>
                   <small>
-                    {module} · {item.inputs.join(", ")}
+                    {module} · {item.inputs.join(listSeparator())}
                   </small>
                   {item.description && (
                     <span>{item.description.split("\n")[0].replace(/`/g, "")}</span>
@@ -154,8 +155,14 @@ export function FactorLab(context: TerminalContext) {
                   onChange={event => change({ symbols: event.target.value })}
                 />
               </label>
-              {field("开始日", "begin", { type: "date" })}
-              {field("结束日", "end", { type: "date" })}
+              <label>
+                <span>{t("开始日")}</span>
+                <DateInput value={form.begin} onChange={begin => change({ begin })} />
+              </label>
+              <label>
+                <span>{t("结束日")}</span>
+                <DateInput value={form.end} onChange={end => change({ end })} />
+              </label>
               {factor.parameters.length > 0 && <h5 className="wide">{t("参数")}</h5>}
               {factor.parameters.map(parameter => (
                 <label key={parameter.name}>
@@ -183,7 +190,9 @@ export function FactorLab(context: TerminalContext) {
                 {busy ? t("正在评价…") : t("评价")}
               </button>
               {saved.length > 0 && (
-                <p className="subtle">{t("已保存 {files}", { files: saved.join("、") })}</p>
+                <p className="subtle">
+                  {t("已保存 {files}", { files: saved.join(listSeparator()) })}
+                </p>
               )}
               <ActionError error={error} />
             </footer>

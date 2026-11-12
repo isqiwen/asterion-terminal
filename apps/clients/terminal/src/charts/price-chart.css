@@ -1,19 +1,19 @@
 .price-chart {
   position: relative;
-  margin: 16px 0;
+  margin: var(--space-4) 0;
   border-block: 1px solid var(--line);
-  padding: 12px 0;
+  padding: var(--space-3) 0;
   min-width: 0;
 }
 /* Names a lower pane at its top left, over the chart. */
 .price-chart-pane-label {
   position: absolute;
   z-index: 2;
-  margin: 3px 6px;
+  margin: var(--space-1) var(--space-2);
   padding: 0 2px;
   background: var(--canvas);
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
@@ -33,7 +33,7 @@
   background: transparent;
 }
 .price-chart-cursor {
-  font-size: 12px;
+  font-size: var(--font-size-body);
   color: var(--text);
   font-variant-numeric: tabular-nums;
   min-height: 32px;
@@ -41,16 +41,16 @@
 .price-chart-controls {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 12px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
 }
 .price-chart-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 3px 8px;
-  font-size: 12px;
+  gap: var(--space-1) var(--space-2);
+  font-size: var(--font-size-body);
   font-variant-numeric: tabular-nums;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
 }
 .intraday-chart {
   display: flex;
@@ -60,7 +60,7 @@
 }
 .intraday-chart .price-chart-cursor {
   min-height: 18px;
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .intraday-chart .price-chart {
   display: flex;

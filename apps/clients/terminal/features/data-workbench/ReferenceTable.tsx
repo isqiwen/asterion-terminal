@@ -1,3 +1,4 @@
+import { DateInput } from "../../src/ui/DateInput";
 import { useEffect, useState } from "react";
 import { Table, type TableRows } from "../../src/generated/asterion/warehouse_pb";
 import { warehouseData } from "../../src/bridge/warehouse-data";
@@ -73,19 +74,11 @@ export function ReferenceTable({
           <>
             <label>
               {t("开始日期")}
-              <input
-                type="date"
-                value={first}
-                onChange={event => choose(() => setFirst(event.target.value))}
-              />
+              <DateInput value={first} onChange={value => choose(() => setFirst(value))} />
             </label>
             <label>
               {t("结束日期")}
-              <input
-                type="date"
-                value={last}
-                onChange={event => choose(() => setLast(event.target.value))}
-              />
+              <DateInput value={last} onChange={value => choose(() => setLast(value))} />
             </label>
           </>
         )}

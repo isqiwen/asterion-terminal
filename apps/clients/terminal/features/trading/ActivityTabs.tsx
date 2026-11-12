@@ -16,7 +16,7 @@ export function ActivityTabs({
     ["policy", "风控"],
   ];
   return (
-    <div className="activity-tabs" role="group" aria-label={t("账户明细")}>
+    <div className="activity-tabs tabs" role="group" aria-label={t("账户明细")}>
       {entries.map(([key, label]) => (
         <button key={key} aria-pressed={value === key} onClick={() => onChange(key)}>
           {t(label)}

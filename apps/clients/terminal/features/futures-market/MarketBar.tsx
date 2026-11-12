@@ -63,7 +63,7 @@ export function MarketBar({ context }: { context: TerminalContext }) {
     : t(phases[feed?.state ?? FeedState.UNSPECIFIED] ?? FeedState[feed?.state ?? 0]);
   return (
     <div className="market-bar">
-      <nav className="market-sections" aria-label={t("期货分类")}>
+      <nav className="market-sections tabs" aria-label={t("期货分类")}>
         {futuresSections.map(value => (
           <button
             key={value}
@@ -79,7 +79,7 @@ export function MarketBar({ context }: { context: TerminalContext }) {
           </button>
         ))}
       </nav>
-      <div className="market-scope" role="group" aria-label={t("合约范围")}>
+      <div className="market-scope tabs" role="group" aria-label={t("合约范围")}>
         <button
           aria-pressed={scope === "products"}
           title={t("主连行显示同品种持仓量最大的实际月份合约，不是拼接的连续合约。")}

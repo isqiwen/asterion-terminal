@@ -28,12 +28,12 @@
   margin-bottom: 40px;
 }
 .setup-mark {
-  margin-bottom: 24px;
+  margin-bottom: var(--space-5);
   color: var(--accent);
 }
 .setup-content h1 {
   color: var(--text-strong);
-  font-size: 22px;
+  font-size: var(--font-size-2xl);
   font-weight: 500;
   letter-spacing: 0.16em;
   line-height: 1.2;
@@ -46,19 +46,19 @@
 .setup-step {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 56px 160px 72px;
-  gap: 16px;
+  gap: var(--space-4);
   align-items: center;
   height: 40px;
   border-bottom: 1px solid var(--line);
 }
 .setup-step b {
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--font-size-body);
   font-weight: 500;
 }
 .setup-step > span {
   text-align: right;
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .setup-step > .setup-status-done {
   color: var(--success);
@@ -92,21 +92,21 @@
 .setup-begin {
   width: 100%;
   height: 36px;
-  margin-top: 28px;
-  font-size: 13px;
+  margin-top: var(--space-5);
+  font-size: var(--font-size-md);
   letter-spacing: 0.12em;
 }
 .setup-begin:disabled {
   cursor: wait;
 }
 .setup-error {
-  font-size: 12px;
+  font-size: var(--font-size-body);
   line-height: 1.5;
   color: var(--danger);
   overflow-wrap: anywhere;
   max-height: 160px;
   overflow: auto;
-  margin: 18px 0 0;
+  margin: var(--space-4) 0 0;
 }
 @media (prefers-reduced-motion: reduce) {
   .setup-track.indeterminate i {
@@ -120,8 +120,8 @@
   text-align: left;
   list-style: none;
   padding: 0;
-  margin: 18px 0 0;
-  font-size: 12px;
+  margin: var(--space-4) 0 0;
+  font-size: var(--font-size-body);
   line-height: 1.6;
   color: var(--warning);
   max-height: 96px;
@@ -129,6 +129,6 @@
 }
 .setup-step > small {
   text-align: right;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-family: var(--font-terminal);
 }

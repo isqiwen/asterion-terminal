@@ -2,7 +2,8 @@ import { TaskState } from "../../src/generated/asterion/warehouse_pb";
 import { warehouseData } from "../../src/bridge/warehouse-data";
 import type { AcquisitionTask } from "../../src/generated/asterion/warehouse_pb";
 import { ActionError, useActionError } from "../../src/host/action-error";
-import { type MessageValues, translate } from "../../src/i18n";
+import { type MessageValues, translate, listSeparator } from "../../src/i18n";
+import { StatusBadge, type Tone } from "../../src/ui/StatusBadge";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.data-workbench", key, values);
@@ -13,6 +14,12 @@ const states: Record<number, string> = {
   [TaskState.FAILED]: "失败",
   [TaskState.CANCELLED]: "已取消",
   [TaskState.INTERRUPTED]: "已中断",
+};
+const tones: Record<number, Tone> = {
+  [TaskState.SUCCEEDED]: "ok",
+  [TaskState.FAILED]: "danger",
+  [TaskState.CANCELLED]: "attention",
+  [TaskState.INTERRUPTED]: "attention",
 };
 export const activeTask = (task: AcquisitionTask) =>
   [TaskState.QUEUED, TaskState.RUNNING].includes(task.state);
@@ -65,13 +72,16 @@ export function Tasks({
                 >
                   <td>{tableName(request.table)}</td>
                   <td>
-                    {[...request.exchanges, ...request.instruments].join("、") || t("全部交易所")}
+                    {[...request.exchanges, ...request.instruments].join(listSeparator()) ||
+                      t("全部交易所")}
                   </td>
                   <td>
                     {request.firstDay || t("上市日")} – {request.lastDay || t("摘牌日")}
                   </td>
-                  <td data-state={TaskState[task.state].toLowerCase()}>
-                    {t(states[task.state] ?? String(task.state))}
+                  <td>
+                    <StatusBadge tone={tones[task.state] ?? "neutral"}>
+                      {t(states[task.state] ?? String(task.state))}
+                    </StatusBadge>
                     {task.error && <div className="task-error">{task.error.message}</div>}
                   </td>
                   <td>

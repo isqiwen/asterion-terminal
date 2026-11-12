@@ -1,4 +1,4 @@
-import { translate, type MessageValues } from "../i18n";
+import { translate, type MessageValues, listSeparator } from "../i18n";
 import type { FuturesContract } from "../bridge/client";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 
@@ -23,11 +23,11 @@ export function priceIncrements(datasets: DatasetUnits[]) {
   return ordered
     .filter(([, value], i) => i === 0 || value !== ordered[i - 1][1])
     .map(([day, value], i) => (i ? t("{day} 起 {tick}", { day, tick: value }) : value))
-    .join("、");
+    .join(listSeparator());
 }
 // Months whose lots differ are each listed once.
 export function multipliers(datasets: DatasetUnits[]) {
-  return [...new Set(datasets.map(dataset => dataset.contract.multiplier))].join("、");
+  return [...new Set(datasets.map(dataset => dataset.contract.multiplier))].join(listSeparator());
 }
 export function contractUnits(datasets: DatasetUnits[]) {
   return t("最小变动价位 {tick} · 合约乘数 {multiplier}", {

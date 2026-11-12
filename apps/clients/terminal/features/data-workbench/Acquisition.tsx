@@ -1,3 +1,4 @@
+import { DateInput } from "../../src/ui/DateInput";
 import { useState } from "react";
 import { Table } from "../../src/generated/asterion/warehouse_pb";
 import { warehouseData } from "../../src/bridge/warehouse-data";
@@ -105,11 +106,11 @@ export function Acquisition({
       <div className="data-fields">
         <label>
           {t("开始日期")}
-          <input type="date" value={begin} onChange={event => setBegin(event.target.value)} />
+          <DateInput value={begin} onChange={setBegin} />
         </label>
         <label>
           {t("结束日期")}
-          <input type="date" value={end} onChange={event => setEnd(event.target.value)} />
+          <DateInput value={end} onChange={setEnd} />
         </label>
       </div>
       {named && <p className="subtle">{t("日期留空即整个上市期。")}</p>}

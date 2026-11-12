@@ -237,7 +237,7 @@ export function LabCentre({
   return (
     <main className="lab-center">
       {source.path && hasResult && (
-        <nav className="lab-tabs" aria-label={t("代码与结果")}>
+        <nav className="lab-tabs tabs" aria-label={t("代码与结果")}>
           <button aria-pressed={source.tab === "code"} onClick={() => source.setTab("code")}>
             {t("代码")}
           </button>

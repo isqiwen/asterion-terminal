@@ -1,6 +1,7 @@
+import { listSeparator } from "../../src/i18n";
 import { useState } from "react";
 import type { TradingConnection, Snapshot } from "../../src/bridge/client";
-import { decimalText } from "../../src/bridge/decimal";
+import { groupedText } from "../../src/bridge/decimal";
 import { BrokerState, Environment, type Account } from "../../src/generated/asterion/trading_pb";
 import { FlowSteps } from "../../src/ui/FlowSteps";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
@@ -191,7 +192,10 @@ export function LiveAccount({
           <p>
             {t(
               "{n} 笔已记录的委托没有出现在券商回报中：{ids}。它们不会被重发，并继续占用在途委托额度；请在券商端核实。",
-              { n: live.unconfirmed.length, ids: live.unconfirmed.map(item => item.id).join("、") },
+              {
+                n: live.unconfirmed.length,
+                ids: live.unconfirmed.map(item => item.id).join(listSeparator()),
+              },
             )}
           </p>
           <p>{t("在券商端确认某笔委托不存在后，可将其标为已核实，它不再占用在途委托额度。")}</p>
@@ -213,7 +217,7 @@ export function LiveAccount({
           {fundFields.map(([field, label]) => (
             <div key={field}>
               <dt>{t(label)}</dt>
-              <dd data-testid={`live-${field}`}>{decimalText(live.funds![field])}</dd>
+              <dd data-testid={`live-${field}`}>{groupedText(live.funds![field])}</dd>
             </div>
           ))}
         </dl>

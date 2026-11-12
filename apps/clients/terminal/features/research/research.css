@@ -7,10 +7,10 @@
 
 .terminal-business section.research-workspace > .panel-heading {
   min-height: 40px;
-  padding-block: 6px;
+  padding-block: var(--space-2);
 }
 .terminal-business section.research-workspace > .panel-heading h2 {
-  font-size: 14px;
+  font-size: var(--font-size-lg);
 }
 /* The page gives the gutter; a research page adds no margin of its own. */
 .research-navigation {
@@ -22,8 +22,8 @@
 /* Which data the factor is evaluated on, above its form. */
 .research-inputs {
   display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
 }
 .research-inputs button[aria-pressed="true"] {
   color: var(--accent);
@@ -39,7 +39,7 @@
 .research-instruments {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-2);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -47,15 +47,15 @@
 .research-instruments li {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 2px 2px 8px;
+  gap: var(--space-1);
+  padding: 2px 2px 2px var(--space-2);
   border: 1px solid var(--line);
   border-radius: var(--panel-radius);
   font-family: var(--font-terminal);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .research-instruments button {
-  padding: 0 6px;
+  padding: 0 var(--space-2);
   border: 0;
   background: none;
   color: var(--muted);
@@ -66,8 +66,8 @@
 }
 .research-config {
   max-width: 980px;
-  margin: 0 auto 24px;
-  padding: 20px;
+  margin: 0 auto var(--space-5);
+  padding: var(--space-5);
   background: var(--panel);
   border: 1px solid var(--grid);
   border-radius: var(--panel-radius);
@@ -76,12 +76,12 @@
   max-width: 1300px;
   min-width: 0;
   margin: 0 auto;
-  padding: 4px 0;
+  padding: var(--space-1) 0;
 }
 .research-config h3,
 .research-main h3 {
-  margin: 0 0 16px;
-  font-size: 14px;
+  margin: 0 0 var(--space-4);
+  font-size: var(--font-size-lg);
 }
 /* The backtest names its step in the page heading instead. */
 .backtest-layout .research-config > h3 {
@@ -91,19 +91,19 @@
 /* Forms: fields in four columns; a lone field keeps a readable width and
    buttons keep their own. */
 .research-config form {
-  margin: 18px 0;
+  margin: var(--space-4) 0;
 }
 .research-config fieldset {
   display: grid;
-  gap: 14px;
+  gap: var(--space-4);
   padding: 0;
   border: 0;
   min-width: 0;
 }
 .research-config label {
   display: grid;
-  gap: 6px;
-  font-size: 12px;
+  gap: var(--space-2);
+  font-size: var(--font-size-body);
   color: var(--muted);
   min-width: 0;
 }
@@ -121,35 +121,35 @@
 .research-fields {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  gap: var(--space-3);
 }
 /* The fee form lines up with the fields above it. */
 .research-config .contract-costs .futures-fields {
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  gap: var(--space-3);
 }
 .research-workspace details {
-  font-size: 12px;
+  font-size: var(--font-size-body);
   color: var(--muted);
   overflow-wrap: anywhere;
 }
 .research-workspace summary {
   cursor: pointer;
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 
 /* What is about to run, as a list of name and value. */
 .research-summary {
   display: grid;
   grid-template-columns: 120px minmax(0, 1fr);
-  margin: 0 0 12px;
+  margin: 0 0 var(--space-3);
   border-top: 1px solid var(--line);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .research-summary dt,
 .research-summary dd {
   margin: 0;
-  padding: 10px 0;
+  padding: var(--space-3) 0;
   border-bottom: 1px solid var(--line);
   line-height: 1.6;
 }
@@ -174,15 +174,15 @@
   text-align: left;
   font-weight: 400;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .research-table th,
 .research-table td {
-  padding: 10px;
+  padding: var(--space-3);
   border-bottom: 1px solid var(--line);
 }
 .research-table td {
-  font-size: 12px;
+  font-size: var(--font-size-body);
   vertical-align: top;
 }
 /* A record is two lines: its name, then what it is with the details
@@ -192,7 +192,7 @@
 }
 .research-table td > .subtle {
   display: inline-block;
-  margin: 3px 10px 0 0;
+  margin: var(--space-1) var(--space-3) 0 0;
   vertical-align: top;
 }
 .research-table td > details {
@@ -217,18 +217,18 @@
 /* Progress and results. */
 .research-progress {
   max-width: 800px;
-  margin: 20px auto;
-  padding: 24px;
+  margin: var(--space-5) auto;
+  padding: var(--space-5);
   border: 1px solid var(--line);
   border-radius: var(--panel-radius);
 }
 .research-progress progress {
   width: 100%;
-  margin: 16px 0;
+  margin: var(--space-4) 0;
 }
 .research-result {
-  margin-top: 28px;
-  padding-top: 20px;
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
   border-top: 1px solid var(--line);
 }
 .backtest-layout .research-result {
@@ -239,8 +239,8 @@
 .research-metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
-  padding: 20px;
+  gap: var(--space-3);
+  padding: var(--space-5);
   background: var(--panel);
   border-radius: var(--panel-radius);
   font-variant-numeric: tabular-nums;
@@ -250,42 +250,42 @@
   display: block;
 }
 .research-metrics span {
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .research-metrics strong {
-  margin-top: 7px;
-  font-size: 24px;
+  margin-top: var(--space-2);
+  font-size: var(--font-size-2xl);
   color: var(--text-strong);
   overflow-wrap: anywhere;
 }
 .research-range {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
+  gap: var(--space-3);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .research-result > .research-range {
-  margin: 18px 0;
+  margin: var(--space-4) 0;
 }
 .research-experiment {
-  margin: 12px 0;
+  margin: var(--space-3) 0;
 }
 .experiment-fields {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
-  gap: 12px;
+  gap: var(--space-3);
 }
 .experiment-fields dt {
   color: var(--muted);
 }
 .experiment-fields dd {
-  margin: 5px 0 0;
+  margin: var(--space-1) 0 0;
   color: var(--text);
 }
 .experiment-day {
   border-top: 1px solid var(--line);
-  margin-top: 12px;
+  margin-top: var(--space-3);
 }
 
 @media (max-width: 900px) {
@@ -303,11 +303,11 @@
 .evaluation-workspace > section {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .strategy-origin {
-  padding: 16px var(--space-page) 0;
+  padding: var(--space-4) var(--space-page) 0;
   margin-bottom: 0;
 }
 
@@ -328,24 +328,24 @@
   display: grid;
   align-content: start;
   justify-items: start;
-  gap: 12px;
+  gap: var(--space-3);
   padding: var(--space-page);
 }
 .lab-header {
   grid-area: header;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   min-height: 48px;
   padding: 0 var(--space-page);
   border-bottom: 1px solid var(--line);
 }
 .lab-chip {
-  padding: 1px 6px;
+  padding: 1px var(--space-2);
   border: 1px solid var(--line-strong);
   border-radius: var(--control-radius);
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-family: var(--font-terminal);
 }
 button.lab-chip {
@@ -367,11 +367,11 @@ button.lab-chip:hover {
 /* Actions that read as text: in headers, tables and toolbars. */
 button.lab-link {
   min-height: 22px;
-  padding: 0 4px;
+  padding: 0 var(--space-1);
   border: 0;
   background: none;
   color: var(--accent);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 button.lab-link:hover:enabled {
   text-decoration: underline;
@@ -382,21 +382,21 @@ button.lab-link.strong {
 }
 .lab-research > [role="alert"] {
   grid-area: notice;
-  margin: 8px var(--space-page) 0;
+  margin: var(--space-2) var(--space-page) 0;
 }
 .lab-modules,
 .lab-config,
 .lab-center {
   min-height: 0;
   overflow: auto;
-  padding: 16px;
+  padding: var(--space-4);
 }
 .lab-modules h4,
 .lab-config > h4,
 .lab-runs h4 {
-  margin: 0 0 10px;
+  margin: 0 0 var(--space-3);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
   font-weight: 400;
 }
 .lab-modules {
@@ -405,7 +405,7 @@ button.lab-link.strong {
 }
 .lab-modules ul {
   list-style: none;
-  margin: 0 0 20px;
+  margin: 0 0 var(--space-5);
   padding: 0;
 }
 .lab-modules li button {
@@ -413,7 +413,7 @@ button.lab-link.strong {
   justify-items: start;
   gap: 2px;
   width: 100%;
-  padding: 7px 10px;
+  padding: var(--space-2) var(--space-3);
   border: 0;
   border-left: 2px solid transparent;
   text-align: left;
@@ -435,7 +435,7 @@ button.lab-link.strong {
 }
 .lab-modules li span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
   line-height: 1.4;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -444,18 +444,18 @@ button.lab-link.strong {
 }
 .lab-module-error summary {
   color: var(--warning);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .lab-module-error pre,
 .lab-details pre,
 .lab-code {
   white-space: pre-wrap;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--muted);
 }
 .lab-center {
   grid-area: center;
-  padding: 16px 20px;
+  padding: var(--space-4) var(--space-5);
 }
 .lab-placeholder {
   display: grid;
@@ -473,21 +473,21 @@ button.lab-link.strong {
 .lab-form {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px 10px;
+  gap: var(--space-3) var(--space-3);
   align-content: start;
 }
 .lab-form label {
   display: grid;
-  gap: 4px;
+  gap: var(--space-1);
   min-width: 0;
 }
 .lab-form label > span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .lab-form label > span small {
-  margin-left: 4px;
-  font-size: 11px;
+  margin-left: var(--space-1);
+  font-size: var(--font-size-xs);
   color: var(--subtle);
 }
 .lab-form input {
@@ -499,20 +499,20 @@ button.lab-link.strong {
   grid-column: 1 / -1;
 }
 .lab-form h5 {
-  margin: 10px 0 0;
-  padding-top: 12px;
+  margin: var(--space-3) 0 0;
+  padding-top: var(--space-3);
   border-top: 1px solid var(--line);
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--font-size-body);
   font-weight: 500;
 }
 .lab-section summary {
   display: flex;
   justify-content: space-between;
-  gap: 8px;
-  padding: 6px 0;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .lab-section summary small {
   overflow: hidden;
@@ -520,13 +520,13 @@ button.lab-link.strong {
   white-space: nowrap;
 }
 .lab-section > .lab-form {
-  padding: 6px 0 4px;
+  padding: var(--space-2) 0 var(--space-1);
 }
 .lab-form .lab-check {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: var(--space-2);
+  font-size: var(--font-size-body);
 }
 .lab-segmented {
   display: flex;
@@ -546,7 +546,7 @@ button.lab-link.strong {
   position: sticky;
   bottom: 0;
   margin: auto -16px 0;
-  padding: 12px 16px 16px;
+  padding: var(--space-3) var(--space-4) var(--space-4);
   border-top: 1px solid var(--line);
   background: var(--canvas);
 }
@@ -557,7 +557,7 @@ button.lab-link.strong {
   grid-area: runs;
   min-height: 0;
   overflow: auto;
-  padding: 12px var(--space-page);
+  padding: var(--space-3) var(--space-page);
   border-top: 1px solid var(--line);
 }
 .lab-runs > header {
@@ -571,7 +571,7 @@ button.lab-link.strong {
 .lab-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--font-size-body);
   font-variant-numeric: tabular-nums;
 }
 .lab-table th {
@@ -588,7 +588,7 @@ button.lab-link.strong {
 }
 .lab-table th,
 .lab-table td {
-  padding: 0 12px;
+  padding: 0 var(--space-3);
 }
 .lab-table th:first-child,
 .lab-table td:first-child {
@@ -596,7 +596,6 @@ button.lab-link.strong {
 }
 .lab-table .numeric {
   text-align: right;
-  font-family: var(--font-terminal);
 }
 .lab-table tr:hover td {
   background: var(--row-alt);
@@ -604,15 +603,6 @@ button.lab-link.strong {
 .lab-table tr.current td,
 .lab-table tr.selected td {
   background: var(--accent-surface);
-}
-.lab-state.failed {
-  color: var(--danger);
-}
-.lab-state.running {
-  color: var(--accent);
-}
-.lab-state.interrupted {
-  color: var(--warning);
 }
 .lab-scroll {
   overflow: auto;
@@ -625,12 +615,12 @@ button.lab-link.strong {
 }
 .lab-result {
   display: grid;
-  gap: 16px;
+  gap: var(--space-4);
 }
 .lab-result h5 {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
   font-weight: 400;
 }
 .lab-figures {
@@ -642,12 +632,12 @@ button.lab-link.strong {
   background: var(--line);
 }
 .lab-figures > div {
-  padding: 10px 12px;
+  padding: var(--space-3) var(--space-3);
   background: var(--canvas);
 }
 .lab-figures dt {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 .lab-figures dd.lab-up {
   color: var(--quote-up);
@@ -656,16 +646,16 @@ button.lab-link.strong {
   color: var(--quote-down);
 }
 .lab-figures dd {
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
   color: var(--text-strong);
-  font-size: 18px;
+  font-size: var(--font-size-xl);
   font-family: var(--font-terminal);
 }
 .lab-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
 }
 /* A label beside its control, unlike a form field's label above it. */
 label.lab-inline {
@@ -673,9 +663,9 @@ label.lab-inline {
   flex-direction: row;
   justify-self: start;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .lab-months {
   display: grid;
@@ -687,29 +677,29 @@ label.lab-inline {
 .lab-months span {
   display: grid;
   gap: 2px;
-  padding: 6px 8px;
+  padding: var(--space-2) var(--space-2);
   background: var(--canvas);
   font-family: var(--font-terminal);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .lab-months small {
-  font-size: 10px;
+  font-size: var(--font-size-xs);
 }
 .lab-heatmap {
   justify-self: start;
   border-collapse: collapse;
   font-family: var(--font-terminal);
-  font-size: 12px;
+  font-size: var(--font-size-body);
 }
 .lab-heatmap th {
-  padding: 6px 12px;
+  padding: var(--space-2) var(--space-3);
   color: var(--muted);
   font-weight: 400;
   text-align: right;
 }
 .lab-heatmap td {
   min-width: 72px;
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--canvas);
   text-align: right;
   color: var(--text-strong);
@@ -717,8 +707,8 @@ label.lab-inline {
 .lab-details dl {
   display: grid;
   grid-template-columns: max-content 1fr;
-  gap: 4px 12px;
-  font-size: 12px;
+  gap: var(--space-1) var(--space-3);
+  font-size: var(--font-size-body);
 }
 .lab-details dt {
   color: var(--muted);
@@ -746,31 +736,31 @@ label.lab-inline {
   display: inline-block;
   width: 10px;
   height: 10px;
-  margin-right: 8px;
+  margin-right: var(--space-2);
   border-radius: 2px;
   vertical-align: baseline;
 }
 .lab-skipped {
-  margin: 8px 0 0;
-  padding-left: 18px;
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
   color: var(--muted);
 }
 .lab-skipped strong {
-  margin-right: 8px;
+  margin-right: var(--space-2);
   color: var(--text);
 }
 
 .lab-source {
   display: grid;
   grid-template-rows: auto 1fr;
-  gap: 8px;
+  gap: var(--space-2);
   height: calc(100% - 36px);
   min-height: 320px;
 }
 .lab-source > header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .lab-source > header code {
   margin-right: auto;
@@ -785,7 +775,7 @@ label.lab-inline {
 .lab-new-module {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-2);
 }
 .lab-new-module .action-error {
   flex-basis: 100%;
@@ -796,20 +786,7 @@ label.lab-inline {
   flex: 1;
 }
 .lab-tabs {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 8px;
-}
-.lab-tabs button {
-  padding: 2px 10px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: none;
-  color: var(--muted);
-}
-.lab-tabs button[aria-pressed="true"] {
-  border-bottom-color: var(--accent);
-  color: var(--text-strong);
+  margin-bottom: var(--space-2);
 }
 .lab-rejections summary {
   color: var(--warning);

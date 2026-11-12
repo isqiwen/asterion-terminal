@@ -170,7 +170,7 @@ export function ContractHistory({
       )}
       <div className="market-chart-toolbar">
         <div
-          className="market-periods"
+          className="market-periods tabs"
           role="group"
           aria-label={t("历史周期")}
           hidden={fixedPeriod !== undefined}

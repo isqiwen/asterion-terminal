@@ -1,3 +1,4 @@
+import { listSeparator } from "../../src/i18n";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Package } from "../../src/generated/asterion/strategy_pb";
 import type { Account, Strategies } from "../../src/generated/asterion/trading_pb";
@@ -177,7 +178,7 @@ function AccountStrategies({ account, repository, record, connected = false }: P
             </strong>{" "}
             · {prepared.manifest.entry}
           </p>
-          <p>{prepared.manifest.files.join(", ")}</p>
+          <p>{prepared.manifest.files.join(listSeparator())}</p>
           <button
             disabled={busy || stopping || !fresh}
             onClick={() =>

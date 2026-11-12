@@ -52,6 +52,22 @@
   --price-line: var(--accent);
   --chart-area: rgb(56 214 242 / 12%);
 
+  /* Type: six sizes; body text follows the density. */
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 13px;
+  --font-size-lg: 15px;
+  --font-size-xl: 18px;
+  --font-size-2xl: 22px;
+  --font-size-body: var(--font-size-sm);
+
+  /* Spacing: five steps. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+
   --row-height: 26px;
   --control-height: 28px;
   --control-radius: 2px;
@@ -60,6 +76,7 @@
   --background-grid: none;
 }
 :root[data-density="comfortable"] {
+  --font-size-body: var(--font-size-md);
   --row-height: 36px;
   --control-height: 34px;
 }

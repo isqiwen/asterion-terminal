@@ -239,7 +239,7 @@ test("an earlier trading day shows its recorded close and fills and exports them
   fireEvent.change(day, { target: { value: "2026-09-25" } });
   expect(await screen.findByText("20260925 09:30:00")).toBeTruthy();
   expect(screen.queryByText("暂无成交")).toBeNull();
-  expect(screen.getByText("1000123.5")).toBeTruthy();
+  expect(screen.getByText("1,000,123.5")).toBeTruthy();
   expect(screen.getByRole("table", { name: "收盘持仓" }).textContent).toContain("rb2610");
   // The export is what the page shows.
   let exported: Blob | undefined;
@@ -253,7 +253,7 @@ test("an earlier trading day shows its recorded close and fills and exports them
   expect(click).toHaveBeenCalled();
   const text = await exported!.text();
   expect(text).toContain("交易日,2026-09-25");
-  expect(text).toContain("1000123.5,990000");
+  expect(text).toContain('"1,000,123.5","990,000"');
   expect(text).toContain("rb2610,多头,1,0");
   expect(text).toContain("rb2610,买入 / 开仓,20260925 09:30:00,3500,1");
   click.mockRestore();
