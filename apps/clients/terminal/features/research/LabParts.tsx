@@ -178,16 +178,12 @@ export function ModuleErrors({
 // The open module, its unsaved edits and whether the centre shows its code or
 // the latest result, which takes over whenever a new one arrives. The edits
 // belong to the workspace: they outlive the editor until saved.
-export function useSource(repository: string, shown: unknown) {
+export function useSource(repository: string) {
   const [path, setPath] = useWorkspaceDraft(`source-path:${repository}`, "");
   const [drafts, setDrafts] = useWorkspaceDraft<Record<string, string>>(
     `source-drafts:${repository}`,
     {},
   );
-  const [tab, setTab] = useState<"code" | "result">("code");
-  useEffect(() => {
-    if (shown) setTab("result");
-  }, [shown]);
   const draft = (module: string, content: string | null) =>
     setDrafts(previous => {
       const { [module]: _, ...rest } = previous;
@@ -195,14 +191,9 @@ export function useSource(repository: string, shown: unknown) {
     });
   return {
     path,
-    tab,
-    setTab,
     drafts,
     draft,
-    open: (next: string) => {
-      setPath(next);
-      setTab("code");
-    },
+    open: setPath,
     close: () => setPath(""),
     // Saves every module with unsaved edits, so that a run reads the code on show; the paths saved.
     async save() {
@@ -219,34 +210,23 @@ export function useSource(repository: string, shown: unknown) {
   };
 }
 
+// The open module's code, or `children` while none is open.
 export function LabCentre({
   source,
   repository,
-  hasResult,
   changed,
   deleted,
   children,
 }: {
   source: ReturnType<typeof useSource>;
   repository: string;
-  hasResult: boolean;
   changed: () => void;
   deleted: () => void;
   children: ReactNode;
 }) {
   return (
     <main className="lab-center">
-      {source.path && hasResult && (
-        <nav className="lab-tabs tabs" aria-label={t("代码与结果")}>
-          <button aria-pressed={source.tab === "code"} onClick={() => source.setTab("code")}>
-            {t("代码")}
-          </button>
-          <button aria-pressed={source.tab === "result"} onClick={() => source.setTab("result")}>
-            {t("结果")}
-          </button>
-        </nav>
-      )}
-      {source.path && source.tab === "code" ? (
+      {source.path ? (
         <SourceEditor
           key={source.path}
           repository={repository}
@@ -300,5 +280,28 @@ export function DeleteRecord({ name, remove }: { name: string; remove: () => voi
     >
       {t("删除")}
     </button>
+  );
+}
+
+// One group of a configuration; its summary says what is set while folded.
+export function Section({
+  title,
+  summary,
+  open,
+  children,
+}: {
+  title: string;
+  summary: string;
+  open?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <details className="lab-section" open={open}>
+      <summary>
+        <strong>{title}</strong>
+        <small title={summary}>{summary}</small>
+      </summary>
+      <div className="lab-form">{children}</div>
+    </details>
   );
 }

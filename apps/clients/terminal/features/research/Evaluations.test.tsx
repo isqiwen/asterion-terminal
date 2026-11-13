@@ -9,7 +9,7 @@ import {
   StrategiesSchema,
 } from "../../src/generated/asterion/lab_pb";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "../../src/host/workspace/drafts";
-import { FactorLab } from "./FactorLab";
+import { Evaluations } from "./Evaluations";
 
 vi.mock("../../src/bridge/lab", () => ({
   lab: vi.fn(),
@@ -20,7 +20,7 @@ vi.mock("../../src/i18n", async original => ({
 }));
 vi.mock("@asterion/terminal/charts/PriceChart", () => ({ PriceChart: () => null }));
 
-test("a kept evaluation reopens with the code it evaluated", async () => {
+test("a kept evaluation reopens its report with the code it evaluated", async () => {
   const evaluation = {
     id: "price-1",
     factor: "price.momentum",
@@ -51,11 +51,16 @@ test("a kept evaluation reopens with the code it evaluated", async () => {
     navigate: vi.fn(),
   } as unknown as TerminalContext;
   render(
-    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.lab-factors">
-      <FactorLab {...context} />
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.lab-evaluations">
+      <Evaluations {...context} />
     </WorkspaceDraftScope>,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "price-1" }));
-  expect(await screen.findByText("def momentum(close, lookback: int = 20): ...")).toBeTruthy();
-  expect(screen.getByText(/price\.momentum · lookback=2/)).toBeTruthy();
+  const records = await screen.findByRole("table", { name: "评价记录" });
+  expect(records.textContent).toContain("lookback=2");
+  fireEvent.click(screen.getByRole("button", { name: "price-1" }));
+  expect(await screen.findByText(/price\.momentum · lookback=2/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "评价时的源码" }));
+  expect(screen.getByText("def momentum(close, lookback: int = 20): ...")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "← 评价记录" }));
+  await screen.findByRole("table", { name: "评价记录" });
 });

@@ -1,11 +1,10 @@
 import { DateInput } from "../../src/ui/DateInput";
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { lab } from "../../src/bridge/lab";
-import type { FactorResult } from "../../src/generated/asterion/lab_pb";
 import { ActionError, useActionError } from "../../src/host/action-error";
 import type { TerminalContext } from "../../src/host/feature-registry";
-import { notify } from "../../src/host/notifications";
-import { type MessageValues, getLocale, translate, listSeparator } from "../../src/i18n";
+import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
+import { type MessageValues, translate, listSeparator } from "../../src/i18n";
 import {
   defaultFactorForm,
   defaultText,
@@ -14,14 +13,13 @@ import {
   parameterKind,
   type FactorForm,
 } from "./research-lab";
-import { FactorResultView } from "./FactorResultView";
 import {
   ConfigFold,
-  DeleteRecord,
   LabCentre,
   LabHeader,
   ModuleErrors,
   NewModule,
+  Section,
   useConfigFold,
   useModules,
   useSource,
@@ -30,28 +28,17 @@ import {
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
 
-// The factor view: the factor modules, an evaluation's settings and its result.
+// The factor view: the factor modules, their code and an evaluation's
+// settings. An evaluation opens its report in the evaluations view.
 export function FactorLab(context: TerminalContext) {
   const repository = context.snapshot?.research_directory ?? "";
   const { modules, read } = useModules(repository);
-  const [chosen, setChosen] = useState("");
-  const [form, setForm] = useState<FactorForm>(defaultFactorForm);
-  const [result, setResult] = useState<FactorResult | null>(null);
-  // Every kept evaluation, newest first, without its days and groups.
-  const [kept, setKept] = useState<FactorResult[]>([]);
-  const readKept = useCallback(async () => {
-    try {
-      setKept((await lab({ case: "listFactorResults", value: {} })).results);
-    } catch (failure) {
-      notify(failure);
-    }
-  }, []);
-  useEffect(() => void readKept(), [readKept]);
-  const open = (id: string) =>
-    attempt(async () => setResult(await lab({ case: "getFactorResult", value: { id } })));
+  // Kept while an evaluation's report is on show in the evaluations view.
+  const [chosen, setChosen] = useWorkspaceDraft(`factor:${repository}`, "");
+  const [form, setForm] = useWorkspaceDraft<FactorForm>("factor-form", defaultFactorForm);
   const [busy, setBusy] = useState(false);
   const { error, attempt } = useActionError();
-  const source = useSource(repository, result);
+  const source = useSource(repository);
   const [saved, setSaved] = useState<string[]>([]);
 
   const factor = modules?.factors.find(item => item.id === chosen);
@@ -64,13 +51,12 @@ export function FactorLab(context: TerminalContext) {
       const written = await source.save();
       setSaved(written);
       if (written.length) await read();
-      setResult(
-        await lab({
-          case: "evaluateFactor",
-          value: { ...factorRequest(form, repository, factor), id: identity(factor.id) },
-        }),
-      );
-      await readKept();
+      const id = identity(factor.id);
+      await lab({
+        case: "evaluateFactor",
+        value: { ...factorRequest(form, repository, factor), id },
+      });
+      context.navigate("workspace.lab-evaluations", { params: { id } });
     });
     setBusy(false);
   };
@@ -136,20 +122,15 @@ export function FactorLab(context: TerminalContext) {
       <LabCentre
         source={source}
         repository={repository}
-        hasResult={!!result}
         changed={() => void read()}
         deleted={() => {
           setChosen("");
           void read();
         }}
       >
-        {result ? (
-          <FactorResultView result={result} />
-        ) : (
-          <p className="lab-placeholder">
-            {t("选择左侧的因子、填写右侧的设置后评价；结果显示在这里。")}
-          </p>
-        )}
+        <p className="lab-placeholder">
+          {t("选择左侧的因子，填写右侧的设置后评价；报告在“因子评价”里。")}
+        </p>
       </LabCentre>
       <aside className="lab-config">
         <h4>
@@ -162,7 +143,11 @@ export function FactorLab(context: TerminalContext) {
               <p className="subtle">{t("先选择一个因子。")}</p>
             ) : (
               <>
-                <div className="lab-form">
+                <Section
+                  title={t("品种与区间")}
+                  summary={`${form.symbols || "—"} · ${form.begin || "…"} – ${form.end || "…"}`}
+                  open
+                >
                   <label className="wide">
                     <span>{t("品种")}</span>
                     <input
@@ -179,26 +164,43 @@ export function FactorLab(context: TerminalContext) {
                     <span>{t("结束日")}</span>
                     <DateInput value={form.end} onChange={end => change({ end })} />
                   </label>
-                  {factor.parameters.length > 0 && <h5 className="wide">{t("参数")}</h5>}
-                  {factor.parameters.map(parameter => (
-                    <label key={parameter.name}>
-                      <span>
-                        {parameter.name} <small>{parameterKind(parameter)}</small>
-                      </span>
-                      <input
-                        value={form.params[parameter.name] ?? ""}
-                        onChange={event =>
-                          change({
-                            params: { ...form.params, [parameter.name]: event.target.value },
-                          })
-                        }
-                      />
-                    </label>
-                  ))}
-                  <h5 className="wide">{t("评价")}</h5>
+                </Section>
+                {factor.parameters.length > 0 && (
+                  <Section
+                    title={t("参数")}
+                    summary={factor.parameters
+                      .map(parameter => `${parameter.name}=${form.params[parameter.name] ?? ""}`)
+                      .join(" ")}
+                    open
+                  >
+                    {factor.parameters.map(parameter => (
+                      <label key={parameter.name}>
+                        <span>
+                          {parameter.name} <small>{parameterKind(parameter)}</small>
+                        </span>
+                        <input
+                          value={form.params[parameter.name] ?? ""}
+                          onChange={event =>
+                            change({
+                              params: { ...form.params, [parameter.name]: event.target.value },
+                            })
+                          }
+                        />
+                      </label>
+                    ))}
+                  </Section>
+                )}
+                <Section
+                  title={t("评价设置")}
+                  summary={t("持有期 {horizons} · {groups} 组", {
+                    horizons: form.horizons,
+                    groups: form.groups,
+                  })}
+                  open
+                >
                   {field("持有期（K 线数）", "horizons")}
                   {field("分组数", "groups")}
-                </div>
+                </Section>
                 <footer className="lab-submit">
                   <button
                     className="primary"
@@ -219,52 +221,6 @@ export function FactorLab(context: TerminalContext) {
           </>
         )}
       </aside>
-      <footer className="lab-runs">
-        <header>
-          <h4>{t("评价记录")}</h4>
-        </header>
-        <table className="lab-table">
-          <thead>
-            <tr>
-              <th>{t("名称")}</th>
-              <th>{t("因子")}</th>
-              <th>{t("区间")}</th>
-              <th>{t("评价时间")}</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {kept.map(item => (
-              <tr key={item.id} className={item.id === result?.id ? "current" : undefined}>
-                <td>
-                  <button className="lab-link strong" onClick={() => void open(item.id)}>
-                    {item.id}
-                  </button>
-                </td>
-                <td className="subtle">{item.evaluation?.factor}</td>
-                <td className="subtle">
-                  {item.evaluation?.firstDay} – {item.evaluation?.lastDay}
-                </td>
-                <td className="subtle numeric-left">
-                  {new Date(Number(item.evaluatedMs)).toLocaleString(getLocale())}
-                </td>
-                <td>
-                  <DeleteRecord
-                    name={item.id}
-                    remove={() =>
-                      void attempt(async () => {
-                        await lab({ case: "deleteFactorResult", value: { id: item.id } });
-                        if (result?.id === item.id) setResult(null);
-                        await readKept();
-                      })
-                    }
-                  />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </footer>
     </section>
   );
 }

@@ -1,5 +1,5 @@
 import { DateInput } from "../../src/ui/DateInput";
-import { type ReactNode, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { lab } from "../../src/bridge/lab";
 import { ActionError, useActionError } from "../../src/host/action-error";
@@ -21,6 +21,7 @@ import {
   LabHeader,
   ModuleErrors,
   NewModule,
+  Section,
   useConfigFold,
   useModules,
   useSource,
@@ -38,7 +39,7 @@ export function StrategyLab(context: TerminalContext) {
   // Kept while a run's report is on show in the runs view.
   const [chosen, setChosen] = useWorkspaceDraft(`strategy:${repository}`, "");
   const [form, setForm] = useWorkspaceDraft<RunForm>("run-form", defaultForm);
-  const source = useSource(repository, null);
+  const source = useSource(repository);
   const [saved, setSaved] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const submitted = useActionError();
@@ -146,7 +147,6 @@ export function StrategyLab(context: TerminalContext) {
       <LabCentre
         source={source}
         repository={repository}
-        hasResult={false}
         changed={() => void readStrategies()}
         deleted={() => {
           setChosen("");
@@ -299,29 +299,6 @@ export function StrategyLab(context: TerminalContext) {
         )}
       </aside>
     </section>
-  );
-}
-
-// One group of the run's configuration; its summary says what is set while folded.
-function Section({
-  title,
-  summary,
-  open,
-  children,
-}: {
-  title: string;
-  summary: string;
-  open?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <details className="lab-section" open={open}>
-      <summary>
-        <strong>{title}</strong>
-        <small title={summary}>{summary}</small>
-      </summary>
-      <div className="lab-form">{children}</div>
-    </details>
   );
 }
 

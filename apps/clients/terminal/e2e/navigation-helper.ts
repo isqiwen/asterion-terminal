@@ -11,6 +11,7 @@ const destinations = {
   research: ["研究", "策略"],
   runs: ["研究", "回测"],
   factors: ["研究", "因子"],
+  evaluations: ["研究", "因子评价"],
   trading: ["交易"],
   overview: ["数据", "概览"],
   coverage: ["数据", "覆盖"],
