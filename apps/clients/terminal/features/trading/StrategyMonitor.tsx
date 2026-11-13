@@ -80,6 +80,14 @@ export function StrategyMonitor({
         <dd>{configuration.instruments.map(key).join(listSeparator())}</dd>
         <dt>{t("K 线周期")}</dt>
         <dd>{periodText(configuration.period)}</dd>
+        {configuration.warmup?.datasetVersion && (
+          <>
+            <dt>{t("历史预热")}</dt>
+            <dd>
+              {configuration.warmup.datasetVersion} · {configuration.warmup.sha256.slice(0, 12)}
+            </dd>
+          </>
+        )}
         <dt>{t("已处理完整 K 线批次")}</dt>
         <dd>{instance.completedSteps.toString()}</dd>
         <dt>{t("最近读取时间")}</dt>

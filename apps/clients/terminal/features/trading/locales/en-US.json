@@ -198,6 +198,8 @@
   "停止策略并撤单": "Stop strategy and cancel orders",
   "已停止": "Stopped",
   "恢复自": "Resumes from",
+  "历史预热": "Historical warmup",
+  "历史预热 K 线数": "Historical warmup bars",
   "实例 {id} 的记录": "Record of instance {id}",
   "从实例 {id} 的记录恢复": "Resume from the record of instance {id}",
   "已暂停新增：目标只减仓。": "New positions paused: targets only reduce.",

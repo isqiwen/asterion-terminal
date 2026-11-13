@@ -17,7 +17,11 @@ class StrategyBars
 {
 public:
     // `sequence`: the last input already delivered, when resuming from a record.
-    StrategyBars(const ::strategy::Instance&, std::int64_t started_ms, std::uint64_t sequence = 0);
+    StrategyBars(
+        const ::strategy::Instance&,
+        std::int64_t started_ms,
+        std::uint64_t sequence = 0,
+        std::int64_t last_end_ms = 0);
     std::vector<::strategy::Bars> observe(const MarketQuote&);
 
 private:

@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file asterion/strategy.proto.
  */
 export const file_asterion_strategy: GenFile = /*@__PURE__*/
-  fileDesc("Chdhc3Rlcmlvbi9zdHJhdGVneS5wcm90bxIIc3RyYXRlZ3kicAoHUmVxdWVzdBIeCgRsb2FkGAEgASgLMg4uc3RyYXRlZ3kuTG9hZEgAEh4KBGJhcnMYAiABKAsyDi5zdHJhdGVneS5CYXJzSAASHQoEc3RvcBgDIAEoCzINLmNvbW1vbi5FbXB0eUgAQgYKBGNhbGwiPQoETG9hZBIkCghpbnN0YW5jZRgBIAEoCzISLnN0cmF0ZWd5Lkluc3RhbmNlEg8KB3N5bWJvbHMYAiADKAkilgEKCFJlc3BvbnNlEh4KBWVycm9yGAEgASgLMg0uY29tbW9uLkVycm9ySAASHQoEbG9hZBgCIAEoCzINLmNvbW1vbi5FbXB0eUgAEiIKBGJhcnMYAyABKAsyEi5zdHJhdGVneS5EZWNpc2lvbkgAEh0KBHN0b3AYBCABKAsyDS5jb21tb24uRW1wdHlIAEIICgZyZXN1bHQiXgoOUGFyYW1ldGVyVmFsdWUSDgoEZmxhZxgBIAEoCEgAEhEKB2ludGVnZXIYAiABKANIABIQCgZudW1iZXIYAyABKAFIABIOCgR0ZXh0GAQgASgJSABCBwoFdmFsdWUiTgoHUGFja2FnZRIkCghtYW5pZmVzdBgBIAEoCzISLnN0cmF0ZWd5Lk1hbmlmZXN0Eh0KBWZpbGVzGAIgAygLMg4uc3RyYXRlZ3kuRmlsZSJYCghNYW5pZmVzdBIMCgRuYW1lGAEgASgJEg8KB3ZlcnNpb24YAiABKAkSDQoFZW50cnkYAyABKAkSDwoHcnVudGltZRgEIAEoCRINCgVmaWxlcxgFIAMoCSIlCgRGaWxlEgwKBHBhdGgYASABKAkSDwoHY29udGVudBgCIAEoDCLLAgoISW5zdGFuY2USCgoCaWQYASABKAkSFAoMcGFja2FnZV9uYW1lGAIgASgJEhcKD3BhY2thZ2VfdmVyc2lvbhgDIAEoCRInCgtpbnN0cnVtZW50cxgEIAMoCzISLmNvbW1vbi5JbnN0cnVtZW50Eh4KBnBlcmlvZBgFIAEoDjIOLmNvbW1vbi5QZXJpb2QSLgoGcGFyYW1zGAYgAygLMh4uc3RyYXRlZ3kuSW5zdGFuY2UuUGFyYW1zRW50cnkSLQoNd2VpZ2h0X2xpbWl0cxgHIAEoCzIWLnN0cmF0ZWd5LldlaWdodExpbWl0cxITCgtyZXN1bWVfZnJvbRgIIAEoCRpHCgtQYXJhbXNFbnRyeRILCgNrZXkYASABKAkSJwoFdmFsdWUYAiABKAsyGC5zdHJhdGVneS5QYXJhbWV0ZXJWYWx1ZToCOAEiTAoMV2VpZ2h0TGltaXRzEh4KBWdyb3NzGAEgASgLMg8uY29tbW9uLkRlY2ltYWwSHAoDbmV0GAIgASgLMg8uY29tbW9uLkRlY2ltYWwiNQoEQmFycxIQCghzZXF1ZW5jZRgBIAEoBBIbCgRiYXJzGAIgAygLMg0uc3RyYXRlZ3kuQmFyIoYCCgNCYXISJgoKaW5zdHJ1bWVudBgBIAEoCzISLmNvbW1vbi5JbnN0cnVtZW50EhMKC3RyYWRpbmdfZGF5GAIgASgJEg4KBmVuZF9tcxgDIAEoAxIdCgRvcGVuGAQgASgLMg8uY29tbW9uLkRlY2ltYWwSHQoEaGlnaBgFIAEoCzIPLmNvbW1vbi5EZWNpbWFsEhwKA2xvdxgGIAEoCzIPLmNvbW1vbi5EZWNpbWFsEh4KBWNsb3NlGAcgASgLMg8uY29tbW9uLkRlY2ltYWwSDgoGdm9sdW1lGAggASgDEiYKDW9wZW5faW50ZXJlc3QYCSABKAsyDy5jb21tb24uRGVjaW1hbCJOCghEZWNpc2lvbhIQCghzZXF1ZW5jZRgBIAEoBBINCgVyZWFkeRgCIAEoCBIhCgd0YXJnZXRzGAMgAygLMhAuc3RyYXRlZ3kuVGFyZ2V0ImsKBlRhcmdldBImCgppbnN0cnVtZW50GAEgASgLMhIuY29tbW9uLkluc3RydW1lbnQSDgoEbG90cxgCIAEoA0gAEiEKBndlaWdodBgDIAEoCzIPLmNvbW1vbi5EZWNpbWFsSABCBgoEc2l6ZWIGcHJvdG8z", [file_asterion_common]);
+  fileDesc("Chdhc3Rlcmlvbi9zdHJhdGVneS5wcm90bxIIc3RyYXRlZ3kicAoHUmVxdWVzdBIeCgRsb2FkGAEgASgLMg4uc3RyYXRlZ3kuTG9hZEgAEh4KBGJhcnMYAiABKAsyDi5zdHJhdGVneS5CYXJzSAASHQoEc3RvcBgDIAEoCzINLmNvbW1vbi5FbXB0eUgAQgYKBGNhbGwiPQoETG9hZBIkCghpbnN0YW5jZRgBIAEoCzISLnN0cmF0ZWd5Lkluc3RhbmNlEg8KB3N5bWJvbHMYAiADKAkilgEKCFJlc3BvbnNlEh4KBWVycm9yGAEgASgLMg0uY29tbW9uLkVycm9ySAASHQoEbG9hZBgCIAEoCzINLmNvbW1vbi5FbXB0eUgAEiIKBGJhcnMYAyABKAsyEi5zdHJhdGVneS5EZWNpc2lvbkgAEh0KBHN0b3AYBCABKAsyDS5jb21tb24uRW1wdHlIAEIICgZyZXN1bHQiXgoOUGFyYW1ldGVyVmFsdWUSDgoEZmxhZxgBIAEoCEgAEhEKB2ludGVnZXIYAiABKANIABIQCgZudW1iZXIYAyABKAFIABIOCgR0ZXh0GAQgASgJSABCBwoFdmFsdWUiTgoHUGFja2FnZRIkCghtYW5pZmVzdBgBIAEoCzISLnN0cmF0ZWd5Lk1hbmlmZXN0Eh0KBWZpbGVzGAIgAygLMg4uc3RyYXRlZ3kuRmlsZSJYCghNYW5pZmVzdBIMCgRuYW1lGAEgASgJEg8KB3ZlcnNpb24YAiABKAkSDQoFZW50cnkYAyABKAkSDwoHcnVudGltZRgEIAEoCRINCgVmaWxlcxgFIAMoCSIlCgRGaWxlEgwKBHBhdGgYASABKAkSDwoHY29udGVudBgCIAEoDCLtAgoISW5zdGFuY2USCgoCaWQYASABKAkSFAoMcGFja2FnZV9uYW1lGAIgASgJEhcKD3BhY2thZ2VfdmVyc2lvbhgDIAEoCRInCgtpbnN0cnVtZW50cxgEIAMoCzISLmNvbW1vbi5JbnN0cnVtZW50Eh4KBnBlcmlvZBgFIAEoDjIOLmNvbW1vbi5QZXJpb2QSLgoGcGFyYW1zGAYgAygLMh4uc3RyYXRlZ3kuSW5zdGFuY2UuUGFyYW1zRW50cnkSLQoNd2VpZ2h0X2xpbWl0cxgHIAEoCzIWLnN0cmF0ZWd5LldlaWdodExpbWl0cxITCgtyZXN1bWVfZnJvbRgIIAEoCRIgCgZ3YXJtdXAYCSABKAsyEC5zdHJhdGVneS5XYXJtdXAaRwoLUGFyYW1zRW50cnkSCwoDa2V5GAEgASgJEicKBXZhbHVlGAIgASgLMhguc3RyYXRlZ3kuUGFyYW1ldGVyVmFsdWU6AjgBIk8KBldhcm11cBIXCg9kYXRhc2V0X3ZlcnNpb24YASABKAkSDgoGc2hhMjU2GAIgASgJEhwKBGJhcnMYAyADKAsyDi5zdHJhdGVneS5CYXJzIkwKDFdlaWdodExpbWl0cxIeCgVncm9zcxgBIAEoCzIPLmNvbW1vbi5EZWNpbWFsEhwKA25ldBgCIAEoCzIPLmNvbW1vbi5EZWNpbWFsIjUKBEJhcnMSEAoIc2VxdWVuY2UYASABKAQSGwoEYmFycxgCIAMoCzINLnN0cmF0ZWd5LkJhciKGAgoDQmFyEiYKCmluc3RydW1lbnQYASABKAsyEi5jb21tb24uSW5zdHJ1bWVudBITCgt0cmFkaW5nX2RheRgCIAEoCRIOCgZlbmRfbXMYAyABKAMSHQoEb3BlbhgEIAEoCzIPLmNvbW1vbi5EZWNpbWFsEh0KBGhpZ2gYBSABKAsyDy5jb21tb24uRGVjaW1hbBIcCgNsb3cYBiABKAsyDy5jb21tb24uRGVjaW1hbBIeCgVjbG9zZRgHIAEoCzIPLmNvbW1vbi5EZWNpbWFsEg4KBnZvbHVtZRgIIAEoAxImCg1vcGVuX2ludGVyZXN0GAkgASgLMg8uY29tbW9uLkRlY2ltYWwiTgoIRGVjaXNpb24SEAoIc2VxdWVuY2UYASABKAQSDQoFcmVhZHkYAiABKAgSIQoHdGFyZ2V0cxgDIAMoCzIQLnN0cmF0ZWd5LlRhcmdldCJrCgZUYXJnZXQSJgoKaW5zdHJ1bWVudBgBIAEoCzISLmNvbW1vbi5JbnN0cnVtZW50Eg4KBGxvdHMYAiABKANIABIhCgZ3ZWlnaHQYAyABKAsyDy5jb21tb24uRGVjaW1hbEgAQgYKBHNpemViBnByb3RvMw", [file_asterion_common]);
 
 /**
  * @generated from message strategy.Request
@@ -283,11 +283,18 @@ export type Instance = Message<"strategy.Instance"> & {
   weightLimits?: WeightLimits | undefined;
 
   /**
-   * An ended instance whose recorded bars are replayed before live ones.
+   * An ended instance whose recorded bars are replayed before live ones, or "local".
    *
    * @generated from field: string resume_from = 8;
    */
   resumeFrom: string;
+
+  /**
+   * Pinned historical bars replayed for warmup before live bars.
+   *
+   * @generated from field: strategy.Warmup warmup = 9;
+   */
+  warmup?: Warmup | undefined;
 };
 
 /**
@@ -296,6 +303,33 @@ export type Instance = Message<"strategy.Instance"> & {
  */
 export const InstanceSchema: GenMessage<Instance> = /*@__PURE__*/
   messageDesc(file_asterion_strategy, 7);
+
+/**
+ * @generated from message strategy.Warmup
+ */
+export type Warmup = Message<"strategy.Warmup"> & {
+  /**
+   * @generated from field: string dataset_version = 1;
+   */
+  datasetVersion: string;
+
+  /**
+   * @generated from field: string sha256 = 2;
+   */
+  sha256: string;
+
+  /**
+   * @generated from field: repeated strategy.Bars bars = 3;
+   */
+  bars: Bars[];
+};
+
+/**
+ * Describes the message strategy.Warmup.
+ * Use `create(WarmupSchema)` to create a new message.
+ */
+export const WarmupSchema: GenMessage<Warmup> = /*@__PURE__*/
+  messageDesc(file_asterion_strategy, 8);
 
 /**
  * Shares of equity.
@@ -319,7 +353,7 @@ export type WeightLimits = Message<"strategy.WeightLimits"> & {
  * Use `create(WeightLimitsSchema)` to create a new message.
  */
 export const WeightLimitsSchema: GenMessage<WeightLimits> = /*@__PURE__*/
-  messageDesc(file_asterion_strategy, 8);
+  messageDesc(file_asterion_strategy, 9);
 
 /**
  * @generated from message strategy.Bars
@@ -344,7 +378,7 @@ export type Bars = Message<"strategy.Bars"> & {
  * Use `create(BarsSchema)` to create a new message.
  */
 export const BarsSchema: GenMessage<Bars> = /*@__PURE__*/
-  messageDesc(file_asterion_strategy, 9);
+  messageDesc(file_asterion_strategy, 10);
 
 /**
  * @generated from message strategy.Bar
@@ -401,7 +435,7 @@ export type Bar = Message<"strategy.Bar"> & {
  * Use `create(BarSchema)` to create a new message.
  */
 export const BarSchema: GenMessage<Bar> = /*@__PURE__*/
-  messageDesc(file_asterion_strategy, 10);
+  messageDesc(file_asterion_strategy, 11);
 
 /**
  * Targets are acted on only once the strategy is ready.
@@ -430,7 +464,7 @@ export type Decision = Message<"strategy.Decision"> & {
  * Use `create(DecisionSchema)` to create a new message.
  */
 export const DecisionSchema: GenMessage<Decision> = /*@__PURE__*/
-  messageDesc(file_asterion_strategy, 11);
+  messageDesc(file_asterion_strategy, 12);
 
 /**
  * @generated from message strategy.Target
@@ -464,5 +498,5 @@ export type Target = Message<"strategy.Target"> & {
  * Use `create(TargetSchema)` to create a new message.
  */
 export const TargetSchema: GenMessage<Target> = /*@__PURE__*/
-  messageDesc(file_asterion_strategy, 12);
+  messageDesc(file_asterion_strategy, 13);
 

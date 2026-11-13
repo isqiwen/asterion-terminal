@@ -340,6 +340,40 @@ class TestStrategy(Strategy):
             account_ready(host)
             assert not account_snapshot(host).HasField('authorized_ms')
             assert not account_snapshot(host).orders
+            import hashlib
+            warmup = strategy.Warmup(dataset_version='v-20261113')
+            digest = hashlib.sha256()
+            for seq, (day, end_ms, close) in enumerate([('2026-09-24', 1758700800000, '3500'),
+                                                        ('2026-09-25', 1758787200000, '3510')], 1):
+                batch = warmup.bars.add(sequence=seq)
+                bar = batch.bars.add(instrument=dict(exchange='SHFE', symbol='rb2610'),
+                                     trading_day=day, end_ms=end_ms, open={'text': close},
+                                     high={'text': close}, low={'text': close}, close={'text': close},
+                                     volume=100, open_interest={'text': '1000'})
+                digest.update(b'batch\n')
+                digest.update(f'{bar.trading_day}|{bar.end_ms}|SHFE/rb2610|{close}|{close}|{close}|{close}|100|1000\n'.encode())
+            warmup_config = strategy.Instance()
+            warmup_config.CopyFrom(config)
+            warmup_config.id = 'warmed'
+            warmup_config.params['lots'].integer = 2
+            warmup_config.warmup.CopyFrom(warmup)
+            warmup_config.warmup.sha256 = 'bad'
+            assert rpc(host, 'start_strategy', warmup_config, True).code == 'invalid_request'
+            warmup_config.warmup.sha256 = digest.hexdigest()
+            warmed = rpc(host, 'start_strategy', warmup_config).instance
+            assert warmed.state == trading.INSTANCE_STATE_READY and warmed.completed_steps == 2, warmed
+            assert warmed.instance.warmup.dataset_version == 'v-20261113' and not warmed.instance.warmup.bars
+            assert warmed.events[0].text == f'warmup dataset_version=v-20261113 sha256={warmup_config.warmup.sha256}'
+            assert not account_snapshot(host).orders
+            rpc(host, 'stop_strategy', dict(id='warmed'))
+            reparam = strategy.Instance()
+            reparam.CopyFrom(config)
+            reparam.id, reparam.resume_from = 'reparam', 'warmed'
+            reparam.params['lots'].integer = 4
+            restarted = rpc(host, 'start_strategy', reparam).instance
+            assert restarted.state == trading.INSTANCE_STATE_READY and restarted.completed_steps == 2
+            assert restarted.last_decision.targets[0].lots == 4
+            rpc(host, 'stop_strategy', dict(id='reparam'))
             config.id = 'graceful'; config.params['lots'].integer = 2
             running = rpc(host, 'start_strategy', config).instance
             terminate(process)

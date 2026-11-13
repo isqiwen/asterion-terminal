@@ -9,6 +9,7 @@ import {
   type Strategies,
 } from "../../src/generated/asterion/trading_pb";
 import { decimal, decimalText } from "../../src/bridge/decimal";
+import { lab } from "../../src/bridge/lab";
 import { ActionError, useActionError } from "../../src/host/action-error";
 import { environmentName, key, t } from "./live-shared";
 import {
@@ -42,6 +43,7 @@ export function StrategyInstance({
   const [budget, setBudget] = useState(false);
   const [gross, setGross] = useState("");
   const [net, setNet] = useState("");
+  const [warmupBars, setWarmupBars] = useState("");
   const [review, setReview] = useState<{ configuration: Instance; policy: string }>();
   const live = account?.session;
   const allowed = live?.policy?.contracts.map(item => item.instrument!) ?? [];
@@ -77,6 +79,15 @@ export function StrategyInstance({
               <>
                 <dt>{t("恢复自")}</dt>
                 <dd>{t("实例 {id} 的记录", { id: review.configuration.resumeFrom })}</dd>
+              </>
+            )}
+            {review.configuration.warmup && (
+              <>
+                <dt>{t("历史预热")}</dt>
+                <dd>
+                  {review.configuration.warmup.datasetVersion} ·{" "}
+                  {review.configuration.warmup.sha256.slice(0, 12)}
+                </dd>
               </>
             )}
             <dt>{t("已发布版本")}</dt>
@@ -139,16 +150,24 @@ export function StrategyInstance({
                 selected.some(item => !contracts.includes(item))
               )
                 throw new Error(t("请选择账户政策内的 1–20 个实际合约。"));
+              const instruments = selected.map(item => allowed[contracts.indexOf(item)]!);
+              const warmup = warmupBars.trim()
+                ? await lab({
+                    case: "buildWarmup",
+                    value: { instruments, period, maxBars: Number(warmupBars.trim()) },
+                  })
+                : undefined;
               setReview({
                 policy: live!.policyRevision,
                 configuration: create(InstanceSchema, {
                   id: id.trim(),
                   packageName: installed.name,
                   packageVersion: installed.version,
-                  instruments: selected.map(item => allowed[contracts.indexOf(item)]!),
+                  instruments,
                   period,
                   params: parameterValues(rows),
                   weightLimits: budget ? { gross: decimal(gross), net: decimal(net) } : undefined,
+                  warmup,
                 }),
               });
             });
@@ -197,17 +216,40 @@ export function StrategyInstance({
                   ))}
                 </select>
               </label>
+              <label>
+                {t("历史预热 K 线数")}
+                <input
+                  type="number"
+                  min={1}
+                  max={500}
+                  value={warmupBars}
+                  onChange={event => setWarmupBars(event.target.value)}
+                />
+              </label>
             </div>
             {ended && (
               <button
                 type="button"
                 disabled={!id.trim()}
-                onClick={() => {
-                  const configuration = clone(InstanceSchema, ended);
-                  configuration.id = id.trim();
-                  configuration.resumeFrom = ended.id;
-                  setReview({ policy: live!.policyRevision, configuration });
-                }}
+                onClick={() =>
+                  void attempt(async () => {
+                    const configuration = clone(InstanceSchema, ended);
+                    configuration.id = id.trim();
+                    configuration.resumeFrom = ended.id;
+                    const installed = state.packages.find(
+                      item =>
+                        `${item.name}/${item.version}` === packageKey &&
+                        item.name === ended.packageName,
+                    );
+                    if (installed) configuration.packageVersion = installed.version;
+                    if (rows.length > 0) configuration.params = parameterValues(rows);
+                    if (budget)
+                      configuration.weightLimits = create(InstanceSchema, {
+                        weightLimits: { gross: decimal(gross), net: decimal(net) },
+                      }).weightLimits;
+                    setReview({ policy: live!.policyRevision, configuration });
+                  })
+                }
               >
                 {t("从实例 {id} 的记录恢复", { id: ended.id })}
               </button>

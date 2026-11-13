@@ -223,13 +223,21 @@ test("an ended instance resumes from its record under a new id after review", as
   render(<Packages account="account-a" repository="" record={record} connected />);
   await waitFor(() => expect(screen.getByLabelText("实例 ID")).toBeDefined());
   fireEvent.change(screen.getByLabelText("实例 ID"), { target: { value: "run-b" } });
+  await click("添加参数");
+  fireEvent.change(screen.getByLabelText("参数名 1"), { target: { value: "lots" } });
+  fireEvent.change(screen.getByLabelText("参数值 1"), { target: { value: "4" } });
   await click("从实例 run-a 的记录恢复");
   expect(screen.getByText("实例 run-a 的记录")).toBeDefined();
   expect(writes()).toEqual([]);
   await click("确认启动");
   const [, operation] = writes()[0];
   if (operation.case !== "startStrategy") throw new Error("missing start");
-  expect(operation.value).toMatchObject({ ...configuration, id: "run-b", resumeFrom: "run-a" });
+  expect(operation.value).toMatchObject({
+    ...configuration,
+    id: "run-b",
+    resumeFrom: "run-a",
+    params: { lots: { value: { case: "integer", value: 4n } } },
+  });
   expect(configuration.resumeFrom).toBe("");
 });
 

@@ -130,6 +130,14 @@ def main():
             flattened = rpc(host, 'flatten_strategy', dict(id=resumed_config.id)).instance
             assert flattened.paused and flattened.events[-1].text == 'flatten requested', flattened
             rpc(host, 'stop_strategy', dict(id=resumed_config.id))
+            local_config = wire.Instance()
+            local_config.CopyFrom(config)
+            local_config.id, local_config.resume_from = 'local-window', 'local'
+            local_config.params['lots'].integer = 4
+            local_resumed = rpc(host, 'start_strategy', local_config).instance
+            assert local_resumed.state == trading.INSTANCE_STATE_READY and local_resumed.completed_steps == len(rows)
+            assert local_resumed.last_decision.targets[0].lots == 4
+            rpc(host, 'stop_strategy', dict(id=local_config.id))
             other = wire.Instance()
             other.CopyFrom(resumed_config)
             other.id, other.period = 'other-window', common.PERIOD_MINUTES_5

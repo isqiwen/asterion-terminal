@@ -327,6 +327,15 @@ class RemoteResearch(unittest.TestCase):
                 answer = await service.reply(query)
                 self.assertEqual(answer.WhichOneof('result'), 'get_chart_bars', answer)
                 self.assertEqual(len(answer.get_chart_bars.bars), 30)
+                warmup_query = Request(id=1, build_warmup=dict(
+                    dataset_version=self.original.identity,
+                    instruments=[dict(exchange='SHFE', symbol='rb2605')],
+                    period=Period.PERIOD_DAY, max_bars=10))
+                warmup_reply = await service.reply(warmup_query)
+                self.assertEqual(warmup_reply.WhichOneof('result'), 'build_warmup', warmup_reply)
+                self.assertEqual(warmup_reply.build_warmup.dataset_version, self.original.identity)
+                self.assertEqual(len(warmup_reply.build_warmup.bars), 10)
+                self.assertEqual(len(warmup_reply.build_warmup.sha256), 64)
                 self.publish_incomplete()
                 query.get_chart_bars.dataset_version = ''
                 self.assertLess(len((await service.reply(query)).get_chart_bars.bars), 30)

@@ -71,8 +71,16 @@ message Instance {
   map<string, ParameterValue> params = 6;
   // Required when the strategy returns weights.
   WeightLimits weight_limits = 7;
-  // An ended instance whose recorded bars are replayed before live ones.
+  // An ended instance whose recorded bars are replayed before live ones, or "local".
   string resume_from = 8;
+  // Pinned historical bars replayed for warmup before live bars.
+  Warmup warmup = 9;
+}
+
+message Warmup {
+  string dataset_version = 1;
+  string sha256 = 2;
+  repeated Bars bars = 3;
 }
 
 // Shares of equity.

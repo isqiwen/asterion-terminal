@@ -7,6 +7,7 @@
 #include <asterion/base/serialization.hpp>
 #include <algorithm>
 #include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/artifact.hpp>
 #include <asterion/system/process/child.hpp>
 #include <asterion/system/process/file_lock.hpp>
 #include <asterion/system/ipc/local_channel.hpp>
@@ -83,6 +84,22 @@ void validate(const wire::Package& package)
         throw std::invalid_argument("strategy entry is not included in package files");
 }
 
+std::string warmup_digest(const wire::Warmup& warmup)
+{
+    std::string canonical;
+    for (const auto& batch : warmup.bars()) {
+        canonical += "batch\n";
+        for (const auto& bar : batch.bars()) {
+            canonical += bar.trading_day() + "|" + std::to_string(bar.end_ms()) + "|"
+                + bar.instrument().exchange() + "/" + bar.instrument().symbol() + "|"
+                + bar.open().text() + "|" + bar.high().text() + "|" + bar.low().text() + "|"
+                + bar.close().text() + "|" + std::to_string(bar.volume()) + "|"
+                + bar.open_interest().text() + "\n";
+        }
+    }
+    return sha256_bytes(canonical);
+}
+
 void validate(const wire::Instance& instance)
 {
     package_identity(instance.id(), "instance");
@@ -104,17 +121,56 @@ void validate(const wire::Instance& instance)
         && (!instance.weight_limits().has_gross() || !instance.weight_limits().has_net()))
         throw std::invalid_argument(
             "strategy weight budget requires explicit gross and net limits");
-    if (instance.ByteSizeLong() > 16384)
+    auto stripped = instance;
+    if (stripped.has_warmup())
+        stripped.mutable_warmup()->clear_bars();
+    if (stripped.ByteSizeLong() > 16384 || instance.ByteSizeLong() > 512 * 1024)
         throw std::invalid_argument("strategy instance configuration exceeds 16 KiB");
     if (!instance.resume_from().empty()) {
         package_identity(instance.resume_from(), "instance");
         if (instance.resume_from() == instance.id())
             throw std::invalid_argument("a strategy instance cannot resume from itself");
     }
+    if (instance.has_warmup()) {
+        const auto& warmup = instance.warmup();
+        if (warmup.dataset_version().empty() || warmup.bars_size() == 0)
+            throw std::invalid_argument("strategy warmup requires dataset_version and bars");
+        package_identity(warmup.dataset_version(), "version");
+        std::int64_t previous_end_ms = 0;
+        for (const auto& batch : warmup.bars()) {
+            if (batch.bars_size() == 0)
+                throw std::invalid_argument("strategy warmup contains an empty bar batch");
+            const auto end_ms = batch.bars(0).end_ms();
+            if (end_ms <= previous_end_ms)
+                throw std::invalid_argument(
+                    "strategy warmup bars must be in strictly ascending time order");
+            previous_end_ms = end_ms;
+            int previous_index = -1;
+            for (const auto& bar : batch.bars()) {
+                if (bar.end_ms() != end_ms || bar.trading_day().empty())
+                    throw std::invalid_argument(
+                        "strategy warmup bar batch has inconsistent timestamps");
+                int index = -1;
+                for (int i = 0; i < instance.instruments_size(); ++i) {
+                    if (instance.instruments(i).exchange() == bar.instrument().exchange()
+                        && instance.instruments(i).symbol() == bar.instrument().symbol()) {
+                        index = i;
+                        break;
+                    }
+                }
+                if (index <= previous_index)
+                    throw std::invalid_argument(
+                        "strategy warmup bars must match instance instruments in order");
+                previous_index = index;
+            }
+        }
+        if (warmup.sha256() != warmup_digest(warmup))
+            throw std::invalid_argument("strategy warmup sha256 digest does not match bars");
+    }
 }
 
-// The bars an ended instance received, in order. Its configuration must match
-// apart from the instance identities.
+// The bars an ended instance received, in order. Its package, contracts and
+// period must match; parameters, package version and weight limits may be updated.
 std::vector<wire::Bars> recorded_inputs(const fs::path& run, const wire::Instance& configuration)
 {
     if (!fs::is_regular_file(run))
@@ -128,16 +184,54 @@ std::vector<wire::Bars> recorded_inputs(const fs::path& run, const wire::Instanc
     for (auto* item : {&recorded, &wanted}) {
         item->clear_id();
         item->clear_resume_from();
+        item->clear_package_version();
+        item->mutable_params()->clear();
+        item->clear_weight_limits();
+        item->clear_warmup();
     }
     if (!google::protobuf::util::MessageDifferencer::Equals(recorded, wanted))
         throw std::invalid_argument(
-            "a resumed instance needs the same package, contracts, period, parameters and budget");
+            "a resumed instance needs the same package, contracts and period");
     std::vector<wire::Bars> inputs;
     sqlite::Database::Statement steps(previous, "SELECT input FROM steps ORDER BY sequence");
     while (steps.step()) {
         auto& input = inputs.emplace_back();
         if (!input.ParseFromString(steps.blob(0)))
             throw std::invalid_argument("invalid strategy record: " + run.string());
+    }
+    return inputs;
+}
+
+std::vector<wire::Bars> load_local_bars(sqlite::Database& db, const wire::Instance& configuration)
+{
+    std::map<std::pair<std::string, std::string>, int> order;
+    for (int i = 0; i < configuration.instruments_size(); ++i) {
+        const auto& id = configuration.instruments(i);
+        order.emplace(std::pair{id.exchange(), id.symbol()}, i);
+    }
+    std::map<std::int64_t, std::map<int, wire::Bar>> grouped;
+    sqlite::Database::Statement query(
+        db,
+        "SELECT end_ms, exchange, symbol, bar FROM bars WHERE period=? ORDER BY end_ms ASC");
+    query.bind(1, static_cast<std::int64_t>(configuration.period()));
+    while (query.step()) {
+        const auto end_ms = query.integer(0);
+        const auto found = order.find({query.text(1), query.text(2)});
+        if (found == order.end())
+            continue;
+        wire::Bar bar;
+        if (!bar.ParseFromString(query.blob(3)))
+            throw std::runtime_error("invalid locally persisted strategy bar");
+        grouped[end_ms][found->second] = std::move(bar);
+    }
+    if (grouped.empty())
+        throw std::invalid_argument(
+            "no locally recorded bars for the selected contracts and period");
+    std::vector<wire::Bars> inputs;
+    for (auto& [_, items] : grouped) {
+        auto& batch = inputs.emplace_back();
+        for (auto& [__, bar] : items)
+            *batch.add_bars() = std::move(bar);
     }
     return inputs;
 }
@@ -156,6 +250,7 @@ struct StrategyHost::State
     std::unique_ptr<ctp::Feed> feed;
     std::unique_ptr<StrategyBars> bars;
     std::unique_ptr<sqlite::Database> records;
+    std::unique_ptr<sqlite::Database> local_bars;
     LiveSession* account = nullptr;
     StrategyAuthorityPtr authority;
     std::map<InstrumentId, MarketQuote> quotes;
@@ -170,6 +265,9 @@ struct StrategyHost::State
     {
         create_directories_durably(root / "packages");
         lock = std::make_unique<FileLock>(root, "owner");
+        local_bars = std::make_unique<sqlite::Database>(root / "bars.sqlite");
+        local_bars->execute(
+            "CREATE TABLE IF NOT EXISTS bars (" "period INTEGER NOT NULL, " "end_ms INTEGER NOT NULL, " "exchange TEXT NOT NULL, " "symbol TEXT NOT NULL, " "bar BLOB NOT NULL, " "PRIMARY KEY(period, end_ms, exchange, symbol))");
         if (fs::exists(root / "instance.pb")) {
             if (!instance.ParseFromString(read(root / "instance.pb", 32768)))
                 throw std::invalid_argument(
@@ -281,6 +379,33 @@ struct StrategyHost::State
         return result;
     }
 
+    void store_local_bars(::common::Period period, const wire::Bars& input)
+    {
+        sqlite::Database::Transaction transaction(*local_bars);
+        for (const auto& bar : input.bars()) {
+            sqlite::Database::Statement insert(
+                *local_bars,
+                "INSERT OR REPLACE INTO bars(period, end_ms, exchange, symbol, bar) VALUES(?,?,?,?,?)");
+            insert.bind(1, static_cast<std::int64_t>(period))
+                .bind(2, bar.end_ms())
+                .bind(3, bar.instrument().exchange())
+                .bind(4, bar.instrument().symbol())
+                .bind_blob(5, bar.SerializeAsString())
+                .step();
+            sqlite::Database::Statement prune(
+                *local_bars,
+                "DELETE FROM bars WHERE period=? AND exchange=? AND symbol=? AND end_ms NOT IN (" "SELECT end_ms FROM bars WHERE period=? AND exchange=? AND symbol=? ORDER BY end_ms DESC LIMIT 500)");
+            prune.bind(1, static_cast<std::int64_t>(period))
+                .bind(2, bar.instrument().exchange())
+                .bind(3, bar.instrument().symbol())
+                .bind(4, static_cast<std::int64_t>(period))
+                .bind(5, bar.instrument().exchange())
+                .bind(6, bar.instrument().symbol())
+                .step();
+        }
+        transaction.commit();
+    }
+
     // `execute` false replays a recorded input: state only, no targets reach the account.
     void decide(const wire::Bars& input, bool execute = true)
     {
@@ -385,8 +510,10 @@ struct StrategyHost::State
                     if (observed.received_ms - observed.source_ms <= 10000
                         && (held == quotes.end() || observed.source_ms >= held->second.source_ms))
                         quotes.insert_or_assign(observed.instrument, observed);
-                    for (const auto& input : bars->observe(observed))
+                    for (const auto& input : bars->observe(observed)) {
+                        store_local_bars(instance.instance().period(), input);
                         decide(input);
+                    }
                 }
             }
             if (!connected && std::chrono::steady_clock::now() >= connect_deadline)
@@ -488,11 +615,22 @@ struct StrategyHost::State
         const auto run = root / "runs" / (configuration.id() + ".sqlite");
         if (fs::exists(run))
             throw Error(ErrorCode::conflict, "strategy instance id already has a recorded run");
-        const auto replay = configuration.resume_from().empty()
-            ? std::vector<wire::Bars>{}
-            : recorded_inputs(
-                  root / "runs" / (configuration.resume_from() + ".sqlite"),
-                  configuration);
+        std::vector<wire::Bars> replay;
+        if (configuration.has_warmup()) {
+            for (const auto& batch : configuration.warmup().bars())
+                replay.push_back(batch);
+        }
+        if (!configuration.resume_from().empty()) {
+            const auto resumed = configuration.resume_from() == "local"
+                ? load_local_bars(*local_bars, configuration)
+                : recorded_inputs(
+                      root / "runs" / (configuration.resume_from() + ".sqlite"),
+                      configuration);
+            if (!replay.empty() && !resumed.empty()
+                && resumed.front().bars(0).end_ms() <= replay.back().bars(0).end_ms())
+                throw std::invalid_argument("warmup bars overlap with resumed bars");
+            replay.insert(replay.end(), resumed.begin(), resumed.end());
+        }
         const auto python = installation / "runtime/python/bin/python3";
         const auto code = installation / "lib/strategy";
         if (!fs::is_regular_file(python) || !fs::is_regular_file(code / "strategy_runner.py"))
@@ -511,8 +649,11 @@ struct StrategyHost::State
             };
         authority = execution->register_strategy(configuration.id(), contracts, budget).get();
         account = execution;
+        auto persisted = configuration;
+        if (persisted.has_warmup())
+            persisted.mutable_warmup()->clear_bars();
         instance.Clear();
-        *instance.mutable_instance() = configuration;
+        *instance.mutable_instance() = persisted;
         instance.set_state(pb::INSTANCE_STATE_STARTING);
         try {
             save();
@@ -526,8 +667,14 @@ struct StrategyHost::State
             {
                 sqlite::Database::Transaction transaction(*records);
                 sqlite::Database::Statement insert(*records, "INSERT INTO configuration VALUES(?)");
-                insert.bind_blob(1, configuration.SerializeAsString()).step();
+                insert.bind_blob(1, persisted.SerializeAsString()).step();
                 transaction.commit();
+            }
+            if (configuration.has_warmup()) {
+                record_event(
+                    pb::INSTANCE_EVENT_KIND_UNSPECIFIED,
+                    "warmup dataset_version=" + configuration.warmup().dataset_version()
+                        + " sha256=" + configuration.warmup().sha256());
             }
             sync_directory(run.parent_path());
             const auto directory =
@@ -568,7 +715,7 @@ struct StrategyHost::State
             }
             channel = ipc::Channel::connect(endpoint.string(), 1s);
             wire::Request request;
-            *request.mutable_load()->mutable_instance() = configuration;
+            *request.mutable_load()->mutable_instance() = persisted;
             for (const auto& symbol : authority->symbols())
                 request.mutable_load()->add_symbols(symbol);
             channel.send(request.SerializeAsString(), 1s);
@@ -582,11 +729,12 @@ struct StrategyHost::State
                 decide(input, false);
             }
             bars = std::make_unique<StrategyBars>(
-                configuration,
+                persisted,
                 std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::system_clock::now().time_since_epoch())
                     .count(),
-                sequence);
+                sequence,
+                replay.empty() ? 0 : replay.back().bars(0).end_ms());
             feed = std::make_unique<ctp::Feed>(
                 sdk_owner,
                 installation / "lib/ctp-md.so",

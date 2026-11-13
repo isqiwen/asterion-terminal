@@ -4,12 +4,14 @@ import asyncio
 import collections
 from dataclasses import dataclass
 import datetime
+import hashlib
 import itertools
 import json
 import math
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 import os
+import re
 import shutil
 from pathlib import Path
 import tempfile
@@ -17,6 +19,7 @@ import tempfile
 from asterion.common_pb2 import ErrorCode, Period, Side, Offset
 from asterion.lab_pb2 import (AdmittedFactor, AdmittedRun, FactorResult, Request, Response,
                               RollingRun, RunState)
+from asterion.strategy_pb2 import Bar, Warmup
 
 from asterion_lab import backtest, chart, repository, package, rolling
 from asterion_lab.runs import IDENTITY, Runs
@@ -53,6 +56,15 @@ STATES = {"running": RunState.RUN_STATE_RUNNING, "succeeded": RunState.RUN_STATE
 def error_code(name: str) -> int:
     return ErrorCode.Value(f"ERROR_CODE_{name.upper()}") if f"ERROR_CODE_{name.upper()}" in \
         ErrorCode.keys() else ErrorCode.ERROR_CODE_OPERATION_FAILED
+
+
+def contract_name(instrument) -> str:
+    match = re.fullmatch(r"([A-Za-z]+)([0-9]{3,4})", instrument.symbol)
+    if not match or instrument.exchange not in ("SHFE", "INE", "DCE", "CZCE", "CFFEX", "GFEX"):
+        raise ValueError(f"invalid contract {instrument.exchange}/{instrument.symbol}")
+    product, digits = match.groups()
+    month = f"20{digits[:2]}-{digits[2:]}" if len(digits) == 4 else f"202{digits[0]}-{digits[1:]}"
+    return f"{instrument.exchange}/{product}/{month}"
 
 
 @dataclass
@@ -147,6 +159,72 @@ class Service:
 
     async def on_build_package(self, request, result):
         result.CopyFrom(await self.read(package.build, request))
+
+    def build_warmup(self, request):
+        if not 1 <= len(request.instruments) <= 20:
+            raise ValueError("warmup requires 1 to 20 instruments")
+        if not 1 <= request.max_bars <= 500:
+            raise ValueError("warmup max_bars must be between 1 and 500")
+        period = PERIODS.get(request.period)
+        if period != "day" and period not in chart.MINUTES:
+            raise ValueError("warmup bars are daily or of 1 to 60 minutes")
+        tables = ("daily",) if period == "day" else ("minutes",)
+        identity = self.data_version(request.dataset_version, tables)
+        warehouse = self.dataset()
+        version = warehouse.version(identity)
+        grouped = collections.defaultdict(dict)
+        for index, inst in enumerate(request.instruments):
+            contract = contract_name(inst)
+            if period == "day":
+                rows = warehouse.query(version, """
+                    select day, open, high, low, close, volume, open_interest from daily
+                    where contract = ? order by day""", ("daily",), (contract,),
+                    exchange=inst.exchange)
+                for day, open_, high, low, close, volume, interest in rows:
+                    if None in (open_, high, low, close):
+                        continue
+                    end_ms = int(datetime.datetime.combine(
+                        day, datetime.time(15), chart.BEIJING).timestamp()) * 1000
+                    grouped[end_ms][index] = Bar(
+                        instrument=inst, trading_day=day.isoformat(), end_ms=end_ms,
+                        open=decimal(open_), high=decimal(high), low=decimal(low),
+                        close=decimal(close), volume=int(volume or 0),
+                        open_interest=decimal(interest if interest is not None else 0))
+            else:
+                rows = warehouse.query(version, """
+                    select day, start_ms, partial, open, high, low, close, volume, open_interest
+                    from minutes where contract = ? order by start_ms""",
+                    ("minutes",), (contract,), contract=contract)
+                for bar in chart.minute_bars(rows, period):
+                    if bar["partial"]:
+                        continue
+                    grouped[bar["time_ms"]][index] = Bar(
+                        instrument=inst, trading_day=bar["trading_day"].isoformat(),
+                        end_ms=bar["time_ms"], open=decimal(bar["open"]),
+                        high=decimal(bar["high"]), low=decimal(bar["low"]),
+                        close=decimal(bar["close"]), volume=int(bar["volume"]),
+                        open_interest=decimal(bar["open_interest"]
+                                              if bar["open_interest"] is not None else 0))
+        if not grouped:
+            raise ValueError("no stored bars for the requested warmup instruments")
+        warmup = Warmup(dataset_version=version.identity)
+        digest = hashlib.sha256()
+        for sequence, end_ms in enumerate(sorted(grouped)[-request.max_bars:], 1):
+            batch = warmup.bars.add(sequence=sequence)
+            digest.update(b"batch\n")
+            for index in sorted(grouped[end_ms]):
+                bar = batch.bars.add()
+                bar.CopyFrom(grouped[end_ms][index])
+                line = (f"{bar.trading_day}|{bar.end_ms}|"
+                        f"{bar.instrument.exchange}/{bar.instrument.symbol}|"
+                        f"{bar.open.text}|{bar.high.text}|{bar.low.text}|{bar.close.text}|"
+                        f"{bar.volume}|{bar.open_interest.text}\n")
+                digest.update(line.encode())
+        warmup.sha256 = digest.hexdigest()
+        return warmup
+
+    async def on_build_warmup(self, request, result):
+        result.CopyFrom(await self.read(self.build_warmup, request))
 
     async def on_get_health(self, _, result):
         result.ready = self.initialized

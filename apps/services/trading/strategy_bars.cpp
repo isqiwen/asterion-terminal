@@ -43,10 +43,13 @@ void put(::common::Decimal* field, const Decimal& value)
 StrategyBars::StrategyBars(
     const wire::Instance& configuration,
     std::int64_t started_ms,
-    std::uint64_t sequence)
+    std::uint64_t sequence,
+    std::int64_t last_end_ms)
     : daily_(configuration.period() == ::common::PERIOD_DAY),
       interval_(minutes(configuration.period()) * 60000),
       started_ms_(started_ms),
+      delivered_(
+          last_end_ms > 0 ? (daily_ ? last_end_ms - 15 * 3600000LL : last_end_ms - interval_) : -1),
       sequence_(sequence)
 {
     for (const auto& id : configuration.instruments()) {

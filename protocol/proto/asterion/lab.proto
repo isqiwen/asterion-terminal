@@ -20,6 +20,7 @@ message Request {
     SaveSource save_source = 32;
     SourcePath delete_source = 33;
     BuildPackage build_package = 34;
+    BuildWarmup build_warmup = 35;
 
     EvaluateFactor evaluate_factor = 40;
     Backtest start_backtest = 41;
@@ -54,6 +55,7 @@ message Response {
     common.Empty save_source = 32;
     common.Empty delete_source = 33;
     strategy.Package build_package = 34;
+    strategy.Warmup build_warmup = 35;
 
     FactorResult evaluate_factor = 40;
     common.Empty start_backtest = 41;
@@ -160,6 +162,13 @@ message BuildPackage {
   string repository = 1;
   // module.Class
   string strategy = 2;
+}
+
+message BuildWarmup {
+  repeated common.Instrument instruments = 1;
+  common.Period period = 2;
+  uint32 max_bars = 3;
+  string dataset_version = 4;
 }
 
 message Strategies {
