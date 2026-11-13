@@ -98,10 +98,20 @@ const products: Record<string, [string, string]> = {
 const english = () => getLocale() === "en-US";
 const productName = (venue: string, product: string) =>
   products[`${venue}.${product}`]?.[english() ? 1 : 0];
-const listed = (row: Id, catalog?: Catalog) =>
-  catalog?.contracts.find(
-    item => item.instrument?.exchange === row.exchange && item.instrument.symbol === row.symbol,
-  );
+const catalogIndex = new WeakMap<Catalog, Map<string, CatalogContract>>();
+const listed = (row: Id, catalog?: Catalog) => {
+  if (!catalog) return undefined;
+  let index = catalogIndex.get(catalog);
+  if (!index) {
+    index = new Map(
+      catalog.contracts
+        .filter(item => item.instrument)
+        .map(item => [`${item.instrument!.exchange}.${item.instrument!.symbol}`, item]),
+    );
+    catalogIndex.set(catalog, index);
+  }
+  return index.get(`${row.exchange}.${row.symbol}`);
+};
 
 // A product's name for a catalog contract, e.g. 螺纹钢 or Rebar for SHFE.rb.
 export function productLabel(row: Id, catalog?: Catalog) {

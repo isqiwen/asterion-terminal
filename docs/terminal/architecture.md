@@ -100,9 +100,9 @@ sequenceDiagram
     Native-->>UI: ProtoJSON
 ```
 
-`market.watch` 是页面读取原生层已接收报价帧的命令；`stream_quotes` 才是 Market 服务协议。断线或页面缺少完整首帧时重开报价流。其他行情请求通过 `market.call`；数据页通过 `warehouse.call` 读 Warehouse。Market 和 Warehouse 各有单独保存的地址和证书指纹，每次请求各自建立 TLS 连接。
+`market.watch` 是页面读取原生层已接收报价帧的命令；`stream_quotes` 才是 Market 服务协议。断线或页面缺少完整首帧时重开报价流；无新帧且连接状态未变时保持同一视图引用，避免触发无效重绘。其他行情请求通过 `market.call`；数据页通过 `warehouse.call` 读 Warehouse。Market、Warehouse 和 Trading 请求按证书与私钥时间戳缓存 `SSL_CTX`，并在 `ServiceIo` 内按端点复用健康客户端通道。
 
-交易命令的回复不替代柜台后续状态；账户 Provider 持续读取 `get_account` 与健康状态。发送失败显示在操作位置，后台中断进入通知中心，不自动补发交易命令。
+交易命令的回复不替代柜台后续状态；账户 Provider 持续读取 `get_account` 与健康状态。紧急交易命令（下单、撤单、撤销授权、停止与平仓）拥有独立准入槽位与执行通道，不被慢速或离线轮询阻塞。发送失败显示在操作位置，后台中断进入通知中心，不自动补发交易命令。
 
 ## 生命周期与错误边界
 

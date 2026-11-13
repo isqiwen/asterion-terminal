@@ -78,9 +78,15 @@ relay_call(ServiceIo& io, ServiceEndpoint endpoint, Json payload, Check check, s
                 relay_identify(request);
                 return request;
             });
-            auto transport = co_await io.admin<std::unique_ptr<ipc::RpcClient>>([&] {
-                return relay_connect(io, endpoint);
-            });
+            auto transport = io.take_client(
+                endpoint.host,
+                endpoint.port,
+                endpoint.tls,
+                ServiceIo::PayloadLane::data);
+            if (!transport)
+                transport = co_await io.admin<std::unique_ptr<ipc::RpcClient>>([&] {
+                    return relay_connect(io, endpoint);
+                });
             auto reply = transport->request(request.SerializeAsString(), 60s);
             while (reply.wait_for(0ms) != std::future_status::ready) {
                 if (stop.stop_requested())
@@ -89,7 +95,15 @@ relay_call(ServiceIo& io, ServiceEndpoint endpoint, Json payload, Check check, s
                     transport->poll();
                 co_await std::suspend_always{};
             }
-            co_return co_await io.read<Json>([raw = reply.get(), &request, &protocol] {
+            auto raw = reply.get();
+            io.return_client(
+                endpoint.host,
+                endpoint.port,
+                endpoint.tls,
+                ServiceIo::PayloadLane::data,
+                ipc::Channel::max_frame,
+                std::move(transport));
+            co_return co_await io.read<Json>([raw = std::move(raw), &request, &protocol] {
                 auto response = relay_decode<Response>(*raw, request);
                 if (response.has_get_status() && response.get_status().protocol() != protocol)
                     throw Error(ErrorCode::conflict, service_protocol_differs);

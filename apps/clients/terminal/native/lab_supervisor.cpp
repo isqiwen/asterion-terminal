@@ -302,17 +302,20 @@ struct LabSupervisor::Impl
         });
     }
 
-    ~Impl()
+    ~Impl() noexcept
     {
-        {
-            std::lock_guard lock(mutex);
-            stopping = true;
+        try {
+            {
+                std::lock_guard lock(mutex);
+                stopping = true;
+            }
+            wake.notify_one();
+            if (supervisor.joinable())
+                supervisor.join();
+            std::error_code ignored;
+            fs::remove_all(sockets, ignored);
+        } catch (...) {
         }
-        wake.notify_one();
-        if (supervisor.joinable())
-            supervisor.join();
-        std::error_code ignored;
-        fs::remove_all(sockets, ignored);
     }
 };
 

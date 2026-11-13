@@ -5,18 +5,30 @@
 #include <array>
 #include <deque>
 #include <list>
+#include <map>
 #include <mutex>
 #include <numeric>
 #include <thread>
+#include <tuple>
+#include <vector>
 
 namespace asterion::terminal {
 
 struct ServiceIo::Impl
 {
+    using ClientKey = std::tuple<
+        std::string,
+        std::uint16_t,
+        std::string,
+        std::string,
+        std::vector<std::string>,
+        std::size_t,
+        std::size_t>;
+
     const std::array<PayloadBudget, 3> payloads{
         PayloadBudget{128 * 1024 * 1024},
         PayloadBudget{128 * 1024 * 1024},
-        PayloadBudget{8 * 1024 * 1024}
+        PayloadBudget{32 * 1024 * 1024}
     };
 
     struct Pending
@@ -30,13 +42,14 @@ struct ServiceIo::Impl
 
     // Includes suspended operations, not just the incoming queue.
     static constexpr std::array<std::size_t, 4>
-        capacity{32, 8, 64, ServiceIo::application_capacity};
+        capacity{32, 16, 64, ServiceIo::application_capacity};
     std::mutex mutex;
     std::deque<std::unique_ptr<Pending>> incoming;
     std::array<std::size_t, 4> admitted{};
     bool closing = false;
     // The owner waits here; sockets, finished pool work and admissions end the wait.
     ipc::Reactor reactor;
+    std::map<ClientKey, std::vector<std::unique_ptr<ipc::RpcClient>>> clients;
     const std::function<void()> finished = [this] {
         reactor.wake();
     };
@@ -67,6 +80,8 @@ struct ServiceIo::Impl
         reactor.wake();
         if (owner.joinable())
             owner.join();
+        std::lock_guard lock(mutex);
+        clients.clear();
     }
 
     void run(std::stop_token stop)
@@ -106,8 +121,16 @@ struct ServiceIo::Impl
             }
             // An admission or a stop request after the check above has already
             // woken the reactor, so this wait returns for it.
+            bool command_active = false;
+            for (const auto& item : active)
+                if (item->lane != static_cast<std::size_t>(Lane::observation)) {
+                    command_active = true;
+                    break;
+                }
             reactor.wait(
-                active.empty() ? std::nullopt : std::optional(std::chrono::milliseconds(2)));
+                active.empty()       ? std::nullopt
+                    : command_active ? std::optional(std::chrono::milliseconds(2))
+                                     : std::optional(std::chrono::milliseconds(50)));
         }
     }
 };
@@ -119,9 +142,12 @@ ServiceIo::ServiceIo()
 // Operations still running on the owner submit work through this object, so
 // the owner is stopped while impl_ still points at its pools. Destroying
 // impl_ first would clear the pointer before the owner had finished.
-ServiceIo::~ServiceIo()
+ServiceIo::~ServiceIo() noexcept
 {
-    stop();
+    try {
+        stop();
+    } catch (...) {
+    }
 }
 
 void ServiceIo::stop()
@@ -137,6 +163,58 @@ PayloadBudget ServiceIo::payload_budget(PayloadLane lane) const
 ipc::Reactor& ServiceIo::reactor()
 {
     return impl_->reactor;
+}
+
+std::unique_ptr<ipc::RpcClient> ServiceIo::take_client(
+    const std::string& host,
+    std::uint16_t port,
+    const ipc::TlsIdentity& tls,
+    PayloadLane lane,
+    std::size_t frame_bytes)
+{
+    const Impl::ClientKey key{
+        host,
+        port,
+        tls.certificate_file,
+        tls.private_key_file,
+        tls.peers,
+        static_cast<std::size_t>(lane),
+        frame_bytes
+    };
+    std::lock_guard lock(impl_->mutex);
+    const auto found = impl_->clients.find(key);
+    if (found == impl_->clients.end() || found->second.empty())
+        return nullptr;
+    auto client = std::move(found->second.back());
+    found->second.pop_back();
+    return client;
+}
+
+void ServiceIo::return_client(
+    const std::string& host,
+    std::uint16_t port,
+    const ipc::TlsIdentity& tls,
+    PayloadLane lane,
+    std::size_t frame_bytes,
+    std::unique_ptr<ipc::RpcClient> client)
+{
+    if (!client)
+        return;
+    const Impl::ClientKey key{
+        host,
+        port,
+        tls.certificate_file,
+        tls.private_key_file,
+        tls.peers,
+        static_cast<std::size_t>(lane),
+        frame_bytes
+    };
+    std::lock_guard lock(impl_->mutex);
+    if (impl_->closing)
+        return;
+    auto& pool = impl_->clients[key];
+    if (pool.size() < 8)
+        pool.push_back(std::move(client));
 }
 
 std::future<void> ServiceIo::read_work(std::function<void()> process, ReadLane lane)

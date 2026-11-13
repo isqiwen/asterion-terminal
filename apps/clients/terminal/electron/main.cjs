@@ -282,17 +282,28 @@ app
       });
     });
     native = require(path.join(resources, "native/asterion_terminal.node"));
+    let urgentPending = 0;
     ipcMain.handle("asterion:request", async (event, body) => {
       authorized(event);
-      if (typeof body !== "string" || Buffer.byteLength(body) > 65536 || body.includes("\0"))
+      const maxBytes =
+        typeof body === "string" && body.includes('"trading.call"') ? 8 * 1024 * 1024 : 65536;
+      if (typeof body !== "string" || Buffer.byteLength(body) > maxBytes || body.includes("\0"))
         throw new Error("Invalid native request");
-      // Bound queued native work. The C++ facade rejects concurrent mutations.
-      if (pending >= 32) throw new Error("Too many pending native requests");
-      pending++;
+      const urgent =
+        body.includes('"trading.call"') &&
+        (body.includes('"sendCommand"') ||
+          body.includes('"stopStrategy"') ||
+          body.includes('"flattenStrategy"'));
+      // Bound queued native work. Urgent trading actions keep their own slots.
+      if (urgent ? urgentPending >= 16 : pending >= 32)
+        throw new Error("Too many pending native requests");
+      if (urgent) urgentPending++;
+      else pending++;
       try {
         return await native.request(body);
       } finally {
-        pending--;
+        if (urgent) urgentPending--;
+        else pending--;
       }
     });
     const lab = labChannel(async () => {

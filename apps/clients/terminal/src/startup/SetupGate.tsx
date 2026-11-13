@@ -12,8 +12,6 @@ import "./setup.css";
 
 const megabytes = (bytes: number) => `${(bytes / 2 ** 20).toFixed(0)} MB`;
 
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
 // What starts behind the startup screen: Lab and the saved Market. Either may
 // fail; the status bar and its pages say so once the workbench is open.
 async function startUp() {
@@ -30,27 +28,13 @@ export function SetupGate({ children }: { children: ReactNode }) {
   const { locale, setLocale } = useLocale();
   const language = locale === "zh-CN" ? "zh" : "en";
   const [runtime, setRuntime] = useState<PythonRuntime | null>(null);
-  // The workbench renders under the screen once Lab and Market have started,
-  // settles for a moment, then the screen cross-fades into it (startup.css).
   const [phase, setPhase] = useState<"starting" | "beneath" | "leaving" | "entered">("starting");
   const [error, setError] = useState<DisplayError>("");
   const started = useRef(false);
   const enter = () => {
     if (started.current) return;
     started.current = true;
-    // The animation reads for at least two seconds; the workbench gets at
-    // least 0.6 s beneath it to read its first data.
-    const shown = delay(2000);
-    void startUp()
-      .then(() => {
-        setPhase("beneath");
-        return Promise.all([shown, delay(600)]);
-      })
-      .then(() => {
-        setPhase("leaving");
-        return delay(900);
-      })
-      .then(() => setPhase("entered"));
+    void startUp().then(() => setPhase("entered"));
   };
   const read = async (install: boolean) => {
     const reply = await request(install ? "runtime.python.install" : "runtime.python.status");

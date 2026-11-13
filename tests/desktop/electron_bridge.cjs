@@ -47,11 +47,19 @@ async function isolatedPoolCheck() {
   // Admission includes completed native calls whose JS callbacks have not run.
   const commands = Array.from({ length: 16 }, () => request("bridge.test.unknown"));
   assert.throws(() => request("bridge.test.unknown"), /Too many pending/);
+  const urgent = bridge.request(
+    JSON.stringify({
+      version: 1,
+      method: "trading.call",
+      params: { account: "missing", request: { sendCommand: { requestId: "r1" } } },
+    }),
+  );
   const statuses = Array.from({ length: 8 }, snapshot);
   assert.throws(snapshot, /Too many pending/);
   const results = await Promise.all(statuses);
   for (const value of results) assert.equal(JSON.parse(value).result.protocol, 1);
   for (const value of await Promise.all(commands)) assert.ok(JSON.parse(value).error);
+  assert.ok(JSON.parse(await urgent).error);
   assert.equal(JSON.parse(await snapshot()).result.protocol, 1);
   assert.ok(JSON.parse(await request("bridge.test.unknown")).error);
 

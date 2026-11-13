@@ -71,3 +71,11 @@ test("a busy contract does not push out another contract's recent quotes", () =>
   expect(view!.ticks.get("SHFE.rb2610")!.map(tick => tick.price)).toEqual(["3500"]);
   expect(view!.ticks.get("SHFE.rb2611")).toHaveLength(512);
 });
+
+test("empty polls keep the same MarketView and ticks references when online status is unchanged", () => {
+  const { view } = applyFrames(null, [full], true);
+  const idle = applyFrames(view, [], true);
+  expect(idle.restart).toBe(false);
+  expect(idle.view).toBe(view);
+  expect(idle.view!.ticks).toBe(view!.ticks);
+});

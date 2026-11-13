@@ -11,11 +11,21 @@ namespace {
 
 constexpr unsigned request_limit = 16;
 constexpr unsigned snapshot_limit = 8;
+constexpr unsigned urgent_limit = 16;
+constexpr std::size_t max_request_bytes = 65536;
+constexpr std::size_t max_trading_request_bytes = 8 * 1024 * 1024;
+
+enum class Admission
+{
+    request,
+    snapshot,
+    urgent
+};
 
 struct Runtime
 {
     asterion::terminal::Application application;
-    std::atomic<unsigned> pending_requests{0}, pending_snapshots{0};
+    std::atomic<unsigned> pending_requests{0}, pending_snapshots{0}, pending_urgent{0};
 };
 
 using Owner = std::shared_ptr<Runtime>;
@@ -42,16 +52,58 @@ void check(napi_status status)
         throw std::runtime_error("Native bridge operation failed");
 }
 
-bool is_snapshot(const std::string& request)
+Admission classify_admission(const std::string& request)
 {
     try {
-        const auto value = asterion::parse_json(request);
-        return value.is_object() && value.contains("method")
-            && value.at("method") == "runtime.snapshot";
+        const auto max_bytes = request.find("\"trading.call\"") != std::string::npos
+            ? max_trading_request_bytes
+            : max_request_bytes;
+        const auto value = asterion::parse_json(request, max_bytes);
+        if (!value.is_object() || !value.contains("method"))
+            return Admission::request;
+        const auto& method = value.at("method");
+        if (method == "runtime.snapshot")
+            return Admission::snapshot;
+        if (method == "trading.call" && value.contains("params") && value.at("params").is_object()) {
+            const auto& params = value.at("params");
+            if (params.contains("request") && params.at("request").is_object()) {
+                const auto& call = params.at("request");
+                if (call.contains("sendCommand") || call.contains("stopStrategy")
+                    || call.contains("flattenStrategy"))
+                    return Admission::urgent;
+            }
+        }
+        return Admission::request;
     } catch (...) {
         // This only selects an admission counter. Native validates the request.
-        return false;
+        return Admission::request;
     }
+}
+
+std::atomic<unsigned>& counter_for(Runtime& runtime, Admission kind) noexcept
+{
+    switch (kind) {
+        case Admission::snapshot:
+            return runtime.pending_snapshots;
+        case Admission::urgent:
+            return runtime.pending_urgent;
+        case Admission::request:
+            return runtime.pending_requests;
+    }
+    return runtime.pending_requests;
+}
+
+unsigned limit_for(Admission kind) noexcept
+{
+    switch (kind) {
+        case Admission::snapshot:
+            return snapshot_limit;
+        case Admission::urgent:
+            return urgent_limit;
+        case Admission::request:
+            return request_limit;
+    }
+    return request_limit;
 }
 
 struct Work
@@ -65,12 +117,13 @@ struct Work
     std::future<void> finished;
     std::mutex completion_mutex;
     bool closing = false;
-    bool snapshot = false, admitted = false;
+    Admission kind = Admission::request;
+    bool admitted = false;
 
     void release_admission() noexcept
     {
         if (admitted) {
-            (snapshot ? runtime->pending_snapshots : runtime->pending_requests).fetch_sub(1);
+            counter_for(*runtime, kind).fetch_sub(1);
             admitted = false;
         }
     }
@@ -152,21 +205,22 @@ napi_value call(napi_env env, napi_callback_info info) noexcept
         if (type != napi_string)
             throw std::invalid_argument("Expected one request string");
         check(napi_get_value_string_utf8(env, arg, nullptr, 0, &length));
-        if (length > 65536)
+        if (length > max_trading_request_bytes)
             throw std::invalid_argument("Request exceeds 64 KiB");
         auto task = std::make_unique<Work>();
         task->request.resize(length + 1);
         check(napi_get_value_string_utf8(env, arg, task->request.data(), length + 1, &length));
         task->request.resize(length);
+        if (length > max_request_bytes && task->request.find("\"trading.call\"") == std::string::npos)
+            throw std::invalid_argument("Request exceeds 64 KiB");
         if (task->request.find('\0') != std::string::npos)
             throw std::invalid_argument("Request contains an invalid character");
         void* state = nullptr;
         check(napi_get_instance_data(env, &state));
         task->runtime = *static_cast<Owner*>(state);
-        task->snapshot = is_snapshot(task->request);
-        auto& pending =
-            task->snapshot ? task->runtime->pending_snapshots : task->runtime->pending_requests;
-        const auto limit = task->snapshot ? snapshot_limit : request_limit;
+        task->kind = classify_admission(task->request);
+        auto& pending = counter_for(*task->runtime, task->kind);
+        const auto limit = limit_for(task->kind);
         if (pending.fetch_add(1) >= limit) {
             pending.fetch_sub(1);
             throw std::runtime_error("Too many pending native requests");

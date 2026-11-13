@@ -216,7 +216,7 @@ function localCore(): Plugin {
         let body = "";
         req.on("data", chunk => {
           body += chunk.toString();
-          if (body.length > 65536) req.destroy();
+          if (body.length > 8 * 1024 * 1024) req.destroy();
         });
         req.on("end", () => {
           if (core.failed) {

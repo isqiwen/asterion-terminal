@@ -10,9 +10,13 @@ namespace asterion::terminal {
 
 using namespace std::chrono_literals;
 namespace wire = ::trading;
+constexpr std::size_t frame_bytes = 8 * 1024 * 1024;
 
 std::future<Json> call_trading(ServiceIo& io, TradingEndpoint endpoint, Json payload)
 {
+    const bool urgent = payload.is_object()
+        && (payload.contains("sendCommand") || payload.contains("stopStrategy")
+            || payload.contains("flattenStrategy"));
     return io.submit<Json>(
         [&io, endpoint = std::move(endpoint), payload = std::move(payload)](
             std::stop_token stop) -> PolledTask<Json> {
@@ -25,18 +29,25 @@ std::future<Json> call_trading(ServiceIo& io, TradingEndpoint endpoint, Json pay
                 log_request(request.id());
                 return request;
             });
-            auto transport = co_await io.admin<std::unique_ptr<ipc::RpcClient>>([&] {
-                if (endpoint.tls.empty())
-                    throw std::invalid_argument("Trading requires pinned mutual TLS");
-                return std::make_unique<ipc::RpcClient>(
-                    io.reactor(),
-                    endpoint.host,
-                    endpoint.port,
-                    endpoint.tls,
-                    1,
-                    io.payload_budget(ServiceIo::PayloadLane::administration),
-                    4 * 1024 * 1024);
-            });
+            auto transport = io.take_client(
+                endpoint.host,
+                endpoint.port,
+                endpoint.tls,
+                ServiceIo::PayloadLane::administration,
+                frame_bytes);
+            if (!transport)
+                transport = co_await io.admin<std::unique_ptr<ipc::RpcClient>>([&] {
+                    if (endpoint.tls.empty())
+                        throw std::invalid_argument("Trading requires pinned mutual TLS");
+                    return std::make_unique<ipc::RpcClient>(
+                        io.reactor(),
+                        endpoint.host,
+                        endpoint.port,
+                        endpoint.tls,
+                        1,
+                        io.payload_budget(ServiceIo::PayloadLane::administration),
+                        frame_bytes);
+                });
             auto reply = transport->request(request.SerializeAsString(), 30s);
             while (reply.wait_for(0ms) != std::future_status::ready) {
                 if (stop.stop_requested())
@@ -45,7 +56,15 @@ std::future<Json> call_trading(ServiceIo& io, TradingEndpoint endpoint, Json pay
                     transport->poll();
                 co_await std::suspend_always{};
             }
-            co_return co_await io.read<Json>([raw = reply.get(), &request] {
+            auto raw = reply.get();
+            io.return_client(
+                endpoint.host,
+                endpoint.port,
+                endpoint.tls,
+                ServiceIo::PayloadLane::administration,
+                frame_bytes,
+                std::move(transport));
+            co_return co_await io.read<Json>([raw = std::move(raw), &request] {
                 wire::Response response;
                 if (!response.ParseFromString(*raw))
                     throw Error(ErrorCode::unavailable, "invalid Trading response");
@@ -58,7 +77,8 @@ std::future<Json> call_trading(ServiceIo& io, TradingEndpoint endpoint, Json pay
                     throw Error(ErrorCode::internal_error, "cannot encode trading response");
                 return Json::parse(encoded);
             });
-        });
+        },
+        urgent ? ServiceIo::Lane::administration : ServiceIo::Lane::request);
 }
 
 } // namespace asterion::terminal

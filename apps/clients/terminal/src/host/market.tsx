@@ -66,6 +66,10 @@ function tick(view: MarketView, row: QuoteRow) {
 
 // A full frame replaces the view; a changed frame replaces the rows it holds.
 export function applyFrames(previous: MarketView | null, frames: QuoteFrame[], online: boolean) {
+  if (frames.length === 0) {
+    if (!previous || previous.online === online) return { view: previous, restart: false };
+    return { view: { ...previous, online }, restart: false };
+  }
   let view: MarketView | null = previous && { ...previous, ticks: new Map(previous.ticks), online };
   for (const { frame } of frames) {
     if (frame.case === "full") {
@@ -127,12 +131,13 @@ export function MarketProvider({ children }: { children: ReactNode }) {
         else {
           const frames = watch.frames.map(frame => fromJson(QuoteFrameSchema, frame));
           ({ view: current, restart } = applyFrames(current, frames, watch.online));
-          current = current && { ...current, error: watch.error };
+          if (current && current.error !== watch.error)
+            current = { ...current, error: watch.error };
         }
         report(current);
         setView(current);
       } catch {
-        current = current && { ...current, online: false };
+        if (current && current.online) current = { ...current, online: false };
         report(current);
         if (!stopped) setView(current);
       } finally {

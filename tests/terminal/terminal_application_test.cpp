@@ -562,6 +562,37 @@ TEST(TerminalTrading, ClosingCancelsAnUnansweredRequest)
     EXPECT_THROW(pending.get(), Error);
 }
 
+TEST(TerminalTrading, AcceptsLargeStrategyPackagePayloadsOver64KiB)
+{
+    terminal::Application app;
+    Payload response;
+    std::exception_ptr failure;
+    const auto large_archive = std::string(140 * 1024, 'A');
+    const auto wire = request(
+                          "trading.call",
+                          {{"account", "missing-account"},
+                              {"request",
+                                  {{"publishStrategy",
+                                      {{"manifest",
+                                           {{"name", "ma_cross"},
+                                               {"version", "1.0.0"},
+                                               {"entry", "ma_cross:MaCross"}}},
+                                          {"archive", large_archive}}}}}})
+                          .dump();
+    ASSERT_GT(wire.size(), 100 * 1024U);
+    app.request(
+           wire,
+           [&](Payload value, std::exception_ptr error) noexcept {
+               response = std::move(value);
+               failure = error;
+           })
+        .get();
+    ASSERT_FALSE(failure);
+    const auto parsed = parse_json(*response);
+    ASSERT_TRUE(parsed.contains("error"));
+    EXPECT_NE(parsed.at("error").at("message"), "invalid native API request");
+}
+
 TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
 {
     const auto root =

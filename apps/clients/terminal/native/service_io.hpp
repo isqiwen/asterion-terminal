@@ -44,8 +44,21 @@ public:
     PayloadBudget payload_budget(PayloadLane lane) const;
     // Where every client of this owner creates its transports.
     ipc::Reactor& reactor();
+    std::unique_ptr<ipc::RpcClient> take_client(
+        const std::string& host,
+        std::uint16_t port,
+        const ipc::TlsIdentity& tls,
+        PayloadLane lane,
+        std::size_t frame_bytes = ipc::Channel::max_frame);
+    void return_client(
+        const std::string& host,
+        std::uint16_t port,
+        const ipc::TlsIdentity& tls,
+        PayloadLane lane,
+        std::size_t frame_bytes,
+        std::unique_ptr<ipc::RpcClient> client);
     ServiceIo();
-    ~ServiceIo();
+    ~ServiceIo() noexcept;
     // Close admission and drain operations before their owning state is released.
     // Called by the owning thread; subsequent calls do nothing.
     void stop();

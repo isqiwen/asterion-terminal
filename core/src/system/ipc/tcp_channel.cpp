@@ -12,10 +12,13 @@
 #include <asterion/system/ipc/tcp_channel.hpp>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <mutex>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/x509.h>
 #include <stdexcept>
+#include <tuple>
 
 namespace asterion::ipc {
 namespace {
@@ -164,6 +167,42 @@ void validate_identity(const TlsIdentity& identity)
 std::shared_ptr<asio::ssl::context> tls_context(const TlsIdentity& identity)
 {
     validate_identity(identity);
+    const auto stamp = [](const std::string& filename) {
+        const std::filesystem::path path(std::u8string(filename.begin(), filename.end()));
+        if (!path.is_absolute() || !std::filesystem::is_regular_file(path)
+            || std::filesystem::file_size(path) > 1024 * 1024)
+            throw std::invalid_argument("TLS requires absolute paths to PEM files (maximum 1 MiB)");
+        return std::pair{
+            std::filesystem::last_write_time(path),
+            std::filesystem::file_size(path)
+        };
+    };
+    const auto cert_stamp = stamp(identity.certificate_file);
+    const auto key_stamp = stamp(identity.private_key_file);
+    using Key = std::tuple<
+        std::string,
+        std::string,
+        std::vector<std::string>,
+        std::filesystem::file_time_type,
+        std::uintmax_t,
+        std::filesystem::file_time_type,
+        std::uintmax_t>;
+    const Key cache_key{
+        identity.certificate_file,
+        identity.private_key_file,
+        identity.peers,
+        cert_stamp.first,
+        cert_stamp.second,
+        key_stamp.first,
+        key_stamp.second
+    };
+    static std::mutex cache_mutex;
+    static std::map<Key, std::shared_ptr<asio::ssl::context>> cache;
+    {
+        std::lock_guard lock(cache_mutex);
+        if (const auto found = cache.find(cache_key); found != cache.end())
+            return found->second;
+    }
     auto ctx = std::make_shared<asio::ssl::context>(asio::ssl::context::tls);
     if (SSL_CTX_set_min_proto_version(ctx->native_handle(), TLS1_3_VERSION) != 1)
         throw std::runtime_error("TLS 1.3 unavailable");
@@ -193,6 +232,12 @@ std::shared_ptr<asio::ssl::context> tls_context(const TlsIdentity& identity)
         throw std::invalid_argument("TLS certificate/key mismatch");
     SSL_CTX_set_session_cache_mode(ctx->native_handle(), SSL_SESS_CACHE_OFF);
     SSL_CTX_set_num_tickets(ctx->native_handle(), 0);
+    {
+        std::lock_guard lock(cache_mutex);
+        if (cache.size() >= 32)
+            cache.clear();
+        cache[cache_key] = ctx;
+    }
     return ctx;
 }
 

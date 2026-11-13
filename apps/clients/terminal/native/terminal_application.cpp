@@ -457,9 +457,15 @@ std::future<void> Application::request(std::string wire, Completion complete)
                 std::exception_ptr command_error;
                 auto budget = impl_->command_payloads;
                 try {
-                    if (wire.size() > 65536 || wire.find('\0') != std::string::npos)
+                    const auto max_wire = wire.find("\"trading.call\"") != std::string::npos
+                        ? std::size_t{8 * 1024 * 1024}
+                        : std::size_t{65536};
+                    if (wire.size() > max_wire || wire.find('\0') != std::string::npos)
                         throw std::invalid_argument("invalid native API request");
-                    auto input = parse_json(wire);
+                    auto input = parse_json(wire, max_wire);
+                    if (wire.size() > 65536
+                        && (!input.is_object() || input.value("method", json{}) != "trading.call"))
+                        throw std::invalid_argument("invalid native API request");
                     if (input.is_object() && input.value("method", json{}) == "runtime.snapshot")
                         budget = impl_->snapshot_payloads;
                     response.emplace(co_await impl_->dispatch(input));

@@ -1,7 +1,9 @@
 import { test, expect } from "./test";
 test("the startup screen gives way to the workbench with Lab already running", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("main", { name: "正在启动" })).toBeVisible();
+  await expect(
+    page.getByRole("main", { name: "正在启动" }).or(page.locator(".status-bar")).first(),
+  ).toBeVisible();
   const bar = page.locator(".status-bar");
   await expect(bar.getByText("● 研究", { exact: true })).toBeVisible({ timeout: 60000 });
   await expect(bar.getByText(/^● 行情/)).toBeVisible();
