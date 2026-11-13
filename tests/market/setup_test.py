@@ -174,6 +174,13 @@ with tempfile.TemporaryDirectory() as folder:
     calls, result = host.run(host.root / 'bin/setup.sh', ['1', 'b' * 64, ''], active=True, now='4 1000')
     assert host.settings()['clients'] == [dict(fingerprint=client_pin), dict(fingerprint='b' * 64)]
     assert calls[-1].startswith('systemd-run --quiet --collect --unit=asterion-market-restart'), calls
+    # A pending restart can be made now instead, only when confirmed.
+    calls, _ = host.run(host.root / 'bin/setup.sh', ['r', 'n'], active=True, now='4 1000')
+    assert not any(call.startswith(('systemctl restart', 'systemd-run')) for call in calls), calls
+    calls, _ = host.run(host.root / 'bin/setup.sh', ['r', 'y'], active=True, now='4 1000')
+    assert 'systemctl stop asterion-market-restart.timer asterion-market-restart.service' in calls, calls
+    assert 'systemctl restart asterion-market.service' in calls, calls
+    assert not any(call.startswith('systemd-run') for call in calls), calls
 
     # Changing the settings shows what changes. Another data directory is
     # made for the market and becomes writable; the old data is not moved.

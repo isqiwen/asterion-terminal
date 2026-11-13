@@ -277,6 +277,16 @@ with tempfile.TemporaryDirectory() as folder:
     _, status = host.run(host.root / 'bin/setup.sh', [])
     row = next(line.split() for line in status.stdout.splitlines() if ') two ' in line)
     assert row == ['2)', 'two', '127.0.0.1:7470', 'inactive', 'disabled', 'none'], row
+    # A stopped account starts again from its menu, with nothing else changed.
+    calls, _ = host.run(host.root / 'bin/setup.sh', ['2', 's'])
+    assert 'systemctl enable --now asterion-trading@two.service' in calls, calls
+    assert not any(call.startswith(('systemctl restart', 'systemd-run')) for call in calls), calls
+    # A pending restart can be made now instead, only when confirmed.
+    calls, _ = host.run(host.root / 'bin/setup.sh', ['1', 'r', 'n'], active=True, now='4 1000')
+    assert not any(call.startswith('systemctl restart') for call in calls), calls
+    calls, _ = host.run(host.root / 'bin/setup.sh', ['1', 'r', 'y'], active=True, now='4 1000')
+    assert 'systemctl restart asterion-trading@one.service' in calls, calls
+    assert not (host.timers / 'asterion-trading-restart-one').exists()
     _, result = host.run(host.root / 'bin/setup.sh', [], args=['fingerprint'])
     assert result.stdout.splitlines() == ["This host's certificate fingerprint, to enter in Terminal:", '  ' + fingerprint], result.stdout
 

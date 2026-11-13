@@ -326,6 +326,15 @@ restart_after_trading() {
     echo "$1 is running in trading hours: the change takes effect when it restarts at $at Beijing time. To cancel: systemctl stop $2.timer"
 }
 
+# restart_now UNIT TIMER: restarts UNIT at once, in place of its pending
+# restart and of the saved changes waiting for one.
+restart_now() {
+    cancel_restart "$2"
+    systemctl restart "$1"
+    CHANGED=''
+    echo "Restarted $1. Logs in $ROOT/logs"
+}
+
 certificate() {
     openssl x509 -noout -fingerprint -sha256 -in "$ROOT/config/tls/server.crt" | sed 's/^.*=//'
 }
@@ -399,8 +408,13 @@ CHANGED=
 
 # service_menu: the installed copy's choices for a service with one instance.
 service_menu() {
-    local choice
+    local choice waiting
     while true; do
+        # A service that defers its restart can still be restarted at once.
+        waiting=''
+        if [[ -n ${TIMER:-} ]] && { [[ -n $CHANGED ]] || systemctl is-active --quiet "$TIMER.timer"; }; then
+            waiting=1
+        fi
         echo
         echo "Asterion $NAME  $ROOT"
         echo "  Service      $(status "$UNIT" "${TIMER:-}")"
@@ -414,12 +428,19 @@ service_menu() {
         echo "  1) Add Terminals"
         echo "  2) Remove Terminals"
         echo "  3) Change settings"
+        [[ -z $waiting ]] || echo "  r) Restart now"
         echo "  q) Done"
         read -r -p "Choose [q]: " choice || break
         case ${choice:-q} in
             1) edit_pins add "$ROOT/$SETTINGS" clients ;;
             2) edit_pins remove "$ROOT/$SETTINGS" clients ;;
             3) configure ;;
+            r)
+                if [[ -z $waiting ]]; then
+                    echo "  Unknown choice" >&2
+                elif confirm "Restart $NAME now instead of after the trading window?" n; then
+                    restart_now "$UNIT" "$TIMER"
+                fi ;;
             q) break ;;
             *) echo "  Unknown choice" >&2 ;;
         esac

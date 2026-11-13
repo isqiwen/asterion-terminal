@@ -178,6 +178,13 @@ add_account() {
     apply_account
 }
 
+start_account() {
+    cancel_restart "$RESTART-$INSTANCE"
+    systemctl enable --now "asterion-trading@$INSTANCE.service" >/dev/null 2>&1
+    CHANGED=''
+    echo "Started $INSTANCE with its saved settings; authorize it in Terminal."
+}
+
 # Whether the account menu stopped and disabled its account.
 DISABLED=
 
@@ -191,9 +198,14 @@ disable_account() {
 
 # account_menu: INSTANCE's choices; saved changes take effect when it ends.
 account_menu() {
-    local choice
+    local choice unit="asterion-trading@$INSTANCE.service" running waiting
     CHANGED='' DISABLED=''
     while true; do
+        running='' waiting=''
+        if systemctl is-active --quiet "$unit"; then
+            running=1
+            if [[ -n $CHANGED ]] || systemctl is-active --quiet "$RESTART-$INSTANCE.timer"; then waiting=1; fi
+        fi
         echo
         echo "Account $INSTANCE  $(current bind):$(current port)"
         echo "  Service      $(status "asterion-trading@$INSTANCE.service" "$RESTART-$INSTANCE")"
@@ -206,6 +218,8 @@ account_menu() {
         echo "  2) Remove Terminals"
         echo "  3) Change settings"
         echo "  4) Stop and disable"
+        [[ -n $running ]] || echo "  s) Start"
+        [[ -z $waiting ]] || echo "  r) Restart now"
         echo "  b) Back"
         read -r -p "Choose [b]: " choice || break
         case ${choice:-b} in
@@ -215,6 +229,14 @@ account_menu() {
             4)
                 disable_account
                 if [[ -n $DISABLED ]]; then return; fi ;;
+            s)
+                if [[ -n $running ]]; then echo "  Unknown choice" >&2; else start_account; fi ;;
+            r)
+                if [[ -z $waiting ]]; then
+                    echo "  Unknown choice" >&2
+                elif confirm "Restart $INSTANCE now? Its authorization ends; working orders stay at the broker and are not sent again." n; then
+                    restart_now "$unit" "$RESTART-$INSTANCE"
+                fi ;;
             b) break ;;
             *) echo "  Unknown choice" >&2 ;;
         esac
