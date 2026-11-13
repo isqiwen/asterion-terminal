@@ -88,3 +88,42 @@ test("the run configuration folds away to give the result the width", async () =
   fireEvent.click(screen.getByRole("button", { name: "展开配置" }));
   expect(screen.getByText("先选择一个策略。")).toBeTruthy();
 });
+
+test("a folded group says what is set, and a recent run opens its report", async () => {
+  vi.mocked(lab).mockReset();
+  vi.mocked(lab).mockImplementation(async operation => {
+    switch (operation?.case) {
+      case "listStrategies":
+        return create(StrategiesSchema, { strategies: [{ id: "once.Once" }] }) as never;
+      case "listRuns":
+        return create(RunsSchema, {
+          runs: [
+            { id: "once-2", strategy: "once.Once", label: "快线", metrics: { total_return: 0.1 } },
+            { id: "other-1", strategy: "other.Other" },
+          ],
+        }) as never;
+      case "readSource":
+        return create(SourceSchema, { content: "" }) as never;
+    }
+    return new Promise(() => {}) as never;
+  });
+  const context = {
+    snapshot: { research_directory: "/research" },
+    navigate: vi.fn(),
+  } as unknown as TerminalContext;
+  render(
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.lab-strategies">
+      <StrategyLab {...context} />
+    </WorkspaceDraftScope>,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: /Once/ }));
+  const funds = screen.getByText("资金与风控").closest("details")!;
+  expect(funds.open).toBe(false);
+  expect(funds.querySelector("summary")!.textContent).toContain("资金 {deposit}");
+  const recent = await screen.findByRole("region", { name: "最近运行" });
+  expect(recent.textContent).not.toContain("other-1");
+  fireEvent.click(screen.getByRole("button", { name: /快线/ }));
+  expect(context.navigate).toHaveBeenCalledWith("workspace.lab-runs", {
+    params: { run: "once-2" },
+  });
+});

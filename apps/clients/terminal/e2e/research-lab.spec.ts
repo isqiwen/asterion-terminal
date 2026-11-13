@@ -44,6 +44,7 @@ test(
     await form.getByLabel("品种").fill("SHFE/rb");
     await form.getByLabel("开始日").fill("2026-01-05");
     await form.getByLabel("结束日").fill("2026-02-13");
+    await form.getByText("资金与风控", { exact: true }).click();
     await form.getByLabel("单笔手数").fill("10");
     await form.getByLabel("总持仓手数").fill("10");
 

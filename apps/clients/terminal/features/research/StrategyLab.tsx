@@ -1,9 +1,11 @@
 import { DateInput } from "../../src/ui/DateInput";
-import { useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { lab } from "../../src/bridge/lab";
 import { ActionError, useActionError } from "../../src/host/action-error";
+import type { RunSummary } from "../../src/generated/asterion/lab_pb";
 import type { TerminalContext } from "../../src/host/feature-registry";
+import { notify } from "../../src/host/notifications";
 import { type MessageValues, translate, listSeparator } from "../../src/i18n";
 import {
   defaultForm,
@@ -23,6 +25,7 @@ import {
   useModules,
   useSource,
 } from "./LabParts";
+import { metric, signed } from "./ResearchResult";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
@@ -167,7 +170,13 @@ export function StrategyLab(context: TerminalContext) {
               <p className="subtle">{t("先选择一个策略。")}</p>
             ) : (
               <>
-                <div className="lab-form">
+                <Section
+                  title={t("品种与区间")}
+                  summary={`${form.symbols || "—"} · ${form.begin || "…"} – ${form.end || "…"} · ${
+                    form.minutes === "0" ? t("日线") : t("{count} 分钟", { count: form.minutes })
+                  }`}
+                  open
+                >
                   <label className="wide">
                     <span>{t("品种")}</span>
                     <input
@@ -192,7 +201,15 @@ export function StrategyLab(context: TerminalContext) {
                       ))}
                     </select>
                   </label>
-                  <h5 className="wide">{t("参数（多个值用逗号分隔即为扫描）")}</h5>
+                </Section>
+                <Section
+                  title={t("参数")}
+                  summary={strategy.parameters
+                    .map(parameter => `${parameter.name}=${form.params[parameter.name] ?? ""}`)
+                    .join(" ")}
+                  open
+                >
+                  <p className="wide subtle">{t("一格填多个值（逗号分隔）就是参数扫描。")}</p>
                   {strategy.parameters.map(parameter => (
                     <label key={parameter.name}>
                       <span>
@@ -208,35 +225,34 @@ export function StrategyLab(context: TerminalContext) {
                       />
                     </label>
                   ))}
-                  <h5 className="wide">{t("资金与交易")}</h5>
+                </Section>
+                <Section
+                  title={t("资金与风控")}
+                  summary={t("资金 {deposit} · 滑点 {slippage} 跳 · 单笔 {order} / 总 {gross} 手", {
+                    deposit: form.deposit,
+                    slippage: form.slippage,
+                    order: form.maxOrderLots,
+                    gross: form.maxGrossLots,
+                  })}
+                >
                   {field("初始资金", "deposit")}
                   {field("滑点（跳）", "slippage")}
                   {field("单笔手数", "maxOrderLots")}
                   {field("总持仓手数", "maxGrossLots")}
-                  <details className="wide lab-section">
-                    <summary>
-                      {t("更多限额与统计")}
-                      <small>
-                        {t("每年 {periods} 期", { periods: form.annualPeriods || "—" })}
-                      </small>
-                    </summary>
-                    <div className="lab-form">
-                      {field("在途委托数", "maxWorkingOrders")}
-                      {field("并行进程数", "processes", { placeholder: t("处理器数减一") })}
-                      {field("总权重上限", "maxGrossWeight")}
-                      {field("净权重上限", "maxNetWeight")}
-                      {field("每年期数", "annualPeriods")}
-                      <label className="lab-check">
-                        <input
-                          type="checkbox"
-                          checked={form.zeroRiskFree}
-                          onChange={event => change({ zeroRiskFree: event.target.checked })}
-                        />
-                        {t("无风险利率为零")}
-                      </label>
-                    </div>
-                  </details>
-                  <h5 className="wide">{t("验证")}</h5>
+                  {field("在途委托数", "maxWorkingOrders")}
+                  {field("总权重上限", "maxGrossWeight")}
+                  {field("净权重上限", "maxNetWeight")}
+                  {field("每年期数", "annualPeriods")}
+                  <label className="lab-check wide">
+                    <input
+                      type="checkbox"
+                      checked={form.zeroRiskFree}
+                      onChange={event => change({ zeroRiskFree: event.target.checked })}
+                    />
+                    {t("无风险利率为零")}
+                  </label>
+                </Section>
+                <Section title={t("扫描与验证")} summary={t(validation[form.validation])}>
                   <div className="wide lab-segmented" role="radiogroup">
                     {(["none", "holdout", "rolling"] as const).map(kind => (
                       <button
@@ -256,7 +272,8 @@ export function StrategyLab(context: TerminalContext) {
                       {field("每轮验证交易日数", "validationDays")}
                     </>
                   )}
-                </div>
+                  {field("并行进程数", "processes", { placeholder: t("处理器数减一") })}
+                </Section>
                 <footer className="lab-submit">
                   <button
                     className="primary"
@@ -271,12 +288,71 @@ export function StrategyLab(context: TerminalContext) {
                     </p>
                   )}
                   <ActionError error={submitted.error} />
+                  <RecentRuns
+                    strategy={strategy.id}
+                    open={id => context.navigate("workspace.lab-runs", { params: { run: id } })}
+                  />
                 </footer>
               </>
             )}
           </>
         )}
       </aside>
+    </section>
+  );
+}
+
+// One group of the run's configuration; its summary says what is set while folded.
+function Section({
+  title,
+  summary,
+  open,
+  children,
+}: {
+  title: string;
+  summary: string;
+  open?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <details className="lab-section" open={open}>
+      <summary>
+        <strong>{title}</strong>
+        <small title={summary}>{summary}</small>
+      </summary>
+      <div className="lab-form">{children}</div>
+    </details>
+  );
+}
+
+// The strategy's last runs, each opening its report.
+function RecentRuns({ strategy, open }: { strategy: string; open: (id: string) => void }) {
+  const [runs, setRuns] = useState<RunSummary[]>([]);
+  useEffect(() => {
+    let active = true;
+    void lab({ case: "listRuns", value: {} })
+      .then(
+        reply =>
+          active &&
+          setRuns(reply.runs.filter(run => run.strategy === strategy && !run.sweepId).slice(0, 3)),
+      )
+      .catch(failure => active && notify(failure));
+    return () => {
+      active = false;
+    };
+  }, [strategy]);
+  if (!runs.length) return null;
+  return (
+    <section className="lab-recent" aria-label={t("最近运行")}>
+      <h5>{t("最近运行")}</h5>
+      {runs.map(run => (
+        <button key={run.id} className="lab-link" onClick={() => open(run.id)}>
+          <span>{run.label || run.id}</span>
+          <span className={signed(run.metrics.total_return)}>
+            {metric(run.metrics.total_return, true)}
+          </span>
+        </button>
+      ))}
     </section>
   );
 }

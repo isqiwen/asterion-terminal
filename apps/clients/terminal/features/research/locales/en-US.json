@@ -50,7 +50,6 @@
   "参数 {name} 的值 {item} 不是整数": "Value {item} of parameter {name} is not a whole number",
   "参数 {name} 的值只能是 true 或 false": "Parameter {name} takes true or false",
   "参数热力图": "Parameter heatmap",
-  "参数（多个值用逗号分隔即为扫描）": "Parameters (several comma-separated values make a sweep)",
   "含未提交改动": "with uncommitted changes",
   "品种": "Symbols",
   "在途委托数": "Working orders",
@@ -91,10 +90,6 @@
   "运行": "Run",
   "运行配置": "Run configuration",
   "选中": "selected",
-  "验证": "Validation",
-  "更多限额与统计": "More limits and statistics",
-  "每年 {periods} 期": "{periods} periods a year",
-  "资金与交易": "Capital and trading",
   "并行进程数": "Processes",
   "处理器数减一": "processors less one",
   "留出前": "Before holdout",
@@ -194,5 +189,11 @@
   "重命名": "Rename",
   "权益": "Equity",
   "结存": "Balance",
-  "保证金": "Margin"
+  "保证金": "Margin",
+  "品种与区间": "Symbols and range",
+  "资金与风控": "Funds and risk",
+  "扫描与验证": "Sweeps and validation",
+  "一格填多个值（逗号分隔）就是参数扫描。": "Several values in one field, separated by commas, make a parameter sweep.",
+  "资金 {deposit} · 滑点 {slippage} 跳 · 单笔 {order} / 总 {gross} 手": "Funds {deposit} · slippage {slippage} ticks · {order} per order / {gross} lots",
+  "最近运行": "Recent runs"
 }
