@@ -38,7 +38,7 @@ def run(replay, decide):
 
 
 class Engine(unittest.TestCase):
-    def test_a_target_fills_on_the_next_bar_at_the_decided_close(self):
+    def test_a_target_fills_on_the_next_bar_at_its_open(self):
         replay = asterion_engine.Replay(1_000_000 * R, [contract("rb2605", DAYS, [100, 110, 120, 115])],
                                         [], (10 * R, 10 * R, 10))
         self.assertEqual(replay.units, 1)
@@ -49,21 +49,22 @@ class Engine(unittest.TestCase):
 
         seen = run(replay, decide)
         self.assertEqual([bars[0][9] // R for bars in seen], [100, 110, 120, 115])
-        # Decided at 100 on the first day, filled on the second, whose low reaches it.
+        # Decided after the first day, filled at the second day's open of 110.
         (fill,) = replay.fills()
         self.assertEqual((fill[1], fill[2], fill[3], fill[4], fill[5]),
-                         ("strategy.0", R, 100 * R, 3 * R, START + DAY_NS))
+                         ("strategy.0", R, 110 * R, 3 * R, START + DAY_NS))
         orders = replay.orders()
         self.assertEqual([(order[2], order[3], order[6]) for order in orders],
                          [("buy", "open", "filled")])
         day, _, balance, equity, realized, fees, margin, _ = replay.settlements[-1]
-        self.assertEqual((day, realized, fees), ("2026-01-08", 150 * R, 3 * R))
+        self.assertEqual((day, realized, fees), ("2026-01-08", 50 * R, 3 * R))
         self.assertEqual(replay.positions[-1], ("2026-01-08", 0, R, 0, 115 * R, 115 * R))
         self.assertEqual([point[2] for point in replay.equity].count("settlement"), 4)
 
     def test_an_unfilled_target_expires_after_its_bar(self):
-        # The second bar never trades down to 100: the order is cancelled after it.
+        # The second bar has zero volume: the order is cancelled after it.
         item = contract("rb2605", DAYS[:3], [100, 130, 140])
+        item["bars"][1] = (*item["bars"][1][:6], 0)
         replay = asterion_engine.Replay(1_000_000 * R, [item], [], (10 * R, 10 * R, 10))
         decided = []
 

@@ -97,18 +97,19 @@ void run(Replay& replay, Seen& seen, std::optional<Decimal> lots)
 
 } // namespace
 
-TEST(Replay, ATargetFillsOnTheNextBarAtTheDecidedClose)
+TEST(Replay, ATargetFillsOnTheNextBarAtItsOpenPlusSlippage)
 {
-    const auto item = contract("rb2605", {100, 110, 120, 115});
+    auto item = contract("rb2605", {100, 110, 120, 115});
+    item.slippage_ticks = 1;
     Replay replay(d("1000000"), {item}, {settled(item)}, {}, limits());
     Seen seen;
     run(replay, seen, d("1"));
     const auto& account = replay.execution().account();
     ASSERT_EQ(account.fills().size(), 1U);
-    // Decided at the first close of 100; the second bar's low of 100 reaches it.
+    // Decided after the first bar (100); executes at the second bar's open (110) + 1 tick slippage.
     EXPECT_EQ(account.fills()[0].execution.order_id, "strategy.0");
-    EXPECT_EQ(account.fills()[0].execution.price, d("100"));
-    EXPECT_EQ(account.realized(), d("150"));
+    EXPECT_EQ(account.fills()[0].execution.price, d("111"));
+    EXPECT_EQ(account.realized(), d("40"));
     EXPECT_EQ(
         seen.events,
         (std::vector<std::string>{
@@ -129,8 +130,9 @@ TEST(Replay, ATargetFillsOnTheNextBarAtTheDecidedClose)
 
 TEST(Replay, WhatABarDoesNotFillExpiresAfterIt)
 {
-    // The second bar never comes down to 100: the order placed for it expires.
-    const auto item = contract("rb2605", {100, 130, 140});
+    // The second bar has zero volume: the order placed for it cannot fill and expires.
+    auto item = contract("rb2605", {100, 130, 140});
+    item.bars[1].volume = d("0");
     Replay replay(d("1000000"), {item}, {settled(item)}, {}, limits());
     Seen seen;
     replay.next(seen);
@@ -166,21 +168,39 @@ TEST(Replay, NothingIsPlacedWithoutADecision)
     EXPECT_TRUE(replay.execution().account().orders().empty());
 }
 
-TEST(Replay, ATargetAboveTheOrderLimitFillsInLegs)
+TEST(Replay, ATargetAboveTheOrderLimitFillsInLegsAndReversesInOneBar)
 {
     const auto item = contract("rb2605", {100, 110, 120, 115});
-    Replay replay(d("1000000"), {item}, {settled(item)}, {}, limits("5"));
+    Replay replay(d("1000000"), {item}, {settled(item)}, {}, limits("5", "20"));
     Seen seen;
-    run(replay, seen, d("6"));
-    const auto& fills = replay.execution().account().fills();
-    ASSERT_EQ(fills.size(), 2U);
-    EXPECT_EQ(fills[0].execution.quantity, d("5"));
-    EXPECT_EQ(fills[1].execution.quantity, d("1"));
+    // Day 0: ask for +20 lots (4 legs of 5).
+    replay.next(seen);
+    replay.want(0, d("20"));
+    replay.decide();
+    replay.settle(seen);
+    // Day 1: all 4 legs fill in the same bar; then reverse to -5 lots.
+    replay.next(seen);
+    const auto& account = replay.execution().account();
+    ASSERT_EQ(account.fills().size(), 4U);
+    for (std::size_t i = 0; i < 4; ++i) {
+        EXPECT_EQ(account.fills()[i].execution.quantity, d("5"));
+        EXPECT_EQ(account.fills()[i].execution.price, item.bars[1].open);
+    }
+    replay.want(0, d("-5"));
+    replay.decide();
+    replay.settle(seen);
+    // Day 2: closes +20 in 4 legs of 5 and opens -5 in 1 leg within the same bar.
+    replay.next(seen);
+    ASSERT_EQ(account.fills().size(), 9U);
+    ASSERT_EQ(account.positions().size(), 1U);
+    EXPECT_EQ(account.positions()[0].side, Side::sell);
+    EXPECT_EQ(account.positions()[0].quantity, d("5"));
 }
 
 TEST(Replay, WithdrawingATargetCancelsItsPendingLegAndKeepsItsPosition)
 {
-    const auto item = contract("rb2605", {100, 100, 100, 100});
+    auto item = contract("rb2605", {100, 100, 100, 100});
+    item.bars[1].volume = d("10"); // participation cap = 1 lot on bar 1
     Replay replay(d("1000000"), {item}, {settled(item)}, {}, limits("1"));
     Seen seen;
     replay.next(seen);
@@ -234,9 +254,11 @@ TEST(Replay, ADayWithoutBarsIsSettledAtItsClose)
 TEST(Replay, ADominantSeriesRollsAtTheOpenAndShowsEachMonthsOwnPrices)
 {
     // 2605 is dominant on the first two days, 2610 from the third; 2610 joins a
-    // day early and 2605 stays for its bar on the roll day.
+    // day early (with its own cost schedule starting on days[1]) and 2605 stays
+    // for its bar on the roll day.
     const auto left = contract("rb2605", {100, 110, 120});
-    const auto right = contract("rb2610", {125, 136, 148}, 1);
+    auto right = contract("rb2610", {125, 136, 148}, 1);
+    right.cost_schedule = {{days[1], "test", right.terms.costs}};
     DominantSeries series{{{days[0], 0}, {days[2], 1}}};
     Replay replay(d("1000000"), {left, right}, {settled(left), settled(right)}, {series}, limits());
     ASSERT_EQ(replay.units(), 1U);
@@ -245,13 +267,17 @@ TEST(Replay, ADominantSeriesRollsAtTheOpenAndShowsEachMonthsOwnPrices)
     EXPECT_EQ(replay.series(1), std::optional<std::size_t>{0});
     Seen seen;
     std::vector<std::pair<std::string, Decimal>> leading;
+    bool decided = false;
     while (!replay.finished()) {
         while (!replay.day_done()) {
             for (const auto& bar : replay.next(seen))
                 if (bar.leading)
                     leading.emplace_back(bar.bar.trading_day, bar.bar.close);
-            replay.want(0, d("1"));
-            replay.decide();
+            if (!decided) {
+                replay.want(0, d("1"));
+                replay.decide();
+                decided = true;
+            }
         }
         replay.settle(seen);
     }
@@ -262,10 +288,11 @@ TEST(Replay, ADominantSeriesRollsAtTheOpenAndShowsEachMonthsOwnPrices)
     std::vector<std::string> fills;
     for (const auto& fill : account.fills())
         fills.push_back(fill.execution.order_id + "@" + fill.execution.price.str());
-    // Bought 2605 at 100; on the roll day 2605 closes at its open of 120 and
-    // 2610 takes the series' lot at its open of 136 once 2605 is closed.
+    // Bought 2605 at 110 (open of days[1]); on the roll day 2605 closes at its
+    // open of 120 and 2610 takes the series' lot at its open of 136 even without
+    // a new strategy decision on the roll day.
     ASSERT_GE(fills.size(), 2U);
-    EXPECT_EQ(fills[0], "strategy.0@100");
+    EXPECT_EQ(fills[0], "strategy.0@110");
     std::vector<std::string> rolls;
     for (const auto& fill : fills)
         if (fill.starts_with("roll."))
@@ -287,4 +314,35 @@ TEST(Replay, ADayIsReplayedAndSettledInOrder)
     std::stop_source stop;
     stop.request_stop();
     EXPECT_THROW(replay.next(seen, stop.get_token()), std::runtime_error);
+}
+
+TEST(Replay, IntradayFloatingGainDoesNotInflateMarginOrCancelOpenOrders)
+{
+    // Deposit 1,000; 1 lot at 900 with multiplier 10 and 10% margin takes 900 margin,
+    // leaving 100 available before settlement. A rally to 1,200 intraday leaves
+    // margin at 900 (basis price) until daily settlement credits the +3,000 P&L.
+    auto item = contract("rb2605", {900, 900, 1200});
+    item.terms.costs = {d("0"), d("0"), d("0"), d("0"), d("0.1"), d("0"), d("0"), d("0")};
+    item.cost_schedule = {{days.front(), "test", item.terms.costs}};
+    Replay replay(d("1000"), {item}, {settled(item)}, {}, limits());
+    Seen seen;
+    replay.next(seen);
+    replay.want(0, d("1"));
+    replay.decide();
+    replay.settle(seen);
+    replay.next(seen);
+    const auto& account = replay.execution().account();
+    ASSERT_EQ(account.positions().size(), 1U);
+    EXPECT_EQ(account.margin(), d("900"));
+    EXPECT_EQ(account.available(), d("100"));
+    replay.settle(seen);
+    // Day 2: price jumps to 1200 intraday; before settlement, margin stays 900 and available stays 100.
+    replay.next(seen);
+    EXPECT_EQ(account.margin(), d("900"));
+    EXPECT_EQ(account.available(), d("100"));
+    replay.settle(seen);
+    // After settlement at 1200: balance is 4000, margin revalues to 1200, available is 2800.
+    EXPECT_EQ(account.balance(), d("4000"));
+    EXPECT_EQ(account.margin(), d("1200"));
+    EXPECT_EQ(account.available(), d("2800"));
 }

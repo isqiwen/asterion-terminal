@@ -193,50 +193,70 @@ RiskDecision PaperExecution::advance(const std::optional<Target>& target)
         auto& next = account_;
         if (new_terms)
             enter_day(bar.trading_day);
-        if (target) {
-            try {
-                reconcile_target(
-                    target->order_id,
-                    instrument,
-                    target->quantity,
-                    target->limit_price);
-            } catch (const PaperRiskRejected& rejection) {
-                switch (rejection.reason()) {
-                    case RiskReason::gross_quantity:
-                    case RiskReason::working_orders:
-                    case RiskReason::insufficient_funds:
-                        result.reason = rejection.reason();
-                        break;
-                    default:
-                        throw;
-                }
-            }
-        }
+        if (!next.priced(current.contract))
+            next.mark(instrument, bar.open);
         auto sequence = execution_sequence_;
         auto liquidity = quantize(
             multiply(bar.volume, paper_bar_participation, Rounding::floor),
             terms.instrument.quantity_increment,
             Rounding::floor);
-        // Arrival order shares the bar's participation volume. Fills and cancels
-        // never append orders, so indexes stay stable during the pass.
-        for (auto pending = next.working_orders().begin();
-            pending != next.working_orders().end() && liquidity != Decimal{};) {
-            // Advance before filling/cancelling: completion removes just this index.
-            const auto i = *pending++;
-            const auto& item = next.orders()[i];
-            if (item.order.request().instrument != instrument)
-                continue;
-            const auto price = fill_price(item, bar, slippage);
-            if (!price)
-                continue;
-            const auto id = item.order.request().id;
-            if (item.offset == Offset::open && next.available() < Decimal{}) {
-                next.cancel(id);
-                continue;
+        const auto match_working = [&] {
+            // Arrival order shares the bar's participation volume. Fills and cancels
+            // never append orders, so indexes stay stable during the pass.
+            for (auto pending = next.working_orders().begin();
+                pending != next.working_orders().end() && liquidity != Decimal{};) {
+                // Advance before filling/cancelling: completion removes just this index.
+                const auto i = *pending++;
+                const auto& item = next.orders()[i];
+                if (item.order.request().instrument != instrument)
+                    continue;
+                const auto price = fill_price(item, bar, slippage);
+                if (!price)
+                    continue;
+                const auto id = item.order.request().id;
+                if (item.offset == Offset::open && next.available() < Decimal{}) {
+                    next.cancel(id);
+                    continue;
+                }
+                const auto quantity = std::min(liquidity, item.order.remaining_quantity());
+                next.fill({"paper.fill." + std::to_string(++sequence), id, quantity, *price});
+                liquidity = liquidity - quantity;
             }
-            const auto quantity = std::min(liquidity, item.order.remaining_quantity());
-            next.fill({"paper.fill." + std::to_string(++sequence), id, quantity, *price});
-            liquidity = liquidity - quantity;
+        };
+        if (target) {
+            for (std::size_t leg = 0;; ++leg) {
+                const auto orders_before = next.orders().size();
+                try {
+                    reconcile_target(
+                        leg == 0 ? target->order_id
+                                 : target->order_id + "." + std::to_string(leg + 1),
+                        instrument,
+                        target->quantity,
+                        target->limit_price);
+                } catch (const PaperRiskRejected& rejection) {
+                    switch (rejection.reason()) {
+                        case RiskReason::gross_quantity:
+                        case RiskReason::working_orders:
+                        case RiskReason::insufficient_funds:
+                            result.reason = rejection.reason();
+                            break;
+                        default:
+                            throw;
+                    }
+                    break;
+                }
+                if (next.orders().size() == orders_before)
+                    break;
+                match_working();
+                const bool open_remains =
+                    std::ranges::any_of(next.working_orders(), [&](const auto index) {
+                        return next.orders()[index].order.request().instrument == instrument;
+                    });
+                if (open_remains || liquidity == Decimal{})
+                    break;
+            }
+        } else {
+            match_working();
         }
         next.mark(instrument, bar.close);
         batch.commit();
@@ -262,9 +282,14 @@ void PaperExecution::enter_day(const std::string& trading_day)
     std::vector<FuturesCosts> costs;
     std::vector<Decimal> increments;
     for (const auto& contract : data_->contracts) {
+        const auto& cost_day = !contract.cost_schedule.empty() && !contract.bars.empty()
+                && trading_day < contract.bars.front().trading_day
+                && trading_day < contract.cost_schedule.front().effective_from
+            ? contract.bars.front().trading_day
+            : trading_day;
         costs.push_back(
             contract.cost_schedule.empty() ? contract.terms.costs
-                                           : costs_on(contract.cost_schedule, trading_day).values);
+                                           : costs_on(contract.cost_schedule, cost_day).values);
         increments.push_back(increment_on(contract, trading_day));
     }
     account_.update_costs(costs);

@@ -103,12 +103,19 @@ std::optional<Decimal> Replay::target(std::size_t contract) const
     return wanted_[unit_[contract]];
 }
 
-bool Replay::holds(std::size_t contract) const
+Decimal Replay::held(std::size_t contract) const
 {
     const auto& id = execution_.contract(contract).terms.instrument.id;
-    return std::ranges::any_of(execution_.account().positions(), [&](const auto& lot) {
-        return lot.instrument == id;
-    });
+    Decimal total;
+    for (const auto& lot : execution_.account().positions())
+        if (lot.instrument == id)
+            total = total + (lot.side == Side::buy ? lot.quantity : Decimal{} - lot.quantity);
+    return total;
+}
+
+bool Replay::holds(std::size_t contract) const
+{
+    return held(contract) != Decimal{};
 }
 
 const std::vector<Replay::Bar>& Replay::next(Observer& observer, std::stop_token stop)
@@ -125,38 +132,54 @@ const std::vector<Replay::Bar>& Replay::next(Observer& observer, std::stop_token
         const auto current = execution_.event(index_);
         const auto& bar = execution_.bar(current);
         const auto& instrument = execution_.contract(current.contract).terms.instrument;
-        // Orders placed after a contract's bar N can only fill on its bar N+1;
+        // Orders placed after a contract's bar N execute at the open of its bar N+1;
         // unfilled remainders expire before its strategy decides again.
         auto& intent = pending_[current.contract];
+        if (intent)
+            intent->limit_price = bar.open;
         const auto member = series_[current.contract];
         const auto* roll = member == none ? nullptr : &rolls_[member].on(bar.trading_day);
         const bool leading = !roll || roll->contract == current.contract;
+        bool others = false;
         if (roll && target(current.contract)) {
             // A roll moves what the series holds and decides nothing, so it waits
             // for no price: both months trade at the open of a bar, which every
             // bar reaches. On daily bars both happen on the roll day where both
             // months trade on it, the left month first.
-            const bool others = std::ranges::any_of(rolls_[member].rolls, [&](const auto& other) {
+            others = std::ranges::any_of(rolls_[member].rolls, [&](const auto& other) {
                 return other.contract != current.contract && holds(other.contract);
             });
-            if (!leading)
-                intent =
-                    PaperExecution::Target{"roll." + std::to_string(index_), Decimal{}, bar.open};
-            else if (others) {
-                if (intent && intent->quantity != Decimal{})
-                    intent.reset();
-            } else if (!took_over_[current.contract] && account.priced(current.contract)) {
-                if (const auto quantity = target(current.contract))
+            if (!leading) {
+                if (holds(current.contract))
                     intent = PaperExecution::Target{
                         "roll." + std::to_string(index_),
-                        *quantity,
+                        Decimal{},
                         bar.open
                     };
-                took_over_[current.contract] = true;
+                else
+                    intent.reset();
+            } else if (others) {
+                if (intent && intent->quantity != Decimal{})
+                    intent.reset();
+            } else if (!took_over_[current.contract]) {
+                if (const auto quantity = target(current.contract)) {
+                    if (held(current.contract) == *quantity)
+                        took_over_[current.contract] = true;
+                    else
+                        intent = PaperExecution::Target{
+                            "roll." + std::to_string(index_),
+                            *quantity,
+                            bar.open
+                        };
+                }
             }
         }
         const auto previous_orders = account.orders().size();
         const auto decision = execution_.advance(intent);
+        if (roll && leading && !others && !took_over_[current.contract])
+            if (const auto quantity = target(current.contract);
+                quantity && held(current.contract) == *quantity)
+                took_over_[current.contract] = true;
         observer.advanced(index_, intent, decision, previous_orders);
         intent.reset();
         // Daily orders expire after their original bar. A target remains

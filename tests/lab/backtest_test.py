@@ -134,9 +134,10 @@ class Readiness(unittest.TestCase):
         for filled in (False, True):
             for followed in (False, True):
                 with self.subTest(filled=filled, rolling=followed):
-                    closes = [100] * 4 if filled else [100, 130, 130, 130]
-                    contracts = [self.contract("SHFE/rb/2026-05", days, closes),
+                    contracts = [self.contract("SHFE/rb/2026-05", days, [100] * 4),
                                  self.contract("SHFE/rb/2026-10", days, [130] * 4)]
+                    contracts[0]["bars"][1] = (*contracts[0]["bars"][1][:6],
+                                               (10 if filled else 0) * backtest.R)
                     contracts[1]["roll_ratio"] = 1.0
                     engine = self.engine(contracts, [[(days[0], 0), (days[2], 1)]], order_lots=1)
                     if followed:
@@ -152,6 +153,7 @@ class Readiness(unittest.TestCase):
         symbol = "SHFE/rb/2026-05"
         days = [day.isoformat() for day in DAYS[:4]]
         contracts = [self.contract(symbol, days, [100] * 4)]
+        contracts[0]["bars"] = [(*bar[:6], 10 * backtest.R) for bar in contracts[0]["bars"]]
 
         class Ready(Strategy):
             def on_bar(self, ctx, bar):
@@ -177,6 +179,7 @@ class Readiness(unittest.TestCase):
         symbol = "SHFE/rb/2026-05"
         days = [day.isoformat() for day in DAYS[:8]]
         contracts = [self.contract(symbol, days, [100] * 8)]
+        contracts[0]["bars"][1] = (*contracts[0]["bars"][1][:6], 10 * backtest.R)
 
         class Resume(Strategy):
             def __init__(self):
@@ -630,6 +633,7 @@ class Backtests(unittest.TestCase):
 
         config = self.config(("SHFE/rb/2026-05",), max_order_lots=Decimal(1))
         contracts, series, first = backtest.prepare(backtest.open_data(self.directory, config), config)
+        contracts[0]["bars"][1] = (*contracts[0]["bars"][1][:6], 10 * backtest.R)
         engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
                                         (backtest.R, 10 * backtest.R, 10))
         backtest.replay(engine, Once(), {engine.unit(index): symbol for symbol, index in first.items()},
@@ -653,6 +657,7 @@ class Backtests(unittest.TestCase):
 
         config = self.config(("SHFE/rb",), max_order_lots=Decimal(1))
         contracts, series, first = backtest.prepare(backtest.open_data(self.directory, config), config)
+        contracts[0]["bars"][2] = (*contracts[0]["bars"][2][:6], 10 * backtest.R)
         engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
                                         (backtest.R, 10 * backtest.R, 10))
         backtest.replay(engine, Pause(), {engine.unit(index): symbol for symbol, index in first.items()},

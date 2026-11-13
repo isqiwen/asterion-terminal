@@ -362,9 +362,6 @@ def contract_input(data: Data, config: Config, contract: str, begin: str, end: s
             changes.append((day, current))
     if config.costs is None:
         costs = data.costs(exchange, contract, tick_days)
-        # The account prices every contract from the run's first day on; before its first
-        # bar a contract can neither fill nor be held, so its first fees are never charged early.
-        costs[0]["effective_from"] = config.begin_day
     else:
         # A replay that trades nothing prices every contract from its first day on.
         costs = [dict(effective_from=config.begin_day, source="replay",

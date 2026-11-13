@@ -31,9 +31,10 @@ struct DominantSeries
 //
 // - A unit is what a strategy takes a side on: each contract that is no month
 //   of a series, in contract order, then each dominant series.
-// - A target is decided at a bar and placed at that bar's close; it fills on
-//   the contract's next bar, or not at all: what is left of it is cancelled
-//   after that bar.
+// - A target is decided at a bar and executes at the open of the contract's
+//   next bar (plus slippage against the order), splitting into legs of at most
+//   the order limit and closing an opposite position before opening within the
+//   bar's participation volume; any unfilled remainder is cancelled after the bar.
 // - A month of a series that is no longer dominant gives up what it holds at
 //   the open of each of its bars until it holds nothing. The dominant month
 //   takes over what its series wants at the open of its first bar that finds
@@ -151,6 +152,7 @@ public:
 private:
     void issue(const Bar& bar);
     std::optional<Decimal> target(std::size_t contract) const;
+    Decimal held(std::size_t contract) const;
     bool holds(std::size_t contract) const;
     std::vector<std::size_t> series_;
     std::vector<std::size_t> unit_;

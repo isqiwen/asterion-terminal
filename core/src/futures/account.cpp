@@ -288,18 +288,15 @@ bool FuturesAccount::has_working_orders() const noexcept
     return !working_orders_.empty();
 }
 
-// Positions are margined at their contract's latest mark (their basis before any mark).
+// Positions are margined at their basis (fill price for today's lots,
+// settlement price once settled).
 Decimal FuturesAccount::margin() const
 {
     Decimal result;
     for (const auto& lot : lots_) {
         const auto index = contract_index(lot.instrument);
         const auto& terms = contracts_[index];
-        result = result
-            + terms.costs.margin(
-                lot.quantity,
-                marks_[index] == zero ? lot.price : marks_[index],
-                terms.instrument.multiplier);
+        result = result + terms.costs.margin(lot.quantity, lot.price, terms.instrument.multiplier);
     }
     return result;
 }
@@ -574,22 +571,24 @@ void FuturesAccount::settle_traded(const std::vector<std::optional<Decimal>>& pr
             throw std::invalid_argument("invalid settlement price");
         next[i] = *prices[i];
     }
+    auto previous_lots = lots_;
+    const auto previous_balance = balance_;
+    const auto previous_realized = realized_;
     marks_ = next;
     try {
         const auto pnl = unrealized();
-        const auto balance = balance_ + pnl;
-        const auto realized = realized_ + pnl;
-        auto lots = lots_;
-        for (auto& lot : lots) {
+        balance_ = balance_ + pnl;
+        realized_ = realized_ + pnl;
+        for (auto& lot : lots_) {
             lot.today = false;
             lot.price = *prices[contract_index(lot.instrument)];
         }
         (void)available();
-        lots_ = std::move(lots);
-        balance_ = balance;
-        realized_ = realized;
     } catch (...) {
         marks_ = std::move(previous);
+        lots_ = std::move(previous_lots);
+        balance_ = previous_balance;
+        realized_ = previous_realized;
         throw;
     }
 }
