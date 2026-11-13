@@ -19,10 +19,8 @@ test(
     await page.reload();
     await openView(page, "trading");
     const panel = page.getByRole("region", { name: "CTP 交易账户", exact: true });
-    // Both accounts are listed; each has its own state and panel.
-    const list = panel.getByRole("navigation", { name: "CTP 账户" });
-    await expect(list.getByRole("button", { name: /^other-account/ })).toHaveCount(0);
-    await list.getByRole("button", { name: /^fixture/ }).click();
+    // The only account opens without a list to choose from.
+    await expect(panel.getByRole("navigation", { name: "CTP 账户" })).toBeHidden();
     await expect(panel.getByRole("status", { name: "CTP 账户" })).toContainText("fixture");
     await expect(panel.getByLabel("添加合约", { exact: true })).toBeVisible();
 
@@ -121,10 +119,7 @@ test(
 
     // A reopened Terminal reads the account again without logging in.
     await page.reload();
-    await expect(list.getByRole("button", { name: /^fixture/ })).toContainText("未连接", {
-      timeout: 30000,
-    });
-    await expect(panel.getByTestId("live-phase")).toHaveText("未连接");
+    await expect(panel.getByTestId("live-phase")).toHaveText("未连接", { timeout: 30000 });
 
     // A restarted test SDK has no broker-side order memory. Durable terminal
     // evidence keeps the filled intent retired; recovery never resends it.

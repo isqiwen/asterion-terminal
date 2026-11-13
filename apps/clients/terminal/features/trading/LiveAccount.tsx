@@ -8,7 +8,8 @@ import { StatusBadge, type Tone } from "../../src/ui/StatusBadge";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { AccountRecords } from "./AccountRecords";
 import { type Activity } from "./ActivityTabs";
-import { OrderTicket } from "./OrderTicket";
+import { OrderTicket, type Preset } from "./OrderTicket";
+import { explicitCloseBuckets } from "../../src/ui/closePolicy";
 import {
   t,
   phases,
@@ -48,6 +49,7 @@ export function LiveAccount({
   monitor?: ReactNode;
 }) {
   const [activity, setActivity] = useState<Activity>("positions");
+  const [preset, setPreset] = useState<Preset>();
   const live = record.session!;
   const broker = record.broker!;
   const identity = JSON.stringify([
@@ -141,6 +143,15 @@ export function LiveAccount({
         <StatusBadge tone={authorized ? "ok" : "neutral"}>
           {authorized ? t("已授权") : t("尚未允许发送委托")}
         </StatusBadge>
+        <span
+          title={t(
+            "资金、持仓、订单和成交可能来自不同时间；同步完成时间不代表原子账本或完整历史。",
+          )}
+        >
+          <StatusBadge tone={live.positionsReconciled ? "neutral" : "attention"}>
+            {t(live.positionsReconciled ? "持仓已核对成交" : "持仓尚未核对成交")}
+          </StatusBadge>
+        </span>
         <span>{broker.front}</span>
         {/* The account's actions stay together when the line wraps. */}
         <div className="ctp-identity-actions">
@@ -168,16 +179,6 @@ export function LiveAccount({
           )}
         </div>
       </div>
-      <details>
-        <summary>{t("柜台观察范围")}</summary>
-        <dl className="definition-list">
-          <dt>{t("持仓核对状态")}</dt>
-          <dd>{t(live.positionsReconciled ? "已纳入已知成交" : "尚未核对已知成交")}</dd>
-        </dl>
-        <p className="subtle">
-          {t("资金、持仓、订单和成交可能来自不同时间；同步完成时间不代表原子账本或完整历史。")}
-        </p>
-      </details>
       {environmentReady && (
         <p className={real ? "alert" : "subtle"}>
           {t(
@@ -237,96 +238,108 @@ export function LiveAccount({
         </dl>
       )}
       {monitor}
-      {stage !== "stale" && stage !== "trade" && (
-        <FlowSteps
-          labels={[t("核对并连接"), t("允许发送委托"), t("下单")]}
-          current={stage === "authorize" ? 1 : 0}
-        />
-      )}
-      {stage === "connect" && (
-        <form
-          aria-label={t("连接账户")}
-          onSubmit={event => {
-            event.preventDefault();
-            if (!environmentReady) return;
-            void run({ case: "connectBroker", value: {} });
-          }}
-        >
-          <fieldset disabled={busy}>
-            {environmentFields}
-            <div className="source-actions">
-              <button className="primary" type="submit">
-                {t("连接账户")}
-              </button>
-              <span className="subtle">{t("交易服务使用主机本地凭据登录柜台。")}</span>
-            </div>
-          </fieldset>
-        </form>
-      )}
-      {stage === "connecting" && (
-        <p role="status">
-          {t("正在连接柜台：{phase}", { phase: t(phases[live.brokerState] ?? "") })}
-        </p>
-      )}
-      {stage === "environment" && (
-        <section aria-label={t("柜台环境")}>
-          <p>{t("账户已连接。此窗口尚未核对柜台环境，核对后才能授权和下单。")}</p>
-          {environmentFields}
-        </section>
-      )}
-      {stage === "authorize" && (
-        <section className="trading-permission" aria-label={t("交易授权")}>
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={confirmed}
-              onChange={event =>
-                setConfirmedPolicy(event.target.checked ? live.policyRevision : null)
-              }
+      <div className="ctp-trade-body">
+        <div className="ctp-trade-records">
+          <AccountRecords
+            connection={account.id}
+            record={record}
+            busy={busy}
+            run={run}
+            activity={activity}
+            setActivity={setActivity}
+            ready={ready}
+            stale={stale}
+            cancelling={cancelling}
+            cancel={cancel}
+            close={next => {
+              setPreset(next);
+            }}
+            separate={exchange => !!explicitCloseBuckets(snapshot, exchange)}
+          />
+        </div>
+        <aside className="ctp-trade-side" aria-label={t("下单")}>
+          {stage !== "stale" && stage !== "trade" && (
+            <FlowSteps
+              labels={[t("核对并连接"), t("允许发送委托"), t("下单")]}
+              current={stage === "authorize" ? 1 : 0}
             />
-            {t("我确认使用账户 {user} 向上方柜台发送委托", { user: broker.userId })}
-          </label>
-          <div className="source-actions">
-            <button
-              className="primary"
-              disabled={busy || !confirmed}
-              onClick={() => {
-                setConfirmedPolicy(null);
-                void act(() => ({ case: "authorize", value: { userId: broker.userId } }));
+          )}
+          {stage === "connect" && (
+            <form
+              aria-label={t("连接账户")}
+              onSubmit={event => {
+                event.preventDefault();
+                if (!environmentReady) return;
+                void run({ case: "connectBroker", value: {} });
               }}
             >
-              {t("允许发送委托")}
-            </button>
-            <span className="subtle">
-              {t(
-                "授权长期有效，断线重连和换交易日后不需要再次授权；撤销授权、修改风控政策或交易服务重启后失效。",
-              )}
-            </span>
-          </div>
-        </section>
-      )}
-      {stage === "trade" && (
-        <OrderTicket
-          record={record}
-          snapshot={snapshot}
-          busy={busy}
-          accountName={account.instance}
-          confirm={real}
-          run={run}
-          onSent={() => setActivity("orders")}
-        />
-      )}
-      <AccountRecords
-        record={record}
-        busy={busy}
-        run={run}
-        activity={activity}
-        setActivity={setActivity}
-        ready={ready}
-        stale={stale}
-        cancelling={cancelling}
-        cancel={cancel}
-      />
+              <fieldset disabled={busy}>
+                {environmentFields}
+                <div className="source-actions">
+                  <button className="primary" type="submit">
+                    {t("连接账户")}
+                  </button>
+                  <span className="subtle">{t("交易服务使用主机本地凭据登录柜台。")}</span>
+                </div>
+              </fieldset>
+            </form>
+          )}
+          {stage === "connecting" && (
+            <p role="status">
+              {t("正在连接柜台：{phase}", { phase: t(phases[live.brokerState] ?? "") })}
+            </p>
+          )}
+          {stage === "environment" && (
+            <section aria-label={t("柜台环境")}>
+              <p>{t("账户已连接。此窗口尚未核对柜台环境，核对后才能授权和下单。")}</p>
+              {environmentFields}
+            </section>
+          )}
+          {stage === "authorize" && (
+            <section className="trading-permission" aria-label={t("交易授权")}>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={confirmed}
+                  onChange={event =>
+                    setConfirmedPolicy(event.target.checked ? live.policyRevision : null)
+                  }
+                />
+                {t("我确认使用账户 {user} 向上方柜台发送委托", { user: broker.userId })}
+              </label>
+              <div className="source-actions">
+                <button
+                  className="primary"
+                  disabled={busy || !confirmed}
+                  onClick={() => {
+                    setConfirmedPolicy(null);
+                    void act(() => ({ case: "authorize", value: { userId: broker.userId } }));
+                  }}
+                >
+                  {t("允许发送委托")}
+                </button>
+                <span className="subtle">
+                  {t(
+                    "授权长期有效，断线重连和换交易日后不需要再次授权；撤销授权、修改风控政策或交易服务重启后失效。",
+                  )}
+                </span>
+              </div>
+            </section>
+          )}
+          {stage === "trade" && (
+            <OrderTicket
+              record={record}
+              snapshot={snapshot}
+              busy={busy}
+              accountName={account.instance}
+              confirm={real}
+              run={run}
+              onSent={() => setActivity("orders")}
+              preset={preset}
+            />
+          )}
+        </aside>
+      </div>
     </>
   );
 }

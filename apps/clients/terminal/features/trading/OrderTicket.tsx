@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMarket } from "../../src/host/market";
 import { decimal, decimalText } from "../../src/bridge/decimal";
 import { Offset, Side } from "../../src/generated/asterion/common_pb";
@@ -14,10 +14,18 @@ const offsetValues = {
   close: Offset.CLOSE,
 };
 
+// What a position's close puts in the ticket; it is never sent by itself.
+export type Preset = {
+  contract: string;
+  offset: "open" | "close_today" | "close_yesterday" | "close";
+  quantity: string;
+  side: Side;
+};
+
 // The owner's limit order on one allowed contract. Buying and selling are
 // separate buttons that name the account, so pressing Enter in a field never
 // sends an order. With `confirm` (a real-money account) either button first
-// shows what will be sent.
+// shows what will be sent. `preset` fills the fields and marks the side to press.
 export function OrderTicket({
   record,
   snapshot,
@@ -26,12 +34,14 @@ export function OrderTicket({
   confirm,
   run,
   onSent,
+  preset,
 }: Pick<TerminalContext, "snapshot" | "busy"> & {
   record: Account;
   accountName: string;
   confirm: boolean;
   run: Run;
   onSent: () => void;
+  preset?: Preset;
 }) {
   const [pending, setPending] = useState<Side>();
   const [order, setOrder] = useState<{
@@ -45,6 +55,7 @@ export function OrderTicket({
     quantity: "1",
     price: "",
   });
+  const [suggested, setSuggested] = useState<Side>();
   const contracts = record.session?.policy?.contracts ?? [];
   const traded = contracts.find(item => key(item.instrument) === order.contract) ?? contracts[0];
   const exchange = traded?.instrument?.exchange ?? "";
@@ -58,19 +69,32 @@ export function OrderTicket({
           ? "close_today"
           : order.offset
         : "close";
-  const quote = useMarket()?.board.rows.find(
-    row => row.instrument?.exchange === exchange && row.instrument?.symbol === symbol,
-  )?.quote;
+  const rows = useMarket()?.board.rows;
+  const quoteOf = (contract: string) => rows?.find(row => key(row.instrument) === contract)?.quote;
+  const quote = quoteOf(traded ? key(traded.instrument) : "");
+  // A preset applies once; selling takes the best bid and buying the best ask, if quoted.
+  const applied = useRef<Preset>(undefined);
+  useEffect(() => {
+    if (!preset || applied.current === preset) return;
+    applied.current = preset;
+    const book = rows?.find(row => key(row.instrument) === preset.contract)?.quote;
+    const price = (preset.side === Side.SELL ? book?.bids[0] : book?.asks[0])?.price?.text;
+    setPending(undefined);
+    setSuggested(preset.side);
+    setOrder(current => ({ ...current, ...preset, price: price ?? current.price }));
+  }, [preset, rows]);
   const offsetLabels = {
     open: "开仓",
     close_today: "平今",
     close_yesterday: "平昨",
     close: "平仓",
   };
+  const fill = (price: string | undefined) => price && setOrder(current => ({ ...current, price }));
   const submit = (side: Side, form: HTMLFormElement | null) => {
     if (!traded || !form?.reportValidity()) return;
     if (confirm && pending !== side) return setPending(side);
     setPending(undefined);
+    setSuggested(undefined);
     void command(run, record, () => ({
       case: "submitOrder",
       value: {
@@ -145,30 +169,50 @@ export function OrderTicket({
             />
           </label>
         </div>
-        {quote && (
-          <div className="order-quotes" role="group" aria-label={t("按行情填入限价")}>
-            {(
-              [
-                ["last", "最新 {price}", quote.last?.text],
-                ["bid", "买一 {price}", quote.bids[0]?.price?.text],
-                ["ask", "卖一 {price}", quote.asks[0]?.price?.text],
-              ] as const
-            ).map(
-              ([field, label, price]) =>
-                price && (
-                  <button key={field} type="button" onClick={() => setOrder({ ...order, price })}>
-                    {t(label, { price })}
-                  </button>
-                ),
-            )}
-          </div>
-        )}
+        <div className="order-book" role="group" aria-label={t("五档行情")}>
+          {quote ? (
+            <>
+              <button type="button" className="order-last" onClick={() => fill(quote.last?.text)}>
+                {t("最新 {price}", { price: quote.last?.text ?? "—" })}
+              </button>
+              {[...quote.asks.slice(0, 5)].reverse().map((level, index, asks) => (
+                <button
+                  key={`ask${index}`}
+                  type="button"
+                  className="order-ask"
+                  disabled={!level.price}
+                  onClick={() => fill(level.price?.text)}
+                >
+                  <span>{t("卖{n}", { n: asks.length - index })}</span>
+                  <span>{level.price?.text ?? "—"}</span>
+                  <span>{level.price ? String(level.lots ?? "") : ""}</span>
+                </button>
+              ))}
+              {quote.bids.slice(0, 5).map((level, index) => (
+                <button
+                  key={`bid${index}`}
+                  type="button"
+                  className="order-bid"
+                  disabled={!level.price}
+                  onClick={() => fill(level.price?.text)}
+                >
+                  <span>{t("买{n}", { n: index + 1 })}</span>
+                  <span>{level.price?.text ?? "—"}</span>
+                  <span>{level.price ? String(level.lots ?? "") : ""}</span>
+                </button>
+              ))}
+            </>
+          ) : (
+            <p className="subtle">{t("无行情；可以照常下单和撤单。")}</p>
+          )}
+        </div>
         <div className="source-actions">
           {[Side.BUY, Side.SELL].map(side => (
             <button
               key={side}
               type="button"
               className={side === Side.BUY ? "order-buy" : "order-sell"}
+              data-suggested={suggested === side || undefined}
               disabled={pending !== undefined}
               onClick={event => submit(side, event.currentTarget.form)}
             >

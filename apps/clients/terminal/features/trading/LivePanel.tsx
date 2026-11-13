@@ -53,8 +53,6 @@ export function LivePanel(context: TerminalContext) {
     <section className="futures-data paper-trading" aria-label={t("CTP 交易账户")}>
       <div className="panel-heading">
         <h2>{t("CTP 交易")}</h2>
-        <span className="panel-spacer" />
-        <small>{t("柜台仿真 / 真实资金")}</small>
       </div>
       {!accounts.length ? (
         <div className="workspace-empty">
@@ -65,8 +63,13 @@ export function LivePanel(context: TerminalContext) {
           </button>
         </div>
       ) : (
-        <div className="ctp-accounts">
-          <nav className="ctp-account-list" aria-label={t("CTP 账户")}>
+        <div className="ctp-accounts" data-single={accounts.length === 1 || undefined}>
+          {/* One account needs no list. */}
+          <nav
+            className="ctp-account-list"
+            aria-label={t("CTP 账户")}
+            hidden={accounts.length === 1}
+          >
             {accounts.map(item => (
               <button
                 key={item.id}

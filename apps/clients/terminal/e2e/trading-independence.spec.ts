@@ -60,10 +60,6 @@ test(
       await page.goto("/");
       await openView(page, "trading");
       const panel = page.getByRole("region", { name: "CTP 交易账户", exact: true });
-      await panel
-        .getByRole("navigation", { name: "CTP 账户" })
-        .getByRole("button", { name: /^fixture/ })
-        .click();
       await panel.getByRole("button", { name: "委托", exact: true }).click();
       await panel.getByRole("button", { name: "撤单", exact: true }).click();
       await expect

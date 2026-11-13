@@ -210,10 +210,10 @@ test("an account without a policy offers to open trading in the service's enviro
 
 test("the account's broker facts follow each read", async () => {
   show("facts");
-  expect(await screen.findByText("已纳入已知成交")).toBeTruthy();
+  expect(await screen.findByText("持仓已核对成交")).toBeTruthy();
   read = () =>
     live({ ...session, brokerState: BrokerState.DISCONNECTED, positionsReconciled: false });
-  expect(await screen.findByText("尚未核对已知成交", undefined, { timeout: 3000 })).toBeTruthy();
+  expect(await screen.findByText("持仓尚未核对成交", undefined, { timeout: 3000 })).toBeTruthy();
   expect(commands()).toEqual([]);
 });
 
@@ -260,6 +260,13 @@ test("an earlier trading day shows its recorded close and fills and exports them
   show("fills");
   fireEvent.click(await screen.findByRole("button", { name: "成交" }));
   const day = await screen.findByRole("combobox", { name: "交易日" });
+  // Days are read through the Trading connection, not the counter's account name.
+  expect(
+    vi
+      .mocked(tradingRequest)
+      .mock.calls.filter(([, operation]) => operation.case === "getDay")
+      .every(([connection]) => connection === "account"),
+  ).toBe(true);
   expect([...(day as HTMLSelectElement).options].map(option => option.value)).toEqual([
     "",
     "2026-09-25",
@@ -286,4 +293,86 @@ test("an earlier trading day shows its recorded close and fills and exports them
   expect(text).toContain("rb2610,多头,1,0");
   expect(text).toContain("rb2610,买入 / 开仓,20260925 09:30:00,3500,1");
   click.mockRestore();
+});
+
+test("a position shows the broker's amounts and its close fills the ticket without sending", async () => {
+  read = () =>
+    live(
+      create(SessionSchema, {
+        ...(session as object),
+        positions: [
+          {
+            instrument: { exchange: "SHFE", symbol: "rb2610" },
+            side: Side.BUY,
+            todayLots: { text: "2" },
+            yesterdayLots: { text: "1" },
+            cost: { text: "105000" },
+            profit: { text: "300" },
+            margin: { text: "10500" },
+          },
+        ],
+        // A working sell close already takes one lot.
+        orders: [
+          {
+            id: "closing",
+            instrument: { exchange: "SHFE", symbol: "rb2610" },
+            side: Side.SELL,
+            offset: Offset.CLOSE_YESTERDAY,
+            lots: { text: "1" },
+            filledLots: { text: "0" },
+            state: 2,
+          },
+        ],
+      } as never),
+    );
+  show("positions");
+  fireEvent.click(await screen.findByRole("checkbox", { name: "我已核对账户与柜台环境" }));
+  const row = (await screen.findByRole("cell", { name: "3500.00" })).closest("tr")!;
+  // Three lots, one taken by the working close; 105,000 / (3 × 10).
+  expect(row.textContent).toContain("2");
+  expect(row.textContent).toContain("10,500");
+  const sent = commands().length;
+  fireEvent.click(screen.getByRole("button", { name: "平仓" }));
+  // SHFE closes today's lots on their own.
+  await waitFor(() =>
+    expect((screen.getByRole("textbox", { name: "委托手数" }) as HTMLInputElement).value).toBe("2"),
+  );
+  expect((screen.getByRole("combobox", { name: "开平仓" }) as HTMLSelectElement).value).toBe(
+    "close_today",
+  );
+  expect(button("卖出 account-b").hasAttribute("data-suggested")).toBe(true);
+  expect(commands()).toHaveLength(sent);
+});
+
+test("every working order is cancelled only after a second press", async () => {
+  read = () =>
+    live(
+      create(SessionSchema, {
+        ...(session as object),
+        orders: ["a", "b"].map(id => ({
+          id,
+          brokerKey: id,
+          instrument: { exchange: "SHFE", symbol: "rb2610" },
+          side: Side.BUY,
+          offset: Offset.OPEN,
+          lots: { text: "1" },
+          filledLots: { text: "0" },
+          state: 2,
+        })),
+      } as never),
+    );
+  show("cancel-all");
+  fireEvent.click(await screen.findByRole("button", { name: "委托" }));
+  fireEvent.click(await screen.findByRole("button", { name: "全部撤单" }));
+  expect(commands()).toHaveLength(0);
+  fireEvent.click(screen.getByRole("button", { name: "确认撤掉 2 笔" }));
+  await waitFor(() => expect(commands()).toHaveLength(1));
+  await act(async () => answer(live(session)));
+  await waitFor(() => expect(commands()).toHaveLength(2));
+  expect(
+    commands().map(
+      ([, operation]) =>
+        (operation.value as { action: { case: string; value: { id: string } } }).action.value.id,
+    ),
+  ).toEqual(["a", "b"]);
 });

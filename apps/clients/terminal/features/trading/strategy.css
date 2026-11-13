@@ -73,3 +73,87 @@
   padding-left: var(--space-4);
   font-variant-numeric: tabular-nums;
 }
+
+/* An account: its records beside the order ticket, as trading terminals lay them out. */
+.ctp-account-panel > .ctp-trade-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  padding: 0;
+}
+.ctp-trade-records {
+  min-width: 0;
+  padding: var(--space-3) var(--space-page);
+}
+.ctp-trade-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  border-left: 1px solid var(--line);
+}
+.ctp-trade-side .futures-fields {
+  grid-template-columns: 1fr 1fr;
+}
+@media (max-width: 1100px) {
+  .ctp-account-panel > .ctp-trade-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ctp-trade-side {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+}
+.activity-tabs button small {
+  margin-left: var(--space-1);
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+}
+.ctp-up {
+  color: var(--quote-up);
+}
+.ctp-down {
+  color: var(--quote-down);
+}
+/* Five levels: asks above, bids below; a level fills the limit price. */
+.order-book {
+  display: grid;
+  gap: 1px;
+  margin: var(--space-2) 0;
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-xs);
+}
+.order-book button {
+  display: grid;
+  grid-template-columns: 3em 1fr 4em;
+  min-height: 20px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: 0;
+  background: none;
+  text-align: right;
+}
+.order-book button span:first-child {
+  text-align: left;
+  color: var(--muted);
+}
+.order-book .order-ask {
+  color: var(--quote-down);
+}
+.order-book .order-bid {
+  color: var(--quote-up);
+}
+.order-book .order-last {
+  display: block;
+  margin: 1px 0;
+  text-align: left;
+  color: var(--text-strong);
+  border-block: 1px solid var(--line);
+}
+.order-book button:hover:enabled {
+  background: var(--hover);
+}
+.source-actions button[data-suggested] {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
