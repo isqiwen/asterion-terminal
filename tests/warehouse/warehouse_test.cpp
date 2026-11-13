@@ -518,6 +518,59 @@ TEST_F(Warehouse, FreshnessCountsTheOpenDaysEachExchangeAndContractLacks)
     EXPECT_EQ(recorded.tables(0).source_empty(), 1);
 }
 
+TEST_F(Warehouse, CoverageSeparatesDaysAnUpdateBringsFromGaps)
+{
+    wh::Store store(wh::source_directory(root, "research"), "research");
+    auto writer = store.writer();
+    std::vector<wh::Row> calendar;
+    for (const auto* day : {"2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30"}) {
+        auto value = row("calendar");
+        value[0] = std::string("SHFE");
+        value[1] = std::string(day);
+        value[2] = true;
+        calendar.push_back(value);
+    }
+    writer.put("calendar/SHFE/2026", calendar);
+    auto contract = row("contracts");
+    contract[0] = std::string("SHFE");
+    contract[1] = std::string("SHFE/rb/2027-01");
+    contract[2] = std::string("rb");
+    contract[7] = std::string("2027-01-15");
+    writer.put("contracts/SHFE", std::vector<wh::Row>{contract});
+    // Daily bars miss the 27th and end on the 28th; minutes end on the 27th.
+    for (const auto* day : {"2026-10-26", "2026-10-28"}) {
+        auto bar = row("daily");
+        bar[0] = std::string("SHFE");
+        bar[1] = std::string("rb");
+        bar[2] = std::string("SHFE/rb/2027-01");
+        bar[3] = std::string(day);
+        writer.put(std::string("daily/SHFE/") + day, std::vector<wh::Row>{bar}, {day});
+    }
+    writer.put(
+        "minutes/SHFE/2026-10-27/rb/2027-01",
+        std::vector<wh::Row>{row("minutes")},
+        {"2026-10-27"});
+    const auto version = writer.commit();
+    fs::create_directories(root / "acquisition");
+    replace_file_durably(wh::empty_file(root, "daily"), "daily/SHFE/2026-10-30\n");
+
+    wire::DatasetRef query;
+    query.set_version(version.identity);
+    const auto coverage = wh::Reader(root).coverage(query);
+    ASSERT_EQ(coverage.products_size(), 1);
+    const auto& daily = coverage.products(0).months(0);
+    EXPECT_EQ(daily.days(), 2);
+    EXPECT_EQ(daily.open_days(), 5);
+    // The 29th comes with an update; the 30th no source has; the 27th is a gap.
+    EXPECT_EQ(daily.pending_days(), 1);
+    EXPECT_EQ(daily.empty_days(), 1);
+    const auto& minutes = coverage.contracts(0).months(0);
+    // Counted from the contract's first day.
+    EXPECT_EQ(minutes.days(), 1);
+    EXPECT_EQ(minutes.open_days(), 4);
+    EXPECT_EQ(minutes.pending_days(), 3);
+}
+
 TEST_F(Warehouse, ProductCoverageStaysOnOneVersionAndMissingCalendarStaysUnknown)
 {
     wh::Store store(wh::source_directory(root, "research"), "research");

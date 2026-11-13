@@ -203,12 +203,15 @@ message ProductCoverage {
   repeated MonthCoverage months = 2;
 }
 
+// Open days count through yesterday (Beijing), so a month under way is not short.
 message MonthCoverage {
   string month = 1;
   uint32 days = 2;
   uint32 open_days = 3;
   // Open days without bars that every source answered empty.
   uint32 empty_days = 4;
+  // Open days after the product's last stored one: an update brings them.
+  uint32 pending_days = 5;
 }
 
 message ContractCoverage {
@@ -222,6 +225,9 @@ message MinuteMonth {
   string month = 1;
   uint32 days = 2;
   uint32 empty_days = 3;
+  // As in MonthCoverage, through the contract's delisting.
+  uint32 open_days = 4;
+  uint32 pending_days = 5;
 }
 
 // ---- Acquisition

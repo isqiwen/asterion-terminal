@@ -269,26 +269,55 @@ wire::DatasetCoverage Reader::coverage(const wire::DatasetRef& query) const
     wire::DatasetCoverage result;
     // minutes/<exchange>/<day>/<product>/<month>
     std::map<std::string, std::map<std::string, wire::MinuteMonth>> minutes;
-    std::string daily, calendar;
+    std::string daily, contracts;
+    std::map<std::string, std::string> first_minute;
     for (const auto& [key, part] : version.partitions) {
         if (key.starts_with("minutes/")) {
             std::istringstream fields(key);
             std::string table, exchange, day, product, delivery;
             for (auto* field : {&table, &exchange, &day, &product, &delivery})
                 std::getline(fields, *field, '/');
-            auto& month = minutes[exchange + '/' + product + '/' + delivery][day.substr(0, 7)];
+            const auto contract = exchange + '/' + product + '/' + delivery;
+            auto& month = minutes[contract][day.substr(0, 7)];
             month.set_days(month.days() + 1);
+            auto& start = first_minute[contract];
+            start = start.empty() ? day : std::min(start, day);
             continue;
         }
         auto* files = key.starts_with("daily/") ? &daily
-            : key.starts_with("calendar/")      ? &calendar
+            : key.starts_with("contracts/")     ? &contracts
                                                 : nullptr;
         if (files)
             *files += (files->empty() ? "" : ",") + parquet::literal(store.file(version, key));
     }
-    // Days every source answered empty: exchange-days of daily bars, contract-days of minutes.
-    std::map<std::string, std::uint32_t> empty_daily;
-    for (const auto& key : empty_keys(directory_, "minutes")) {
+    // Open days through yesterday: a month under way counts only the days it has had.
+    const auto open = open_days(store, version, yesterday());
+    // Each month's open days of `exchange` from `first` through `through`, and
+    // those after `last` that no source answered empty: the update's to bring.
+    // Before its first day a product or contract lacks nothing.
+    const auto count = [&](auto& months,
+                           const std::string& exchange,
+                           const std::string& first,
+                           const std::string& through,
+                           const std::string& last,
+                           const auto& answered) {
+        const auto days = open.find(exchange);
+        if (days == open.end())
+            return;
+        for (const auto& day : days->second) {
+            if (day < first)
+                continue;
+            if (day > through)
+                break;
+            auto& month = months[day.substr(0, 7)];
+            month.set_open_days(month.open_days() + 1);
+            if (day > last && !answered(day))
+                month.set_pending_days(month.pending_days() + 1);
+        }
+    };
+    // Days every source answered empty: contract-days of minutes, exchange-days of daily bars.
+    const auto empty_minutes = empty_keys(directory_, "minutes");
+    for (const auto& key : empty_minutes) {
         std::istringstream fields(key);
         std::string table, exchange, day, product, delivery;
         for (auto* field : {&table, &exchange, &day, &product, &delivery})
@@ -298,9 +327,17 @@ wire::DatasetCoverage Reader::coverage(const wire::DatasetRef& query) const
             contract->second[day.substr(0, 7)].set_empty_days(
                 contract->second[day.substr(0, 7)].empty_days() + 1);
     }
-    for (const auto& key : empty_keys(directory_, "daily"))
-        // daily/EXCHANGE/YYYY-MM-DD
-        ++empty_daily[key.substr(6, key.size() - 9)];
+    for (const auto& [contract, holding] : holdings(store, version, "minutes", open, empty_minutes))
+        if (!holding.through.empty())
+            count(
+                minutes[contract],
+                contract.substr(0, contract.find('/')),
+                first_minute[contract],
+                holding.through,
+                holding.last,
+                [](const std::string&) {
+                    return false;
+                });
     for (auto& [contract, months] : minutes) {
         auto* item = result.add_contracts();
         item->set_contract(contract);
@@ -311,30 +348,56 @@ wire::DatasetCoverage Reader::coverage(const wire::DatasetRef& query) const
     }
     if (daily.empty())
         return result;
+    const auto empty_daily = empty_keys(directory_, "daily");
     parquet::Engine engine;
     engine.run("CREATE TEMP VIEW daily AS SELECT * FROM read_parquet([" + daily + "])");
-    engine.run(
-        calendar.empty()
-            ? "CREATE TEMP VIEW calendar AS SELECT NULL::VARCHAR AS exchange, NULL::DATE AS day," " false AS open WHERE false"
-            : "CREATE TEMP VIEW calendar AS SELECT * FROM read_parquet([" + calendar + "])");
+    // EXCHANGE/product -> month -> its coverage, and the product's first and last day.
+    std::map<std::string, std::map<std::string, wire::MonthCoverage>> products;
+    std::map<std::string, std::string> first, last;
     const auto rows = engine.run(
-        "WITH d AS (SELECT exchange, product, strftime(day, '%Y-%m') AS month," " count(DISTINCT day) AS days FROM daily GROUP BY ALL)," " c AS (SELECT exchange, strftime(day, '%Y-%m') AS month, count(DISTINCT day) AS open_days" " FROM calendar WHERE open GROUP BY ALL)" " SELECT d.exchange, d.product, d.month, d.days, coalesce(c.open_days, 0)" " FROM d LEFT JOIN c USING (exchange, month) ORDER BY 1, 2, 3");
-    wire::ProductCoverage* product = nullptr;
+        "SELECT exchange, product, strftime(day, '%Y-%m'), count(DISTINCT day)," " strftime(min(min(day)) OVER (PARTITION BY exchange, product), '%Y-%m-%d')," " strftime(max(max(day)) OVER (PARTITION BY exchange, product), '%Y-%m-%d')" " FROM daily GROUP BY exchange, product, strftime(day, '%Y-%m')");
     for (duckdb::idx_t row = 0; row < rows->RowCount(); ++row) {
-        const auto exchange = rows->GetValue(0, row).ToString();
-        const auto name = rows->GetValue(1, row).ToString();
-        const auto key = exchange + '/' + name;
-        if (!product || product->product() != key) {
-            product = result.add_products();
-            product->set_product(key);
+        const auto key =
+            rows->GetValue(0, row).ToString() + '/' + rows->GetValue(1, row).ToString();
+        products[key][rows->GetValue(2, row).ToString()].set_days(
+            rows->GetValue(3, row).GetValue<std::uint32_t>());
+        first[key] = rows->GetValue(4, row).ToString();
+        last[key] = rows->GetValue(5, row).ToString();
+    }
+    // A product is due only while one of its contracts is listed.
+    std::map<std::string, std::string> delisted;
+    if (!contracts.empty()) {
+        const auto listed = engine.run(
+            "SELECT exchange, product, strftime(max(delist_date), '%Y-%m-%d') FROM read_parquet(["
+            + contracts + "]) GROUP BY ALL");
+        for (duckdb::idx_t row = 0; row < listed->RowCount(); ++row)
+            delisted
+                [listed->GetValue(0, row).ToString() + '/' + listed->GetValue(1, row).ToString()] =
+                    listed->GetValue(2, row).ToString();
+    }
+    for (auto& [key, months] : products) {
+        const auto exchange = key.substr(0, key.find('/'));
+        const auto days = open.find(exchange);
+        if (days != open.end()) {
+            auto through = days->second.back();
+            if (const auto at = delisted.find(key); at != delisted.end())
+                through = std::min(through, at->second);
+            count(months, exchange, first[key], through, last[key], [&](const std::string& day) {
+                return empty_daily.contains("daily/" + exchange + "/" + day);
+            });
         }
-        auto* month = product->add_months();
-        month->set_month(rows->GetValue(2, row).ToString());
-        month->set_days(rows->GetValue(3, row).GetValue<std::uint32_t>());
-        month->set_open_days(rows->GetValue(4, row).GetValue<std::uint32_t>());
-        if (const auto at = empty_daily.find(exchange + '/' + month->month());
-            at != empty_daily.end())
-            month->set_empty_days(at->second);
+        for (const auto& item : empty_daily)
+            // daily/EXCHANGE/YYYY-MM-DD
+            if (item.starts_with("daily/" + exchange + "/"))
+                if (const auto at = months.find(item.substr(item.size() - 10, 7));
+                    at != months.end())
+                    at->second.set_empty_days(at->second.empty_days() + 1);
+        auto* product = result.add_products();
+        product->set_product(key);
+        for (auto& [name, month] : months) {
+            month.set_month(name);
+            *product->add_months() = std::move(month);
+        }
     }
     return result;
 }

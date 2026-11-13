@@ -135,7 +135,7 @@ sequenceDiagram
 | `get_table_rows` | 版本、合约表/交易日历/结算参数/历史报价单位、交易所、日期范围、偏移 | 一页至多 100 行，值都是文本，另给总行数；报价单位按有效区间相交选择 |
 | `list_dataset_versions` | 分页游标 | 从当前版本往前的一页版本，每个都带与上一版相比新增、替换、删除的分区数 |
 | `compare_dataset_versions` | 两个版本 | 前者相比后者新增、替换、删除的分区数 |
-| `get_dataset_coverage` | 版本 | 品种 × 月份的日线天数和开市天数；合约 × 月份的分钟线天数 |
+| `get_dataset_coverage` | 版本 | 品种 × 月份的日线天数，合约 × 月份的分钟线天数；各自截至昨天、从第一天起的开市日数，待更新和来源无数据的天数 |
 | `get_acquisition_options` | — | 可采集的表和交易所 |
 | `start_acquisition` | 表，交易所和区间，或品种、合约和可选区间 | 已接纳的任务 |
 | `get_acquisition_task` | 任务 ID | 任务现状 |

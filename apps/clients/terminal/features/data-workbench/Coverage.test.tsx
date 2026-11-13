@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { Table } from "../../src/generated/asterion/warehouse_pb";
+import { create } from "@bufbuild/protobuf";
+import { DatasetCoverageSchema, Table } from "../../src/generated/asterion/warehouse_pb";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "../../src/host/workspace/drafts";
 import { Coverage } from "./Coverage";
@@ -47,33 +48,47 @@ function serve(tables = [Table.DAILY, Table.MINUTES, Table.PRICE_TICKS]) {
       case "getDatasetSummary":
         return { dataset: { version: current }, tables: [] };
       case "getDatasetCoverage":
-        return body.value.version === older
-          ? {
-              products: [
-                { product: "SHFE/cu", months: [{ month: "2026-10", days: 21, openDays: 21 }] },
-              ],
-            }
-          : {
-              products: [
-                {
-                  product: "SHFE/rb",
-                  months: [
-                    { month: "2026-07", days: 23, openDays: 23 },
-                    { month: "2026-09", days: 10, openDays: 21 },
-                    { month: "2026-10", days: 16, openDays: 16 },
-                  ],
-                },
-                // Every source answered the other six days empty.
-                {
-                  product: "SHFE/au",
-                  months: [{ month: "2026-10", days: 10, openDays: 16, emptyDays: 6 }],
-                },
-              ],
-              contracts: [
-                { contract: "SHFE/cu/2026-12", months: [{ month: "2026-10", days: 3 }] },
-                { contract: "SHFE/rb/2027-01", months: [{ month: "2026-10", days: 3 }] },
-              ],
-            };
+        return create(
+          DatasetCoverageSchema,
+          body.value.version === older
+            ? {
+                products: [
+                  { product: "SHFE/cu", months: [{ month: "2026-10", days: 21, openDays: 21 }] },
+                ],
+              }
+            : {
+                products: [
+                  {
+                    product: "SHFE/rb",
+                    months: [
+                      { month: "2026-07", days: 23, openDays: 23 },
+                      { month: "2026-09", days: 10, openDays: 21 },
+                      { month: "2026-10", days: 16, openDays: 16 },
+                    ],
+                  },
+                  // Every source answered the other six days empty.
+                  {
+                    product: "SHFE/au",
+                    months: [{ month: "2026-10", days: 10, openDays: 16, emptyDays: 6 }],
+                  },
+                  // The last four days have yet to come with an update.
+                  {
+                    product: "SHFE/ag",
+                    months: [{ month: "2026-10", days: 12, openDays: 16, pendingDays: 4 }],
+                  },
+                ],
+                contracts: [
+                  {
+                    contract: "SHFE/cu/2026-12",
+                    months: [{ month: "2026-10", days: 3, openDays: 16 }],
+                  },
+                  {
+                    contract: "SHFE/rb/2027-01",
+                    months: [{ month: "2026-10", days: 3, openDays: 16 }],
+                  },
+                ],
+              },
+        );
       case "compareDatasetVersions":
         return { added: 1, replaced: 0, removed: 0 };
       default:
@@ -113,6 +128,10 @@ test("each product's months show complete, partial and missing against the calen
   const gold = within(within(matrix).getByRole("row", { name: /SHFE\/au/ })).getAllByRole("cell");
   expect(gold[9]!.getAttribute("data-cell")).toBe("empty");
   expect(screen.queryByRole("button", { name: "补采 SHFE/au 2026-10" })).toBeNull();
+  // Days only an update brings are told apart from gaps.
+  const silver = within(within(matrix).getByRole("row", { name: /SHFE\/ag/ })).getAllByRole("cell");
+  expect(silver[9]!.getAttribute("data-cell")).toBe("pending");
+  expect(silver[9]!.getAttribute("title")).toBe("12 / 16 · 4 天待更新");
 });
 
 test("a gap opens an acquisition of its product or contract and month only", async () => {
@@ -133,7 +152,7 @@ test("a gap opens an acquisition of its product or contract and month only", asy
   );
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   request.mockClear();
-  // Minutes are measured against the exchange's open days from its daily bars.
+  // Minutes are measured against their own open days.
   show("分钟线");
   fireEvent.click(await screen.findByRole("button", { name: "补采 SHFE/rb/2027-01 2026-10" }));
   startInDialog();

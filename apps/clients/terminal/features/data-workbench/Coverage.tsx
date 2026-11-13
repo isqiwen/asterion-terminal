@@ -19,50 +19,62 @@ const monthRange = (month: string) => {
 const monthsOf = (year: string) =>
   Array.from({ length: 12 }, (_, index) => `${year}-${String(index + 1).padStart(2, "0")}`);
 
-// One row of the matrix: a product's daily bars or a contract's minutes.
-type Month = { days: number; open: number; empty: number };
+// One row of the matrix: a product's daily bars or a contract's minutes. Open
+// days count through yesterday and from the row's first day.
+type Month = { days: number; open: number; empty: number; pending: number };
 type Row = { id: string; exchange: string; months: Map<string, Month> };
-// Against the calendar's open days; "empty" when every source answered the rest
-// empty, "held" without a calendar, nothing outside the row's span.
-type Cell = "full" | "partial" | "empty" | "missing" | "held" | "";
+// "partial" has gaps, "missing" is a whole month without bars, "pending" waits
+// only for an update, "empty" lacks only what every source answered empty,
+// "held" has no calendar; nothing outside the row's span.
+type Cell = "full" | "partial" | "missing" | "pending" | "empty" | "held" | "";
+
+const gaps = (cell: Month) => Math.max(0, cell.open - cell.days - cell.empty - cell.pending);
 
 function cellOf(row: Row, month: string, first: string, last: string): Cell {
   const cell = row.months.get(month);
   if (!cell) return month > first && month < last ? "missing" : "";
   if (!cell.open) return "held";
-  if (cell.days >= cell.open) return "full";
-  return cell.days + cell.empty >= cell.open ? "empty" : "partial";
+  if (gaps(cell)) return cell.days || cell.pending ? "partial" : "missing";
+  if (cell.pending) return "pending";
+  return cell.empty ? "empty" : "full";
 }
 
 function rowsOf(coverage: DatasetCoverage, minutes: boolean): Row[] {
-  if (!minutes)
-    return coverage.products.map(item => ({
-      id: item.product,
-      exchange: item.product.split("/")[0]!,
-      months: new Map(
-        item.months.map(m => [m.month, { days: m.days, open: m.openDays, empty: m.emptyDays }]),
-      ),
-    }));
-  // Minutes have no calendar of their own: an exchange's open days come from its daily bars.
-  const open = new Map<string, number>();
-  for (const product of coverage.products)
-    for (const month of product.months) {
-      const key = `${product.product.split("/")[0]}/${month.month}`;
-      open.set(key, Math.max(open.get(key) ?? 0, month.openDays));
-    }
-  return coverage.contracts.map(item => {
-    const exchange = item.contract.split("/")[0]!;
-    return {
-      id: item.contract,
-      exchange,
-      months: new Map(
-        item.months.map(m => [
-          m.month,
-          { days: m.days, open: open.get(`${exchange}/${m.month}`) ?? 0, empty: m.emptyDays },
-        ]),
-      ),
-    };
-  });
+  const month = (m: {
+    month: string;
+    days: number;
+    openDays: number;
+    emptyDays: number;
+    pendingDays: number;
+  }) =>
+    [
+      m.month,
+      { days: m.days, open: m.openDays, empty: m.emptyDays, pending: m.pendingDays },
+    ] as const;
+  return minutes
+    ? coverage.contracts.map(item => ({
+        id: item.contract,
+        exchange: item.contract.split("/")[0]!,
+        months: new Map(item.months.map(month)),
+      }))
+    : coverage.products.map(item => ({
+        id: item.product,
+        exchange: item.product.split("/")[0]!,
+        months: new Map(item.months.map(month)),
+      }));
+}
+
+// What a cell holds, as its tooltip says it.
+function describe(cell: Month) {
+  if (!cell.open) return t("{days} 天", { days: cell.days });
+  return [
+    `${cell.days} / ${cell.open}`,
+    gaps(cell) && t("缺 {days} 天", { days: gaps(cell) }),
+    cell.pending && t("{days} 天待更新", { days: cell.pending }),
+    cell.empty && t("{days} 天来源无数据", { days: cell.empty }),
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 // Which days each product (daily) or contract (minutes) holds, a year at a
@@ -171,8 +183,9 @@ function CoverageBody({ context }: { context: TerminalContext }) {
             </select>
           )}
           <span className="data-legend" aria-hidden="true">
-            <i data-cell="full" /> {t("齐全")} <i data-cell="partial" /> {t("部分")}{" "}
-            <i data-cell="missing" /> {t("缺失")} <i data-cell="empty" /> {t("来源无数据")}
+            <i data-cell="full" /> {t("齐全")} <i data-cell="partial" /> {t("有缺口")}{" "}
+            <i data-cell="missing" /> {t("整月缺失")} <i data-cell="pending" /> {t("待更新")}{" "}
+            <i data-cell="empty" /> {t("来源无数据")}
           </span>
           {acquires && (
             <button type="button" className="primary" onClick={() => setAcquiring({})}>
@@ -262,18 +275,9 @@ function Matrix({
                       <td
                         key={month}
                         data-cell={state || undefined}
-                        title={
-                          cell
-                            ? cell.open
-                              ? `${cell.days} / ${cell.open}` +
-                                (cell.empty
-                                  ? ` · ${t("{days} 天来源无数据", { days: cell.empty })}`
-                                  : "")
-                              : t("{days} 天", { days: cell.days })
-                            : state && t("无数据")
-                        }
+                        title={cell ? describe(cell) : state && t("无数据")}
                       >
-                        {onFill && (state === "partial" || state === "missing") ? (
+                        {onFill && ["partial", "missing", "pending"].includes(state) ? (
                           <button
                             type="button"
                             aria-label={t("补采 {target} {month}", { target: row.id, month })}

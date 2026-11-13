@@ -142,13 +142,16 @@
   "浏览": "Browse",
   "研究数据集": "Research dataset",
   "缺 {count} 个交易日": "{count} trading days missing",
-  "缺失": "Missing",
   "行数": "Rows",
   "覆盖": "Coverage",
   "还没有数据": "No data yet",
-  "部分": "Partial",
   "齐全": "Complete",
   "来源无数据": "No source data",
   "{days} 天来源无数据": "{days} days without source data",
-  "另有 {count} 个交易日来源无数据": "plus {count} trading days with no source data"
+  "另有 {count} 个交易日来源无数据": "plus {count} trading days with no source data",
+  "有缺口": "Gaps",
+  "整月缺失": "Whole month missing",
+  "待更新": "Awaiting update",
+  "缺 {days} 天": "{days} days missing",
+  "{days} 天待更新": "{days} days awaiting update"
 }
