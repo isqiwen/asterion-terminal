@@ -7,7 +7,7 @@
 - 研究读取 Warehouse 合成的固定研究数据集，分区来源规则见 [Warehouse](warehouse/README.md#仓库与固定版本)。
 - 分钟 K 线按时钟边界聚合；支持周期见[通信协议](protocol.md#4-公共类型)。
 - 仿真浸泡先使用固定月份合约，自动换月在多品种组合阶段之前完成。
-- 实例重启只重放该实例自己的行情记录，账户授权遵守[交易规则](safety.md)。
+- 实例重启只重放 Trading 本地记录的行情或随实例显式固定版本并校验摘要的预热历史，账户授权遵守[交易规则](safety.md)。
 
 ## 执行顺序
 
@@ -143,11 +143,24 @@
 | 128 | M3.132 | 交易：策略视图 | 完成 | M3.131 |
 | 129 | M3.133 | 研究：评价记录并入因子视图 | 完成 | M3.128 |
 | 130 | M3.134 | 界面：精简文字与布局整理 | 完成 | M3.133 |
-| 131 | M3.6 | 两周仿真浸泡 | 待做（使用者） | M3.3、M3.9、M3.10、M3.19、M3.63、M3.92–M3.104、M3.106–M3.110 |
-| 132 | M4.0a | 研究与实盘的数据口径 | 完成 | |
-| 133 | M4.0b | 实盘换月 | 待做 | M3.6、M4.0a、M3.82 |
-| 134 | M4.1–M4.4 | 多因子组合 | 未开始 | M4.0b |
-| 135 | M5 | 小资金实盘 | 未开始 | M4.4 |
+| 131 | M3.135 | 全面排查（第二轮） | 完成 | |
+| 132 | M3.136 | 进程隔离、流式传输与协议向前兼容修复 | 待做 | |
+| 133 | M3.137 | 交易页安全传达、盘口统一与上期所手工平仓修复 | 待做 | |
+| 134 | M3.138 | CTP 行情盘前快照、跨日时间戳与郑商所夜盘修复 | 待做 | |
+| 135 | M3.139 | 实盘权重编码、乱序回报对账与柜台边界修复 | 待做 | |
+| 136 | M3.140 | 风控正交限额、减仓豁免与实盘容错边界 | 待做 | M3.136 |
+| 137 | M3.141 | 回测次根开盘主动撮合、同根反手拆单与远月费率修复 | 待做 | |
+| 138 | M3.142 | 多空分侧保证金、平今费率按需校验与 Tushare 结算核验 | 待做 | M3.141 |
+| 139 | M3.143 | 实盘 K 线本地持久化自愈与静态历史预热包注入 | 待做 | M3.138 |
+| 140 | M3.144 | 主力连续首日、绩效统计、滚动验证与因子评估修复 | 待做 | M3.141 |
+| 141 | M3.145 | Warehouse 覆盖查询内存优化、无成交日过滤与跨年自动更新 | 待做 | |
+| 142 | M3.146 | Terminal 原生层载荷上限、连接复用与渲染性能修复 | 待做 | M3.136 |
+| 143 | M3.147 | 编辑器体验、图表修复、视觉字体统一与文档清理 | 待做 | M3.137、M3.146 |
+| 144 | M3.6 | 两周仿真浸泡 | 待做（使用者） | M3.3、M3.9、M3.10、M3.19、M3.63、M3.92–M3.104、M3.106–M3.110、M3.136–M3.147 |
+| 145 | M4.0a | 研究与实盘的数据口径 | 完成 | |
+| 146 | M4.0b | 实盘换月 | 待做 | M3.6、M4.0a、M3.82 |
+| 147 | M4.1–M4.4 | 多因子组合 | 未开始 | M4.0b |
+| 148 | M5 | 小资金实盘 | 未开始 | M4.4 |
 
 ## 第 3 阶段：仿真运行验收
 
@@ -232,6 +245,106 @@ Warehouse：Tushare → 交易所 → gtja → 新浪财经 → 入库 → 来�
 
 完成检查：A 结束、B 仍在运行且已提交来源批次时，A 触发的统一版本只纳入已结束任务的数据；B 成功、失败或取消后，其已保留的数据才可发布；无变化不生成新版本，旧版本仍可读。任务状态持续写入失败时，旧失败可查询，新任务不接纳；恢复存储后同一服务可接纳新任务，旧请求不重发，已提交的来源版本不重复通知。真实请求一段日期，确认 Tushare 缺失部分由公开来源补齐且内部清单记录正确来源；修复后在部署服务重验。用 Trading 记录的 K 线与统一数据比对（M4.0b 之前）。
 
+### M3.135 全面排查（第二轮）
+
+通读全部文档、协议、C++ 核心与服务端、Python 研究与策略运行时、Terminal 原生桥接与前端界面、构建打包及 CI 脚本，核对国内期货交易规则与端到端截图。确定五项核心设计：回测改为次根 K 线开盘主动撮合与同根反手拆单；风控拆分为单合约上限与账户总上限，且区分策略代码故障与外部瞬时拒单；实盘支持本地录播自愈加启动时注入带摘要的静态历史预热包；保证金率按多空分侧计算、平今手续费按实际平今动作惰性校验并交叉核验合入 Tushare 平今字段；五档盘口统一按昨结算价涨跌着色。结果登记为下面的 M3.136–M3.147，并更新[交易规则](safety.md)。
+
+### M3.136 进程隔离、流式传输与协议向前兼容修复
+
+- `ChildProcess`（`core/src/system/process/child.cpp`）：macOS 使用 `POSIX_SPAWN_CLOEXEC_DEFAULT` 时，在 `independent == false` 下显式为子进程准备标准流 `fd 0, 1, 2`（`stdin` 打开 `/dev/null`，未合并 `stderr` 时保留或打开 `/dev/null`），检查全部 `posix_spawn_file_actions_add*` 返回值；删除无调用的 `ChildProcess::release()`。理由：`POSIX_SPAWN_CLOEXEC_DEFAULT` 会关闭父进程所有未登记描述符（含 `0, 1, 2`），导致 Lab 随后打开的数据库或套接字分到 `fd 0/2` 并被错误输出写坏。
+- `RpcClient`、`MarketClient` 与 `RpcHost`（`core/src/system/ipc/rpc_client.cpp`、`apps/clients/terminal/native/market_client.cpp`、`core/src/system/rpc_host.cpp`）：修复 `Reactor::wait` 与 `RpcClient::poll` 共用 `io_context` 时覆盖未消费流帧及首帧后缺少挂起读操作的问题；`RpcClient` 连接前按 IPv4 优先排序端点；`RpcHost` 本地套接字绑定前清理残留失效套接字并核验父目录归属与权限，`EMFILE`/`ENFILE` 时退避重试。理由：`reactor.wait` 已交付首帧后 `market_client` 再次 `poll` 会用第二帧增量覆盖首帧全量目录，且无超时 `wait` 在首帧后无挂起异步读而死锁。
+- `validate_message`、`log_rpc_result` 与协议构建（`protocol/src/trading.cpp`、`protocol/include/asterion/protocol/rpc_diagnostics.hpp`、`protocol/CMakeLists.txt`）：Trading 消息校验不再因未知 Protobuf 字段拒绝请求与响应，也不在 `const Message&` 上通过反射触发 `MapField` 内部同步写；`log_rpc_result` 对未知 `ErrorCode` 不再调用越界 `.substr(11)`；补齐 Python 生成文件的 `.proto` 依赖列表。理由：拒绝未知字段会让不同版本的 Terminal 与 Trading 无法撤单和平仓，违反[通信协议](protocol.md#2-帧格式与版本)。
+
+完成检查：子进程启动后 `fd 0, 1, 2` 均为有效打开描述符；`Reactor` 驱动的 `RpcClient::watch` 在多帧连发时不丢首帧、无超时 `wait` 不死锁；含未知字段的 Trading 消息与未知 `ErrorCode` 通过校验和日志记录。
+
+### M3.137 交易页安全传达、盘口统一与上期所手工平仓修复
+
+- 五档盘口统一（`ContractQuote.tsx`、`OrderTicket.tsx`）：抽离共用盘口价格着色逻辑，统一按相对昨结算价涨跌着色（高于涨色、低于跌色、相等主色、缺失 `—` 暗灰），卖五至卖一在上、买一至买五在下，中间设盘口分隔线；下单板点击档位行自动填入委托限价，行情页提供直达下单板入口。理由：行情页与下单板五档买卖红绿完全相反，切换页面时极易点反方向。
+- 上期所与能源中心手工平仓（`AccountRecords.tsx`）：计算可平手数时按 `平今`、`平昨` 分别扣减在途挂单；持仓行「平仓」按钮优先平昨仓，昨仓不足时再平今仓。理由：混算在途挂单且无条件优先平今，在已有平今挂单时再点平仓必被柜台拒单，且默认多付高额平今手续费。
+- 多账户同步与按钮可读性（`App.tsx`、`TradingWorkspace.tsx`、`LiveStrategies.tsx`、`OrderTicket.tsx`、`style.css`）：「交易 → 账户」与「交易 → 策略」共用同一个选中账户状态，策略页顶栏同样显示「真实资金」徽标；修复下单主按钮内账户名 `<small>` 被全局暗灰颜色覆盖的问题（对比度不低于 4.5:1）。理由：两个子页各自记忆账户会在切换后误操作另一账户策略，按钮上看不清账户名违反交易安全要求。
+- 合约选择器与历史标识（`ContractPicker.tsx`、`core/src/futures/history_identity.cpp`）：支持郑商所、中金所大写品种代码（如 `CZCE/TA2505`、`CFFEX/IF2506`），与 `FuturesContract` 一致。
+
+完成检查：行情页与下单板同一合约五档颜色一致，点档位填价生效；SHFE/INE 同时有今昨仓及在途平昨/平今单时，平仓按钮发出正确的平昨/平今指令与手数；切换账户后进入策略页保持同一账户并显示真实资金标记；下单按钮账户名清晰可读；可手动添加郑商所和中金所合约。
+
+### M3.138 CTP 行情盘前快照、跨日时间戳与郑商所夜盘修复
+
+- 盘前与封板报价（`ctp_feed.cpp`、`strategy_bars.cpp`、`intraday_bars.cpp`）：`StrategyBars::observe` 在无最新成交价（`!quote.last`）或无持仓量（盘前集合竞价快照）时忽略该快照而不抛异常结束实例；涨跌停封板侧价格为 `0` 且挂单量为 `0` 时置为空价格；`IntradayBars` 与 `StrategyBars` 忽略滞后于当前交易日的旧快照，连续在线跨日首笔非整分 Tick 不误标 `partial`，集合竞价（`08:59`/`20:59`）与闭市边界 Tick（`10:15:00`/`11:30:00`/`15:00:00` 等）并入相邻交易分钟，与 Warehouse 历史分钟口径一致。
+- 报价时间戳与交易日（`ctp_feed.cpp`、`ctp_catalog.cpp`、`live.cpp`）：日盘启动收到昨夜缓存快照（`UpdateTime >= 20:55` 且主机为日盘时段）时归入上一自然日，防止算出今晚未来时间导致全天报价被当作乱序丢弃；行情适配像交易适配一样用会话 `GetTradingDay()` 归一郑商所夜盘交易日，校验 8 位有效日期后再更新 `trading_day_`；兼容郑商所两位交割年 `DeliveryYear`；目录刷新改用单次全量查询并覆盖周一早盘新挂牌合约。
+
+完成检查：开盘前启动策略收到无成交价快照不结束实例；日盘 09:35 收到昨夜 21:05 缓存快照后，后续白盘报价正常进入行情流与策略 K 线；郑商所周五夜盘报价交易日为下周一且可正常下单；`08:59` 与 `15:00:00` Tick 并入 `09:00` 与 `14:59` 分钟柱。
+
+### M3.139 实盘权重编码、乱序回报对账与柜台边界修复
+
+- 权重策略编码（`strategy_runner.py`）：使用定点十进制格式（`format(..., "f")`）序列化权重，不用 `Decimal.normalize()`。理由：`normalize()` 对极小权重或整十数输出 `1E-7`、`1E+1`，C++ `Decimal::parse` 不接受指数记号而杀死实盘策略进程。
+- 乱序成交与非上期所今昨仓对账（`ctp_reconciliation.cpp`、`live_session.cpp`）：`OnRtnTrade` 早于首帧 `OnRtnOrder` 到达时，待 `OrderSysID` 映射建立后再持久化或回填更新 `order_id`，保证 `journal.sqlite` 中每笔成交都有非空 `order_id`；非 SHFE/INE 交易所持仓按 `today = min(Position, TodayPosition)`、`yesterday = max(0, Position - today)` 计算，过滤非投机 `HedgeFlag`；手工平仓提交前核对可平仓位。
+- 撤单错误回报与柜台废单识别（`ctp_trader.cpp`、`ctp_reconciliation.cpp`）：实现 `OnErrRtnOrderAction` 回报处理；将柜台或交易所直接打回的撤单状态（如 `OST_Canceled` 且 `OrderSubmitStatus == OSS_InsertRejected` 或带非零错误码）识别为 `rejected` 而非普通撤单，防止执行器在 10 秒窗口内死循环重发。
+- 部署脚本修正（`apps/services/trading/scripts/setup.sh`）：允许更新已有账户的 `front` 和 `app_id`（与 `main.cpp` 换前置重开账本逻辑一致），客户端指纹上限与 `settings.cpp` 统一为 16。
+
+完成检查：权重 `1e-7` 和 `10` 在实盘运行器中正常解析；`OnRtnTrade` 先于 `OnRtnOrder` 到达时持久化记录含正确 `order_id`；DCE/CZCE 日内部分平仓后持仓手数准确；柜台废单不触发重发。
+
+### M3.140 风控正交限额、减仓豁免与实盘容错边界
+
+- 持仓限额拆分（`trading.proto`、`order_limits.cpp`、`risk_port.cpp`、`live_session.cpp`、`TradingWorkspace.tsx`）：风控政策同时包含 `max_contract_lots`（单合约总手数上限）与 `max_gross_lots`（账户全部合约总手数上限），回测与实盘同步校验。
+- 减仓豁免（`order_limits.cpp`、`live_session.cpp`、`strategy_execution.cpp`）：平仓与减仓委托豁免 `max_contract_lots`、`max_gross_lots` 和 `max_working_orders`；手工或策略平仓手数超过 `max_order_quantity` 时自动按上限拆腿；保留价格偏离检查防止打穿停板。
+- 实盘容错与多合约并行批次（`live_session.cpp`、`strategy_execution.cpp`、`strategy_orders.cpp`）：仅当策略子进程崩溃、超时或返回非法结构时将实例置为 `FAILED` 并撤单；因价格偏离、风控限额或批次超时未调完时，记告警事件并保留实例在下一周期继续对齐目标；同一批次内互不冲突的不同合约允许并行发单，不再逐合约串行等待 1.1 秒持仓查询；无关合约上的手工挂单不再阻塞策略规划其他合约。
+
+完成检查：多合约总手数超账户上限或单合约超单合约上限均被拦截；在途委托满额时仍可平仓减仓；单次价格偏离拒单后实例保持 `RUNNING` 并在下一根 K 线恢复调仓；10 合约组合在一批 10 秒内完成调仓。
+
+### M3.141 回测次根开盘主动撮合、同根反手拆单与远月费率修复
+
+- 远月合约费率与最小变动价位查找（`paper_execution.cpp`、`account.cpp`）：`enter_day` 只更新当日已进入存续期（或已有覆盖表）的合约参数，尚未上市的远月主力月份不提前报错。理由：跨年主力连续回测包含晚于回测起点才上市的远月合约，第 2 个交易日 `enter_day` 遍历全部合约查费率会因日期早于远月上市日直接崩溃。
+- 次根开盘主动撮合与同根反手拆单（`replay.cpp`、`paper_execution.cpp`、`lab.proto`、`backtest.py`）：策略在 Bar $N$ 收盘给出的目标，于 Bar $N+1$（成交量 `> 0` 时）按 `open ± slippage_ticks × price_increment` 主动撮合（`BacktestConfig` 支持非负整数 `slippage_ticks`，默认 `0`）；在当根 K 线成交量参与上限（10%）和可用保证金范围内，同一根 K 线内按 `max_order_quantity` 循环拆腿，并先平反向持仓再开正向持仓。
+- 主力移仓与回测账本修复（`replay.cpp`、`account.cpp`）：策略返回 `None`（保留持仓）后遇到主力换月仍照常平旧开新；`took_over_` 仅在新主力目标手数全部到位后置位；平仓后跳过全为 0 的虚假 `roll` 意图；修正盘中浮盈不计可用资金却按最新价重估保证金导致大涨多头误撤单的问题。
+
+完成检查：跨年多月主力连续回测不再于第 2 日报错；跳空突破与跳空止损在 Bar $N+1$ 开盘价（含滑点）成交；日线多翻空与 20 手拆 4 腿（上限 5 手）在单根成交量充足的 K 线内当根完成；建仓后返回 `None` 跨换月仍自动移仓。
+
+### M3.142 多空分侧保证金、平今费率按需校验与 Tushare 结算核验
+
+- 多空分侧保证金（`common.proto`、`account.hpp`、`account.cpp`、`paper_execution.cpp`、`replay.cpp`、`backtest.py`）：`FuturesCosts` 拆分为 `long_margin_rate` 与 `short_margin_rate`，多头持仓与买开冻结按多头率计算，空头持仓与卖开冻结按空头率计算；`Replay` 结算保证金按 `(contract, trading_day)` 索引。理由：交易所遇单边市或长假会设置不对称的多空保证金率，Warehouse 已存两列，不再因 `long != short` 中断回测。
+- 平今费率惰性校验（`account.hpp`、`account.cpp`、`backtest.py`）：允许 `FuturesCosts` 的平今费率为空，仅当回测实际发生同日平今成交（`Offset::close_today`）且当日平今费率缺失时才停止回测并报错。理由：严守“不用零值、当前费率或推算代替”原则，同时让不发生日内平今的日线与隔夜策略在大商所、中金所、广期所及 2024-07 前的上期所真实开平费率下正常回测。
+- Tushare 郑商所十年修正与 `offset_today_fee` 实证合入（`tushare.cpp`）：`Tushare::settlement()` 补齐郑商所三位合约代码的 `czce_decade` 修正；按同行 `trading_fee_rate` / `trading_fee` 收费方式解析 `offset_today_fee`，并与库内上期所、郑商所官方结算表交叉核验一致后入库。
+
+完成检查：多空保证金率不同的交易日正常回测并按方向计提保证金；郑商所 2020 年后结算参数归入 `202x` 合约；DCE/CFFEX/GFEX 日线回测无需平今费率即可跑通，发生日内平今且缺平今费率时准确停止。
+
+### M3.143 实盘 K 线本地持久化自愈与静态历史预热包注入
+
+- Trading 本地 K 线持久化（`apps/services/trading/`）：Trading 将自身从实时行情聚合完成的 K 线按合约和周期写入本地持久化存储（保留最近预热所需窗口）；Trading 重启、行情断线重连或策略实例改参重启时，自动用本地已录 K 线回放预热。
+- 静态历史预热包注入（`trading.proto`、`apps/services/trading/`、`apps/services/lab/`、`LiveStrategies.tsx`）：发布或启动策略实例时，支持从固定 `Warehouse` 数据版本导出一段早于当前交易日的历史 K 线随请求注入 Trading；Trading 校验时间衔接与摘要后将 `dataset_version` 和 SHA-256 写入 `journal.sqlite`，仅用于策略 `warmup`（不触发下单），运行期仍不连接 Warehouse。
+
+完成检查：策略实例重启或改参后无需重新等待几十根实时 K 线即可恢复就绪；注入 60 日历史预热切片的日线策略在收到首根实时 K 线后即进入 `ready` 状态，交易记录留存预热数据版本与哈希。
+
+### M3.144 主力连续首日、绩效统计、滚动验证与因子评估修复
+
+- 内置策略与规则校验（`research/strategies/momentum_rank.py`、`_rules.py`）：`MomentumRank` 改用 `ctx.history("close", ...)` 读取前复权收盘价计算动量与波动率，校验 `count >= 1`、`0 <= volatility < 1` 及 `lots > 0`；删除 `tests/lab/` 下与 `research/` 重复的 8 份策略和因子副本。
+- 主力连续与绩效口径（`backtest.py`、`dominant.py`、`performance.cpp`）：`backtest.py` 将 `begin - 92` 天的锚点日传入 `dominant.series` 使回测首日即有主力合约；移除 `dominant.py` 对 `d + 1 < len(days)` 的结束日依赖，消除 `end_day` 前瞻泄漏；`Performance` 修复极端盈亏差值有符号溢出 UB、首日回撤峰值基准（从 `deposit` 起算）与首日收益/波动率口径不一致，主力移仓平旧开新不再计作独立胜率回合。
+- 滚动验证与因子评估（`rolling.py`、`factor.py`）：滚动验证在训练期夏普比率无法算出时立即报错，不再静默全程空仓；因子评估改为仅用截至当日的已发生换月因子复权、按交易日历对齐截面远期收益，消除未来复权因子泄漏与停牌错位。
+
+完成检查：`MomentumRank` 跨主力换月不因升贴水跳空发出假信号；同一起点不同结束日的回测在重叠区间的主力切换日与复权价完全一致；首日亏损计入最大回撤；未开启夏普前提的滚动验证明确报错。
+
+### M3.145 Warehouse 覆盖查询内存优化、无成交日过滤与跨年自动更新
+
+- 覆盖查询与引擎锁（`reader.cpp`、`store.cpp`、`parquet_engine.cpp`）：`Reader::coverage()` 改为按交易所分批查询或直接汇总版本清单中的分区统计，避免单条 SQL 拼入数万个 Parquet 文件在 `128 MiB` 内存上限下 OOM；删除无调用的 `Lane::recording`，将 DuckDB 读查询与后台采集写分离连接。
+- 数据清洗与跨年更新（`sina.cpp`、`update.cpp`、`manager.cpp`、`durable_file.cpp`）：新浪日线过滤无成交日的 `"0.000"` 价格与结算价；`update.cpp` 同时查询上一年与当年日历，修复元旦后首个交易日自动更新漏采；`manager.cpp` 跳过已采集日期时不重复 `fsync` `jobs.json`，消除 `store.cpp` 与 `durable_file.cpp` 的重复目录 `fsync`。
+- Lab 并发与资源清理（`service.py`、`asterion_strategy.py`）：`on_start_sweep` 使用请求局部并发度而不覆写实例级 `self.processes`；因子评估结束后清理 `sources/factor-*` 临时目录；修复 `asterion_strategy.py` 未初始化数组尾部乘法。
+
+完成检查：上万个日线分区的 `coverage()` 在 128 MiB 限制下正常返回且不阻塞并发读取；新浪零成交日不产生 0 元结算价；跨年首日自动更新正常生成任务；因子评估后不残留临时源码目录。
+
+### M3.146 Terminal 原生层载荷上限、连接复用与渲染性能修复
+
+- 策略包载荷上限与隔离队列（`main.cjs`、`terminal.cpp`、`terminal_application.cpp`、`service_io.cpp`）：放宽 `publishStrategy` 等大载荷 IPC 的 64 KiB 限制以匹配服务端 512 KiB 策略包上限；将慢速轮询与紧急交易操作（撤单、平仓、撤销授权）隔离队列槽位，防止离线账户饿死正常账户操作；修复 `ServiceIo` 空闲时 2ms（500 Hz）空转唤醒与析构函数异常风险。
+- TLS 连接与证书缓存（`service_relay.hpp`、`trading_client.cpp`）：缓存 `SSL_CTX` 并复用健康通道，避免每秒 `getAccount` 轮询重读磁盘私钥并重新完成完整 TLS 1.3 握手。
+- 渲染性能与启动等待（`market.tsx`、`contract-names.ts`、`SetupGate.tsx`）：`MarketProvider` 在无新帧到达时不克隆 `quotes` Map 触发全应用重渲染；`findCatalogEntry` 改为 `Map` 索引查找；移除 `SetupGate.tsx` 人为强制等待 2.9 秒的动画定时器。
+
+完成检查：100 KiB 源码的策略包可正常发布；一个离线账户超时期间另一账户撤单立即响应；行情无新帧时渲染进程零无效重绘；Lab 就绪后启动页立即进入主工作台。
+
+### M3.147 编辑器体验、图表修复、视觉字体统一与文档清理
+
+- 代码编辑器与研究结果（`SourceEditor.tsx`、`ResearchResult.tsx`）：CodeMirror 接入 `indentWithTab`、暗色语法高亮主题与 `Ctrl+S`/`⌘S` 保存快捷键，支持打开辅助模块文件与一键复制内置策略；修复含固定参数时二维扫描热力图不显示、回撤与波动率默认排序方向反置、分钟成交标记时间戳不匹配及对比图悬停漏首条曲线的问题。
+- 行情与图表（`MarketBar.tsx`、`PriceChart.tsx`、`futures-sessions.json`）：「主力合约」视图按主力标志过滤；K 线图响应红涨绿跌实时切换、成交量轴只显示整数手、首根日期标签不裁切；补齐 `ec`、`ad`、`op`、`lg`、`bz`、`PL`、`pt`、`pd` 交易时段。
+- 视觉、字体、死代码与打包文档（`tokens.css`、`settings.css`、`style.css`、`BrandMark.tsx`、`package-deb.mjs`、`python_runtime.cpp`、`ctp_trading.py`、`docs/`）：统一窗口图标与 `BrandMark` 视觉、区分设置页图标、补齐 Linux 中英文字体栈；修复 `.settings-content button` 与 `.startup-screen` 级联覆盖，清理约 2,200 行无引用死 CSS 与违规 `toLocaleString` 日期格式；`python_runtime.cpp` 命中缓存也校验 SHA-256，补齐 Ubuntu 24.04 `.deb` 的 `tar`/`libcrypt1` 依赖与 Electron CSP；修复 `ctp_trading.py` 未定义变量崩溃；同步修正 `development.md`、`lab/architecture.md`、`warehouse/architecture.md`、`status.md` 与 `ci.yml`。
+
+完成检查：编辑器内按 Tab 缩进 4 空格；固定第 3 参数时 2D 热力图正常渲染；Linux 字体、设置按钮配色与 `YYYY-MM-DD HH:mm:ss` 时间格式生效；全仓无死 CSS、无过期文档路径，CI 覆盖非 `@trading` 端到端测试。
+
 ### M3.6 两周仿真浸泡（使用者）
 
 - 在 SimNow 用固定月份合约的策略连续运行两周，每天收盘后核对成交、持仓和资金。
@@ -285,13 +398,9 @@ M4.2 之前评估多合约执行耗时：当前按分支依次发送并等待持
 - 策略包只含源码和准备时刻，不记来自哪次回测；实盘与回测对照需要这条关联。是否在从运行准备策略包时带上运行 ID，交易页据此打开那次回测（参考 MLflow 模型版本记录来源运行，不引入别名和阶段）。
 - 风控是否增加资金/保证金占用、日内亏损和撤单次数限制（M5 之前决定）。
 - Warehouse 的旧数据集版本永远保留。版本本身只多一张清单，但重采替换下来的数据块因旧版本仍在引用而一直占用磁盘。是否加清理：保留最近一段时间和回测用过的版本，其余连同只被它们引用的数据块删除；回测记录在本机 Lab，需要设计如何让 Warehouse 知道哪些版本被用过（磁盘紧张时再定）。
-- Tushare 分钟线是否把集合竞价和收盘 tick 并入相邻 K 线，与 Trading 聚合的分钟 K 线是否一致（M4.0b 之前核实）。
 - 回测排除不完整分钟，Trading 仍交付跨越行情中断的 K 线；需明确统一规则，并验证断线前后策略输入（M4.0b 之前决定）。
 - 在 GitHub 的 Ubuntu runner 上，渲染进程崩溃后，内核把 core 管道给 systemd-coredump 时进程一直不退出，Terminal 也就不退出；CI 已改掉 `core_pattern`。还不清楚普通 Linux 桌面是否同样会卡，需要在装了 systemd-coredump 的机器上试一次。
 - 桌面测试偶尔在关闭 Electron 时超时（“did not release its process channels”），约一成，功能步骤都已通过；未抓到现场，可能与上一条同源。
-- 实盘预热只用 Trading 自己聚合的 K 线（交易规则第 7 条）：日线策略上线要先观察够均线长度那么多个交易日，改参数或换策略包又要重来，Trading 重启期间的 K 线永久缺失。是否允许把固定数据版本里的一段历史随策略包显式发布，只用于预热、不执行目标（M3.6 之前决定；改规则由使用者决定）。
-- 回测缺少交易所费率就停止：大商所、中金所、广期所的全部品种，上期所和能源中心 2024-07-22 之前、郑商所 2015-09-30 及以前，现在都不能回测。在来源补齐之前，是否允许某次运行显式填写费用假设，并在结果上标明“费用为假设”。
-- 回测按决策那根 K 线的收盘价挂限价、等价格回来才成交；实盘在下一根开始时按对手价立即成交。分钟线上差别不大，日线遇到跳空时回测不成交、实盘追价成交。是否把回测改为下一根开盘价成交（换月已经这样做），或做成运行选项。
 - 告警只在 Terminal 开着时有。实盘前需要交易主机自己能把实例结束、放弃批次、未确认委托和连接中断发出去；用什么渠道（M5 之前决定）。
 - `get_account` 每秒返回当日全部委托和成交，再经三次 JSON 转换到页面；一天上千笔委托时会拖慢交易页。是否改成只返回在途委托和计数，其余分页读取（M4.3 之前决定）。
 - 行情页主连的 1 分钟图在回放行情下价格上下剧烈跳动，同时标题显示“暂无新报价”；需确认是否混入了其他月份的报价。
