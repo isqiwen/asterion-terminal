@@ -1,4 +1,5 @@
 #include "manager.hpp"
+#include "freshness.hpp"
 #include <asterion/protocol/common.hpp>
 #include <asterion/protocol/warehouse.hpp>
 #include <asterion/system/log.hpp>
@@ -240,7 +241,8 @@ void Manager::work(
         publish(task, active);
         const auto whole = scope(active, request);
         // A source that fails leaves the next ones to fill what it lacks.
-        std::set<std::string> covered;
+        std::set<std::string> covered, empty;
+        const auto answered = warehouse::empty_keys(directory_.parent_path(), table(request));
         std::optional<wire::AcquisitionTask> failure;
         bool offered = false;
         for (const auto& provider : providers) {
@@ -259,7 +261,7 @@ void Manager::work(
             offered = offered || any;
             if (any)
                 try {
-                    run(active, *source, store, part, covered);
+                    run(active, *source, store, part, covered, answered, empty);
                 } catch (const SourceError& error) {
                     if (error.code == "cancelled")
                         throw;
@@ -283,6 +285,30 @@ void Manager::work(
                 }
             for (const auto& [key, part] : store.current().partitions)
                 covered.insert(key);
+        }
+        // A key every source answered empty, days after its day, will not come later.
+        if (!failure) {
+            const auto settled = day_text(
+                std::chrono::floor<std::chrono::days>(
+                    std::chrono::system_clock::now() + std::chrono::hours(8))
+                - std::chrono::days{3});
+            auto record = answered;
+            for (const auto& key : empty) {
+                const auto exchange = key.find('/', key.find('/') + 1);
+                if (!covered.contains(key) && key.substr(exchange + 1, 10) <= settled)
+                    record.insert(key);
+            }
+            std::erase_if(record, [&](const auto& key) {
+                return covered.contains(key);
+            });
+            if (record != answered) {
+                std::string text;
+                for (const auto& key : record)
+                    text += key + '\n';
+                replace_file_durably(
+                    warehouse::empty_file(directory_.parent_path(), table(request)),
+                    text);
+            }
         }
         task = copy();
         if (failure) {
@@ -509,7 +535,9 @@ void Manager::run(
     Source& source,
     warehouse::Store& store,
     const Scope& scope,
-    const std::set<std::string>& covered)
+    const std::set<std::string>& covered,
+    const std::set<std::string>& answered,
+    std::set<std::string>& empty)
 {
     wire::AcquisitionTask task;
     {
@@ -598,7 +626,8 @@ void Manager::run(
             if (!contract.empty())
                 key += "/" + contract.substr(exchange.size() + 1);
             if (!covered.contains(key)
-                && (request.refetch() || !version.partitions.contains(key))) {
+                && (request.refetch()
+                    || (!version.partitions.contains(key) && !answered.contains(key)))) {
                 using warehouse::rows;
                 const auto fetched = table(request) == "minutes"
                     ? rows(source.minutes(contract, day))
@@ -606,9 +635,10 @@ void Manager::run(
                     : table(request) == "price_ticks" ? rows(source.price_ticks(exchange, day))
                                                       : rows(source.daily(exchange, day));
                 check_stop(stop);
-                if (fetched.empty())
+                if (fetched.empty()) {
                     task.set_items_empty(task.items_empty() + 1);
-                else {
+                    empty.insert(key);
+                } else {
                     writer.put(key, fetched, {day});
                     ++unpublished;
                 }

@@ -345,7 +345,8 @@ TEST_F(ExchangeSources, PriceTickTasksDiscoverAndPublishOnlyObservedTradingDays)
     manager.submit(request);
     const auto again = wait(manager, "again");
     EXPECT_EQ(again.state(), ac::wire::TASK_STATE_SUCCEEDED) << again.error().message();
-    EXPECT_EQ(again.requests_sent(), 2);
+    // Days the exchange answered empty long after them are not asked again.
+    EXPECT_EQ(again.requests_sent(), 0);
     EXPECT_EQ(store.current().identity, original.identity);
 }
 
@@ -379,19 +380,20 @@ TEST_F(ExchangeSources, PriceTickTasksFillGapsAndKeepFixedVersions)
     EXPECT_EQ(fixed.partitions.at("price_ticks/CZCE/2022-01-04").source, "czce");
     EXPECT_FALSE(fixed.partitions.contains("price_ticks/CZCE/2022-01-05"));
 
+    // A day answered empty is filled by acquiring it again.
     available = true;
     request.set_id("fill-gap");
+    request.set_refetch(true);
     manager.submit(request);
     task = wait(manager, request.id());
     ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
-    EXPECT_EQ(task.requests_sent(), 1);
+    EXPECT_EQ(task.requests_sent(), 2);
     EXPECT_EQ(task.items_empty(), 0);
     wh::compose(root, research, wh::source_versions(root));
     EXPECT_TRUE(research.current().partitions.contains("price_ticks/CZCE/2022-01-05"));
 
     raw.replace(raw.find("1.00元/吨"), std::string("1.00元/吨").size(), "0.005元/吨");
     request.set_id("refetch");
-    request.set_refetch(true);
     manager.submit(request);
     task = wait(manager, request.id());
     ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
@@ -436,13 +438,13 @@ TEST_F(ExchangeSources, TaskOwnsDatedPartitionsAndKeepsPublishedDataAfterFailure
     EXPECT_TRUE(original.partitions.contains("settlement/SHFE/2026-10-30"));
     request.set_id("again");
     manager.submit(request);
-    EXPECT_EQ(
-        wait(manager, "again").requests_sent(),
-        1); // Only the missing publication is fetched again.
+    // Neither the stored day nor the one answered empty is fetched again.
+    EXPECT_EQ(wait(manager, "again").requests_sent(), 0);
     EXPECT_EQ(store.current().identity, original.identity);
     fail = true;
     request.set_id("partial");
     request.set_first_day("2026-10-28");
+    request.set_refetch(true);
     manager.submit(request);
     const auto failed = wait(manager, "partial");
     EXPECT_EQ(failed.state(), ac::wire::TASK_STATE_FAILED);

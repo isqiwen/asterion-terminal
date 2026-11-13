@@ -20,15 +20,18 @@ const monthsOf = (year: string) =>
   Array.from({ length: 12 }, (_, index) => `${year}-${String(index + 1).padStart(2, "0")}`);
 
 // One row of the matrix: a product's daily bars or a contract's minutes.
-type Row = { id: string; exchange: string; months: Map<string, { days: number; open: number }> };
-// Against the calendar's open days; "held" without a calendar, empty outside the row's span.
-type Cell = "full" | "partial" | "missing" | "held" | "";
+type Month = { days: number; open: number; empty: number };
+type Row = { id: string; exchange: string; months: Map<string, Month> };
+// Against the calendar's open days; "empty" when every source answered the rest
+// empty, "held" without a calendar, nothing outside the row's span.
+type Cell = "full" | "partial" | "empty" | "missing" | "held" | "";
 
 function cellOf(row: Row, month: string, first: string, last: string): Cell {
   const cell = row.months.get(month);
   if (!cell) return month > first && month < last ? "missing" : "";
   if (!cell.open) return "held";
-  return cell.days >= cell.open ? "full" : "partial";
+  if (cell.days >= cell.open) return "full";
+  return cell.days + cell.empty >= cell.open ? "empty" : "partial";
 }
 
 function rowsOf(coverage: DatasetCoverage, minutes: boolean): Row[] {
@@ -36,7 +39,9 @@ function rowsOf(coverage: DatasetCoverage, minutes: boolean): Row[] {
     return coverage.products.map(item => ({
       id: item.product,
       exchange: item.product.split("/")[0]!,
-      months: new Map(item.months.map(m => [m.month, { days: m.days, open: m.openDays }])),
+      months: new Map(
+        item.months.map(m => [m.month, { days: m.days, open: m.openDays, empty: m.emptyDays }]),
+      ),
     }));
   // Minutes have no calendar of their own: an exchange's open days come from its daily bars.
   const open = new Map<string, number>();
@@ -53,7 +58,7 @@ function rowsOf(coverage: DatasetCoverage, minutes: boolean): Row[] {
       months: new Map(
         item.months.map(m => [
           m.month,
-          { days: m.days, open: open.get(`${exchange}/${m.month}`) ?? 0 },
+          { days: m.days, open: open.get(`${exchange}/${m.month}`) ?? 0, empty: m.emptyDays },
         ]),
       ),
     };
@@ -167,7 +172,7 @@ function CoverageBody({ context }: { context: TerminalContext }) {
           )}
           <span className="data-legend" aria-hidden="true">
             <i data-cell="full" /> {t("齐全")} <i data-cell="partial" /> {t("部分")}{" "}
-            <i data-cell="missing" /> {t("缺失")}
+            <i data-cell="missing" /> {t("缺失")} <i data-cell="empty" /> {t("来源无数据")}
           </span>
           {acquires && (
             <button type="button" className="primary" onClick={() => setAcquiring({})}>
@@ -260,7 +265,10 @@ function Matrix({
                         title={
                           cell
                             ? cell.open
-                              ? `${cell.days} / ${cell.open}`
+                              ? `${cell.days} / ${cell.open}` +
+                                (cell.empty
+                                  ? ` · ${t("{days} 天来源无数据", { days: cell.empty })}`
+                                  : "")
                               : t("{days} 天", { days: cell.days })
                             : state && t("无数据")
                         }

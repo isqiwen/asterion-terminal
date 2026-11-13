@@ -2,6 +2,7 @@
 #include "composition.hpp"
 #include "acquisition/manager.hpp"
 #include "acquisition/update.hpp"
+#include "freshness.hpp"
 #include "support/warehouse_host.hpp"
 #include "support/timing.hpp"
 #include <asterion/warehouse.pb.h>
@@ -356,7 +357,7 @@ TEST_F(Acquisition, BudgetCancellationDoesNotWaitForTheMinuteOrSendAgain)
     EXPECT_EQ(sent, 0);
 }
 
-TEST_F(Acquisition, SkipsStoredDaysRefreshesOneDayAndLeavesEmptyDaysMissing)
+TEST_F(Acquisition, SkipsStoredDaysAndDaysEverySourceFoundEmptyUntilRefetched)
 {
     auto vendor = std::make_shared<Vendor>();
     vendor->empty.insert("20260106");
@@ -370,12 +371,25 @@ TEST_F(Acquisition, SkipsStoredDaysRefreshesOneDayAndLeavesEmptyDaysMissing)
     const auto original = store.current();
     EXPECT_TRUE(original.partitions.contains("daily/SHFE/2026-01-05"));
     EXPECT_FALSE(original.partitions.contains("daily/SHFE/2026-01-06"));
+    // Long after its day the empty answer is recorded beside the tasks, not in
+    // the dataset, and the day is not asked for again.
+    EXPECT_EQ(wh::empty_keys(root, "daily"), std::set<std::string>{"daily/SHFE/2026-01-06"});
     vendor->empty.clear();
-    manager.submit(request("fill"));
+    const auto asked = vendor->days.size();
+    manager.submit(request("again"));
+    const auto again = finished(manager, "again");
+    EXPECT_EQ(again.state(), ac::wire::TASK_STATE_SUCCEEDED);
+    EXPECT_EQ(vendor->days.size(), asked);
+    EXPECT_FALSE(store.current().partitions.contains("daily/SHFE/2026-01-06"));
+    // Refetching asks again; a day that now has bars is no longer recorded.
+    auto fill = request("fill");
+    fill.set_refetch(true);
+    manager.submit(fill);
     const auto filled = finished(manager, "fill");
     EXPECT_EQ(filled.state(), ac::wire::TASK_STATE_SUCCEEDED);
     EXPECT_EQ(filled.items(), 2);
     EXPECT_EQ(filled.items_empty(), 0);
+    EXPECT_TRUE(wh::empty_keys(root, "daily").empty());
     const auto before_refresh = store.current();
     auto refresh = request("refresh");
     refresh.set_first_day("2026-01-05");
@@ -401,15 +415,43 @@ TEST_F(Acquisition, SkipsStoredDaysRefreshesOneDayAndLeavesEmptyDaysMissing)
     EXPECT_THROW(restarted.submit(request("first")), Error);
     ac::wire::ListAcquisitionTasks query;
     const auto page = restarted.list(query);
-    ASSERT_EQ(page.tasks_size(), 3);
+    ASSERT_EQ(page.tasks_size(), 4);
     EXPECT_TRUE(page.next_id().empty());
     // Newest first.
     EXPECT_EQ(page.tasks(0).request().id(), "refresh");
-    EXPECT_EQ(page.tasks(2).request().id(), "first");
+    EXPECT_EQ(page.tasks(3).request().id(), "first");
     query.set_after_id(page.tasks(0).request().id());
     EXPECT_EQ(restarted.list(query).tasks(0).request().id(), page.tasks(1).request().id());
     query.clear_after_id();
-    EXPECT_EQ(restarted.list(query).tasks_size(), 3);
+    EXPECT_EQ(restarted.list(query).tasks_size(), 4);
+}
+
+TEST_F(Acquisition, AnEmptyAnswerWithinThreeDaysOfItsDayStaysMissing)
+{
+    // A provider may publish a day late.
+    auto vendor = std::make_shared<Vendor>();
+    vendor->full_calendar = true;
+    const auto today = std::chrono::floor<std::chrono::days>(
+        std::chrono::system_clock::now() + std::chrono::hours(8));
+    for (int back = 1; back <= 10; ++back) {
+        auto compact = ac::day_text(today - std::chrono::days(back));
+        std::erase(compact, '-');
+        vendor->empty.insert(compact);
+    }
+    ac::Manager manager(root, {{"tushare", factory(vendor)}});
+    auto recent = request("recent");
+    recent.set_first_day(ac::day_text(today - std::chrono::days(10)));
+    recent.set_last_day(ac::day_text(today - std::chrono::days(1)));
+    manager.submit(recent);
+    ASSERT_EQ(finished(manager, "recent").state(), ac::wire::TASK_STATE_SUCCEEDED);
+    std::set<std::string> settled;
+    for (auto day : vendor->days) {
+        day = day.substr(0, 4) + "-" + day.substr(4, 2) + "-" + day.substr(6);
+        if (day <= ac::day_text(today - std::chrono::days(3)))
+            settled.insert("daily/SHFE/" + day);
+    }
+    EXPECT_FALSE(settled.empty());
+    EXPECT_EQ(wh::empty_keys(root, "daily"), settled);
 }
 
 TEST_F(Acquisition, AProviderIsNotAskedForToday)

@@ -1,6 +1,8 @@
 #pragma once
 #include "store.hpp"
+#include <filesystem>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -13,6 +15,12 @@ std::string yesterday();
 using OpenDays = std::map<std::string, std::vector<std::string>>;
 OpenDays open_days(const Store&, const Version&, const std::string& through);
 
+// Partition keys of a table that every source answered empty at least three
+// days after their day. Kept beside the acquisition tasks, not in the dataset:
+// an empty partition would let research take the day as stored.
+std::filesystem::path empty_file(const std::filesystem::path& directory, const std::string& table);
+std::set<std::string> empty_keys(const std::filesystem::path& directory, const std::string& table);
+
 // What one exchange holds of a day-partitioned table (daily, settlement,
 // price_ticks), or one contract (EXCHANGE/product/YYYY-MM) of minutes.
 struct Holding
@@ -21,11 +29,17 @@ struct Holding
     // The last day it should hold: its exchange's last open day, or the
     // contract's delisting; empty without a calendar for the exchange.
     std::string through;
-    // Open days from its first day through `through` that it lacks.
-    std::uint64_t missing = 0;
+    // Open days from its first day through `through` that it lacks, apart
+    // from the `empty` ones every source answered empty.
+    std::uint64_t missing = 0, empty = 0;
 };
 
-std::map<std::string, Holding>
-holdings(const Store&, const Version&, const std::string& table, const OpenDays&);
+// `last` counts the empty days too: nothing after them is due again.
+std::map<std::string, Holding> holdings(
+    const Store&,
+    const Version&,
+    const std::string& table,
+    const OpenDays&,
+    const std::set<std::string>& empty);
 
 } // namespace asterion::warehouse

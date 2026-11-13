@@ -223,6 +223,9 @@
 :is(.coverage-matrix td, .data-legend i)[data-cell="missing"] {
   background: color-mix(in srgb, var(--danger) 18%, transparent);
 }
+:is(.coverage-matrix td, .data-legend i)[data-cell="empty"] {
+  background: repeating-linear-gradient(135deg, var(--line-strong) 0 2px, transparent 2px 5px);
+}
 .coverage-matrix td[data-cell="held"] {
   background: var(--accent-surface);
 }

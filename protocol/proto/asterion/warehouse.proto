@@ -136,6 +136,9 @@ message TableSummary {
   // through then. Empty and 0 for the other tables and without a calendar.
   string expected_last_day = 6;
   uint64 missing = 7;
+  // Open days in that span that every source answered empty at least three
+  // days after them; not in `missing`, and not acquired again unless refetched.
+  uint64 source_empty = 8;
 }
 
 // Versions, newest first: from the current one, or after `after_version` when paging.
@@ -203,6 +206,8 @@ message MonthCoverage {
   string month = 1;
   uint32 days = 2;
   uint32 open_days = 3;
+  // Open days without bars that every source answered empty.
+  uint32 empty_days = 4;
 }
 
 message ContractCoverage {
@@ -215,6 +220,7 @@ message ContractCoverage {
 message MinuteMonth {
   string month = 1;
   uint32 days = 2;
+  uint32 empty_days = 3;
 }
 
 // ---- Acquisition

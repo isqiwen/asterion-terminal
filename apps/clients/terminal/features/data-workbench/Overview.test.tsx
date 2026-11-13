@@ -47,6 +47,7 @@ function serve(tasks: (afterId: string) => { tasks: unknown[]; nextId: string })
               lastDay: "2026-11-10",
               expectedLastDay: "2026-11-12",
               missing: 2n,
+              sourceEmpty: 3n,
             },
             {
               table: Table.SETTLEMENT,
@@ -82,6 +83,7 @@ test("each table's state is shown against its calendar, and an update brings it 
   const row = (name: string) => within(status).getByRole("row", { name: new RegExp(`^${name}`) });
   expect(row("日线").textContent).toContain("缺 2 个交易日");
   expect(row("日线").textContent).toContain("应到 2026-11-12");
+  expect(row("日线").textContent).toContain("另有 3 个交易日来源无数据");
   expect(row("结算参数").textContent).toContain("最新");
   expect(row("分钟线").textContent).toContain("未采集");
   fireEvent.click(screen.getByRole("button", { name: "更新到最新" }));

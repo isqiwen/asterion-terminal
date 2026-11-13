@@ -63,6 +63,11 @@ function serve(tables = [Table.DAILY, Table.MINUTES, Table.PRICE_TICKS]) {
                     { month: "2026-10", days: 16, openDays: 16 },
                   ],
                 },
+                // Every source answered the other six days empty.
+                {
+                  product: "SHFE/au",
+                  months: [{ month: "2026-10", days: 10, openDays: 16, emptyDays: 6 }],
+                },
               ],
               contracts: [
                 { contract: "SHFE/cu/2026-12", months: [{ month: "2026-10", days: 3 }] },
@@ -104,6 +109,10 @@ test("each product's months show complete, partial and missing against the calen
   // Months before the first and after the last held one are not gaps.
   expect(cells[5]!.hasAttribute("data-cell")).toBe(false);
   expect(cells[10]!.hasAttribute("data-cell")).toBe(false);
+  // Days no source has are not offered again.
+  const gold = within(within(matrix).getByRole("row", { name: /SHFE\/au/ })).getAllByRole("cell");
+  expect(gold[9]!.getAttribute("data-cell")).toBe("empty");
+  expect(screen.queryByRole("button", { name: "补采 SHFE/au 2026-10" })).toBeNull();
 });
 
 test("a gap opens an acquisition of its product or contract and month only", async () => {

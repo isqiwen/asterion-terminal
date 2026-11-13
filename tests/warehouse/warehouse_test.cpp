@@ -480,17 +480,27 @@ TEST_F(Warehouse, FreshnessCountsTheOpenDaysEachExchangeAndContractLacks)
     const auto open = wh::open_days(store, version, "2026-10-30");
     ASSERT_EQ(open.at("SHFE").size(), 5);
     // The exchange lacks the 28th and the 30th; one without a calendar is unknown.
-    const auto daily = wh::holdings(store, version, "daily", open);
+    const auto daily = wh::holdings(store, version, "daily", open, {});
     EXPECT_EQ(daily.at("SHFE").last, "2026-10-29");
     EXPECT_EQ(daily.at("SHFE").through, "2026-10-30");
     EXPECT_EQ(daily.at("SHFE").missing, 2);
     EXPECT_TRUE(daily.at("DCE").through.empty());
     EXPECT_EQ(daily.at("DCE").missing, 0);
     // A delisted contract is complete at its delisting; a listed one lacks the 30th.
-    const auto minutes = wh::holdings(store, version, "minutes", open);
+    const auto minutes = wh::holdings(store, version, "minutes", open, {});
     EXPECT_EQ(minutes.at("SHFE/rb/2026-11").through, "2026-10-28");
     EXPECT_EQ(minutes.at("SHFE/rb/2026-11").missing, 0);
     EXPECT_EQ(minutes.at("SHFE/rb/2027-01").missing, 1);
+    // A day every source answered empty is not missing, and the last one ends the holding.
+    const auto answered = wh::holdings(
+        store,
+        version,
+        "daily",
+        open,
+        {"daily/SHFE/2026-10-28", "daily/SHFE/2026-10-30"});
+    EXPECT_EQ(answered.at("SHFE").missing, 0);
+    EXPECT_EQ(answered.at("SHFE").empty, 2);
+    EXPECT_EQ(answered.at("SHFE").last, "2026-10-30");
 
     wire::DatasetRef query;
     const auto summary = wh::Reader(root).summary(query);
@@ -500,6 +510,12 @@ TEST_F(Warehouse, FreshnessCountsTheOpenDaysEachExchangeAndContractLacks)
     EXPECT_EQ(summary.tables(3).table(), wire::TABLE_MINUTES);
     EXPECT_EQ(summary.tables(3).missing(), 1);
     EXPECT_TRUE(summary.tables(1).expected_last_day().empty());
+    // The record of days every source answered empty takes them out of the gaps.
+    fs::create_directories(root / "acquisition");
+    replace_file_durably(wh::empty_file(root, "daily"), "daily/SHFE/2026-10-28\n");
+    const auto recorded = wh::Reader(root).summary(query);
+    EXPECT_EQ(recorded.tables(0).missing(), 1);
+    EXPECT_EQ(recorded.tables(0).source_empty(), 1);
 }
 
 TEST_F(Warehouse, ProductCoverageStaysOnOneVersionAndMissingCalendarStaysUnknown)

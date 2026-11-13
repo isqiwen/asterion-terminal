@@ -148,6 +148,12 @@ function OverviewBody({ context }: { context: TerminalContext }) {
                 </td>
                 <td>
                   {status && <StatusBadge tone={status.tone}>{status.text}</StatusBadge>}
+                  {item?.sourceEmpty ? (
+                    <span className="subtle">
+                      {" "}
+                      {t("另有 {count} 个交易日来源无数据", { count: Number(item.sourceEmpty) })}
+                    </span>
+                  ) : null}
                   {item?.rows && item.lastDay < item.expectedLastDay ? (
                     <span className="subtle">
                       {" "}

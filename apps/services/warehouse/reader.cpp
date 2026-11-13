@@ -166,8 +166,10 @@ wire::DatasetSummary Reader::summary(const wire::DatasetRef& query) const
         }
         if (std::string_view(table) == "calendar" || std::string_view(table) == "contracts")
             continue;
-        for (const auto& [holder, holding] : holdings(store, version, table, open)) {
+        for (const auto& [holder, holding] :
+            holdings(store, version, table, open, empty_keys(directory_, table))) {
             item->set_missing(item->missing() + holding.missing);
+            item->set_source_empty(item->source_empty() + holding.empty);
             item->set_expected_last_day(std::max(item->expected_last_day(), holding.through));
         }
     }
@@ -284,6 +286,21 @@ wire::DatasetCoverage Reader::coverage(const wire::DatasetRef& query) const
         if (files)
             *files += (files->empty() ? "" : ",") + parquet::literal(store.file(version, key));
     }
+    // Days every source answered empty: exchange-days of daily bars, contract-days of minutes.
+    std::map<std::string, std::uint32_t> empty_daily;
+    for (const auto& key : empty_keys(directory_, "minutes")) {
+        std::istringstream fields(key);
+        std::string table, exchange, day, product, delivery;
+        for (auto* field : {&table, &exchange, &day, &product, &delivery})
+            std::getline(fields, *field, '/');
+        const auto contract = minutes.find(exchange + '/' + product + '/' + delivery);
+        if (contract != minutes.end())
+            contract->second[day.substr(0, 7)].set_empty_days(
+                contract->second[day.substr(0, 7)].empty_days() + 1);
+    }
+    for (const auto& key : empty_keys(directory_, "daily"))
+        // daily/EXCHANGE/YYYY-MM-DD
+        ++empty_daily[key.substr(6, key.size() - 9)];
     for (auto& [contract, months] : minutes) {
         auto* item = result.add_contracts();
         item->set_contract(contract);
@@ -315,6 +332,9 @@ wire::DatasetCoverage Reader::coverage(const wire::DatasetRef& query) const
         month->set_month(rows->GetValue(2, row).ToString());
         month->set_days(rows->GetValue(3, row).GetValue<std::uint32_t>());
         month->set_open_days(rows->GetValue(4, row).GetValue<std::uint32_t>());
+        if (const auto at = empty_daily.find(exchange + '/' + month->month());
+            at != empty_daily.end())
+            month->set_empty_days(at->second);
     }
     return result;
 }

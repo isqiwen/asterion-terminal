@@ -41,7 +41,8 @@ std::vector<wire::StartAcquisition> update_requests(
     for (const std::string table : {"daily", "minutes", "settlement", "price_ticks"}) {
         std::string first;
         std::vector<std::string> due;
-        for (const auto& [holder, holding] : holdings(store, version, table, open))
+        for (const auto& [holder, holding] :
+            holdings(store, version, table, open, empty_keys(directory, table)))
             if (holding.last < holding.through) {
                 due.push_back(holder);
                 const auto next = day_text(day_of(holding.last) + std::chrono::days{1});

@@ -53,8 +53,16 @@ private:
     void work(Active&, const wire::StartAcquisition&, const std::vector<std::string>& providers);
     Scope scope(Active&, const wire::StartAcquisition&);
     std::vector<Contract> listed(Active&, const std::string& exchange);
-    void
-    run(Active&, Source&, warehouse::Store&, const Scope&, const std::set<std::string>& covered);
+    // Keys in `answered` every source found empty before: taken again only when
+    // refetching. This source's empty answers are added to `empty`.
+    void run(
+        Active&,
+        Source&,
+        warehouse::Store&,
+        const Scope&,
+        const std::set<std::string>& covered,
+        const std::set<std::string>& answered,
+        std::set<std::string>& empty);
     void persist(const wire::AcquisitionTask&) const;
     void publish(const wire::AcquisitionTask&, Active&);
     void reap();

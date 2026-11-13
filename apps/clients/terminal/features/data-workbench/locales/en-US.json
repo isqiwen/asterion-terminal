@@ -147,5 +147,8 @@
   "覆盖": "Coverage",
   "还没有数据": "No data yet",
   "部分": "Partial",
-  "齐全": "Complete"
+  "齐全": "Complete",
+  "来源无数据": "No source data",
+  "{days} 天来源无数据": "{days} days without source data",
+  "另有 {count} 个交易日来源无数据": "plus {count} trading days with no source data"
 }
