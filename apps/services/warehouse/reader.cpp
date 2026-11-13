@@ -1,4 +1,5 @@
 #include "reader.hpp"
+#include "freshness.hpp"
 #include "parquet_engine.hpp"
 #include <asterion/protocol/warehouse.hpp>
 #include <asterion/base/error.hpp>
@@ -129,6 +130,7 @@ wire::DatasetSummary Reader::summary(const wire::DatasetRef& query) const
     const auto version = selected(store, query.version());
     wire::DatasetSummary result;
     *result.mutable_dataset() = dataset_of(version);
+    const auto open = open_days(store, version, yesterday());
     for (const auto* table :
         {"daily", "calendar", "contracts", "minutes", "settlement", "price_ticks"}) {
         auto* item = result.add_tables();
@@ -161,6 +163,12 @@ wire::DatasetSummary Reader::summary(const wire::DatasetRef& query) const
         if (!days.empty()) {
             item->set_first_day(*days.begin());
             item->set_last_day(*days.rbegin());
+        }
+        if (std::string_view(table) == "calendar" || std::string_view(table) == "contracts")
+            continue;
+        for (const auto& [holder, holding] : holdings(store, version, table, open)) {
+            item->set_missing(item->missing() + holding.missing);
+            item->set_expected_last_day(std::max(item->expected_last_day(), holding.through));
         }
     }
     return result;

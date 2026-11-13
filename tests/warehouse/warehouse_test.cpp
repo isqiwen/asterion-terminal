@@ -1,4 +1,5 @@
 #include "reader.hpp"
+#include "freshness.hpp"
 #include "composition.hpp"
 #include "support/warehouse_host.hpp"
 #include "parquet_engine.hpp"
@@ -437,6 +438,68 @@ TEST_F(Warehouse, SourcesAndSummaryAreReadOnlyAndVersioned)
     EXPECT_EQ(coverage.tables(0).last_day(), "2026-10-30");
     EXPECT_EQ(coverage.tables(1).rows(), 0);
     EXPECT_TRUE(coverage.tables(1).first_day().empty());
+}
+
+TEST_F(Warehouse, FreshnessCountsTheOpenDaysEachExchangeAndContractLacks)
+{
+    wh::Store store(wh::source_directory(root, "research"), "research");
+    auto writer = store.writer();
+    std::vector<wh::Row> calendar;
+    for (const auto* day :
+        {"2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30", "2026-10-31"}) {
+        auto value = row("calendar");
+        value[0] = std::string("SHFE");
+        value[1] = std::string(day);
+        value[2] = std::string_view(day) != "2026-10-31";
+        calendar.push_back(value);
+    }
+    writer.put("calendar/SHFE/2026", calendar);
+    std::vector<wh::Row> contracts;
+    for (const auto& [contract, delisted] :
+        {std::pair{"SHFE/rb/2026-11", "2026-10-28"}, std::pair{"SHFE/rb/2027-01", "2027-01-15"}}) {
+        auto value = row("contracts");
+        value[1] = std::string(contract);
+        value[7] = std::string(delisted);
+        contracts.push_back(value);
+    }
+    writer.put("contracts/SHFE", contracts);
+    for (const auto* key :
+        {"daily/SHFE/2026-10-26",
+            "daily/SHFE/2026-10-27",
+            "daily/SHFE/2026-10-29",
+            "daily/DCE/2026-10-30",
+            "minutes/SHFE/2026-10-27/rb/2026-11",
+            "minutes/SHFE/2026-10-28/rb/2026-11",
+            "minutes/SHFE/2026-10-29/rb/2027-01"})
+        writer.put(
+            key,
+            std::vector<wh::Row>{row(
+                std::string_view(key).substr(0, std::string_view(key).find('/')))});
+    const auto version = writer.commit();
+
+    const auto open = wh::open_days(store, version, "2026-10-30");
+    ASSERT_EQ(open.at("SHFE").size(), 5);
+    // The exchange lacks the 28th and the 30th; one without a calendar is unknown.
+    const auto daily = wh::holdings(store, version, "daily", open);
+    EXPECT_EQ(daily.at("SHFE").last, "2026-10-29");
+    EXPECT_EQ(daily.at("SHFE").through, "2026-10-30");
+    EXPECT_EQ(daily.at("SHFE").missing, 2);
+    EXPECT_TRUE(daily.at("DCE").through.empty());
+    EXPECT_EQ(daily.at("DCE").missing, 0);
+    // A delisted contract is complete at its delisting; a listed one lacks the 30th.
+    const auto minutes = wh::holdings(store, version, "minutes", open);
+    EXPECT_EQ(minutes.at("SHFE/rb/2026-11").through, "2026-10-28");
+    EXPECT_EQ(minutes.at("SHFE/rb/2026-11").missing, 0);
+    EXPECT_EQ(minutes.at("SHFE/rb/2027-01").missing, 1);
+
+    wire::DatasetRef query;
+    const auto summary = wh::Reader(root).summary(query);
+    EXPECT_EQ(summary.tables(0).table(), wire::TABLE_DAILY);
+    EXPECT_EQ(summary.tables(0).expected_last_day(), "2026-10-30");
+    EXPECT_EQ(summary.tables(0).missing(), 2);
+    EXPECT_EQ(summary.tables(3).table(), wire::TABLE_MINUTES);
+    EXPECT_EQ(summary.tables(3).missing(), 1);
+    EXPECT_TRUE(summary.tables(1).expected_last_day().empty());
 }
 
 TEST_F(Warehouse, ProductCoverageStaysOnOneVersionAndMissingCalendarStaysUnknown)

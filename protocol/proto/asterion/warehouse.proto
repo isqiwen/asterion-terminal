@@ -125,6 +125,12 @@ message TableSummary {
   uint64 rows = 3;
   string first_day = 4;
   string last_day = 5;
+  // Daily, minutes, settlement and price ticks, by the version's calendar: the
+  // last day the table should hold through yesterday (Beijing), and the open
+  // days each exchange (each contract, for minutes) lacks from its first day
+  // through then. Empty and 0 for the other tables and without a calendar.
+  string expected_last_day = 6;
+  uint64 missing = 7;
 }
 
 // Versions, newest first: from the current one, or after `after_version` when paging.
