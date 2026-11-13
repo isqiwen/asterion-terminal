@@ -7,7 +7,7 @@ import { notify } from "../../src/host/notifications";
 import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/errors";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
-import { type MessageValues, getLocale, translate, listSeparator } from "../../src/i18n";
+import { type MessageValues, translate, listSeparator } from "../../src/i18n";
 import {
   defaultFactorForm,
   defaultText,
@@ -389,7 +389,7 @@ function FactorLibrary({
                   <td className="numeric">{metric(first?.t, false)}</td>
                   <td className="subtle numeric">
                     {result
-                      ? new Date(Number(result.evaluatedMs)).toLocaleString(getLocale(), {
+                      ? new Date(Number(result.evaluatedMs)).toLocaleString("sv-SE", {
                           hour12: false,
                         })
                       : "—"}

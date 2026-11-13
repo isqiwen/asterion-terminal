@@ -107,13 +107,11 @@
   width: 1ch;
   flex: 0 0 1ch;
 }
-.market-chart-unavailable,
 .market-history-chart {
   padding: var(--space-1) var(--space-2);
   border-top: 1px solid var(--grid);
   min-width: 0;
 }
-.market-chart-unavailable p,
 .market-history-chart .subtle {
   color: var(--muted);
   font-size: var(--font-size-body);
@@ -220,7 +218,6 @@
 }
 
 @media (min-width: 901px) {
-  .market-chart-unavailable,
   .market-history-chart {
     display: flex;
     flex-direction: column;

@@ -5,7 +5,7 @@ import {
   type DatasetChange,
 } from "../../src/generated/asterion/warehouse_pb";
 import { ActionError, useActionError } from "../../src/host/action-error";
-import { getLocale, listSeparator } from "../../src/i18n";
+import { listSeparator } from "../../src/i18n";
 import { StatusBadge, type Tone } from "../../src/ui/StatusBadge";
 import { t, tableName } from "./dataset";
 import { changeText } from "./Page";
@@ -27,12 +27,8 @@ const tones: Record<number, Tone> = {
 export const activeTask = (task: AcquisitionTask) =>
   [TaskState.QUEUED, TaskState.RUNNING].includes(task.state);
 const time = (ms: bigint) =>
-  new Date(Number(ms)).toLocaleString(getLocale(), {
+  new Date(Number(ms)).toLocaleString("sv-SE", {
     hour12: false,
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
   });
 
 // Every client's tasks and the versions they published, newest first.

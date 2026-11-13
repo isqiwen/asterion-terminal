@@ -116,18 +116,6 @@ html[lang="en-US"] .activity-rail.expanded {
 .status-bar button {
   min-height: 24px;
 }
-.terminal-tasks {
-  height: 170px;
-  background: var(--panel);
-}
-.task-dock .panel-heading {
-  background: transparent;
-}
-.terminal-task-list button {
-  background: var(--raised);
-  border-color: transparent;
-  padding: var(--space-3) var(--space-3);
-}
 @media (max-width: 1000px) {
   .workbench-header {
     padding-inline: var(--space-3);

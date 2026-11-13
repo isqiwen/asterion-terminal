@@ -240,12 +240,12 @@ export function QuoteTable({
                       {q?.exchangeMs !== undefined ? (
                         <time
                           dateTime={new Date(Number(q.exchangeMs)).toISOString()}
-                          title={new Date(Number(q.exchangeMs)).toLocaleString(getLocale(), {
+                          title={new Date(Number(q.exchangeMs)).toLocaleString("sv-SE", {
                             timeZone: "Asia/Shanghai",
                             hour12: false,
                           })}
                         >
-                          {new Date(Number(q.exchangeMs)).toLocaleString(getLocale(), {
+                          {new Date(Number(q.exchangeMs)).toLocaleString("sv-SE", {
                             timeZone: "Asia/Shanghai",
                             hour12: false,
                           })}

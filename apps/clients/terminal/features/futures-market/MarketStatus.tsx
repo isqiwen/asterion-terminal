@@ -8,7 +8,7 @@ import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/e
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 // Beijing time; the bar shows the time of day and the date on hover.
 const clock = (value: bigint, date: boolean) =>
-  new Date(Number(value))[date ? "toLocaleString" : "toLocaleTimeString"](getLocale(), {
+  new Date(Number(value))[date ? "toLocaleString" : "toLocaleTimeString"]("sv-SE", {
     timeZone: "Asia/Shanghai",
     hour12: false,
   });

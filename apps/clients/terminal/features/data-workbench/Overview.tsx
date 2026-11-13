@@ -105,7 +105,7 @@ function OverviewBody({ context }: { context: TerminalContext }) {
               <>
                 <code title={latest}>{latest.slice(0, 8)}</code>
                 {" · "}
-                {new Date(Number(summary.dataset!.createdMs)).toLocaleString(getLocale(), {
+                {new Date(Number(summary.dataset!.createdMs)).toLocaleString("sv-SE", {
                   hour12: false,
                 })}
               </>

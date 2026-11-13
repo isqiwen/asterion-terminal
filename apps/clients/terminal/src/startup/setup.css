@@ -116,17 +116,6 @@
   }
 }
 
-.setup-notices {
-  text-align: left;
-  list-style: none;
-  padding: 0;
-  margin: var(--space-4) 0 0;
-  font-size: var(--font-size-body);
-  line-height: 1.6;
-  color: var(--warning);
-  max-height: 96px;
-  overflow-y: auto;
-}
 .setup-step > small {
   text-align: right;
   font-size: var(--font-size-xs);

@@ -179,9 +179,11 @@ export function RunResult({
   const trades: TradeMark[] = detail.fills
     .filter(fill => fill.contract === contract)
     .map(fill => ({
-      // A day's fills sit on its bar; a minute fill on the bar that ends at its time.
+      // A day's fills sit on its bar; a minute fill on the bar that covers its execution time.
       index: bars.findIndex(bar =>
-        daily ? bar.tradingDay === fill.tradingDay : bar.endMs === fill.timeMs,
+        daily
+          ? bar.tradingDay === fill.tradingDay
+          : bar.tradingDay === fill.tradingDay && bar.endMs >= fill.timeMs,
       ),
       side: fill.side === Side.BUY ? ("buy" as const) : ("sell" as const),
       text: `${fill.side === Side.BUY ? t("买") : t("卖")} ${Number(fill.lots?.text)}@${Number(fill.price?.text)}`,
@@ -668,7 +670,11 @@ function Comparison({ joined }: { joined: string }) {
         volumeLabel={t("成交量")}
         showVolume={false}
         formatTime={value => day(BigInt(value))}
-        describe={index => first.days[index].tradingDay}
+        describe={index =>
+          first.days[index]
+            ? `${first.days[index].tradingDay} · ${name(first)}: ${(Number(first.days[index].equity?.text) / base(first)).toFixed(4)}`
+            : null
+        }
       />
     </div>
   );
@@ -696,8 +702,14 @@ export function SweepResult({
     params: Object.fromEntries(names.map(name => [name, parameterText(run.params[name])])),
     metric: run.metrics[measure] ?? null,
   }));
-  const ranked = [...rows].sort((a, b) => (b.metric ?? -Infinity) - (a.metric ?? -Infinity));
-  const grid = names.length === 2 ? heatmap(rows, names[0], names[1]) : null;
+  const lowerBetter = /drawdown|volatility|ulcer/.test(measure);
+  const ranked = [...rows].sort((a, b) => {
+    if (a.metric === null) return 1;
+    if (b.metric === null) return -1;
+    return lowerBetter ? a.metric - b.metric : b.metric - a.metric;
+  });
+  const sweptNames = names.filter(name => new Set(rows.map(row => row.params[name])).size > 1);
+  const grid = sweptNames.length === 2 ? heatmap(rows, sweptNames[0], sweptNames[1]) : null;
   const values = rows.flatMap(row => (row.metric === null ? [] : [row.metric]));
   const low = Math.min(...values),
     high = Math.max(...values);
@@ -726,7 +738,7 @@ export function SweepResult({
           <thead>
             <tr>
               <th>
-                {names[0]} \ {names[1]}
+                {sweptNames[0]} \ {sweptNames[1]}
               </th>
               {grid.columns.map(column => (
                 <th key={column}>{column}</th>
@@ -737,20 +749,28 @@ export function SweepResult({
             {grid.rows.map((row, r) => (
               <tr key={row}>
                 <th>{row}</th>
-                {grid.cells[r].map((cell, c) => (
-                  <td
-                    key={c}
-                    style={
-                      cell === null || high === low
-                        ? undefined
-                        : {
-                            background: `rgba(82, 120, 206, ${(0.15 + (0.7 * (cell - low)) / (high - low)).toFixed(2)})`,
-                          }
-                    }
-                  >
-                    {cell === null ? "—" : metric(cell, percent)}
-                  </td>
-                ))}
+                {grid.cells[r].map((cell, c) => {
+                  const ratio =
+                    cell === null || high === low
+                      ? null
+                      : lowerBetter
+                        ? (high - cell) / (high - low)
+                        : (cell - low) / (high - low);
+                  return (
+                    <td
+                      key={c}
+                      style={
+                        ratio === null
+                          ? undefined
+                          : {
+                              background: `rgba(82, 120, 206, ${(0.15 + 0.7 * ratio).toFixed(2)})`,
+                            }
+                      }
+                    >
+                      {cell === null ? "—" : metric(cell, percent)}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>

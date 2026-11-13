@@ -127,3 +127,63 @@ test("a folded group says what is set, and a recent run opens its report", async
     params: { run: "once-2" },
   });
 });
+
+test("editor indents four spaces on Tab, saves on Ctrl+S, and copies a built-in module", async () => {
+  const files: Record<string, { content: string; readOnly: boolean }> = {
+    "strategies/builtin.py": {
+      content: "from strategies._rules import helper\n",
+      readOnly: true,
+    },
+    "strategies/builtin_copy.py": {
+      content: "from strategies._rules import helper\n",
+      readOnly: false,
+    },
+  };
+  vi.mocked(lab).mockReset();
+  vi.mocked(lab).mockImplementation(async operation => {
+    switch (operation?.case) {
+      case "listStrategies":
+        return create(StrategiesSchema, {
+          strategies: [{ id: "builtin.Builtin" }],
+        }) as never;
+      case "listRuns":
+        return create(RunsSchema, {}) as never;
+      case "readSource": {
+        const entry = files[operation.value.path!] ?? { content: "", readOnly: false };
+        return create(SourceSchema, entry) as never;
+      }
+      case "saveSource":
+        files[operation.value.source!.path!] = {
+          content: operation.value.content!,
+          readOnly: false,
+        };
+        return {} as never;
+    }
+    return new Promise(() => {}) as never;
+  });
+  const context = {
+    snapshot: { research_directory: "/research" },
+    navigate: vi.fn(),
+  } as unknown as TerminalContext;
+  render(
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.lab-strategies">
+      <StrategyLab {...context} />
+    </WorkspaceDraftScope>,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: /Builtin/ }));
+  await screen.findByRole("button", { name: "strategies/_rules.py" });
+  fireEvent.click(screen.getByRole("button", { name: "复制为新模块" }));
+  fireEvent.click(screen.getByRole("button", { name: "创建" }));
+  await waitFor(() =>
+    expect(screen.getByRole("region", { name: "strategies/builtin_copy.py" })).toBeTruthy(),
+  );
+  await waitFor(() => expect(editor().state.readOnly).toBe(false));
+  fireEvent.keyDown(editor().contentDOM, { key: "Tab" });
+  expect(editor().state.doc.toString()).toBe("    from strategies._rules import helper\n");
+  fireEvent.keyDown(editor().contentDOM, { key: "s", ctrlKey: true });
+  await waitFor(() =>
+    expect(files["strategies/builtin_copy.py"]?.content).toBe(
+      "    from strategies._rules import helper\n",
+    ),
+  );
+});

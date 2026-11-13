@@ -93,7 +93,7 @@ function IntradayPanel({ market, row }: { market: MarketView; row: Row }) {
       </div>
     );
   const { slots, ticks } = intradaySlots(series, product ? sessionRanges(exchange, product) : null);
-  const since = new Date(Number(series.observedFromMs ?? 0n)).toLocaleTimeString(getLocale(), {
+  const since = new Date(Number(series.observedFromMs ?? 0n)).toLocaleTimeString("sv-SE", {
     timeZone: "Asia/Shanghai",
     hour12: false,
     hour: "2-digit",

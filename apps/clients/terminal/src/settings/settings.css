@@ -126,16 +126,6 @@
   width: 100%;
   box-sizing: border-box;
 }
-.settings-check {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--font-size-md);
-  min-width: 0;
-}
-.settings-check input {
-  flex-shrink: 0;
-}
 .settings-list {
   display: grid;
 }
@@ -197,106 +187,18 @@
   font-size: var(--font-size-xs);
   overflow-wrap: anywhere;
 }
-/* An item card inside a section, such as one account. */
-.settings-section .settings-card {
-  background: var(--canvas);
-}
 @media (max-width: 680px) {
   .settings-section-header,
   .settings-item-row {
     flex-wrap: wrap;
   }
 }
-.settings-content button {
+.settings-content button:not(.primary, .danger, .copy-diagnostic) {
   white-space: normal;
   padding-inline: var(--space-4);
   background: var(--raised);
   color: var(--text-strong);
 }
-/* A card's main action is the one solid button. */
-
-.settings-table {
-  overflow-x: auto;
-  max-width: 100%;
-  margin-block: var(--space-5);
-  border: 1px solid var(--line);
-  border-radius: var(--panel-radius);
-}
-.settings-table table {
-  min-width: 620px;
-}
-.settings-table:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-.settings-table th,
-.settings-table td {
-  padding: var(--space-3) var(--space-3);
-}
-.settings-table td button {
-  margin: 2px;
-}
-
-.native-plugin-choice {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: var(--row-height);
-  font-size: var(--font-size-body);
-}
-.native-plugin-manager code {
-  color: var(--muted);
-}
-.native-plugin-manager .data-table {
-  width: 100%;
-  min-width: 0;
-  margin: var(--space-1) 0 var(--space-3);
-  table-layout: fixed;
-}
-.native-plugin-manager .data-table th,
-.native-plugin-manager .data-table td {
-  padding: var(--space-2) var(--space-3);
-  white-space: normal;
-  overflow-wrap: anywhere;
-  vertical-align: top;
-}
-.native-plugin-manager .data-table td small {
-  display: block;
-  margin-top: 2px;
-  color: var(--subtle);
-  font-size: var(--font-size-body);
-}
-/* The digest stays on one line; selecting it still copies all of it. */
-.native-plugin-manager .data-table td small code {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.native-plugin-manager .data-table td button {
-  margin: 0 var(--space-2) var(--space-1) 0;
-}
-.native-plugin-catalog th:nth-child(1) {
-  width: 40%;
-}
-.native-plugin-catalog th:nth-child(2) {
-  width: 10%;
-}
-.native-plugin-catalog th:nth-child(4) {
-  width: 10%;
-}
-.native-plugin-catalog th:nth-child(5) {
-  width: 14%;
-}
-.native-plugin-install {
-  margin-top: var(--space-4);
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--line);
-}
-.native-plugin-install > button {
-  margin: var(--space-2) 0 2px;
-}
-
 .service-action-dialog {
   background: var(--panel);
   color: var(--text);
@@ -325,80 +227,6 @@
   gap: var(--space-2);
   margin-top: var(--space-5);
 }
-/* Settings lists: one card per item, facts aligned, actions at the bottom. */
-.settings-cards {
-  display: grid;
-  gap: var(--space-4);
-  justify-items: start;
-}
-.settings-cards > p {
-  margin: 0;
-  line-height: 1.6;
-}
-.settings-card {
-  justify-self: stretch;
-  display: grid;
-  gap: var(--space-4);
-  padding: var(--space-4) var(--space-5);
-  border: 1px solid var(--line);
-  border-radius: var(--panel-radius);
-  min-width: 0;
-}
-.settings-card header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-}
-.settings-card h3 {
-  margin: 0;
-  font-size: var(--font-size-lg);
-  font-weight: 500;
-  color: var(--text-strong);
-  overflow-wrap: anywhere;
-}
-.settings-badge {
-  font-size: var(--font-size-body);
-  padding: 2px var(--space-2);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--muted);
-}
-.settings-badge.accent {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--accent-surface);
-}
-.settings-card dl {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: var(--space-2) var(--space-4);
-  margin: 0;
-  font-size: var(--font-size-md);
-}
-.settings-card dt {
-  color: var(--muted);
-}
-.settings-card dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-  font-variant-numeric: tabular-nums;
-}
-.settings-card footer {
-  display: flex;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-.settings-card p {
-  margin: 0;
-  line-height: 1.6;
-}
-.settings-card fieldset {
-  border: 0;
-  margin: 0;
-  padding: 0;
-  min-width: 0;
-}
 .settings-dialog {
   width: min(560px, calc(100vw - 48px));
 }
@@ -415,10 +243,7 @@
   gap: var(--space-4) var(--space-4);
   margin: 0;
 }
-.settings-dialog .native-plugin-choice {
-  grid-column: 1 / -1;
-}
-.settings-dialog label:not(.native-plugin-choice) {
+.settings-dialog label {
   display: grid;
   gap: var(--space-2);
   color: var(--muted);
@@ -433,32 +258,6 @@
   margin: 0;
   padding: 0;
   min-width: 0;
-}
-.settings-badge.warning {
-  border-color: var(--warning);
-  color: var(--warning);
-}
-.settings-card dd.ok {
-  color: var(--success);
-}
-.settings-card dd.bad {
-  color: var(--danger);
-}
-
-.resource-catalogue table {
-  width: 100%;
-  table-layout: fixed;
-}
-.resource-catalogue th,
-.resource-catalogue td {
-  vertical-align: top;
-  overflow-wrap: anywhere;
-}
-.resource-catalogue code {
-  overflow-wrap: anywhere;
-}
-.resource-catalogue th:first-child {
-  width: 30%;
 }
 .settings-section details {
   margin: 0;

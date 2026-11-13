@@ -222,7 +222,8 @@ export function Runs(context: TerminalContext) {
   const sortBy = (key: SortKey) =>
     setSort(previous => ({
       key,
-      descending: previous.key === key ? !previous.descending : true,
+      descending:
+        previous.key === key ? !previous.descending : !/drawdown|volatility|ulcer/.test(key),
     }));
   const heading = (key: SortKey, label: string) => (
     <th

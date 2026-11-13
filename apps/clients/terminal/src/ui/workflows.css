@@ -265,52 +265,6 @@
 .ctp-account-panel > form .futures-fields {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
-/* A running strategy takes the ticket's place: what runs, the stop button on
-   the same line, then what it has seen and asked for. */
-.strategy-run-heading {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-3);
-}
-.strategy-run-heading strong {
-  color: var(--accent);
-}
-.strategy-run-heading button {
-  margin-left: auto;
-  color: var(--danger);
-  background: var(--danger-surface);
-  border-color: var(--danger);
-}
-.strategy-run-facts {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-4);
-  margin: var(--space-4) 0;
-}
-.strategy-run-facts dt {
-  color: var(--muted);
-  font-size: var(--font-size-body);
-}
-.strategy-run-facts dd {
-  margin: var(--space-1) 0 0;
-  color: var(--text-strong);
-  overflow-wrap: anywhere;
-}
-/* Order ticket: quote shortcuts under the fields, then one button per side. */
-.order-quotes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin: -6px 0 var(--space-4);
-}
-.order-quotes button {
-  min-height: 22px;
-  padding: 0 var(--space-2);
-  color: var(--muted);
-  font-size: var(--font-size-body);
-  font-variant-numeric: tabular-nums;
-}
 .ctp-account-panel > form[aria-label] .source-actions .primary {
   min-width: 96px;
 }

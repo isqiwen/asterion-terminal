@@ -133,4 +133,4 @@ sequenceDiagram
 | 4 | [records.hpp](../../apps/services/warehouse/records.hpp)、[store.cpp](../../apps/services/warehouse/store.cpp)、[composition.cpp](../../apps/services/warehouse/composition.cpp)、[composer.cpp](../../apps/services/warehouse/composer.cpp) | 表结构、不可变版本、月度分片、来源合成 |
 | 5 | [通信协议](../protocol.md)、[warehouse.proto](../../protocol/proto/asterion/warehouse.proto) | 客户端契约与固定版本读取 |
 
-模块测试见 [tests/history](../../tests/warehouse)；跨客户端与重启行为看 [concurrency_process.py](../../tests/warehouse/concurrency_process.py)。
+模块测试见 [tests/warehouse](../../tests/warehouse)；跨客户端与重启行为看 [concurrency_process.py](../../tests/warehouse/concurrency_process.py)。

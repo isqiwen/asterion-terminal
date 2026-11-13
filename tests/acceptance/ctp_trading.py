@@ -56,7 +56,7 @@ if not bridge.exists():
 venue, _, symbol = args.instrument.partition(":")
 if not venue or not symbol:
     sys.exit(f"instrument must be VENUE:SYMBOL, got {args.instrument!r}")
-report = {"warehouse_host": args.warehouse_host, "trade_front": args.trade_front,
+report = {"market_host": args.market_host, "trade_front": args.trade_front,
           "broker": args.broker, "instrument": args.instrument,
           "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "passed": False, "steps": []}
 if args.report:
@@ -95,7 +95,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
 
     def trading(request):
         """One trading.proto Request; the Response as ProtoJSON (defaults omitted)."""
-        return call("trading.call", {"account": ACCOUNT, "request": request})["trading"]
+        return call("trading.call", {"account": args.trading_connection, "request": request})["trading"]
 
     def account():
         return trading({"getAccount": {}})["getAccount"]
@@ -154,7 +154,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
                      if row["instrument"] == {"exchange": venue, "symbol": symbol}), None)
 
     try:
-        call("market.endpoint.save", {"host": args.warehouse_host, "port": args.market_port, "fingerprint": args.market_fingerprint})
+        call("market.endpoint.save", {"host": args.market_host, "port": args.market_port, "fingerprint": args.market_fingerprint})
         step("remote Market connection", bool(market().get("feed")))
         deadline = time.monotonic() + args.timeout
         while not (quote() or {}).get("last") and time.monotonic() < deadline:

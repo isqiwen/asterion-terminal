@@ -173,8 +173,8 @@ jobs:
           if-no-files-found: error
           path: build/Release/Asterion-Market-${{ env.PRODUCT_VERSION }}-linux-x86_64.sh
       - run: pnpm exec playwright install --with-deps chromium
-      - name: Trading browser tests
-        run: pnpm run test:e2e --grep @trading
+      - name: Browser end-to-end tests
+        run: pnpm run test:e2e
       - name: Exercise native Electron host
         run: |
           ulimit -c 0

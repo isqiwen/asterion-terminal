@@ -176,8 +176,11 @@ fs::path PythonRuntime::fetch(const File& file, Module& module, std::stop_token 
     create_directories_durably(cache);
     const auto target = cache / file.name;
     if (fs::exists(target) && fs::file_size(target) == file.size) {
-        count(file.size);
-        return target;
+        if (sha256_file(target) == file.sha256) {
+            count(file.size);
+            return target;
+        }
+        fs::remove(target);
     }
     const auto partial = cache / (file.name + ".part");
     std::string failures;

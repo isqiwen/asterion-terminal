@@ -39,6 +39,7 @@
       "sn": ["commodity", "until_0100"],
       "ss": ["commodity", "until_0100"],
       "ao": ["commodity", "until_0100"],
+      "ad": ["commodity", "until_0100"],
       "ru": ["commodity", "until_2300"],
       "rb": ["commodity", "until_2300"],
       "hc": ["commodity", "until_2300"],
@@ -46,13 +47,15 @@
       "fu": ["commodity", "until_2300"],
       "sp": ["commodity", "until_2300"],
       "br": ["commodity", "until_2300"],
+      "op": ["commodity", "until_2300"],
       "wr": ["commodity", null]
     },
     "INE": {
       "sc": ["commodity", "until_0230"],
       "bc": ["commodity", "until_0100"],
       "nr": ["commodity", "until_2300"],
-      "lu": ["commodity", "until_2300"]
+      "lu": ["commodity", "until_2300"],
+      "ec": ["commodity", null]
     },
     "DCE": {
       "p": ["commodity", "until_2300"],
@@ -72,8 +75,10 @@
       "rr": ["commodity", "until_2300"],
       "eb": ["commodity", "until_2300"],
       "pg": ["commodity", "until_2300"],
+      "bz": ["commodity", "until_2300"],
       "jd": ["commodity", null],
-      "lh": ["commodity", null]
+      "lh": ["commodity", null],
+      "lg": ["commodity", null]
     },
     "CZCE": {
       "FG": ["commodity", "until_2300"],
@@ -90,6 +95,7 @@
       "SH": ["commodity", "until_2300"],
       "PX": ["commodity", "until_2300"],
       "PR": ["commodity", "until_2300"],
+      "PL": ["commodity", "until_2300"],
       "AP": ["commodity", null],
       "CJ": ["commodity", null],
       "UR": ["commodity", null],
@@ -100,7 +106,9 @@
     "GFEX": {
       "si": ["commodity", null],
       "lc": ["commodity", null],
-      "ps": ["commodity", null]
+      "ps": ["commodity", null],
+      "pt": ["commodity", null],
+      "pd": ["commodity", null]
     },
     "CFFEX": {
       "IF": ["cffex_index", null],

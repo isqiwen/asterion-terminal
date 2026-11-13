@@ -3,7 +3,12 @@ import { create } from "@bufbuild/protobuf";
 import { expect, test, vi } from "vitest";
 import { lab } from "../../src/bridge/lab";
 import { Period } from "../../src/generated/asterion/common_pb";
-import { RunDetailSchema, RunState, RunsSchema } from "../../src/generated/asterion/lab_pb";
+import {
+  RunDetailSchema,
+  RunState,
+  RunsSchema,
+  SweepRunsSchema,
+} from "../../src/generated/asterion/lab_pb";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "../../src/host/workspace/drafts";
 import { Runs } from "./Runs";
@@ -36,6 +41,12 @@ function serve(runs: ReturnType<typeof run>[]) {
     switch (operation?.case) {
       case "listRuns":
         return create(RunsSchema, { runs } as never) as never;
+      case "getSweep":
+        return create(SweepRunsSchema, {
+          runs: runs.filter(item => (item as { sweepId?: string }).sweepId === operation.value.id),
+          selectedId: "",
+          active: false,
+        } as never) as never;
       case "getRun":
         return create(RunDetailSchema, {
           summary: runs.find(item => item.id === operation.value.id),
@@ -123,4 +134,33 @@ test("a run is deleted only on the second click", async () => {
   await waitFor(() =>
     expect(vi.mocked(lab)).toHaveBeenCalledWith({ case: "deleteRun", value: { id: "r1" } }),
   );
+});
+
+test("drawdown sorts lowest first and a sweep with two swept parameters plus a fixed one shows its heatmap", async () => {
+  serve([
+    run("s1-1", 1, {
+      sweepId: "s1",
+      metrics: { sharpe: 1, max_drawdown: 0.25, fills: 2 },
+      params: {
+        fast: { value: { case: "integer" as const, value: 5n } },
+        slow: { value: { case: "integer" as const, value: 20n } },
+        lots: { value: { case: "integer" as const, value: 1n } },
+      },
+    }),
+    run("s1-2", 2, {
+      sweepId: "s1",
+      metrics: { sharpe: 2, max_drawdown: 0.08, fills: 2 },
+      params: {
+        fast: { value: { case: "integer" as const, value: 10n } },
+        slow: { value: { case: "integer" as const, value: 40n } },
+        lots: { value: { case: "integer" as const, value: 1n } },
+      },
+    }),
+  ]);
+  view({ sweep: "s1" });
+  const heatmap = await screen.findByRole("table", { name: "参数热力图" });
+  expect(heatmap.textContent).toContain("fast \\ slow");
+  fireEvent.change(screen.getByLabelText("按指标"), { target: { value: "max_drawdown" } });
+  const rankedRows = within(screen.getAllByRole("table")[1]!).getAllByRole("row").slice(1);
+  expect(rankedRows[0]!.textContent).toContain("8.00%");
 });

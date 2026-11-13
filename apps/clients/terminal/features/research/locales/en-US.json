@@ -131,6 +131,8 @@
   "内置": "built in",
   "模块名": "Module name",
   "创建": "Create",
+  "打开": "Open",
+  "复制为新模块": "Copy as new module",
   "新建策略": "New strategy",
   "新建因子": "New factor",
   "保存": "Save",

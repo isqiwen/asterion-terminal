@@ -98,6 +98,8 @@ module.exports = {
       "libatspi2.0-0",
       "libuuid1",
       "libsecret-1-0",
+      "tar",
+      "libcrypt1",
       ...JSON.parse(process.env.ASTERION_DEB_DEPENDS || "[]"),
     ],
   },

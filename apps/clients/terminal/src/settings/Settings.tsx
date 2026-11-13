@@ -15,7 +15,7 @@ import type { Snapshot } from "@asterion/desktop-bridge/client";
 // The pages in sidebar order, with the title each shows.
 const pages: [SettingsPage, string, IconName][] = [
   ["preferences", "偏好设置", "sliders"],
-  ["market", "行情服务", "data"],
+  ["market", "行情服务", "market"],
   ["warehouse", "数据服务", "data"],
   ["trading", "交易服务", "trading"],
   ["about", "关于", "info"],

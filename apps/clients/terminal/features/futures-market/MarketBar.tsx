@@ -87,7 +87,11 @@ export function MarketBar({ context }: { context: TerminalContext }) {
         >
           {t("品种概览")}
         </button>
-        <button aria-pressed={scope === "months"} onClick={() => setScope("months")}>
+        <button
+          aria-pressed={scope === "months"}
+          disabled={section === "主力合约"}
+          onClick={() => setScope("months")}
+        >
           {t("全部月份")}
         </button>
       </div>

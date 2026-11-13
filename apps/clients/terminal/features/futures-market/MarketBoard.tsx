@@ -64,14 +64,16 @@ export function MarketBoard({ market, context }: { market: MarketView; context: 
   const filter = venue;
   const query = search.trim().toUpperCase();
   // Without a catalog there is no product identity; list subscribed months.
-  const overview = !watchlist && scope === "products" && !query && !!catalog?.contracts.length;
+  const dominantOnly = section === "主力合约" && !!catalog?.contracts.length;
+  const overview =
+    !watchlist && !dominantOnly && scope === "products" && !query && !!catalog?.contracts.length;
   const candidates = watchlist
     ? quotes.filter(row =>
         watchlist.some(
           id => id.exchange === row.instrument!.exchange && id.symbol === row.instrument!.symbol,
         ),
       )
-    : overview
+    : dominantOnly || overview
       ? productOverview(market)
       : quotes;
   const rows = candidates.filter(

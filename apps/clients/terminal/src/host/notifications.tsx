@@ -1,5 +1,5 @@
 import { useState, useSyncExternalStore } from "react";
-import { getLocale, translate, useLocale } from "../i18n";
+import { translate, useLocale } from "../i18n";
 import {
   BackendError,
   CopyDiagnostic,
@@ -127,7 +127,7 @@ export function NotificationCenter() {
             <ol>
               {[...all].reverse().map(entry => (
                 <li key={entry.id} className={entry.severity}>
-                  <time>{entry.at.toLocaleTimeString(getLocale())}</time>
+                  <time>{entry.at.toLocaleTimeString("sv-SE", { hour12: false })}</time>
                   <span className="notification-source">{translate("host", entry.source)}</span>
                   <span className="notification-text">
                     {errorSummary(entry.error, entry.namespace)}

@@ -132,6 +132,19 @@ export function NewModule({
       </button>
       <button
         type="button"
+        disabled={!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)}
+        onClick={() => {
+          const path = `${folder}/${name}.py`;
+          setNaming(false);
+          setName("");
+          clear();
+          created(path);
+        }}
+      >
+        {t("打开")}
+      </button>
+      <button
+        type="button"
         onClick={() => {
           setNaming(false);
           clear();
@@ -234,6 +247,7 @@ export function LabCentre({
           draft={source.drafts[source.path]}
           edited={content => source.draft(source.path, content)}
           changed={changed}
+          opened={source.open}
           deleted={() => {
             source.draft(source.path, null);
             source.close();

@@ -16,6 +16,7 @@ import {
   type UTCTimestamp,
   type LogicalRange,
 } from "lightweight-charts";
+import { usePreferences } from "../ui/preferences";
 import "./price-chart.css";
 
 // Exact domain values and timestamps stay with providers. Ordinal chart times
@@ -119,6 +120,21 @@ export function PriceChart(props: Props) {
     all: true,
   });
   const updating = useRef(false);
+  const { colors: quoteColors } = usePreferences();
+  const [domQuoteColors, setDomQuoteColors] = useState(
+    () => typeof document !== "undefined" && document.documentElement.dataset.quoteColors,
+  );
+  useEffect(() => {
+    if (typeof MutationObserver === "undefined") return;
+    const observer = new MutationObserver(() =>
+      setDomQuoteColors(document.documentElement.dataset.quoteColors),
+    );
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-quote-colors"],
+    });
+    return () => observer.disconnect();
+  }, []);
   const [focus, setFocus] = useState<string | null>(null);
   // Where the volume pane starts inside the chart, for its label.
   const [volumeAt, setVolumeAt] = useState<{ top: number; left: number } | null>(null);
@@ -185,6 +201,7 @@ export function PriceChart(props: Props) {
       crosshair: { mode: CrosshairMode.Normal },
       timeScale: {
         tickMarkFormatter: (t: Time) => when(t, true),
+        tickMarkMaxCharacterLength: 16,
         rightOffset: 0,
         fixLeftEdge: true,
         fixRightEdge: true,
@@ -405,7 +422,19 @@ export function PriceChart(props: Props) {
     }
     if (showVolume) {
       const volume = layer("volume", "histogram", 1);
-      volume.applyOptions({ priceScaleId: "right", priceFormat: { type: "volume" } });
+      volume.applyOptions({
+        priceScaleId: "right",
+        priceFormat: {
+          type: "custom",
+          minMove: 1,
+          formatter: (value: number) =>
+            value >= 1e6
+              ? `${(value / 1e6).toFixed(1)}M`
+              : value >= 1e3
+                ? `${Math.round(value / 1e3)}K`
+                : String(Math.round(value)),
+        },
+      });
       // Room above the tallest bar for the pane's label.
       volume.priceScale().applyOptions({ scaleMargins: { top: 0.25, bottom: 0 } });
       volume.setData(
@@ -467,6 +496,8 @@ export function PriceChart(props: Props) {
     count,
     points,
     recordRange,
+    quoteColors,
+    domQuoteColors,
   ]);
 
   useLayoutEffect(() => {
@@ -516,7 +547,7 @@ export function PriceChart(props: Props) {
         ...traded,
       ].sort((a, b) => Number(a.time) - Number(b.time)),
     );
-  }, [series, showPriceExtremes, trades, start, end, count]);
+  }, [series, showPriceExtremes, trades, start, end, count, quoteColors, domQuoteColors]);
 
   useLayoutEffect(() => {
     const api = chart.current;

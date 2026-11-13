@@ -6,7 +6,7 @@ import {
   type Position,
 } from "../../src/generated/asterion/trading_pb";
 import { decimalText } from "../../src/bridge/decimal";
-import { getLocale, listSeparator } from "../../src/i18n";
+import { listSeparator } from "../../src/i18n";
 import { BackendError, ErrorNotice } from "../../src/i18n/errors";
 import { key, t } from "./live-shared";
 import { activeStrategy, parameterText, periodText } from "./strategy-instance";
@@ -91,7 +91,7 @@ export function StrategyMonitor({
         <dt>{t("已处理完整 K 线批次")}</dt>
         <dd>{instance.completedSteps.toString()}</dd>
         <dt>{t("最近读取时间")}</dt>
-        <dd>{observedAt?.toLocaleTimeString(getLocale(), { hour12: false }) ?? "—"}</dd>
+        <dd>{observedAt?.toLocaleTimeString("sv-SE", { hour12: false }) ?? "—"}</dd>
         <dt>{t("参数覆盖")}</dt>
         <dd>
           {Object.entries(configuration.params)
@@ -146,8 +146,8 @@ export function StrategyMonitor({
           <ul className="strategy-events">
             {[...instance.events].reverse().map(event => (
               <li key={`${event.timeMs}-${event.text}`}>
-                {new Date(Number(event.timeMs)).toLocaleTimeString(getLocale(), { hour12: false })}{" "}
-                · {event.text}
+                {new Date(Number(event.timeMs)).toLocaleTimeString("sv-SE", { hour12: false })} ·{" "}
+                {event.text}
               </li>
             ))}
           </ul>

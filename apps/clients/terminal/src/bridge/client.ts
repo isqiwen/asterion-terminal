@@ -1,5 +1,5 @@
 import { BackendError } from "../i18n/errors";
-import { translate, type MessageValues, getLocale } from "../i18n";
+import { translate, type MessageValues } from "../i18n";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 import { desktop } from "./desktop";
 
@@ -133,7 +133,7 @@ export async function request(
 export function timestamp(ns: string | null): string {
   if (!ns) return "—";
   const date = new Date(Number(BigInt(ns) / 1000000n));
-  return date.toLocaleString(getLocale(), { hour12: false, timeZone: "Asia/Shanghai" });
+  return date.toLocaleString("sv-SE", { hour12: false, timeZone: "Asia/Shanghai" });
 }
 // Polls send the last revision they saw; an unchanged core returns no state.
 export type SnapshotUnchanged = { unchanged: true; revision: number; refreshed_at_ms: number };
