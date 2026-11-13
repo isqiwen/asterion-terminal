@@ -1182,10 +1182,13 @@ struct Trader::Impl final : CThostFtdcTraderSpi
     {
         const auto& input = event.input;
         const auto& info = event.info;
-        if (input && info && info->ErrorID)
+        if (input && info && info->ErrorID) {
+            const auto sys = trimmed(input->OrderSysID);
             reports.action_failed(
                 ReportReconciler::key(input->FrontID, input->SessionID, trimmed(input->OrderRef)),
-                info->ErrorID);
+                info->ErrorID,
+                sys.empty() ? std::string{} : field(input->ExchangeID) + ":" + sys);
+        }
     }
 
     void OnErrRtnOrderAction(
@@ -1199,10 +1202,13 @@ struct Trader::Impl final : CThostFtdcTraderSpi
     {
         const auto& input = event.input;
         const auto& info = event.info;
-        if (input && info && info->ErrorID)
+        if (input && info && info->ErrorID) {
+            const auto sys = trimmed(input->OrderSysID);
             reports.action_failed(
                 ReportReconciler::key(input->FrontID, input->SessionID, trimmed(input->OrderRef)),
-                info->ErrorID);
+                info->ErrorID,
+                sys.empty() ? std::string{} : field(input->ExchangeID) + ":" + sys);
+        }
     }
 
     void OnRspError(CThostFtdcRspInfoField* info, int, bool) noexcept override

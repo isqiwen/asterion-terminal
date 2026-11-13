@@ -53,8 +53,12 @@ BrokerOrderStatus status_of(const CThostFtdcOrderField& order)
             return BrokerOrderStatus::accepted;
         case THOST_FTDC_OST_PartTradedNotQueueing:
         case THOST_FTDC_OST_NoTradeNotQueueing:
-        case THOST_FTDC_OST_Canceled:
             return BrokerOrderStatus::cancelled;
+        case THOST_FTDC_OST_Canceled:
+            return order.OrderSubmitStatus != THOST_FTDC_OSS_Accepted
+                    && trimmed(order.OrderSysID).empty()
+                ? BrokerOrderStatus::rejected
+                : BrokerOrderStatus::cancelled;
         default:
             return BrokerOrderStatus::submitted;
     }
@@ -123,8 +127,10 @@ bool ReportReconciler::apply(const CThostFtdcOrderField& report)
         std::copy(std::begin(report.OrderSysID), std::end(report.OrderSysID), raw.begin());
     }
     // A late report never moves a terminal order back to working.
-    const auto status = status_of(report);
-    if (!terminal(order.status) || terminal(status))
+    const auto status = order.error_code && status_of(report) == BrokerOrderStatus::cancelled
+        ? BrokerOrderStatus::rejected
+        : status_of(report);
+    if (!terminal(order.status) || (terminal(status) && order.status != BrokerOrderStatus::filled))
         order.status = status;
     ++state_.exposure_revision;
     if (additional_fill)
@@ -221,14 +227,17 @@ void ReportReconciler::apply(const CThostFtdcInvestorPositionField& row)
 {
     if (row.PosiDirection != THOST_FTDC_PD_Long && row.PosiDirection != THOST_FTDC_PD_Short)
         return;
+    if (row.HedgeFlag != '\0' && row.HedgeFlag != THOST_FTDC_HF_Speculation)
+        return;
     const InstrumentId id{field(row.ExchangeID), field(row.InstrumentID)};
     const auto side = row.PosiDirection == THOST_FTDC_PD_Long ? Side::buy : Side::sell;
     auto& position = positions_in_progress_[{id, side}];
     position.instrument = id;
     position.side = side;
-    // SHFE/INE split today/history rows; TodayPosition handles both layouts.
-    position.today = position.today + lots(row.TodayPosition);
-    position.yesterday = position.yesterday + lots(row.Position - row.TodayPosition);
+    const int total = std::max(0, row.Position);
+    const int today = std::clamp(row.TodayPosition, 0, total);
+    position.today = position.today + lots(today);
+    position.yesterday = position.yesterday + lots(total - today);
     position.cost = position.cost + money(row.PositionCost);
     position.profit = position.profit + money(row.PositionProfit);
     position.margin = position.margin + money(row.UseMargin);
@@ -299,9 +308,17 @@ const ReportReconciler::RawOrderId& ReportReconciler::raw_exchange_id(const std:
     return raw_order_ids_.at(key);
 }
 
-void ReportReconciler::action_failed(const std::string& broker_key, int code)
+void ReportReconciler::action_failed(
+    const std::string& broker_key,
+    int code,
+    std::string_view exchange_order_id)
 {
-    if (const auto found = order_at_.find(broker_key); found != order_at_.end()) {
+    auto found = order_at_.find(broker_key);
+    if (found == order_at_.end() && !exchange_order_id.empty())
+        if (const auto by_exchange = exchange_.find(std::string(exchange_order_id));
+            by_exchange != exchange_.end())
+            found = order_at_.find(by_exchange->second);
+    if (found != order_at_.end()) {
         state_.orders[found->second].error_code = code;
         ++state_.sequence;
     }

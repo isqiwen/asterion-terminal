@@ -1143,6 +1143,40 @@ TEST(ReportReconciliation, ALateOrderReportAttributesTheTradeThatPrecededIt)
     order.OrderStatus = THOST_FTDC_OST_AllTraded;
     reports.apply(order);
     EXPECT_EQ(state.trades.front().order_id, "local");
+    reports.action_failed("0:0:", 26, "SHFE:42");
+    EXPECT_EQ(state.orders.front().error_code, 26);
+
+    CThostFtdcOrderField unaccepted{};
+    unaccepted.FrontID = unaccepted.SessionID = 1;
+    std::strcpy(unaccepted.OrderRef, "2");
+    std::strcpy(unaccepted.TradingDay, "20260928");
+    std::strcpy(unaccepted.ExchangeID, "SHFE");
+    std::strcpy(unaccepted.InstrumentID, "rb2610");
+    unaccepted.Direction = THOST_FTDC_D_Buy;
+    unaccepted.CombOffsetFlag[0] = THOST_FTDC_OF_Open;
+    unaccepted.LimitPrice = 3500;
+    unaccepted.VolumeTotalOriginal = 1;
+    unaccepted.OrderSubmitStatus = THOST_FTDC_OSS_InsertSubmitted;
+    unaccepted.OrderStatus = THOST_FTDC_OST_Canceled;
+    reports.apply(unaccepted);
+    EXPECT_EQ(state.orders.back().status, BrokerOrderStatus::rejected);
+
+    const auto revision = state.exposure_revision;
+    CThostFtdcInvestorPositionField pos{};
+    std::strcpy(pos.ExchangeID, "DCE");
+    std::strcpy(pos.InstrumentID, "m2609");
+    pos.PosiDirection = THOST_FTDC_PD_Long;
+    pos.HedgeFlag = THOST_FTDC_HF_Speculation;
+    pos.Position = 2;
+    pos.TodayPosition = 5;
+    reports.apply(pos);
+    pos.HedgeFlag = THOST_FTDC_HF_Hedge;
+    pos.Position = 9;
+    reports.apply(pos);
+    EXPECT_FALSE(reports.finish_positions(revision));
+    ASSERT_EQ(state.positions.size(), 1U);
+    EXPECT_EQ(state.positions.front().today, d("2"));
+    EXPECT_EQ(state.positions.front().yesterday, d("0"));
 }
 
 TEST_F(CtpTrader, ReusedReferenceRetiresThePreviousCallerBinding)

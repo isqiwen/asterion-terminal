@@ -171,7 +171,10 @@ class TestStrategy(Strategy):
         if self.params["lots"] == -3:
             bytearray(2 * 1024 ** 3)
     def on_bar(self, ctx, bar):
-        ctx.target(bar.symbol, self.params["lots"])
+        if self.params["lots"] == 10:
+            ctx.weights({bar.symbol: 1e-7})
+        else:
+            ctx.target(bar.symbol, self.params["lots"])
 '''
             (repo / 'strategies').mkdir()
             (repo / 'strategies/strategy.py').write_text(source_code)

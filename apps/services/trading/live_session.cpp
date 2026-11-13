@@ -667,6 +667,36 @@ AccountCommand LiveAccountState::submit(
             ErrorCode::unavailable,
             "broker fills are awaiting position reconciliation; opening orders are paused");
     check_price(order, quote, state);
+    if (!strategy && offset != Offset::open && state.positions_reconciled) {
+        const auto held_side = order.side == Side::buy ? Side::sell : Side::buy;
+        Decimal closable;
+        for (const auto& position : state.positions) {
+            if (position.instrument != id || position.side != held_side)
+                continue;
+            if (offset == Offset::close_today)
+                closable = closable + position.today;
+            else if (offset == Offset::close_yesterday)
+                closable = closable + position.yesterday;
+            else
+                closable = closable + position.today + position.yesterday;
+        }
+        const auto reduces_pool = [&](Offset pending_offset) {
+            return offset == Offset::close || pending_offset == Offset::close
+                || pending_offset == offset;
+        };
+        for (const auto& o : state.orders)
+            if (working(o.status) && o.instrument == id && o.side == order.side
+                && o.offset != Offset::open && reduces_pool(o.offset))
+                closable = closable - (o.quantity - o.filled);
+        for (const auto& [unconfirmed_id, intent] : unconfirmed(state)) {
+            static_cast<void>(unconfirmed_id);
+            if (intent->instrument == id && intent->offset != Offset::open
+                && reduces_pool(intent->offset))
+                closable = closable - intent->quantity;
+        }
+        if (order.quantity > closable)
+            throw std::invalid_argument("closing quantity exceeds available position");
+    }
     // Exposure from broker reports, plus recorded orders the broker has not
     // confirmed: they may still reach the exchange.
     Decimal gross, pending;
@@ -833,27 +863,55 @@ void LiveAccountState::check_terminal(const TerminalOrder& order, const Intent& 
 
 void LiveAccountState::record_trade(::trading::Trade trade)
 {
-    recorded_ids_[trade.trading_day()].insert(trade.id());
-    trades_[trade.trading_day()].push_back(std::move(trade));
+    const auto& day = trade.trading_day();
+    const auto& id = trade.id();
+    recorded_ids_[day][id] = trade.order_id();
+    auto& list = trades_[day];
+    if (const auto existing = std::ranges::find_if(
+            list,
+            [&](const ::trading::Trade& item) {
+                return item.id() == id;
+            });
+        existing != list.end())
+        *existing = std::move(trade);
+    else
+        list.push_back(std::move(trade));
 }
 
 std::vector<::trading::Trade> LiveAccountState::unrecorded() const
 {
     return observed([&](const BrokerSnapshot& state) {
+        if (!identities_ready(state))
+            return std::vector<::trading::Trade>{};
         const std::pair list{state.connection_generation, state.trading_day};
         if (list != recorded_list_ || recorded_through_ > state.trades.size()) {
             recorded_list_ = list;
             recorded_through_ = 0;
         }
+        const bool awaiting_exchange_id = std::ranges::any_of(intents_, [&](const auto& entry) {
+            const auto& intent = entry.second;
+            if (intent.trading_day != state.trading_day)
+                return false;
+            const auto found = std::ranges::find_if(state.orders, [&](const BrokerOrder& order) {
+                return order.broker_key == intent.broker_key;
+            });
+            return found == state.orders.end() || found->exchange_order_id.empty();
+        });
         std::vector<::trading::Trade> result;
         for (auto i = recorded_through_; i < state.trades.size(); ++i) {
             const auto& trade = state.trades[i];
             const auto day = recorded_ids_.find(dashed(trade.trading_day));
-            if (day != recorded_ids_.end() && day->second.contains(trade.trade_id)) {
-                if (result.empty())
-                    recorded_through_ = i + 1;
-                continue;
+            if (day != recorded_ids_.end()) {
+                const auto found = day->second.find(trade.trade_id);
+                if (found != day->second.end()
+                    && (found->second == trade.order_id || trade.order_id.empty())) {
+                    if (result.empty() && !trade.order_id.empty())
+                        recorded_through_ = i + 1;
+                    continue;
+                }
             }
+            if (trade.order_id.empty() && awaiting_exchange_id)
+                continue;
             result.push_back(wire_trade(trade));
             if (result.size() == TradesRecorded::batch)
                 break;

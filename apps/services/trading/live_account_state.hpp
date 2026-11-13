@@ -288,7 +288,7 @@ private:
     std::map<std::string, Intent> intents_;
     // Recorded fills by trading day, oldest first; rebuilt from the journal on start.
     std::map<std::string, std::vector<::trading::Trade>> trades_;
-    std::map<std::string, std::unordered_set<std::string>> recorded_ids_;
+    std::map<std::string, std::map<std::string, std::string>> recorded_ids_;
     void record_trade(::trading::Trade trade);
     // The leading broker fills known recorded. The broker rebuilds its list on
     // a new connection or trading day, which restarts the check.

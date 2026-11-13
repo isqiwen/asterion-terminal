@@ -117,8 +117,8 @@ configure_account() {
     field app "CTP AppID" broker.app_id '^[A-Za-z0-9_.-]{1,32}$'
     field front "CTP trading front" broker.front '^tcp://[^[:space:]]+:[0-9]+$'
     field market_front "CTP market front" market_front '^tcp://[A-Za-z0-9.-]+:[0-9]+$'
-    identity="$environment $broker $user $app $front"
-    saved_identity="$(current environment) $(current broker.broker_id) $(current broker.user_id) $(current broker.app_id) $(current broker.front)"
+    identity="$environment $broker $user"
+    saved_identity="$(current environment) $(current broker.broker_id) $(current broker.user_id)"
     if [[ -f $file && -f $ROOT/data/$INSTANCE/journal.sqlite && $identity != "$saved_identity" ]]; then
         echo "  The trading record in $ROOT/data/$INSTANCE fixes this account's counter; nothing was saved" >&2
         return

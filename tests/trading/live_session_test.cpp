@@ -522,6 +522,10 @@ TEST_F(Live, PolicyRevisionsRetainExposureFenceStaleCommandsAndSurviveRecoveryAn
         auto close = submit("close", "2");
         close["side"] = "sell";
         close["offset"] = "close_today";
+        auto over_close = close;
+        over_close["order_id"] = "over.close";
+        over_close["quantity"] = "3";
+        EXPECT_THROW(act(session, over_close), std::invalid_argument);
         EXPECT_NO_THROW(act(session, close));
         EXPECT_TRUE(wait_for(
             session,

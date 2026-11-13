@@ -198,6 +198,9 @@ with tempfile.TemporaryDirectory() as folder:
     assert 'fixes this account' in result.stderr, result.stderr
     assert host.account('two') == previous
     assert not any(call.startswith(('systemctl restart', 'systemd-run')) for call in calls), calls
+    calls, _ = host.run(host.root / 'bin/setup.sh', ['2', '3', '', '', '', '', '', 'updated_app', 'tcp://127.0.0.1:41206', '', '', ''])
+    assert host.account('two')['broker']['app_id'] == 'updated_app'
+    assert host.account('two')['broker']['front'] == 'tcp://127.0.0.1:41206'
 
     # An account's shared lock forbids every program/runtime mutation, regardless
     # of the trading clock. The installer must never stop it on our behalf.

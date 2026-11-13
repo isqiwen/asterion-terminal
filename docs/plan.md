@@ -147,7 +147,7 @@
 | 132 | M3.136 | 进程隔离、流式传输与协议向前兼容修复 | 完成 | |
 | 133 | M3.137 | 交易页安全传达、盘口统一与上期所手工平仓修复 | 完成 | |
 | 134 | M3.138 | CTP 行情盘前快照、跨日时间戳与郑商所夜盘修复 | 完成 | |
-| 135 | M3.139 | 实盘权重编码、乱序回报对账与柜台边界修复 | 待做 | |
+| 135 | M3.139 | 实盘权重编码、乱序回报对账与柜台边界修复 | 完成 | |
 | 136 | M3.140 | 风控正交限额、减仓豁免与实盘容错边界 | 待做 | M3.136 |
 | 137 | M3.141 | 回测次根开盘主动撮合、同根反手拆单与远月费率修复 | 待做 | |
 | 138 | M3.142 | 多空分侧保证金、平今费率按需校验与 Tushare 结算核验 | 待做 | M3.141 |
@@ -248,15 +248,6 @@ Warehouse：Tushare → 交易所 → gtja → 新浪财经 → 入库 → 来�
 ### M3.135 全面排查（第二轮）
 
 通读全部文档、协议、C++ 核心与服务端、Python 研究与策略运行时、Terminal 原生桥接与前端界面、构建打包及 CI 脚本，核对国内期货交易规则与端到端截图。确定五项核心设计：回测改为次根 K 线开盘主动撮合与同根反手拆单；风控拆分为单合约上限与账户总上限，且区分策略代码故障与外部瞬时拒单；实盘支持本地录播自愈加启动时注入带摘要的静态历史预热包；保证金率按多空分侧计算、平今手续费按实际平今动作惰性校验并交叉核验合入 Tushare 平今字段；五档盘口统一按昨结算价涨跌着色。结果登记为下面的 M3.136–M3.147，并更新[交易规则](safety.md)。
-
-### M3.139 实盘权重编码、乱序回报对账与柜台边界修复
-
-- 权重策略编码（`strategy_runner.py`）：使用定点十进制格式（`format(..., "f")`）序列化权重，不用 `Decimal.normalize()`。理由：`normalize()` 对极小权重或整十数输出 `1E-7`、`1E+1`，C++ `Decimal::parse` 不接受指数记号而杀死实盘策略进程。
-- 乱序成交与非上期所今昨仓对账（`ctp_reconciliation.cpp`、`live_session.cpp`）：`OnRtnTrade` 早于首帧 `OnRtnOrder` 到达时，待 `OrderSysID` 映射建立后再持久化或回填更新 `order_id`，保证 `journal.sqlite` 中每笔成交都有非空 `order_id`；非 SHFE/INE 交易所持仓按 `today = min(Position, TodayPosition)`、`yesterday = max(0, Position - today)` 计算，过滤非投机 `HedgeFlag`；手工平仓提交前核对可平仓位。
-- 撤单错误回报与柜台废单识别（`ctp_trader.cpp`、`ctp_reconciliation.cpp`）：实现 `OnErrRtnOrderAction` 回报处理；将柜台或交易所直接打回的撤单状态（如 `OST_Canceled` 且 `OrderSubmitStatus == OSS_InsertRejected` 或带非零错误码）识别为 `rejected` 而非普通撤单，防止执行器在 10 秒窗口内死循环重发。
-- 部署脚本修正（`apps/services/trading/scripts/setup.sh`）：允许更新已有账户的 `front` 和 `app_id`（与 `main.cpp` 换前置重开账本逻辑一致），客户端指纹上限与 `settings.cpp` 统一为 16。
-
-完成检查：权重 `1e-7` 和 `10` 在实盘运行器中正常解析；`OnRtnTrade` 先于 `OnRtnOrder` 到达时持久化记录含正确 `order_id`；DCE/CZCE 日内部分平仓后持仓手数准确；柜台废单不触发重发。
 
 ### M3.140 风控正交限额、减仓豁免与实盘容错边界
 

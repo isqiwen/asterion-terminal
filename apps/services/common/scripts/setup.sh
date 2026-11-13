@@ -206,7 +206,7 @@ ask_pin() {
 add_pins() {
     local pins=("$@") pin
     echo "Paste each Terminal's fingerprint from its Settings > About." >&2
-    while ((${#pins[@]} < 64)); do
+    while ((${#pins[@]} < 16)); do
         pin=$(ask_pin)
         if [[ -z $pin ]]; then
             ((${#pins[@]} == 0)) || break

@@ -35,7 +35,8 @@ public:
     void remember(OrderIdentity identity, KnownOrder order);
     bool contains(const std::string& order_id) const;
     void reject(const BrokerOrder& request, int code);
-    void action_failed(const std::string& broker_key, int code);
+    void
+    action_failed(const std::string& broker_key, int code, std::string_view exchange_order_id = {});
     // Borrowed references/pointers are valid only under the caller's mutex.
     const BrokerOrder* find(const std::string& broker_key) const;
     const BrokerOrder* find_order(const std::string& order_id) const;

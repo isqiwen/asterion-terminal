@@ -125,8 +125,10 @@ def main():
                         if context.mode == 'target':
                             target.lots = value
                         else:
-                            target.weight.text = str(Decimal(str(value)).quantize(
-                                Decimal('0.00000001'), rounding=ROUND_HALF_EVEN).normalize())
+                            quantized = Decimal(str(value)).quantize(
+                                Decimal('0.00000001'), rounding=ROUND_HALF_EVEN)
+                            text = format(quantized, 'f').rstrip('0').rstrip('.')
+                            target.weight.text = '0' if text in ('', '-0') else text
                     reply(channel, Response(bars=decision))
                 del strategy, context
             except EOFError:
