@@ -82,6 +82,9 @@ struct BrokerPosition
     InstrumentId instrument;
     Side side = Side::buy;
     Decimal today, yesterday;
+    // The broker's own figures in yuan: what the lots cost at their opening or
+    // last settlement prices, their profit since, and the margin they take.
+    Decimal cost, profit, margin;
 };
 
 struct BrokerFunds

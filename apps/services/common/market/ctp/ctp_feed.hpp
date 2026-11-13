@@ -15,6 +15,8 @@ struct Configuration
 
 void validate_instruments(const std::vector<InstrumentId>&);
 std::optional<Decimal> price(double value);
+// An amount in yuan, to the fen.
+Decimal money(double value);
 std::optional<Decimal> open_interest_change(double current, double previous);
 MarketDepthLevel depth_level(double price, int quantity);
 // UpdateTime on the Beijing civil day nearest to receipt.

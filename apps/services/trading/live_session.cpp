@@ -85,6 +85,9 @@ std::string dashed(const std::string& day)
         item->set_side(position.side == Side::buy ? ::common::SIDE_BUY : ::common::SIDE_SELL);
         put(item->mutable_today_lots(), position.today);
         put(item->mutable_yesterday_lots(), position.yesterday);
+        put(item->mutable_cost(), position.cost);
+        put(item->mutable_profit(), position.profit);
+        put(item->mutable_margin(), position.margin);
     }
     return result;
 }

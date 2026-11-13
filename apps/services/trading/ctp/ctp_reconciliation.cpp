@@ -229,6 +229,9 @@ void ReportReconciler::apply(const CThostFtdcInvestorPositionField& row)
     // SHFE/INE split today/history rows; TodayPosition handles both layouts.
     position.today = position.today + lots(row.TodayPosition);
     position.yesterday = position.yesterday + lots(row.Position - row.TodayPosition);
+    position.cost = position.cost + money(row.PositionCost);
+    position.profit = position.profit + money(row.PositionProfit);
+    position.margin = position.margin + money(row.UseMargin);
 }
 
 bool ReportReconciler::finish_positions(std::uint64_t query_revision)

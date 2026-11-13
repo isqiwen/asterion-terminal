@@ -710,6 +710,9 @@ TEST_F(CtpTrader, FilledOrderWaitsForTradeReportsAndLateOrdersCannotReduceExposu
     ASSERT_TRUE(state.positions_reconciled);
     EXPECT_EQ(state.trades.size(), 1U);
     EXPECT_EQ(state.positions[0].today, d("2"));
+    // The broker's own amounts come with the lots.
+    EXPECT_EQ(state.positions[0].cost, d("70000"));
+    EXPECT_EQ(state.positions[0].margin, d("7000"));
 }
 
 TEST_F(CtpTrader, AdditionalFillDuringPositionQueryForcesAnotherRefreshAndAllowsCancellation)

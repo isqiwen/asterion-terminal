@@ -254,14 +254,6 @@ Decimal rate(double value)
     return *parsed;
 }
 
-Decimal money(double value)
-{
-    const auto parsed = price(value);
-    if (!parsed)
-        throw std::runtime_error("invalid CTP money value");
-    return quantize(*parsed, Decimal::parse("0.01"), Rounding::half_up);
-}
-
 char offset_flag(Offset offset)
 {
     switch (offset) {

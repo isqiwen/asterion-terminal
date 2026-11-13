@@ -5,6 +5,7 @@
 //   LimitPrice <= 0 -> CTP rejection 15; instrument "zz..." -> exchange rejection 16
 //   volume <= 2 fills at the limit price at once; larger orders rest
 //   queries closer than 1s apart return -3 (flow control)
+#include <algorithm>
 #include <ThostFtdcTraderApi.h>
 #include <atomic>
 #include <cctype>
@@ -72,6 +73,8 @@ std::string night_date(int back)
 struct Position
 {
     int today = 0, yesterday = 0;
+    // Yuan paid for the open lots, at a multiplier of 10; the margin is a tenth of it.
+    double cost = 0;
 };
 
 struct Exchange
@@ -189,6 +192,11 @@ class Fake final : public CThostFtdcTraderApi
         const char side =
             (t.Direction == THOST_FTDC_D_Buy) == open ? THOST_FTDC_PD_Long : THOST_FTDC_PD_Short;
         auto& position = x.positions[{std::string(t.InstrumentID) + "@" + t.ExchangeID, side}];
+        const auto held = position.today + position.yesterday;
+        if (open)
+            position.cost += t.Price * volume * 10;
+        else if (held)
+            position.cost -= position.cost * volume / held;
         if (open)
             position.today += volume;
         else if (t.OffsetFlag == THOST_FTDC_OF_CloseYesterday || position.today < volume)
@@ -504,11 +512,17 @@ public:
                 row.PositionDate = THOST_FTDC_PSD_Today;
                 row.Position = split ? position.today : position.today + position.yesterday;
                 row.TodayPosition = position.today;
+                row.PositionCost =
+                    position.cost * row.Position / std::max(1, position.today + position.yesterday);
+                row.UseMargin = row.PositionCost / 10;
                 rows.push_back(row);
                 if (split && position.yesterday) {
                     row.PositionDate = THOST_FTDC_PSD_History;
                     row.Position = row.YdPosition = position.yesterday;
                     row.TodayPosition = 0;
+                    row.PositionCost = position.cost * row.Position
+                        / std::max(1, position.today + position.yesterday);
+                    row.UseMargin = row.PositionCost / 10;
                     rows.push_back(row);
                 }
             }

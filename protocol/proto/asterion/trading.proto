@@ -166,6 +166,11 @@ message Position {
   common.Side side = 2;
   common.Decimal today_lots = 3;
   common.Decimal yesterday_lots = 4;
+  // The broker's figures in yuan: cost at opening (today's lots) or last
+  // settlement (earlier lots) prices, profit since then, and margin taken.
+  common.Decimal cost = 5;
+  common.Decimal profit = 6;
+  common.Decimal margin = 7;
 }
 
 enum OrderState {

@@ -39,6 +39,14 @@ void validate_instruments(const std::vector<InstrumentId>& ids)
     }
 }
 
+Decimal money(double value)
+{
+    const auto parsed = price(value);
+    if (!parsed)
+        throw std::runtime_error("invalid CTP money value");
+    return quantize(*parsed, Decimal::parse("0.01"), Rounding::half_up);
+}
+
 std::optional<Decimal> price(double value)
 {
     if (!std::isfinite(value) || std::abs(value) > 1e10)
