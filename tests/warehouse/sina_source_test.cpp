@@ -62,7 +62,7 @@ protected:
 TEST_F(SinaSource, ADaysDailyBarsCoverTheContractsListedThatDayAndOtherwiseStayMissing)
 {
     body =
-        R"(var _x=([{"d":"2026-11-02","o":"3254.000","h":"3266.000","l":"3234.000",)" R"("c":"3242.000","v":"377","p":"321","s":"3246.000"}]))";
+        R"(var _x=([{"d":"2026-11-02","o":"3254.000","h":"3266.000","l":"3234.000",)" R"("c":"3242.000","v":"377","p":"321","s":"3246.000"},)" R"({"d":"2026-11-03","o":"0.000","h":"0.000","l":"0.000",)" R"("c":"3242.000","v":"0","p":"321","s":"0.000"}]))";
     auto sina = source();
     EXPECT_TRUE(sina.daily("SHFE", "2026-11-02").empty());
     EXPECT_TRUE(asked.empty()) << "without a contract table the day would look whole";
@@ -77,6 +77,11 @@ TEST_F(SinaSource, ADaysDailyBarsCoverTheContractsListedThatDayAndOtherwiseStayM
     EXPECT_EQ(std::get<std::string>(rows[0].volume), "377");
     EXPECT_EQ(std::get<std::string>(rows[0].open_interest), "321");
     EXPECT_TRUE(std::holds_alternative<std::monostate>(rows[0].amount));
+    const auto zero_volume = fresh.daily("SHFE", "2026-11-03");
+    ASSERT_EQ(zero_volume.size(), 1);
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(zero_volume[0].open));
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(zero_volume[0].close));
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(zero_volume[0].settlement));
     ASSERT_EQ(asked.size(), 1);
     EXPECT_NE(asked[0].find("symbol=RB2701"), std::string::npos);
     fresh.daily("CZCE", "2026-11-02");

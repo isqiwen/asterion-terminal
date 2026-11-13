@@ -391,7 +391,7 @@ void Writer::put(std::string key, std::span<const Row> rows, std::vector<std::st
     } temporary{directory / (".partition-" + unique_process_id() + ".parquet")};
 
     {
-        parquet::Engine engine;
+        parquet::Engine engine(parquet::Lane::write);
         std::string definition;
         for (const auto& column : schema)
             definition += (definition.empty() ? "" : ", ") + std::string("\"")
@@ -407,7 +407,9 @@ void Writer::put(std::string key, std::span<const Row> rows, std::vector<std::st
             appender.EndRow();
         }
         appender.Close();
-        parquet::publish(engine, "cells", temporary.file);
+        engine.run(
+            "COPY cells TO " + parquet::literal(temporary.file)
+            + " (FORMAT parquet, COMPRESSION zstd)");
     }
     const auto digest = sha256_file(temporary.file);
     const auto file = relative.parent_path()

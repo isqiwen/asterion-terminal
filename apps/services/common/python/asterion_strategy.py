@@ -123,7 +123,9 @@ class Column:
 
     def scale(self, ratio: float):
         # A new array: views handed out before keep what they showed.
-        self.values = self.values * ratio
+        scaled = np.empty_like(self.values)
+        scaled[:self.size] = self.values[:self.size] * ratio
+        self.values = scaled
 
     def last(self, count: int) -> np.ndarray:
         view = self.values[max(0, self.size - count):self.size]

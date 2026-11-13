@@ -269,7 +269,8 @@ wire::DatasetCoverage Reader::coverage(const wire::DatasetRef& query) const
     wire::DatasetCoverage result;
     // minutes/<exchange>/<day>/<product>/<month>
     std::map<std::string, std::map<std::string, wire::MinuteMonth>> minutes;
-    std::string daily, contracts;
+    std::map<std::string, std::string> daily;
+    std::string contracts;
     std::map<std::string, std::string> first_minute;
     for (const auto& [key, part] : version.partitions) {
         if (key.starts_with("minutes/")) {
@@ -284,7 +285,7 @@ wire::DatasetCoverage Reader::coverage(const wire::DatasetRef& query) const
             start = start.empty() ? day : std::min(start, day);
             continue;
         }
-        auto* files = key.starts_with("daily/") ? &daily
+        auto* files = key.starts_with("daily/") ? &daily[key.substr(0, key.find('-'))]
             : key.starts_with("contracts/")     ? &contracts
                                                 : nullptr;
         if (files)
@@ -350,19 +351,25 @@ wire::DatasetCoverage Reader::coverage(const wire::DatasetRef& query) const
         return result;
     const auto empty_daily = empty_keys(directory_, "daily");
     parquet::Engine engine;
-    engine.run("CREATE TEMP VIEW daily AS SELECT * FROM read_parquet([" + daily + "])");
     // EXCHANGE/product -> month -> its coverage, and the product's first and last day.
     std::map<std::string, std::map<std::string, wire::MonthCoverage>> products;
     std::map<std::string, std::string> first, last;
-    const auto rows = engine.run(
-        "SELECT exchange, product, strftime(day, '%Y-%m'), count(DISTINCT day)," " strftime(min(min(day)) OVER (PARTITION BY exchange, product), '%Y-%m-%d')," " strftime(max(max(day)) OVER (PARTITION BY exchange, product), '%Y-%m-%d')" " FROM daily GROUP BY exchange, product, strftime(day, '%Y-%m')");
-    for (duckdb::idx_t row = 0; row < rows->RowCount(); ++row) {
-        const auto key =
-            rows->GetValue(0, row).ToString() + '/' + rows->GetValue(1, row).ToString();
-        products[key][rows->GetValue(2, row).ToString()].set_days(
-            rows->GetValue(3, row).GetValue<std::uint32_t>());
-        first[key] = rows->GetValue(4, row).ToString();
-        last[key] = rows->GetValue(5, row).ToString();
+    for (const auto& [group, files] : daily) {
+        const auto rows = engine.run(
+            "SELECT exchange, product, strftime(day, '%Y-%m'), count(DISTINCT day),"
+            " strftime(min(day), '%Y-%m-%d'), strftime(max(day), '%Y-%m-%d')"
+            " FROM read_parquet(["
+            + files + "]) GROUP BY exchange, product, strftime(day, '%Y-%m')");
+        for (duckdb::idx_t row = 0; row < rows->RowCount(); ++row) {
+            const auto key =
+                rows->GetValue(0, row).ToString() + '/' + rows->GetValue(1, row).ToString();
+            auto& month = products[key][rows->GetValue(2, row).ToString()];
+            month.set_days(month.days() + rows->GetValue(3, row).GetValue<std::uint32_t>());
+            const auto min_day = rows->GetValue(4, row).ToString();
+            const auto max_day = rows->GetValue(5, row).ToString();
+            first[key] = first[key].empty() ? min_day : std::min(first[key], min_day);
+            last[key] = std::max(last[key], max_day);
+        }
     }
     // A product is due only while one of its contracts is listed.
     std::map<std::string, std::string> delisted;

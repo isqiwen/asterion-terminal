@@ -154,15 +154,18 @@ void create_directories_durably(const std::filesystem::path& directory)
         throw std::runtime_error("durable directory creation requires a regular directory path");
     const auto parent =
         directory.parent_path().empty() ? std::filesystem::path(".") : directory.parent_path();
-    if (!std::filesystem::exists(directory)) {
+    const bool created = !std::filesystem::exists(directory);
+    if (created) {
         if (!std::filesystem::exists(parent))
             create_directories_durably(parent);
         std::filesystem::create_directory(directory);
     }
     if (std::filesystem::is_symlink(directory) || !std::filesystem::is_directory(directory))
         throw std::runtime_error("durable directory creation requires a regular directory path");
-    sync_directory(directory);
-    sync_directory(parent);
+    if (created) {
+        sync_directory(directory);
+        sync_directory(parent);
+    }
 }
 
 void publish_file_durably(const std::filesystem::path& temporary, const std::filesystem::path& path)

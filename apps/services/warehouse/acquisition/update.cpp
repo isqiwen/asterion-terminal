@@ -27,17 +27,31 @@ std::vector<wire::StartAcquisition> update_requests(
         at != version.partitions.end() && at->first.starts_with("calendar/");
         ++at)
         calendars.insert(at->first.substr(9, at->first.find('/', 9) - 9));
+    const auto current_year = yesterday.substr(0, 4);
+    const auto previous_year = std::to_string(std::stoi(current_year) - 1);
+    std::string first_calendar = yesterday;
     std::erase_if(calendars, [&](const auto& exchange) {
-        return version.partitions.contains("calendar/" + exchange + "/" + yesterday.substr(0, 4));
+        const bool has_previous =
+            version.partitions.contains("calendar/" + exchange + "/" + previous_year);
+        const bool has_current =
+            version.partitions.contains("calendar/" + exchange + "/" + current_year);
+        if (!has_previous)
+            first_calendar = previous_year + "-12-31";
+        return has_current;
     });
     if (!calendars.empty()) {
         auto& calendar = request("calendar");
-        calendar.set_first_day(yesterday);
+        calendar.set_first_day(first_calendar);
         calendar.set_last_day(yesterday);
         for (const auto& exchange : calendars)
             calendar.add_exchanges(exchange);
     }
-    const auto open = open_days(store, version, yesterday);
+    auto open = open_days(store, version, yesterday);
+    for (const auto& exchange : calendars)
+        for (auto day = day_of(current_year + "-01-01"); day <= day_of(yesterday);
+            day += std::chrono::days{1})
+            if (std::chrono::weekday(day).iso_encoding() < 6)
+                open[exchange].push_back(day_text(day));
     for (const std::string table : {"daily", "minutes", "settlement", "price_ticks"}) {
         std::string first;
         std::vector<std::string> due;

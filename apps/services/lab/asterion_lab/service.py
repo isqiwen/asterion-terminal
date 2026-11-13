@@ -379,23 +379,27 @@ class Service:
         """Evaluates a factor in a child process, keeps its result and replies
         with it, within the time the Terminal waits for a reply."""
         admitted = await self.read(self.pin_factor, request)
-        process = await asyncio.create_subprocess_exec(
-            *repository.child("asterion_lab.factor"), str(self.directory), cwd=admitted.source,
-            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE)
         try:
-            output, error = await asyncio.wait_for(
-                process.communicate(admitted.SerializeToString()), FACTOR_SECONDS)
-        except TimeoutError:
-            process.kill()
-            await process.wait()
-            raise ValueError(f"the factor took longer than {FACTOR_SECONDS} s; "
-                             "evaluate fewer symbols or a shorter range")
-        if process.returncode != 0:
-            lines = error.decode(errors="replace").strip().splitlines()
-            raise ValueError(lines[-1] if lines else f"the factor exited with {process.returncode}")
-        result.ParseFromString(output)
-        await self.read(self.save_factor, admitted, result)
+            process = await asyncio.create_subprocess_exec(
+                *repository.child("asterion_lab.factor"), str(self.directory), cwd=admitted.source,
+                stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE)
+            try:
+                output, error = await asyncio.wait_for(
+                    process.communicate(admitted.SerializeToString()), FACTOR_SECONDS)
+            except TimeoutError:
+                process.kill()
+                await process.wait()
+                raise ValueError(f"the factor took longer than {FACTOR_SECONDS} s; "
+                                 "evaluate fewer symbols or a shorter range")
+            if process.returncode != 0:
+                lines = error.decode(errors="replace").strip().splitlines()
+                raise ValueError(lines[-1] if lines else f"the factor exited with {process.returncode}")
+            result.ParseFromString(output)
+            await self.read(self.save_factor, admitted, result)
+        except Exception:
+            await asyncio.to_thread(shutil.rmtree, admitted.source, True)
+            raise
 
     async def on_get_run_report(self, request, reply):
         """QuantStats figures of a finished run, computed in a child process."""
@@ -486,8 +490,8 @@ class Service:
         """Starts waiting runs while fewer than the allowed number run, and a
         sweep's rolling validation once all its candidates have ended.
         Called with the admission lock held."""
-        while self.waiting and len(self.backtests) < self.processes:
-            _, run = self.waiting[0]
+        while self.waiting and len(self.backtests) < self.waiting[0][2]:
+            _, run, _ = self.waiting[0]
             try:
                 await self.launch(run)
             except Exception as error:
@@ -563,11 +567,10 @@ class Service:
                                  walk_forward=request.walk_forward)
             self.check_run_id(rolling.id)
         await asyncio.to_thread(self.runs.plan_sweep, request.id, planned)
-        if request.processes:
-            self.processes = min(request.processes, os.cpu_count() or 1)
+        limit = min(request.processes, os.cpu_count() or 1) if request.processes else self.processes
         if rolling:
             self.rolling[request.id] = Rolling(rolling, len(runs))
-        self.waiting.extend((request.id, run) for run in runs)
+        self.waiting.extend((request.id, run, limit) for run in runs)
         await self.start_waiting()
 
     async def on_cancel_sweep(self, request, _):

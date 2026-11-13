@@ -1128,12 +1128,16 @@ TEST_F(Acquisition, AnUpdateBringsEachAcquiredTableToYesterday)
     EXPECT_EQ(requests[1].first_day(), "2026-10-30");
     EXPECT_TRUE(requests[1].last_day().empty());
     EXPECT_EQ(requests[1].instruments(0), "SHFE/rb/2027-01");
-    // A new year without its calendar asks for the calendar first.
+    // A new year without its calendar asks for the calendar first and brings
+    // tables that were current at year-end into the new year too.
     requests = ac::update_requests(root, "2027-01-04", "update-2");
-    ASSERT_EQ(requests.size(), 3);
+    ASSERT_EQ(requests.size(), 4);
     EXPECT_EQ(requests[0].table(), ac::wire::TABLE_CALENDAR);
     EXPECT_EQ(requests[0].exchanges(0), "SHFE");
     EXPECT_EQ(requests[0].first_day(), "2027-01-04");
+    EXPECT_EQ(requests[3].table(), ac::wire::TABLE_SETTLEMENT);
+    EXPECT_EQ(requests[3].first_day(), "2026-10-31");
+    EXPECT_EQ(requests[3].last_day(), "2027-01-04");
 }
 
 TEST_F(Acquisition, RemoteTasksAreSharedByRegisteredClientsAndSurviveDisconnect)

@@ -655,9 +655,10 @@ void Manager::run(
             auto key = table(request) + "/" + exchange + "/" + day;
             if (!contract.empty())
                 key += "/" + contract.substr(exchange.size() + 1);
-            if (!covered.contains(key)
+            const bool need_fetch = !covered.contains(key)
                 && (request.refetch()
-                    || (!version.partitions.contains(key) && !answered.contains(key)))) {
+                    || (!version.partitions.contains(key) && !answered.contains(key)));
+            if (need_fetch) {
                 using warehouse::rows;
                 const auto fetched = table(request) == "minutes"
                     ? rows(source.minutes(contract, day))
@@ -678,7 +679,12 @@ void Manager::run(
                 publish_batch();
             task.set_items_done(task.items_done() + 1);
             task.set_requests_sent(previous_requests + source.requests());
-            publish(task, active);
+            if (need_fetch)
+                publish(task, active);
+            else {
+                std::lock_guard lock(mutex_);
+                active.task = task;
+            }
         }
     } catch (...) {
         publish_batch();

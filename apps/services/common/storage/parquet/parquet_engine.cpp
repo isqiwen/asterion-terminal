@@ -27,8 +27,8 @@ Shared& lane(Lane which)
         config.SetOptionByName("temp_directory", duckdb::Value(""));
         return std::make_unique<duckdb::DuckDB>(nullptr, &config);
     };
-    static Shared warehouse{{}, open()}, recording{{}, open()};
-    return which == Lane::recording ? recording : warehouse;
+    static Shared read{{}, open()}, write{{}, open()};
+    return which == Lane::write ? write : read;
 }
 
 } // namespace

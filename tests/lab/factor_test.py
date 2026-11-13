@@ -175,6 +175,7 @@ class Repository(unittest.TestCase):
             run.params["lookback"].integer = 0
             failed = await service.reply(request)
             self.assertIn("lookback is at least one bar", failed.error.message)
+            self.assertEqual(list((self.directory / "sources").glob("factor-momentum-2-*")), [])
             # The result keeps the code it evaluated; a later edit is a later evaluation's.
             module = self.repository / "factors" / "price.py"
             evaluated = module.read_text()

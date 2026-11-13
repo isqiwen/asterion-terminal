@@ -10,18 +10,18 @@ namespace asterion::parquet {
 
 // In-memory engines (no catalog, no extension downloads), one per lane;
 // starting DuckDB costs far more than a query. Each lane runs one query at a
-// time, so concurrent reads cannot multiply its working set. Recording has a
-// lane of its own: a long warehouse read never holds back its writes. Each
+// time, so concurrent reads cannot multiply its working set. Writes have a
+// lane of their own: a long warehouse read never holds back commits. Each
 // call still owns a connection and its temporary tables.
 enum class Lane
 {
-    warehouse,
-    recording
+    read,
+    write
 };
 
 struct Engine
 {
-    explicit Engine(Lane lane = Lane::warehouse);
+    explicit Engine(Lane lane = Lane::read);
     std::unique_ptr<duckdb::MaterializedQueryResult> run(const std::string& sql);
     // Declaration order keeps the connection's destruction inside the lease.
     std::unique_lock<std::mutex> lease;
