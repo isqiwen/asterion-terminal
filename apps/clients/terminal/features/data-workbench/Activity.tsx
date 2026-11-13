@@ -87,7 +87,7 @@ export function Activity({
           </tbody>
         </table>
       ) : (
-        <p className="subtle">{t("还没有采集任务。")}</p>
+        <p className="subtle">{t("还没有采集任务")}</p>
       )}
       {more && (
         <button type="button" onClick={more}>

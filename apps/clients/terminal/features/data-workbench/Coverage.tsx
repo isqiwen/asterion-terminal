@@ -198,7 +198,7 @@ function CoverageBody({ context }: { context: TerminalContext }) {
             {t("读取中")}
           </p>
         ) : !rows.length ? (
-          <p className="subtle">{minutes ? t("仓库里还没有分钟线。") : t("仓库里还没有日线。")}</p>
+          <p className="subtle">{t(minutes ? "还没有分钟线" : "还没有日线")}</p>
         ) : (
           <Matrix
             rows={shown}

@@ -127,7 +127,7 @@ export function ReferenceTable({
           </div>
         </>
       ) : (
-        !error && <p className="subtle">{t("所选范围内没有数据。")}</p>
+        !error && <p className="subtle">{t("没有数据")}</p>
       )}
     </>
   );

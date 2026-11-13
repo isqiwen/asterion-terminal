@@ -83,7 +83,7 @@ function BrowseBody({ context }: { context: TerminalContext }) {
             {t("读取中")}
           </p>
         ) : !state.value.version ? (
-          <p className="subtle">{t("仓库里还没有数据。")}</p>
+          <p className="subtle">{t("还没有数据")}</p>
         ) : shown === "contracts" ? (
           <StoredContracts key={viewed || latest} version={viewed} context={context} />
         ) : (

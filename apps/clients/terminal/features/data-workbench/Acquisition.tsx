@@ -113,7 +113,7 @@ export function Acquisition({
           <DateInput value={end} onChange={setEnd} />
         </label>
       </div>
-      {named && <p className="subtle">{t("日期留空即整个上市期。")}</p>}
+      {named && <p className="subtle">{t("日期留空即整个上市期")}</p>}
       <label>
         <input
           type="checkbox"

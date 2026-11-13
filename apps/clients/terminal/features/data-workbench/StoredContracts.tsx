@@ -63,7 +63,7 @@ export function StoredContracts({
       ) : stored.error ? (
         <ErrorNotice error={stored.error} />
       ) : !items.length ? (
-        <p className="subtle">{t("仓库里还没有合约。")}</p>
+        <p className="subtle">{t("还没有合约")}</p>
       ) : (
         <div className="stored-contracts">
           <div className="stored-contracts-list">
@@ -119,7 +119,7 @@ export function StoredContracts({
             </div>
             {matched.length > visible.length && (
               <p className="subtle">
-                {t("另有 {count} 个合约，请用搜索缩小范围", {
+                {t("另有 {count} 个合约，搜索以缩小范围", {
                   count: matched.length - visible.length,
                 })}
               </p>
