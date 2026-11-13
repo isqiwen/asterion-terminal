@@ -11,7 +11,11 @@ export function QuoteChart({ market, row }: { market: MarketView; row: QuoteRow 
   const reference = row.quote?.previousSettlement?.text;
   const available = market.online && market.board.feed?.state === FeedState.CONNECTED;
   return (
-    <section className="contract-live-chart" aria-label={t("最近报价走势")}>
+    <section
+      className="contract-live-chart"
+      aria-label={t("最近报价走势")}
+      title={t("每个合约最近 512 条报价，每 0.25 秒一帧")}
+    >
       {available && points.length ? (
         <PriceChart
           compact
@@ -51,16 +55,8 @@ export function QuoteChart({ market, row }: { market: MarketView; row: QuoteRow 
         </p>
       )}
       {market.interrupted && (
-        <p className="quote-data-note">{t("序列曾中断，仅显示恢复后的可用记录。")}</p>
+        <p className="quote-data-note">{t("序列曾中断，只显示恢复后的报价")}</p>
       )}
-      <details className="quote-data-note">
-        <summary>{t("数据说明")}</summary>
-        <p>
-          {t(
-            "每个合约最近最多 512 条报价，取自每 0.25 秒一帧的行情；非完整分时，不代表逐笔成交或分钟 K 线。",
-          )}
-        </p>
-      </details>
     </section>
   );
 }

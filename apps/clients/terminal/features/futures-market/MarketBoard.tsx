@@ -166,7 +166,7 @@ export function MarketBoard({ market, context }: { market: MarketView; context: 
           <p className="market-search-empty" role="status">
             {t(
               watchlist && !query
-                ? "还没有自选合约。选中合约后，点图表标题旁的“加入自选”。"
+                ? "还没有自选合约"
                 : quotes.length
                   ? "没有匹配的市场合约"
                   : "尚无订阅行情",

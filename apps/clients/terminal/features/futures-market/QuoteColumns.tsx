@@ -51,7 +51,6 @@ export function QuoteColumns({
       }}
     >
       <h2>{t("行情表头设置")}</h2>
-      <p>{t("合约列固定；拖动或使用上下按钮调整报价列。设置在当前窗口保留。")}</p>
       <ul>
         {draft.map((item, index) => (
           <li

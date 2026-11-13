@@ -82,7 +82,7 @@ export function MarketBar({ context }: { context: TerminalContext }) {
       <div className="market-scope tabs" role="group" aria-label={t("合约范围")}>
         <button
           aria-pressed={scope === "products"}
-          title={t("主连行显示同品种持仓量最大的实际月份合约，不是拼接的连续合约。")}
+          title={t("主连行是同品种持仓量最大的实际合约")}
           onClick={() => setScope("products")}
         >
           {t("品种概览")}
@@ -124,7 +124,7 @@ export function MarketBar({ context }: { context: TerminalContext }) {
         )}
         {!!feed?.ctpError && (
           <p role="alert">
-            {t("行情连接异常，请检查配置或服务时段。")} CTP {feed.ctpError}
+            {t("行情连接异常")} CTP {feed.ctpError}
           </p>
         )}
         {market.board.catalog?.status?.state === CatalogState.FAILED && (

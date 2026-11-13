@@ -126,9 +126,7 @@ test("market board groups exchanges and links contract selection without inventi
   available = true;
   quoteCount = 3;
   await expect(chart).toHaveAttribute("data-visible-count", "3");
-  await expect(
-    detail.getByText("序列曾中断，仅显示恢复后的可用记录。", { exact: true }),
-  ).toBeVisible();
+  await expect(detail.getByText("序列曾中断，只显示恢复后的报价", { exact: true })).toBeVisible();
   await board.getByRole("button", { name: "rb2610", exact: true }).click();
   await expect(chart).toHaveCount(0);
   await expect(detail.getByText("等待报价事件", { exact: true })).toBeVisible();
