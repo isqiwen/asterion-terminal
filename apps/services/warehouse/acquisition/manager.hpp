@@ -1,6 +1,7 @@
 #pragma once
 #include "source.hpp"
 #include "composition.hpp"
+#include "freshness.hpp"
 #include <asterion/warehouse.pb.h>
 #include <asterion/system/thread_pool.hpp>
 #include <functional>
@@ -63,6 +64,9 @@ private:
         const std::set<std::string>& covered,
         const std::set<std::string>& answered,
         std::set<std::string>& empty);
+    // The calendar the first calendar source holds now, and its open days
+    // through yesterday; empty without one.
+    std::pair<warehouse::Version, warehouse::OpenDays> calendar() const;
     void persist(const wire::AcquisitionTask&) const;
     void publish(const wire::AcquisitionTask&, Active&);
     void reap();

@@ -4,6 +4,7 @@
 #include <asterion/protocol/warehouse.hpp>
 #include <asterion/system/log.hpp>
 #include <asterion/system/durable_file.hpp>
+#include <algorithm>
 #include <fstream>
 #include <ranges>
 #include <regex>
@@ -151,6 +152,17 @@ Manager::~Manager()
     stop();
 }
 
+std::pair<warehouse::Version, warehouse::OpenDays> Manager::calendar() const
+{
+    for (const auto& provider : warehouse::sources_of("calendar"))
+        if (const auto at = stores_.find(provider); at != stores_.end()) {
+            auto version = at->second->current();
+            auto open = warehouse::open_days(*at->second, version, warehouse::yesterday());
+            return {std::move(version), std::move(open)};
+        }
+    return {};
+}
+
 void Manager::persist(const wire::AcquisitionTask& task) const
 {
     replace_file_durably(directory_ / (task.request().id() + ".pb"), task.SerializeAsString());
@@ -286,16 +298,22 @@ void Manager::work(
             for (const auto& [key, part] : store.current().partitions)
                 covered.insert(key);
         }
-        // A key every source answered empty, days after its day, will not come later.
+        // A day every source still answers empty after two more of its
+        // exchange's trading days will not come later; a provider may publish
+        // late, or after a holiday.
         if (!failure) {
-            const auto settled = day_text(
-                std::chrono::floor<std::chrono::days>(
-                    std::chrono::system_clock::now() + std::chrono::hours(8))
-                - std::chrono::days{3});
+            const auto open = calendar().second;
             auto record = answered;
             for (const auto& key : empty) {
-                const auto exchange = key.find('/', key.find('/') + 1);
-                if (!covered.contains(key) && key.substr(exchange + 1, 10) <= settled)
+                const auto exchange = key.find('/') + 1, day = key.find('/', exchange) + 1;
+                const auto days = open.find(key.substr(exchange, day - exchange - 1));
+                if (!covered.contains(key) && days != open.end()
+                    && days->second.end()
+                            - std::upper_bound(
+                                days->second.begin(),
+                                days->second.end(),
+                                key.substr(day, 10))
+                        >= 2)
                     record.insert(key);
             }
             std::erase_if(record, [&](const auto& key) {
@@ -563,12 +581,24 @@ void Manager::run(
         task.set_requests_sent(previous_requests + source.requests());
         publish(task, active);
     };
+    // An exchange's open days by its calendar for that year; weekdays without one.
+    const auto [held, open] = calendar();
+    const auto trading = [&](const std::string& exchange, std::chrono::sys_days day) {
+        const auto text = day_text(day);
+        if (!held.partitions.contains("calendar/" + exchange + "/" + text.substr(0, 4)))
+            return std::chrono::weekday(day).iso_encoding() < 6;
+        const auto days = open.find(exchange);
+        return days != open.end()
+            && std::binary_search(days->second.begin(), days->second.end(), text);
+    };
     // Exchange, day and, for minutes, contract of each partition.
     std::vector<std::tuple<std::string, std::string, std::string>> plan;
     if (table(request) == "minutes") {
         for (const auto& [contract, from, to] : scope.contracts)
             for (auto day = from; day <= std::min(to, last); day += std::chrono::days(1))
-                plan.emplace_back(contract.substr(0, contract.find('/')), day_text(day), contract);
+                if (const auto exchange = contract.substr(0, contract.find('/'));
+                    trading(exchange, day))
+                    plan.emplace_back(exchange, day_text(day), contract);
     } else if (table(request) == "calendar" || table(request) == "contracts"
         || (table(request) == "daily" && source.supports("calendar", scope.exchanges[0]))) {
         for (const auto& exchange : scope.exchanges) {
@@ -603,7 +633,7 @@ void Manager::run(
     } else {
         for (auto day = first; day <= last; day += std::chrono::days(1))
             for (const auto& exchange : scope.exchanges)
-                if (std::chrono::weekday(day).iso_encoding() < 6)
+                if (trading(exchange, day))
                     plan.emplace_back(exchange, day_text(day), "");
     }
     task.set_items(task.items() + plan.size());

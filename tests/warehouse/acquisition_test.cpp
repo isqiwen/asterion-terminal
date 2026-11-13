@@ -360,34 +360,42 @@ TEST_F(Acquisition, BudgetCancellationDoesNotWaitForTheMinuteOrSendAgain)
 TEST_F(Acquisition, SkipsStoredDaysAndDaysEverySourceFoundEmptyUntilRefetched)
 {
     auto vendor = std::make_shared<Vendor>();
+    vendor->full_calendar = true;
     vendor->empty.insert("20260106");
+    // Monday to Thursday, all open.
+    const auto week = [](const std::string& id) {
+        auto result = request(id);
+        result.set_first_day("2026-01-05");
+        result.set_last_day("2026-01-08");
+        return result;
+    };
     ac::Manager manager(root, {{"tushare", factory(vendor)}});
-    manager.submit(request("first"));
+    manager.submit(week("first"));
     const auto first = finished(manager, "first");
     ASSERT_EQ(first.state(), ac::wire::TASK_STATE_SUCCEEDED) << first.error().message();
-    EXPECT_EQ(first.items(), 2);
+    EXPECT_EQ(first.items(), 4);
     EXPECT_EQ(first.items_empty(), 1);
     wh::Store store(root, "tushare");
     const auto original = store.current();
     EXPECT_TRUE(original.partitions.contains("daily/SHFE/2026-01-05"));
     EXPECT_FALSE(original.partitions.contains("daily/SHFE/2026-01-06"));
-    // Long after its day the empty answer is recorded beside the tasks, not in
-    // the dataset, and the day is not asked for again.
+    // Two trading days after it the empty answer is recorded beside the tasks,
+    // not in the dataset, and the day is not asked for again.
     EXPECT_EQ(wh::empty_keys(root, "daily"), std::set<std::string>{"daily/SHFE/2026-01-06"});
     vendor->empty.clear();
     const auto asked = vendor->days.size();
-    manager.submit(request("again"));
+    manager.submit(week("again"));
     const auto again = finished(manager, "again");
     EXPECT_EQ(again.state(), ac::wire::TASK_STATE_SUCCEEDED);
     EXPECT_EQ(vendor->days.size(), asked);
     EXPECT_FALSE(store.current().partitions.contains("daily/SHFE/2026-01-06"));
     // Refetching asks again; a day that now has bars is no longer recorded.
-    auto fill = request("fill");
+    auto fill = week("fill");
     fill.set_refetch(true);
     manager.submit(fill);
     const auto filled = finished(manager, "fill");
     EXPECT_EQ(filled.state(), ac::wire::TASK_STATE_SUCCEEDED);
-    EXPECT_EQ(filled.items(), 2);
+    EXPECT_EQ(filled.items(), 4);
     EXPECT_EQ(filled.items_empty(), 0);
     EXPECT_TRUE(wh::empty_keys(root, "daily").empty());
     const auto before_refresh = store.current();
@@ -426,9 +434,9 @@ TEST_F(Acquisition, SkipsStoredDaysAndDaysEverySourceFoundEmptyUntilRefetched)
     EXPECT_EQ(restarted.list(query).tasks_size(), 4);
 }
 
-TEST_F(Acquisition, AnEmptyAnswerWithinThreeDaysOfItsDayStaysMissing)
+TEST_F(Acquisition, AnEmptyAnswerBeforeTwoMoreTradingDaysStaysMissing)
 {
-    // A provider may publish a day late.
+    // A provider may publish a day late, or after a holiday.
     auto vendor = std::make_shared<Vendor>();
     vendor->full_calendar = true;
     const auto today = std::chrono::floor<std::chrono::days>(
@@ -444,14 +452,35 @@ TEST_F(Acquisition, AnEmptyAnswerWithinThreeDaysOfItsDayStaysMissing)
     recent.set_last_day(ac::day_text(today - std::chrono::days(1)));
     manager.submit(recent);
     ASSERT_EQ(finished(manager, "recent").state(), ac::wire::TASK_STATE_SUCCEEDED);
-    std::set<std::string> settled;
-    for (auto day : vendor->days) {
-        day = day.substr(0, 4) + "-" + day.substr(4, 2) + "-" + day.substr(6);
-        if (day <= ac::day_text(today - std::chrono::days(3)))
-            settled.insert("daily/SHFE/" + day);
-    }
-    EXPECT_FALSE(settled.empty());
-    EXPECT_EQ(wh::empty_keys(root, "daily"), settled);
+    // The fixture opens on weekdays; only days with two open days after them are final.
+    std::vector<std::string> asked;
+    for (const auto& day : vendor->days)
+        asked.push_back(
+            "daily/SHFE/" + day.substr(0, 4) + "-" + day.substr(4, 2) + "-" + day.substr(6));
+    std::sort(asked.begin(), asked.end());
+    ASSERT_GE(asked.size(), 3);
+    EXPECT_EQ(wh::empty_keys(root, "daily"), std::set<std::string>(asked.begin(), asked.end() - 2));
+}
+
+TEST_F(Acquisition, DayByDayTasksAskOnlyForTheCalendarsOpenDays)
+{
+    // The fixture's 2026 calendar opens on the 5th and 6th, closes on the 7th.
+    auto vendor = std::make_shared<Vendor>();
+    ac::Manager manager(root, {{"tushare", factory(vendor)}});
+    auto calendar = request("calendar");
+    calendar.set_table(::warehouse::TABLE_CALENDAR);
+    manager.submit(calendar);
+    ASSERT_EQ(finished(manager, "calendar").state(), ac::wire::TASK_STATE_SUCCEEDED);
+    ac::wire::StartAcquisition minutes;
+    minutes.set_id("minutes");
+    minutes.set_table(::warehouse::TABLE_MINUTES);
+    minutes.add_instruments("SHFE/rb/2026-05");
+    minutes.set_first_day("2026-01-05");
+    minutes.set_last_day("2026-01-08");
+    manager.submit(minutes);
+    const auto task = finished(manager, "minutes");
+    ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
+    EXPECT_EQ(task.items(), 2);
 }
 
 TEST_F(Acquisition, AProviderIsNotAskedForToday)

@@ -345,8 +345,8 @@ TEST_F(ExchangeSources, PriceTickTasksDiscoverAndPublishOnlyObservedTradingDays)
     manager.submit(request);
     const auto again = wait(manager, "again");
     EXPECT_EQ(again.state(), ac::wire::TASK_STATE_SUCCEEDED) << again.error().message();
-    // Days the exchange answered empty long after them are not asked again.
-    EXPECT_EQ(again.requests_sent(), 0);
+    // Without a calendar an empty answer is never taken as final: asked again.
+    EXPECT_EQ(again.requests_sent(), 2);
     EXPECT_EQ(store.current().identity, original.identity);
 }
 
@@ -438,8 +438,9 @@ TEST_F(ExchangeSources, TaskOwnsDatedPartitionsAndKeepsPublishedDataAfterFailure
     EXPECT_TRUE(original.partitions.contains("settlement/SHFE/2026-10-30"));
     request.set_id("again");
     manager.submit(request);
-    // Neither the stored day nor the one answered empty is fetched again.
-    EXPECT_EQ(wait(manager, "again").requests_sent(), 0);
+    // Only the missing publication is fetched again: without a calendar an
+    // empty answer is never taken as final.
+    EXPECT_EQ(wait(manager, "again").requests_sent(), 1);
     EXPECT_EQ(store.current().identity, original.identity);
     fail = true;
     request.set_id("partial");

@@ -15,8 +15,8 @@ std::string yesterday();
 using OpenDays = std::map<std::string, std::vector<std::string>>;
 OpenDays open_days(const Store&, const Version&, const std::string& through);
 
-// Partition keys of a table that every source answered empty at least three
-// days after their day. Kept beside the acquisition tasks, not in the dataset:
+// Partition keys of a table that every source still answered empty after two
+// more trading days of their exchange. Kept beside the acquisition tasks, not in the dataset:
 // an empty partition would let research take the day as stored.
 std::filesystem::path empty_file(const std::filesystem::path& directory, const std::string& table);
 std::set<std::string> empty_keys(const std::filesystem::path& directory, const std::string& table);

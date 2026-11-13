@@ -136,8 +136,9 @@ message TableSummary {
   // through then. Empty and 0 for the other tables and without a calendar.
   string expected_last_day = 6;
   uint64 missing = 7;
-  // Open days in that span that every source answered empty at least three
-  // days after them; not in `missing`, and not acquired again unless refetched.
+  // Open days in that span that every source still answered empty after two
+  // more of the exchange's trading days; not in `missing`, and not acquired
+  // again unless refetched.
   uint64 source_empty = 8;
 }
 

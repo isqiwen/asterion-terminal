@@ -539,8 +539,9 @@ export type TableSummary = Message<"warehouse.TableSummary"> & {
   missing: bigint;
 
   /**
-   * Open days in that span that every source answered empty at least three
-   * days after them; not in `missing`, and not acquired again unless refetched.
+   * Open days in that span that every source still answered empty after two
+   * more of the exchange's trading days; not in `missing`, and not acquired
+   * again unless refetched.
    *
    * @generated from field: uint64 source_empty = 8;
    */
