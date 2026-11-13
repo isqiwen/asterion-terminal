@@ -92,8 +92,14 @@ test(
     await expect(page.getByRole("table", { name: "分组" }).locator("tbody tr")).toHaveCount(3);
     await expect(page.getByText(/3 个品种/)).toBeVisible();
     await page.screenshot({ path: join(__dirname, "../test-results/research-lab-factor.png") });
-    // The evaluation is kept and reopens from its record.
-    await page.getByRole("button", { name: "← 评价记录", exact: true }).click();
-    await expect(page.getByRole("table", { name: "评价记录" }).locator("tbody tr")).toHaveCount(1);
+    // The evaluation is kept under the factor's settings and reopens from there.
+    await page.getByRole("button", { name: "← 源码", exact: true }).click();
+    const records = page.getByRole("list", { name: "评价记录" }).getByRole("button");
+    await expect(records).toHaveCount(1);
+    await records.click();
+    await expect(decay).toBeVisible();
+    await page.screenshot({
+      path: join(__dirname, "../test-results/research-lab-factor-record.png"),
+    });
   },
 );

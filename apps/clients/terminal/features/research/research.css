@@ -451,7 +451,8 @@ button.lab-module-group[aria-expanded="false"]::before {
 button.lab-module-group span {
   margin-right: auto;
 }
-.lab-module-list li button {
+.lab-module-list li button,
+.lab-evaluations li button {
   display: flex;
   justify-content: flex-start;
   align-items: baseline;
@@ -465,10 +466,12 @@ button.lab-module-group span {
   color: var(--text-strong);
   text-align: left;
 }
-.lab-module-list li button:hover {
+.lab-module-list li button:hover,
+.lab-evaluations li button:hover {
   background: var(--hover);
 }
-.lab-module-list li button[aria-pressed="true"] {
+.lab-module-list li button[aria-pressed="true"],
+.lab-evaluations li button[aria-pressed="true"] {
   border-left-color: var(--accent);
   background: var(--accent-surface);
   color: var(--accent);
@@ -477,6 +480,28 @@ button.lab-module-group span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.lab-evaluations {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.lab-evaluations li button {
+  padding-left: var(--space-2);
+}
+.lab-evaluations li span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lab-evaluations li small {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+}
+.lab-evaluations li .numeric {
+  margin-left: auto;
+  font-family: var(--font-terminal);
 }
 .lab-module-list li small {
   margin-left: auto;

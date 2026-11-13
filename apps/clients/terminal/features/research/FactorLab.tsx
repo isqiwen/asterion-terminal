@@ -1,9 +1,10 @@
 import { DateInput } from "../../src/ui/DateInput";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { lab } from "../../src/bridge/lab";
 import type { FactorResult } from "../../src/generated/asterion/lab_pb";
 import { ActionError, useActionError } from "../../src/host/action-error";
 import { notify } from "../../src/host/notifications";
+import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/errors";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { type MessageValues, getLocale, translate, listSeparator } from "../../src/i18n";
@@ -15,8 +16,10 @@ import {
   parameterKind,
   type FactorForm,
 } from "./research-lab";
+import { FactorResultView } from "./FactorResultView";
 import {
   ConfigFold,
+  DeleteRecord,
   LabCentre,
   LabHeader,
   ModuleErrors,
@@ -33,13 +36,13 @@ import { metric, signed } from "./ResearchResult";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
 
-// The factor view: the factor modules, their code and an evaluation's
-// settings. An evaluation opens its report in the evaluations view.
+// The factor view: the factor modules, their code, an evaluation's settings and
+// the chosen factor's kept evaluations, whose reports open in place of the code.
 export function FactorLab(context: TerminalContext) {
   const repository = context.snapshot?.research_directory ?? "";
   const { modules, read } = useModules(repository);
-  // Kept while an evaluation's report is on show in the evaluations view.
   const [chosen, setChosen] = useWorkspaceDraft(`factor:${repository}`, "");
+  const [report, setReport] = useWorkspaceDraft("factor-report", "");
   const [form, setForm] = useWorkspaceDraft<FactorForm>("factor-form", defaultFactorForm);
   const [busy, setBusy] = useState(false);
   const { error, attempt } = useActionError();
@@ -48,19 +51,16 @@ export function FactorLab(context: TerminalContext) {
 
   const factor = modules?.factors.find(item => item.id === chosen);
   const [library, setLibrary] = useWorkspaceDraft("factor-library", false);
-  // Each factor's latest evaluation, beside it in the list and in the library.
+  // Kept evaluations, newest first: each factor's latest beside it in the list
+  // and in the library, and the chosen factor's under its settings.
   const [kept, setKept] = useState<FactorResult[]>([]);
-  useEffect(() => {
-    let active = true;
-    void lab({ case: "listFactorResults", value: {} })
-      .then(reply => active && setKept(reply.results))
-      .catch(failure => active && notify(failure));
-    return () => {
-      active = false;
-    };
-  }, []);
-  // Kept evaluations list newest first.
+  const readKept = useCallback(
+    async () => setKept((await lab({ case: "listFactorResults", value: {} })).results),
+    [],
+  );
+  useEffect(() => void readKept().catch(notify), [readKept]);
   const latest = (id: string) => kept.find(item => item.evaluation?.factor === id);
+  const evaluations = kept.filter(item => item.evaluation?.factor === chosen);
   const items: ModuleItem[] = (modules?.factors ?? []).map(item => {
     const [module, name] = item.id.split(".");
     const ic = latest(item.id)?.horizons[0]?.mean;
@@ -79,6 +79,7 @@ export function FactorLab(context: TerminalContext) {
   const choose = (id: string) => {
     const entry = modules!.factors.find(item => item.id === id)!;
     setChosen(id);
+    setReport("");
     source.open(`factors/${id.split(".")[0]}.py`);
     change({ params: Object.fromEntries(entry.parameters.map(p => [p.name, defaultText(p)])) });
   };
@@ -96,10 +97,17 @@ export function FactorLab(context: TerminalContext) {
         case: "evaluateFactor",
         value: { ...factorRequest(form, repository, factor), id },
       });
-      context.navigate("workspace.lab-evaluations", { params: { id } });
+      setReport(id);
+      await readKept();
     });
     setBusy(false);
   };
+  const remove = (id: string) =>
+    void attempt(async () => {
+      await lab({ case: "deleteFactorResult", value: { id } });
+      setReport("");
+      await readKept();
+    });
   const field = (label: string, key: "begin" | "end" | "horizons" | "groups", props = {}) => (
     <label>
       <span>{t(label)}</span>
@@ -153,6 +161,18 @@ export function FactorLab(context: TerminalContext) {
             setLibrary(false);
           }}
         />
+      ) : report ? (
+        <main className="lab-center lab-runs-view">
+          <header className="lab-report-header">
+            <button className="lab-link" onClick={() => setReport("")}>
+              {t("← 源码")}
+            </button>
+            <h3>{report}</h3>
+            <span className="lab-spacer" />
+            <DeleteRecord name={report} remove={() => remove(report)} />
+          </header>
+          <Report key={report} id={report} />
+        </main>
       ) : (
         <LabCentre
           source={source}
@@ -163,20 +183,18 @@ export function FactorLab(context: TerminalContext) {
             void read();
           }}
         >
-          <p className="lab-placeholder">
-            {t("选择左侧的因子，填写右侧的设置后评价；报告在“因子评价”里。")}
-          </p>
+          <p className="lab-placeholder">{t("选择因子")}</p>
         </LabCentre>
       )}
       <aside className="lab-config">
         <h4>
-          {!folded && t("因子评价")}
+          {!folded && t("评价")}
           <ConfigFold folded={folded} fold={setFolded} />
         </h4>
         {!folded && (
           <>
             {!factor ? (
-              <p className="subtle">{t("先选择一个因子。")}</p>
+              <p className="subtle">{t("选择因子")}</p>
             ) : (
               <>
                 <Section
@@ -237,6 +255,34 @@ export function FactorLab(context: TerminalContext) {
                   {field("持有期（K 线数）", "horizons")}
                   {field("分组数", "groups")}
                 </Section>
+                {evaluations.length > 0 && (
+                  <Section title={t("评价记录")} summary={String(evaluations.length)} open>
+                    <ul className="lab-evaluations" aria-label={t("评价记录")}>
+                      {evaluations.map(item => {
+                        const ic = item.horizons[0]?.mean;
+                        return (
+                          <li key={item.id}>
+                            <button
+                              aria-pressed={item.id === report}
+                              title={item.id}
+                              onClick={() => setReport(item.id)}
+                            >
+                              <span>
+                                {Object.entries(item.evaluation?.params ?? {})
+                                  .map(([name, value]) => `${name}=${String(value.value.value)}`)
+                                  .join(" ") || item.id}
+                              </span>
+                              <small>
+                                {item.evaluation?.firstDay} – {item.evaluation?.lastDay}
+                              </small>
+                              <span className={`numeric ${signed(ic)}`}>{metric(ic, false)}</span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </Section>
+                )}
                 <footer className="lab-submit">
                   <button
                     className="primary"
@@ -292,9 +338,10 @@ function FactorLibrary({
     if (x === undefined || y === undefined) return x === undefined ? (y === undefined ? 0 : 1) : -1;
     return sort.descending ? y - x : x - y;
   });
-  const heading = (key: LibraryKey, label: string) => (
+  const heading = (key: LibraryKey, label: string, title?: string) => (
     <th
       className="numeric"
+      title={title}
       aria-sort={sort.key === key ? (sort.descending ? "descending" : "ascending") : undefined}
     >
       <button
@@ -320,7 +367,7 @@ function FactorLibrary({
               <th>{t("因子")}</th>
               <th>{t("模块")}</th>
               <th>{t("输入数据")}</th>
-              {heading("ic", t("IC 均值"))}
+              {heading("ic", t("IC 均值"), t("最近一次评价的第一个持有期"))}
               {heading("ir", "ICIR")}
               {heading("t", t("t 值"))}
               {heading("evaluated", t("评价时间"))}
@@ -355,7 +402,23 @@ function FactorLibrary({
           </tbody>
         </table>
       </div>
-      <p className="subtle">{t("IC 取最近一次评价的第一个持有期。")}</p>
     </main>
   );
+}
+
+function Report({ id }: { id: string }) {
+  const [result, setResult] = useState<FactorResult | null>(null);
+  const [error, setError] = useState<DisplayError>("");
+  useEffect(() => {
+    let active = true;
+    void lab({ case: "getFactorResult", value: { id } })
+      .then(reply => active && setResult(reply))
+      .catch(failure => active && setError(asDisplayError(failure)));
+    return () => {
+      active = false;
+    };
+  }, [id]);
+  if (error) return <ErrorNotice error={error} />;
+  if (!result) return <p className="subtle">{t("正在读取结果…")}</p>;
+  return <FactorResultView result={result} />;
 }

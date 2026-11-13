@@ -8,8 +8,7 @@ import "./research.css";
 import { StrategyLab } from "./StrategyLab";
 import { FactorLab } from "./FactorLab";
 import { Runs } from "./Runs";
-import { Evaluations } from "./Evaluations";
-// The research views: strategies, their runs and reports, factors and their evaluations, on the lab service.
+// The research views: strategies, their runs and reports, and factors with their evaluations, on the lab service.
 export const feature: TerminalFeature = {
   id: "asterion.terminal.research",
   languageResources: { "zh-CN": zh, "en-US": en },
@@ -34,13 +33,6 @@ export const feature: TerminalFeature = {
         return t("因子");
       },
       component: context => <FactorLab {...context} />,
-    },
-    {
-      id: "workspace.lab-evaluations",
-      get title() {
-        return t("因子评价");
-      },
-      component: context => <Evaluations {...context} />,
     },
   ],
 };

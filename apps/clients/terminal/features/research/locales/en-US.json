@@ -106,7 +106,6 @@
   "分组（1 为因子值最低）": "Group (1 holds the lowest values)",
   "参数": "Parameters",
   "因子参数 {name} 只能取一个值": "Factor parameter {name} takes one value",
-  "因子评价": "Factor evaluation",
   "天数": "Days",
   "平均每期收益": "Mean return per bar",
   "持有期": "Horizon",
@@ -142,7 +141,6 @@
   "删除": "Delete",
   "删除这个模块？删除后不能恢复。": "Delete this module? It cannot be restored.",
   "打开代码": "Open code",
-  "先选择一个因子。": "Choose a factor first.",
   "未设置": "not set",
   "时间": "Time",
   "评价记录": "Evaluations",
@@ -193,11 +191,6 @@
   "一格填多个值（逗号分隔）就是参数扫描。": "Several values in one field, separated by commas, make a parameter sweep.",
   "资金 {deposit} · 滑点 {slippage} 跳 · 单笔 {order} / 总 {gross} 手": "Funds {deposit} · slippage {slippage} ticks · {order} per order / {gross} lots",
   "最近运行": "Recent runs",
-  "← 评价记录": "← Evaluations",
-  "搜索名称或因子": "Search name or factor",
-  "没有匹配的评价。": "No matching evaluations.",
-  "还没有评价。在“因子”里选择因子并评价。": "No evaluations yet. Choose a factor under Factors and evaluate it.",
-  "选择左侧的因子，填写右侧的设置后评价；报告在“因子评价”里。": "Choose a factor on the left and fill in the settings on the right to evaluate it; reports are under Factor evaluations.",
   "持有期 {horizons} · {groups} 组": "Horizons {horizons} · {groups} groups",
   "IC 均值（{count} 根）": "Mean IC ({count} bars)",
   "多空累计": "Long–short cumulative",
@@ -212,5 +205,7 @@
   "最近一次 IC 均值": "Latest mean IC",
   "因子库": "Factor library",
   "模块": "Module",
-  "IC 取最近一次评价的第一个持有期。": "IC is the first horizon of the latest evaluation."
+  "← 源码": "← Code",
+  "选择因子": "Choose a factor",
+  "最近一次评价的第一个持有期": "Latest evaluation, first horizon"
 }

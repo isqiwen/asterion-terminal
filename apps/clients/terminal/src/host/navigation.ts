@@ -20,12 +20,7 @@ export const modules = [
     id: "research",
     title: "研究",
     icon: "backtest",
-    views: [
-      "workspace.lab-strategies",
-      "workspace.lab-runs",
-      "workspace.lab-factors",
-      "workspace.lab-evaluations",
-    ],
+    views: ["workspace.lab-strategies", "workspace.lab-runs", "workspace.lab-factors"],
   },
   {
     id: "data",
