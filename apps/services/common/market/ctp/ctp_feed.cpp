@@ -117,11 +117,54 @@ std::int64_t source_time(const std::string& time, int millisecond, std::int64_t 
     const auto clock = ((h * 3600LL + min * 60 + sec) * 1000 + millisecond) - beijing_ms;
     const auto midnight = (received_ms + beijing_ms) / day_ms * day_ms;
     auto result = midnight + clock;
-    if (result - received_ms > day_ms / 2)
+    // A cached night snapshot received during the day session belongs to the previous night.
+    if (result - received_ms > 3600000)
         result -= day_ms;
     else if (received_ms - result > day_ms / 2)
         result += day_ms;
     return result;
+}
+
+bool valid_trading_day(std::string_view day)
+{
+    return day.size() == 8
+        && std::ranges::all_of(
+            day,
+            [](unsigned char c) {
+                return std::isdigit(c);
+            })
+        && day >= "19900101" && day <= "21001231";
+}
+
+std::string next_weekday_trading_day(std::string_view day)
+{
+    if (!valid_trading_day(day))
+        return std::string(day);
+    int y = 0, m = 0, d = 0;
+    std::from_chars(day.data(), day.data() + 4, y);
+    std::from_chars(day.data() + 4, day.data() + 6, m);
+    std::from_chars(day.data() + 6, day.data() + 8, d);
+    const std::chrono::year_month_day ymd{
+        std::chrono::year{y},
+        std::chrono::month{static_cast<unsigned>(m)},
+        std::chrono::day{static_cast<unsigned>(d)}
+    };
+    if (!ymd.ok())
+        return std::string(day);
+    const auto sys = std::chrono::sys_days{ymd};
+    const auto next = sys
+        + (std::chrono::weekday{sys} == std::chrono::Friday ? std::chrono::days{3}
+                                                            : std::chrono::days{1});
+    const std::chrono::year_month_day out{next};
+    char buffer[9];
+    std::snprintf(
+        buffer,
+        sizeof(buffer),
+        "%04d%02u%02u",
+        static_cast<int>(out.year()),
+        static_cast<unsigned>(out.month()),
+        static_cast<unsigned>(out.day()));
+    return buffer;
 }
 
 // Some counters report 0 before the day's first trade; no future trades at 0.
@@ -254,6 +297,7 @@ struct Feed::Impl final
     {
         Impl& owner;
         const std::uint64_t generation;
+        CThostFtdcMdApi* api = nullptr;
 
         Bridge(Impl& owner, std::uint64_t generation)
             : owner(owner),
@@ -276,9 +320,10 @@ struct Feed::Impl final
             int,
             bool last) override
         {
-            owner.deliver(
-                generation,
-                Login{info ? info->ErrorID : 0, last, login ? field(login->TradingDay) : ""});
+            auto day = login ? field(login->TradingDay) : "";
+            if (!valid_trading_day(day) && login && api && api->GetTradingDay())
+                day = api->GetTradingDay();
+            owner.deliver(generation, Login{info ? info->ErrorID : 0, last, std::move(day)});
         }
 
         void OnRspSubMarketData(
@@ -349,6 +394,7 @@ struct Feed::Impl final
             api = factory(path.c_str(), false, false);
             if (!api)
                 throw Error(ErrorCode::unavailable, "CTP market factory failed");
+            bridge.api = api;
             api->RegisterSpi(&bridge);
             api->RegisterFront(front.data());
             api->Init();
@@ -533,14 +579,20 @@ struct Feed::Impl final
             return;
         MarketQuote q;
         q.instrument = s.instrument;
-        trading_day = std::max(trading_day, field(tick->TradingDay));
-        q.trading_day = trading_day;
         q.update_time = field(tick->UpdateTime);
+        auto tick_day = field(tick->TradingDay);
+        if (valid_trading_day(tick_day)) {
+            if (s.instrument.venue == "CZCE" && q.update_time >= "20:00:00"
+                && trading_day <= tick_day)
+                tick_day = next_weekday_trading_day(tick_day);
+            trading_day = std::max(trading_day, tick_day);
+        }
+        q.trading_day = trading_day;
         q.source_ms = source_time(q.update_time, tick->UpdateMillisec, received_ms);
         q.received_ms = received_ms;
         q.last = traded_price(tick->LastPrice);
-        q.bid = price(tick->BidPrice1);
-        q.ask = price(tick->AskPrice1);
+        q.bid = depth_level(tick->BidPrice1, tick->BidVolume1).price;
+        q.ask = depth_level(tick->AskPrice1, tick->AskVolume1).price;
         q.previous_settlement = price(tick->PreSettlementPrice);
         q.open = traded_price(tick->OpenPrice);
         q.upper_limit = price(tick->UpperLimitPrice);
@@ -616,7 +668,8 @@ struct Feed::Impl final
                             ++state.sequence;
                         } else if (value.last) {
                             logged_in = true;
-                            trading_day = value.trading_day;
+                            trading_day =
+                                valid_trading_day(value.trading_day) ? value.trading_day : "";
                             state.phase = MarketPhase::connected;
                             state.error_code = 0;
                             subscription_pending = true;

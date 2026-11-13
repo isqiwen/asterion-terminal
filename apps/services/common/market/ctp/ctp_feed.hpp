@@ -21,6 +21,8 @@ std::optional<Decimal> open_interest_change(double current, double previous);
 MarketDepthLevel depth_level(double price, int quantity);
 // UpdateTime on the Beijing civil day nearest to receipt.
 std::int64_t source_time(const std::string& time, int millisecond, std::int64_t received_ms);
+bool valid_trading_day(std::string_view day);
+std::string next_weekday_trading_day(std::string_view day);
 // CTP reports CZCE AveragePrice per unit and other exchanges as turnover /
 // volume, which includes the contract multiplier.
 std::optional<Decimal>

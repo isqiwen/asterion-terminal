@@ -62,10 +62,13 @@ bool is_rate_query(Kind kind)
 bool czce_night_of_session(
     const std::string& venue,
     const std::string& day,
-    const std::string& time)
+    const std::string& time,
+    std::string_view session_day)
 {
     if (venue != "CZCE" || time < "20:00:00")
         return false;
+    if (valid_trading_day(day) && next_weekday_trading_day(day) == session_day)
+        return true;
     using namespace std::chrono;
     const auto now = system_clock::now() + hours(8);
     auto night = floor<days>(now);
@@ -1088,7 +1091,8 @@ struct Trader::Impl final : CThostFtdcTraderSpi
             if (czce_night_of_session(
                     answer.instrument.venue,
                     quote.trading_day,
-                    quote.update_time))
+                    quote.update_time,
+                    state.trading_day))
                 quote.trading_day = state.trading_day;
             answer.quote = std::move(quote);
         }

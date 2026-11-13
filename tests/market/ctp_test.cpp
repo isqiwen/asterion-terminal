@@ -31,9 +31,16 @@ TEST(Ctp, MissingNumbersAndSourceClockRemainExplicit)
 
 TEST(Ctp, AQuoteTimeIsItsClockOnTheCivilDayNearestReceipt)
 {
+    using asterion::ctp::next_weekday_trading_day;
     using asterion::ctp::source_time;
     constexpr std::int64_t morning = 1790384400000; // 2026-09-26 09:00 Beijing
     EXPECT_EQ(source_time("09:00:00", 0, morning + 1000), morning);
+    // A cached night snapshot received at 09:35 belongs to the previous night, not tonight.
+    EXPECT_EQ(
+        source_time("21:05:00", 0, morning + 35 * 60000LL),
+        morning - 86400000LL + 12 * 3600000LL + 5 * 60000LL);
+    EXPECT_EQ(next_weekday_trading_day("20260925"), "20260928");
+    EXPECT_EQ(next_weekday_trading_day("20260928"), "20260929");
     // A DCE night quote: its ActionDay names the next trading day, the clock does not.
     const auto night = morning + 2 * 86400000LL + 12 * 3600000LL; // 2026-09-28 21:00
     EXPECT_EQ(source_time("21:00:00", 500, night + 30), night + 500);

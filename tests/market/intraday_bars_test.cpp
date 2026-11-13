@@ -69,11 +69,29 @@ TEST(IntradayBars, NewTradingDayStartsANewSeries)
     bars.observe(quote(base, "100", 10));
     bars.interrupt();
     bars.observe(quote(base + 3'600'000, "105", 3, "20261001"));
+    // A stale quote from an earlier trading day cannot reset the active day.
+    bars.observe(quote(base + 3'605'000, "99", 20, "20260930"));
     const auto series = bars.series({"SHFE", "br2611"});
     EXPECT_EQ(series->trading_day, "20261001");
     EXPECT_FALSE(series->interrupted);
     ASSERT_EQ(series->bars.size(), 1u);
     EXPECT_EQ(series->bars[0].volume, 0);
+
+    constexpr std::int64_t morning = 1790557200000; // 2026-09-28 09:00 Beijing
+    bars.observe(quote(morning - 10000, "106", 4, "20261002")); // 08:59:50 auction
+    bars.observe(quote(morning + 30000, "107", 9, "20261002"));
+    bars.observe(quote(morning + 6 * 3600000LL - 10000, "108", 12, "20261002")); // 14:59:50
+    bars.observe(quote(morning + 6 * 3600000LL, "109", 15, "20261002")); // 15:00:00 close
+    const auto next = bars.series({"SHFE", "br2611"});
+    ASSERT_EQ(next->bars.size(), 2u);
+    EXPECT_EQ(next->bars[0].start_ms, morning);
+    EXPECT_FALSE(next->bars[0].partial);
+    EXPECT_EQ(next->bars[0].open.str(), "106");
+    EXPECT_EQ(next->bars[0].close.str(), "107");
+    EXPECT_EQ(next->bars[0].volume, 9);
+    EXPECT_EQ(next->bars[1].start_ms, morning + 6 * 3600000LL - 60000LL);
+    EXPECT_EQ(next->bars[1].close.str(), "109");
+    EXPECT_EQ(next->bars[1].volume, 6);
 }
 
 TEST(IntradayBars, DelayedAggregationAndInterruptionHaveIndependentRevisions)

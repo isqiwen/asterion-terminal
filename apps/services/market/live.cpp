@@ -117,9 +117,18 @@ void Live::apply(const ctp::FeedEvent& event)
     } else if (const auto* quote = std::get_if<MarketQuoteObservation>(&event)) {
         last_quote_ms_ = quote->quote.received_ms;
         // A connection can outlast a trading day: new contracts are read for the new day.
-        if (quote->quote.trading_day > trading_day_) {
+        if (ctp::valid_trading_day(quote->quote.trading_day)
+            && quote->quote.trading_day > trading_day_) {
             refresh_wanted_ = refresh_wanted_ || !trading_day_.empty();
             trading_day_ = quote->quote.trading_day;
+        }
+        if (quote->quote.source_ms > 0) {
+            const auto hour = ((quote->quote.source_ms + 8 * 3600000LL) % 86400000LL + 86400000LL)
+                % 86400000LL / 3600000LL;
+            if (hour >= 20 || hour < 3)
+                in_night_session_ = true;
+            else if (hour >= 8 && hour < 16 && std::exchange(in_night_session_, false))
+                refresh_wanted_ = true;
         }
         out_of_order_ += quote->out_of_order;
         if (!quote->out_of_order)

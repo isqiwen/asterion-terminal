@@ -11,12 +11,28 @@ constexpr std::size_t max_bars = 24 * 60;
 
 } // namespace
 
+std::int64_t minute_bucket_ms(std::int64_t source_ms)
+{
+    constexpr std::int64_t day_ms = 86400000;
+    constexpr std::int64_t hour_ms = 3600000;
+    const auto start = source_ms - source_ms % minute_ms;
+    const auto clock_ms = ((source_ms + 8 * hour_ms) % day_ms + day_ms) % day_ms;
+    const auto minute = clock_ms / minute_ms;
+    if (minute == 8 * 60 + 59 || minute == 20 * 60 + 59)
+        return start + minute_ms;
+    if (clock_ms / 1000 == 15 * 3600 || clock_ms / 1000 == 23 * 3600)
+        return start - minute_ms;
+    return start;
+}
+
 void IntradayBars::observe(const MarketQuote& quote)
 {
     if (!quote.last || quote.source_ms <= 0 || quote.trading_day.empty())
         return;
     auto& state = states_[quote.instrument];
     auto& series = state.series;
+    if (!series.trading_day.empty() && quote.trading_day < series.trading_day)
+        return;
     if (series.trading_day != quote.trading_day) {
         // A new trading day starts a new series; the old one is not joined to it.
         // The provider's counter restarts each day, so after a day observed
@@ -28,8 +44,10 @@ void IntradayBars::observe(const MarketQuote& quote)
         series.trading_day = quote.trading_day;
         series.first_observation_ms = quote.source_ms;
         state.cumulative_volume = continued ? 0 : quote.volume;
+        state.continued = continued;
     }
-    if (!series.bars.empty() && quote.source_ms < series.bars.back().start_ms)
+    const auto start = minute_bucket_ms(quote.source_ms);
+    if (!series.bars.empty() && start < series.bars.back().start_ms)
         return;
     if (quote.previous_settlement)
         series.previous_settlement = quote.previous_settlement;
@@ -41,11 +59,12 @@ void IntradayBars::observe(const MarketQuote& quote)
     if (reset)
         series.interrupted = true;
     state.cumulative_volume = quote.volume;
-    const auto start = quote.source_ms - quote.source_ms % minute_ms;
     const auto price = *quote.last;
     if (series.bars.empty() || series.bars.back().start_ms != start) {
-        // The first bar of a day is whole only when observation began on its boundary.
-        const bool partial = state.lost || (series.bars.empty() && quote.source_ms != start);
+        // The first bar of a day is whole when observation continued from the
+        // previous day or began on or before its opening boundary.
+        const bool partial =
+            state.lost || (series.bars.empty() && !state.continued && quote.source_ms > start);
         series.bars.push_back({start, price, price, price, price, 0, {}, {}, partial});
         if (series.bars.size() > max_bars)
             series.bars.erase(series.bars.begin());

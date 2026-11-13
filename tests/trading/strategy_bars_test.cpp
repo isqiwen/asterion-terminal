@@ -194,6 +194,7 @@ TEST(StrategyBars, OneMinuteBarsAreTheMinutesMarketRecords)
     IntradayBars recorded;
     std::map<std::int64_t, MinuteBar> minutes;
     std::vector<wire::Bar> delivered;
+    // The next trading day opens: its counter restarts with the auction's volume.
     for (const auto& quote : quotes) {
         for (const auto& batch : live.observe(quote))
             for (const auto& bar : batch.bars())
@@ -203,7 +204,24 @@ TEST(StrategyBars, OneMinuteBarsAreTheMinutesMarketRecords)
         for (const auto& bar : series->bars)
             minutes[bar.start_ms] = bar;
     }
-    ASSERT_EQ(delivered.size(), 4U);
+    auto untraded = tick(start + 86400000 - 30000, 0, "104", "20260930");
+    untraded.last.reset();
+    EXPECT_TRUE(live.observe(untraded).empty());
+    for (const auto& quote :
+        {tick(start + 86400000 - 15000, 3, "104", "20260930"), // 08:59:45 auction -> 09:00
+            tick(start + 86400000 + 30000, 9, "105", "20260930"),
+            tick(start + 86400000 + 6 * 3600000LL - 15000, 13, "103", "20260930"), // 14:59:45
+            tick(start + 86400000 + 6 * 3600000LL, 16, "106", "20260930"), // 15:00:00 -> 14:59
+            tick(start + 2 * 86400000, 1, "107", "20261001")}) {
+        for (const auto& batch : live.observe(quote))
+            for (const auto& bar : batch.bars())
+                delivered.push_back(bar);
+        recorded.observe(quote);
+        const auto series = recorded.series(quote.instrument);
+        for (const auto& bar : series->bars)
+            minutes[bar.start_ms] = bar;
+    }
+    ASSERT_EQ(delivered.size(), 7U);
     for (const auto& bar : delivered) {
         SCOPED_TRACE(bar.end_ms());
         const auto& minute = minutes.at(bar.end_ms() - 60000);

@@ -65,6 +65,7 @@ private:
     std::int64_t last_quote_ms_ = 0;
     std::uint64_t out_of_order_ = 0;
     bool refresh_wanted_ = false;
+    bool in_night_session_ = false;
     std::string trading_day_;
     Clock::time_point next_login_{}, next_refresh_{}, next_retry_{};
 };

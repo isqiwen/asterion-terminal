@@ -242,7 +242,10 @@ struct Reader final : CThostFtdcTraderSpi
             }
             entry.product = field(item->ProductID);
             entry.expiry = field(item->ExpireDate);
-            if (item->DeliveryYear >= 1990 && item->DeliveryYear <= 2100 && item->DeliveryMonth >= 1
+            const int delivery_year = item->DeliveryYear >= 1 && item->DeliveryYear < 100
+                ? 2000 + item->DeliveryYear
+                : item->DeliveryYear;
+            if (delivery_year >= 1990 && delivery_year <= 2100 && item->DeliveryMonth >= 1
                 && item->DeliveryMonth <= 12) {
                 auto product = entry.product;
                 std::ranges::transform(product, product.begin(), [](unsigned char c) {
@@ -251,7 +254,7 @@ struct Reader final : CThostFtdcTraderSpi
                 const HistoryIdentity identity{
                     entry.instrument.venue,
                     product,
-                    std::to_string(item->DeliveryYear) + "-" + (item->DeliveryMonth < 10 ? "0" : "")
+                    std::to_string(delivery_year) + "-" + (item->DeliveryMonth < 10 ? "0" : "")
                         + std::to_string(item->DeliveryMonth)
                 };
                 entry.contract_id = identity.key();

@@ -8,6 +8,8 @@
 
 namespace asterion {
 
+std::int64_t minute_bucket_ms(std::int64_t source_ms);
+
 // One-minute bar aggregated from received quote observations. Volume is the
 // difference of cumulative provider volume; a trading day's first quote
 // counts its whole volume when the day before was observed without a gap,
@@ -69,6 +71,7 @@ private:
         std::uint64_t revision = 0;
         // Observations were lost since the last one; the next bar is partial.
         bool lost = false;
+        bool continued = false;
     };
 
     std::map<InstrumentId, State> states_;

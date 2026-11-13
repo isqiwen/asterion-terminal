@@ -1,4 +1,5 @@
 #include "strategy_bars.hpp"
+#include <asterion/futures/intraday_bars.hpp>
 #include <asterion/futures/trading_days.hpp>
 #include <algorithm>
 #include <chrono>
@@ -72,7 +73,9 @@ std::vector<wire::Bars> StrategyBars::observe(const MarketQuote& quote)
         return {};
     if (quote.source_ms - quote.received_ms > 2000)
         throw std::runtime_error("strategy market timestamp is ahead of the host clock");
-    if (!quote.last || !quote.open_interest || quote.volume < 0 || *quote.last <= Decimal{})
+    if (!quote.last || !quote.open_interest)
+        return {};
+    if (quote.volume < 0 || *quote.last <= Decimal{})
         throw std::runtime_error(
             "strategy market observation lacks price, volume or open interest");
     // CTP labels the trading date without separators. Keep the research contract
@@ -81,11 +84,13 @@ std::vector<wire::Bars> StrategyBars::observe(const MarketQuote& quote)
         throw std::runtime_error("strategy market observation has no trading date");
     const auto day = quote.trading_day.substr(0, 4) + "-" + quote.trading_day.substr(4, 2) + "-"
         + quote.trading_day.substr(6, 2);
+    if (current.initialized && day < current.bar.trading_day())
+        return {};
     const auto date = std::chrono::sys_days(parse_trading_date(day));
     const auto key = daily_
         ? std::chrono::duration_cast<std::chrono::milliseconds>(date.time_since_epoch()).count()
             - 8 * 3600000LL
-        : quote.source_ms / interval_ * interval_;
+        : minute_bucket_ms(quote.source_ms) / interval_ * interval_;
     now_ = std::max(now_, quote.source_ms);
     if (key <= delivered_)
         return deliver();
