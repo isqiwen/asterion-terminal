@@ -18,7 +18,7 @@ const theme = EditorView.theme(
 );
 
 // One module of the strategy directory, opened on its unsaved `draft` if it
-// has one. A built-in module is shown read only.
+// has one. A built-in module opens read only, without save or delete.
 export function SourceEditor({
   repository,
   path,
@@ -87,9 +87,7 @@ export function SourceEditor({
     <section className="lab-source" aria-label={path}>
       <header>
         <code>{path}</code>
-        {readOnly ? (
-          <span className="lab-chip">{t("内置，只读")}</span>
-        ) : (
+        {!readOnly && (
           <>
             <button className="primary" disabled={!dirty} onClick={() => void save()}>
               {t("保存")}
