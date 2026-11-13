@@ -5,8 +5,14 @@
 # release's top directory and certificate name: asterion-market), ROOT, UNIT
 # (its systemd unit file) and PROGRAMS (bin/ and lib/ files that place_programs
 # replaces), and defines python (the interpreter that reads its settings),
-# unit_text and setup SOURCE, which main calls with the unpacked release or,
-# for the installed copy, ROOT.
+# current KEY (a setting of what the questions are about), unit_text and setup
+# SOURCE, which main calls with the unpacked release or, for the installed
+# copy, ROOT. A service with one instance also sets SETTINGS (its settings
+# file in ROOT) and TIMER (its pending restart, if it defers one), and defines
+# configure and apply for install_or_configure.
+
+# A failed question inside $(...) ends the script, not only that subshell.
+shopt -s inherit_errexit
 
 UNITS=/etc/systemd/system
 CREDENTIALS=/etc/credstore.encrypted
@@ -53,11 +59,16 @@ private() {
     chmod 0600 "$1"
 }
 
-# ask PROMPT DEFAULT PATTERN: reads a value, offering the default.
+# ask PROMPT DEFAULT PATTERN: reads a value matching PATTERN. At a terminal the
+# default is already typed in, to accept with Enter or edit.
 ask() {
     local value
     while true; do
-        read -r -p "$1 [$2]: " value || fail "Input ended"
+        if [[ -t 0 ]]; then
+            read -r -e -i "$2" -p "$1: " value || fail "Input ended"
+        else
+            read -r -p "$1 [$2]: " value || fail "Input ended"
+        fi
         value=${value:-$2}
         if [[ $value =~ $3 ]]; then
             printf '%s' "$value"
@@ -65,6 +76,55 @@ ask() {
         fi
         echo "  Invalid value, please try again" >&2
     done
+}
+
+# ask_number PROMPT DEFAULT MIN MAX: reads a whole number from MIN to MAX.
+ask_number() {
+    local value
+    while true; do
+        value=$(ask "$1 ($3-$4)" "$2" '^[0-9]{1,9}$')
+        value=$((10#$value))
+        if ((value >= $3 && value <= $4)); then
+            printf '%s' "$value"
+            return
+        fi
+        echo "  Must be from $3 to $4" >&2
+    done
+}
+
+# What the settings questions changed, as "label: old -> new".
+CHANGES=()
+
+# note LABEL OLD NEW: records the change, if there is one.
+note() {
+    [[ $2 == "$3" ]] || CHANGES+=("$1: ${2:-none} -> ${3:-none}")
+}
+
+# field VARIABLE LABEL KEY PATTERN: asks for KEY, offering its current value.
+field() {
+    local value
+    value=$(ask "$2" "$(current "$3")" "$4")
+    note "$2" "$(current "$3")" "$value"
+    printf -v "$1" '%s' "$value"
+}
+
+# number_field VARIABLE LABEL KEY MIN MAX: field for a whole number.
+number_field() {
+    local value
+    value=$(ask_number "$2" "$(current "$3")" "$4" "$5")
+    note "$2" "$(current "$3")" "$value"
+    printf -v "$1" '%s' "$value"
+}
+
+# review: shows CHANGES and whether to save them; nothing changed is not saved.
+review() {
+    if ((${#CHANGES[@]} == 0)); then
+        echo "No changes."
+        return 1
+    fi
+    echo "Changes:"
+    printf '  %s\n' "${CHANGES[@]}"
+    confirm "Save them?" y
 }
 
 # secret PROMPT: reads a value without echo; there is no default.
@@ -92,8 +152,8 @@ confirm() {
 }
 
 # setting FILE KEY DEFAULT: the dotted KEY of a JSON settings FILE, or DEFAULT
-# when the file or the key is missing. A list prints space separated, an
-# object in it as its values joined by "=".
+# when the file or the key is missing. A list prints space separated, a
+# client in it as its fingerprint.
 setting() {
     if [[ ! -f $1 ]]; then
         printf '%s' "$3"
@@ -112,19 +172,104 @@ if isinstance(value, list):
 print(value)' "$1" "$2" "$3"
 }
 
-# pins TEXT: the space-separated Terminal fingerprints as 64 lowercase hex
-# digits; 1-64 distinct ones.
-pins() {
-    local item pin result=() seen=" "
-    for item in $1; do
-        pin=${item//:/}
-        pin=${pin,,}
-        [[ $pin =~ ^[0-9a-f]{64}$ && $seen != *" $pin "* ]] || fail "Invalid or duplicate Terminal fingerprint: $item"
-        seen+="$pin "
-        result+=("$pin")
+# numbered ITEMS...: one item per line, numbered from 1.
+numbered() {
+    local i=0 item
+    for item; do
+        i=$((i + 1))
+        printf '    %d) %s\n' "$i" "$item"
     done
-    ((${#result[@]} >= 1 && ${#result[@]} <= 64)) || fail "Register 1-64 Terminal fingerprints"
-    printf '%s' "${result[*]}"
+}
+
+# ask_pin: a Terminal certificate fingerprint as 64 lowercase hex digits, or
+# nothing when Enter is pressed alone.
+ask_pin() {
+    local value
+    while true; do
+        read -r -p "Terminal fingerprint (Enter to finish): " value || fail "Input ended"
+        value=${value//[:[:space:]]/}
+        value=${value,,}
+        if [[ -z $value || $value =~ ^[0-9a-f]{64}$ ]]; then
+            printf '%s' "$value"
+            return
+        fi
+        echo "  A fingerprint is 64 hex digits, as Terminal shows it in Settings > About" >&2
+    done
+}
+
+# add_pins PINS...: PINS and the fingerprints entered after them, at least one
+# and at most 64 in all.
+add_pins() {
+    local pins=("$@") pin
+    echo "Paste each Terminal's fingerprint from its Settings > About." >&2
+    while ((${#pins[@]} < 64)); do
+        pin=$(ask_pin)
+        if [[ -z $pin ]]; then
+            ((${#pins[@]} == 0)) || break
+            echo "  Register at least one Terminal" >&2
+        elif [[ " ${pins[*]} " == *" $pin "* ]]; then
+            echo "  Already registered" >&2
+        else
+            pins+=("$pin")
+        fi
+    done
+    printf '%s' "${pins[*]}"
+}
+
+# remove_pins PINS...: PINS without the ones chosen by their numbers; at least
+# one stays.
+remove_pins() {
+    local pins=("$@") kept numbers number
+    while true; do
+        read -r -p "Numbers to remove (space separated, Enter for none): " numbers || fail "Input ended"
+        kept=("${pins[@]}")
+        for number in $numbers; do
+            if ! [[ $number =~ ^[0-9]{1,2}$ ]] || ((number < 1 || number > ${#pins[@]})); then
+                echo "  Choose numbers from 1 to ${#pins[@]}" >&2
+                continue 2
+            fi
+            unset 'kept[number - 1]'
+        done
+        ((${#kept[@]} == 0)) || break
+        echo "  At least one Terminal stays registered" >&2
+    done
+    printf '%s' "${kept[*]}"
+}
+
+# edit_pins add|remove FILE KEY: adds or removes Terminals in the fingerprint
+# list KEY of the settings FILE, leaving the rest of it as it is.
+edit_pins() {
+    local pins next settings
+    pins=$(current "$3")
+    # shellcheck disable=SC2086
+    if [[ $1 == add ]]; then next=$(add_pins $pins); else next=$(remove_pins $pins); fi
+    [[ $next != "$pins" ]] || return 0
+    stage settings "$2"
+    # shellcheck disable=SC2086
+    python -I -c '
+import json, sys
+path, final, key, *pins = sys.argv[1:]
+settings = json.load(open(final))
+settings[key] = [{"fingerprint": pin} for pin in pins] if key == "clients" else pins
+with open(path, "w") as output:
+    json.dump(settings, output, ensure_ascii=False, indent=2)
+    output.write("\n")' "$settings" "$2" "$3" $next
+    private "$settings"
+    mv -f "$settings" "$2"
+    CHANGED=1
+    echo "Saved $2"
+}
+
+# status UNIT [TIMER]: whether UNIT runs and starts at boot, and when TIMER
+# restarts it.
+status() {
+    local state enabled
+    state=$(systemctl show "$1" --property=ActiveState --value)
+    enabled=$(systemctl is-enabled "$1" 2>/dev/null) || true
+    printf '%s, %s' "${state:-unknown}" "${enabled:-unknown}"
+    if [[ -n ${2:-} ]] && systemctl is-active --quiet "$2.timer"; then
+        printf ', restarts %s' "$(systemctl show "$2.timer" --property=NextElapseUSecRealtime --value)"
+    fi
 }
 
 # data_directory PREVIOUS DATA: makes DATA the service's own; data in another
@@ -181,9 +326,13 @@ restart_after_trading() {
     echo "$1 is running in trading hours: the change takes effect when it restarts at $at Beijing time. To cancel: systemctl stop $2.timer"
 }
 
+certificate() {
+    openssl x509 -noout -fingerprint -sha256 -in "$ROOT/config/tls/server.crt" | sed 's/^.*=//'
+}
+
 fingerprint() {
     echo "This host's certificate fingerprint, to enter in Terminal:"
-    echo "  $(openssl x509 -noout -fingerprint -sha256 -in "$ROOT/config/tls/server.crt" | sed 's/^.*=//')"
+    echo "  $(certificate)"
 }
 
 firewall() {
@@ -245,17 +394,50 @@ place_programs() {
     done
 }
 
-# install_or_configure SOURCE: for a service with one instance, configures
-# the installed copy, upgrades an installation (offering to change its
-# settings) or installs and configures.
+# Whether this run saved something that takes effect when the service restarts.
+CHANGED=
+
+# service_menu: the installed copy's choices for a service with one instance.
+service_menu() {
+    local choice
+    while true; do
+        echo
+        echo "Asterion $NAME  $ROOT"
+        echo "  Service      $(status "$UNIT" "${TIMER:-}")"
+        [[ -z $CHANGED ]] || echo "  Pending      a restart on Done applies the saved changes"
+        echo "  Listen       $(current bind):$(current port)"
+        echo "  Certificate  $(certificate)"
+        echo "  Terminals"
+        # shellcheck disable=SC2046
+        numbered $(current clients)
+        echo
+        echo "  1) Add Terminals"
+        echo "  2) Remove Terminals"
+        echo "  3) Change settings"
+        echo "  q) Done"
+        read -r -p "Choose [q]: " choice || break
+        case ${choice:-q} in
+            1) edit_pins add "$ROOT/$SETTINGS" clients ;;
+            2) edit_pins remove "$ROOT/$SETTINGS" clients ;;
+            3) configure ;;
+            q) break ;;
+            *) echo "  Unknown choice" >&2 ;;
+        esac
+    done
+}
+
+# install_or_configure SOURCE: for a service with one instance, opens the
+# installed copy's menu, upgrades an installation (then opens the menu) or
+# installs and configures; then applies what changed, once.
 install_or_configure() {
     if [[ $1 == "$ROOT" ]]; then
-        configure
+        service_menu
     elif [[ -x $ROOT/${PROGRAMS[0]} ]]; then
         place_programs "$1"
         write_unit
         echo "Upgraded the programs in $ROOT; the configuration files are unchanged."
-        if confirm "Change the settings?" n; then configure; fi
+        CHANGED=1
+        service_menu
     else
         install_base "$1"
         write_unit
@@ -264,8 +446,9 @@ install_or_configure() {
         echo "Installed in $ROOT; $NAME runs as $ACCOUNT. Settings:"
         configure
         firewall "$(current port)"
+        fingerprint
     fi
-    fingerprint
+    if [[ -n $CHANGED ]]; then apply; fi
 }
 
 main() {

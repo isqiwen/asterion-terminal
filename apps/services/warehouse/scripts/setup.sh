@@ -2,30 +2,31 @@
 # Installs, upgrades and configures Warehouse on a service host.
 #
 #   sudo bash Asterion-Warehouse-VERSION-linux-x86_64.sh       install, or upgrade an installation
-#   sudo /opt/asterion/warehouse/bin/setup.sh   change the settings
+#   sudo /opt/asterion/warehouse/bin/setup.sh   add or remove Terminals, change the settings
 #   sudo /opt/asterion/warehouse/bin/setup.sh fingerprint   show this host's certificate fingerprint
 #
 # The release, Asterion-Warehouse-VERSION-linux-x86_64.sh, is this script
 # followed by apps/services/common/scripts/setup.sh, with the installation
 # appended as a tar.gz after a line "__ARCHIVE__" (built by the CMake target
 # asterion_warehouse_setup). The installed copy, bin/setup.sh, carries nothing
-# and only changes the settings.
+# and only opens the menu.
 #
 # The installation is /opt/asterion/warehouse: bin/ config/ logs/, and
 # data/ unless the settings name another data directory.
-# A first install asks for the settings; an upgrade replaces only bin/ and
-# leaves config/ (warehouse.json, logging.json) as it is
-# (it offers to change the settings).
-# Settings questions offer the current values as defaults; the Tushare token
-# is encrypted with systemd-creds, never written to a file in the clear.
-# Warehouse runs as the system service asterion-warehouse under the account
-# that ran the install with sudo.
+# A first install asks for the settings; an upgrade replaces only bin/,
+# leaves config/ (warehouse.json, logging.json) as it is and opens the menu.
+# Settings questions offer the current values; a change is shown and saved
+# only when confirmed. The Tushare token is encrypted with systemd-creds,
+# never written to a file in the clear. Warehouse runs as the system service
+# asterion-warehouse under the account that ran the install with sudo; saved
+# changes take effect together, with one restart when the run ends.
 set -euo pipefail
 
 NAME=Warehouse
 PACKAGE=asterion-warehouse
 ROOT=/opt/asterion/warehouse
 UNIT=asterion-warehouse.service
+SETTINGS=config/warehouse.json
 PROGRAMS=(bin/asterion_warehouse bin/asterion_crash_reporter bin/setup.sh)
 
 # Defaults for new configurations only; existing instances keep their own values.
@@ -46,38 +47,67 @@ python() {
 current() {
     local default
     if [[ $1 == data ]]; then default=$ROOT/data; else default=${DEFAULTS[$1]}; fi
-    setting "$ROOT/config/warehouse.json" "$1" "$default"
+    setting "$ROOT/$SETTINGS" "$1" "$default"
 }
 
+EXCHANGES=" SHFE INE CZCE DCE CFFEX GFEX "
+
+# ask_exchanges DEFAULT: distinct exchanges from EXCHANGES, or "-" for none.
+ask_exchanges() {
+    local value exchange picked valid
+    while true; do
+        value=$(ask "Public exchanges (- for none)" "$1" '^[A-Z -]+$')
+        if [[ $value == - ]]; then
+            printf -- -
+            return
+        fi
+        picked=() valid=1
+        for exchange in $value; do
+            [[ $EXCHANGES == *" $exchange "* && " ${picked[*]} " != *" $exchange "* ]] || valid=
+            picked+=("$exchange")
+        done
+        if [[ -n $valid && ${#picked[@]} -gt 0 ]]; then
+            printf '%s' "${picked[*]}"
+            return
+        fi
+        echo "  Choose distinct ones from:$EXCHANGES" >&2
+    done
+}
+
+# configure: asks for the settings other than the Terminals (those too on
+# install) and saves what changed.
 configure() {
     local bind port data previous settings clients exchanges budget token='' encrypted_token=''
-    bind=$(ask "Listen address" "$(current bind)" '^[0-9A-Fa-f.:]+$')
-    port=$(ask "Listen port" "$(current port)" '^[0-9]{1,5}$')
-    ((port >= 1 && port <= 65535)) || fail "The port must be between 1 and 65535"
+    CHANGES=()
+    field bind "Listen address" bind '^[0-9A-Fa-f.:]+$'
+    number_field port "Listen port" port 1 65535
     previous=$(current data)
-    data=$(ask "Data directory" "$previous" '^/[^[:space:]]*$')
-    clients=$(ask "Terminal fingerprints (space separated)" "$(current clients)" '^[0-9A-Fa-f:[:space:]]+$')
-    clients=$(pins "$clients")
+    field data "Data directory" data '^/[^[:space:]]*$'
     exchanges=$(current acquisition.exchanges)
-    exchanges=$(ask "Public exchanges (- for none)" "${exchanges:--}" '^[A-Z[:space:]-]+$')
-    budget=$(ask "Tushare requests per minute (1-500)" "$(current acquisition.tushare.requests_per_minute)" '^[0-9]{1,3}$')
-    ((budget >= 1 && budget <= 500)) || fail "Tushare requests per minute must be 1-500"
+    exchanges=$(ask_exchanges "${exchanges:--}")
+    [[ $exchanges != - ]] || exchanges=
+    note "Public exchanges" "$(current acquisition.exchanges)" "$exchanges"
+    number_field budget "Tushare requests per minute" acquisition.tushare.requests_per_minute 1 500
+    clients=$(current clients)
+    [[ -f $ROOT/$SETTINGS ]] || clients=$(add_pins)
     if ! [[ -f $CREDENTIALS/asterion.warehouse.tushare.token ]] || ! confirm "Keep the saved Tushare token?" y; then
-        token=$(secret "Tushare token (not shown)")
-        [[ ${#token} -le 256 && ! $token =~ [[:space:]] ]] || fail "Tushare token must be at most 256 characters without whitespace"
+        while true; do
+            token=$(secret "Tushare token (not shown)")
+            [[ ${#token} -gt 256 || $token =~ [[:space:]] ]] || break
+            echo "  At most 256 characters without whitespace" >&2
+        done
+        CHANGES+=("Tushare token: replaced")
     fi
+    if [[ -f $ROOT/$SETTINGS ]] && ! review; then return; fi
 
     # Everything is asked; now the files, each staged and moved into place.
-    stage settings "$ROOT/config/warehouse.json"
+    stage settings "$ROOT/$SETTINGS"
     python -I -c '
 import json, sys
 path, bind, port, data, clients, exchanges, budget = sys.argv[1:]
-exchanges = [] if exchanges == "-" else exchanges.split()
-if len(set(exchanges)) != len(exchanges) or set(exchanges) - {"SHFE", "INE", "CZCE", "DCE", "CFFEX", "GFEX"}:
-    raise SystemExit("setup: invalid or duplicate acquisition exchanges")
 settings = {"bind": bind, "port": int(port), "data": data,
     "clients": [{"fingerprint": pin} for pin in clients.split()],
-    "acquisition": {"exchanges": exchanges, "tushare": {"requests_per_minute": int(budget)}}}
+    "acquisition": {"exchanges": exchanges.split(), "tushare": {"requests_per_minute": int(budget)}}}
 with open(path, "w") as output:
     json.dump(settings, output, ensure_ascii=False, indent=2)
     output.write("\n")' "$settings" "$bind" "$port" "$data" "$clients" "$exchanges" "$budget"
@@ -86,8 +116,9 @@ with open(path, "w") as output:
     token=''
     [[ -z $encrypted_token ]] || mv -f "$encrypted_token" "$CREDENTIALS/asterion.warehouse.tushare.token"
     data_directory "$previous" "$data"
-    mv -f "$settings" "$ROOT/config/warehouse.json"
-    echo "Saved $ROOT/config/warehouse.json"
+    mv -f "$settings" "$ROOT/$SETTINGS"
+    CHANGED=1
+    echo "Saved $ROOT/$SETTINGS"
     # The service may write only its logs and its data directory.
     write_unit
 }
@@ -124,9 +155,11 @@ WantedBy=multi-user.target
 EOF
 }
 
-setup() {
-    install_or_configure "$1"
-    echo "Registered clients and providers take effect after restart. Provider credentials stay on this host."
+apply() {
     systemctl restart "$UNIT"
     echo "Restarted $UNIT. Logs in $ROOT/logs"
+}
+
+setup() {
+    install_or_configure "$1"
 }

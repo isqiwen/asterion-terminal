@@ -2,31 +2,33 @@
 # Installs, upgrades and configures Market on a service host.
 #
 #   sudo bash Asterion-Market-VERSION-linux-x86_64.sh       install, or upgrade an installation
-#   sudo /opt/asterion/market/bin/setup.sh   change the settings
+#   sudo /opt/asterion/market/bin/setup.sh   add or remove Terminals, change the settings
 #   sudo /opt/asterion/market/bin/setup.sh fingerprint   show this host's certificate fingerprint
 #
 # The release, Asterion-Market-VERSION-linux-x86_64.sh, is this script followed
 # by apps/services/common/scripts/setup.sh, with the installation appended as
 # a tar.gz after a line "__ARCHIVE__" (built by the CMake target
 # asterion_market_setup). The installed copy, bin/setup.sh, carries nothing
-# and only changes the settings.
+# and only opens the menu.
 #
 # The installation is /opt/asterion/market: bin/ lib/ config/ logs/, and
 # data/ unless the settings name another data directory.
 # A first install asks for the settings; an upgrade replaces only bin/ and
-# lib/ and leaves config/ (market.json, logging.json) as it is
-# (it offers to change the settings).
-# Settings questions offer the current values as defaults; the password and
-# the authentication code are encrypted with systemd-creds, never written to
-# a file in the clear. Market runs as the system service asterion-market
-# under the account that ran the install with sudo. While it serves during
-# trading hours, a change takes effect when the trading window ends.
+# lib/, leaves config/ (market.json, logging.json) as it is and opens the menu.
+# Settings questions offer the current values; a change is shown and saved
+# only when confirmed. The password and the authentication code are encrypted
+# with systemd-creds, never written to a file in the clear. Market runs as the
+# system service asterion-market under the account that ran the install with
+# sudo. Saved changes take effect together when the run ends; while Market
+# serves during trading hours, when the trading window ends.
 set -euo pipefail
 
 NAME=Market
 PACKAGE=asterion-market
 ROOT=/opt/asterion/market
 UNIT=asterion-market.service
+SETTINGS=config/market.json
+TIMER=asterion-market-restart
 PROGRAMS=(bin/asterion_market bin/asterion_crash_reporter bin/setup.sh lib/ctp-md.so lib/ctp-trader.so)
 
 # Defaults for new configurations only; existing instances keep their own values.
@@ -50,38 +52,43 @@ python() {
 current() {
     local default
     if [[ $1 == data ]]; then default=$ROOT/data; else default=${DEFAULTS[$1]}; fi
-    setting "$ROOT/config/market.json" "$1" "$default"
+    setting "$ROOT/$SETTINGS" "$1" "$default"
 }
 
+# configure: asks for the settings other than the Terminals (those too on
+# install) and saves what changed.
 configure() {
     local front='^tcp://[A-Za-z0-9.-]+:[0-9]{1,5}$' bind port data previous clients
     local market_front trade_front broker user app_id
     local password='' auth_code='' settings encrypted_password='' encrypted_auth_code=''
-    bind=$(ask "Listen address" "$(current bind)" '^[0-9A-Fa-f.:]+$')
-    port=$(ask "Listen port" "$(current port)" '^[0-9]{1,5}$')
-    ((port >= 1 && port <= 65535)) || fail "The port must be between 1 and 65535"
+    CHANGES=()
+    field bind "Listen address" bind '^[0-9A-Fa-f.:]+$'
+    number_field port "Listen port" port 1 65535
     previous=$(current data)
-    data=$(ask "Data directory" "$previous" '^/[^[:space:]]*$')
-    clients=$(ask "Terminal fingerprints (space separated)" "$(current clients)" '^[0-9A-Fa-f:[:space:]]+$')
-    clients=$(pins "$clients")
+    field data "Data directory" data '^/[^[:space:]]*$'
     echo "Use a CTP account of its own for quotes, never a live trading account."
-    market_front=$(ask "CTP market front" "$(current counter.market_front)" "$front")
-    trade_front=$(ask "CTP trading front" "$(current counter.trade_front)" "$front")
-    broker=$(ask "CTP broker ID" "$(current counter.broker)" '^[A-Za-z0-9]+$')
-    user=$(ask "CTP investor ID" "$(current counter.user)" '^[A-Za-z0-9]+$')
+    field market_front "CTP market front" counter.market_front "$front"
+    field trade_front "CTP trading front" counter.trade_front "$front"
+    field broker "CTP broker ID" counter.broker '^[A-Za-z0-9]+$'
+    field user "CTP investor ID" counter.user '^[A-Za-z0-9]+$'
     app_id=$(ask "CTP AppID (- for none)" "$(current counter.app_id)" '^[A-Za-z0-9_-]*$')
-    [[ $app_id == - ]] && app_id=
+    [[ $app_id != - ]] || app_id=
+    note "CTP AppID" "$(current counter.app_id)" "$app_id"
+    clients=$(current clients)
+    [[ -f $ROOT/$SETTINGS ]] || clients=$(add_pins)
     # Credentials of the same counter account may be kept; another account needs its own.
-    if ! [[ -f $ROOT/config/market.json && $broker == "$(current counter.broker)"
+    if ! [[ -f $ROOT/$SETTINGS && $broker == "$(current counter.broker)"
         && $user == "$(current counter.user)" && $app_id == "$(current counter.app_id)"
         && -f $CREDENTIALS/asterion.ctp.password && (-z $app_id || -f $CREDENTIALS/asterion.ctp.auth_code) ]] ||
         ! confirm "Keep the saved CTP password and authentication code?" y; then
         password=$(secret "CTP password (not shown)")
         [[ -z $app_id ]] || auth_code=$(secret "CTP authentication code (not shown)")
+        CHANGES+=("CTP password and authentication code: replaced")
     fi
+    if [[ -f $ROOT/$SETTINGS ]] && ! review; then return; fi
 
     # Everything is asked; now the files, each staged and moved into place.
-    stage settings "$ROOT/config/market.json"
+    stage settings "$ROOT/$SETTINGS"
     python -I -c '
 import json, sys
 path, bind, port, data, market, trade, broker, user, app_id, clients = sys.argv[1:]
@@ -99,8 +106,9 @@ with open(path, "w") as output:
     [[ -z $encrypted_password ]] || mv -f "$encrypted_password" "$CREDENTIALS/asterion.ctp.password"
     [[ -z $encrypted_auth_code ]] || mv -f "$encrypted_auth_code" "$CREDENTIALS/asterion.ctp.auth_code"
     data_directory "$previous" "$data"
-    mv -f "$settings" "$ROOT/config/market.json"
-    echo "Saved $ROOT/config/market.json"
+    mv -f "$settings" "$ROOT/$SETTINGS"
+    CHANGED=1
+    echo "Saved $ROOT/$SETTINGS"
     # The service may write only its logs and its data directory.
     write_unit
 }
@@ -137,8 +145,10 @@ WantedBy=multi-user.target
 EOF
 }
 
+apply() {
+    restart_after_trading "$UNIT" "$TIMER"
+}
+
 setup() {
     install_or_configure "$1"
-    echo "Registered clients take effect after restart. Credentials stay on this host."
-    restart_after_trading "$UNIT" asterion-market-restart
 }

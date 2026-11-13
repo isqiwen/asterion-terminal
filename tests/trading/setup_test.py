@@ -118,14 +118,14 @@ class Host:
         self.env = dict(os.environ, PATH=f'{fakes}:{os.environ["PATH"]}', CALLS=str(self.calls),
                         SUDO_USER='tester', TIMERS=str(self.timers), BOOT=str(self.boot))
 
-    def run(self, script, answers, active=False, now='4 1700', ok=True, running=None, tail=True, args=()):
+    def run(self, script, answers, active=False, now='4 1700', ok=True, running=None, args=()):
         self.calls.unlink(missing_ok=True)
         # Bash does not source a file with an archive in it: source the plain
         # script and point it at `script`, as running `script` would.
         command = 'source "$4"; SELF=$1; ROOT=$2; UNITS=$3; CREDENTIALS=$3/credstore; main "${@:5}"'
         result = subprocess.run(
             ['unshare', '-r', 'bash', '-c', command, 'setup', str(script), str(self.root),
-             str(self.units), str(setup), *args], input='\n'.join(answers + (['simulation', '9999', '000001', 'client_app', 'tcp://127.0.0.1:41205', 'tcp://127.0.0.1:41213', 'test-only-password', 'test-only-auth'] if tail else [])) + '\n', capture_output=True,
+             str(self.units), str(setup), *args], input='\n'.join(answers) + '\n', capture_output=True,
             text=True, env=dict(self.env, RUNNING=running if running is not None else ('*' if active else ''), NOW=now), timeout=60)
         assert (result.returncode == 0) == ok, result.stdout + result.stderr
         calls = self.calls.read_text().splitlines() if self.calls.exists() else []
@@ -135,13 +135,20 @@ class Host:
         return json.loads((self.root / f'config/accounts/{name}.json').read_text())
 
 
+# Answers for a new account after its listen address and port: the counter, the
+# Terminals, then the credentials.
+COUNTER = ['simulation', '9999', '000001', 'client_app', 'tcp://127.0.0.1:41205', 'tcp://127.0.0.1:41213']
+CREDENTIALS = ['test-only-password', 'test-only-auth']
+# Enter on every settings question of an existing account, the saved credentials kept.
+UNCHANGED = [''] * 8 + ['']
+
 with tempfile.TemporaryDirectory() as folder:
     host = Host(folder)
 
     # Install: the layout, this host's certificate, the unit template, then the
     # first account (Enter keeps a default, a bad value is asked again).
-    calls, result = host.run(release(folder, '1'), ['bad name', 'one', '', '', 'xyz', TERMINAL])
-    assert result.stderr.count('Invalid value') == 2, result.stderr
+    calls, result = host.run(release(folder, '1'), ['bad name', 'one', '', ''] + COUNTER + ['xyz', TERMINAL, ''] + CREDENTIALS)
+    assert result.stderr.count('Invalid value') == 1 and '64 hex digits' in result.stderr, result.stderr
     assert sorted(p.name for p in host.root.iterdir()) == ['.program.lock', 'bin', 'config', 'data', 'lib', 'logs', 'runtime']
     assert (host.root / 'bin/asterion_trading').read_text().endswith('1"\n')
     assert os.access(host.root / 'bin/setup.sh', os.X_OK)
@@ -154,7 +161,7 @@ with tempfile.TemporaryDirectory() as folder:
         ['openssl', 'x509', '-noout', '-fingerprint', '-sha256', '-in',
          str(host.root / 'config/tls/server.crt')], capture_output=True, text=True,
         check=True).stdout.split('=', 1)[1].strip()
-    assert result.stdout.count(fingerprint) == 2, result.stdout
+    assert fingerprint in result.stdout, result.stdout
     unit = (host.units / 'asterion-trading@.service').read_text()
     for line in ('User=tester', 'Restart=always', 'StartLimitIntervalSec=0',
                  f'ExecStart={host.root}/bin/asterion_trading --account %i',
@@ -167,26 +174,30 @@ with tempfile.TemporaryDirectory() as folder:
         assert secret not in result.stdout + result.stderr + '\n'.join(calls)
         assert secret not in (host.root / 'config/accounts/one.json').read_text()
     assert 'systemctl enable asterion-trading@one.service' in calls, calls
-    assert calls[-1] == 'systemctl restart asterion-trading@one.service', calls
+    assert 'systemctl restart asterion-trading@one.service' in calls, calls
 
     # The installed copy adds a second account on the next free port.
-    calls, result = host.run(host.root / 'bin/setup.sh', ['1', 'two', '127.0.0.1', '', f'{OTHER} {TERMINAL}', 'simulation', '9999', '000001', 'client_app', 'tcp://127.0.0.1:41205', 'tcp://127.0.0.1:41213', 'second-only-password', 'second-only-auth'])
+    calls, result = host.run(host.root / 'bin/setup.sh', ['a', 'two', '127.0.0.1', ''] + COUNTER + [OTHER, TERMINAL, ''] + ['second-only-password', 'second-only-auth'])
     assert (host.units / 'credstore/asterion-trading-two/password').read_text() == 'second-only-password'
     assert (host.units / 'credstore/asterion-trading-one/password').read_text() == 'test-only-password'
     assert 'second-only-password' not in result.stdout + result.stderr + '\n'.join(calls)
     assert host.account('two') == {'bind': '127.0.0.1', 'port': 7461, 'terminals': [OTHER, 'ab' * 32], **IDENTITY}
-    assert calls[-1] == 'systemctl restart asterion-trading@two.service', calls
-    # Changing it offers its current values.
-    host.run(host.root / 'bin/setup.sh', ['1', 'two', '', '7470', ''])
+    assert 'systemctl restart asterion-trading@two.service' in calls, calls
+    # Changing it offers its current values and shows the change.
+    calls, result = host.run(host.root / 'bin/setup.sh', ['2', '3', '', '7470'] + [''] * 6 + ['', ''])
+    assert 'Listen port: 7461 -> 7470' in result.stdout, result.stdout
     assert host.account('two') == {'bind': '127.0.0.1', 'port': 7470, 'terminals': [OTHER, 'ab' * 32], **IDENTITY}
+    assert 'systemctl restart asterion-trading@two.service' in calls, calls
 
     # Configuring another counter must never replace a recorded account's identity.
     journal = host.root / 'data/two/journal.sqlite'
     journal.parent.mkdir(parents=True, exist_ok=True)
     journal.touch()
     previous = host.account('two')
-    host.run(host.root / 'bin/setup.sh', ['1', 'two', '', '', '', 'simulation', '9999', '000009', 'client_app', 'tcp://127.0.0.1:41205', 'tcp://127.0.0.1:41213'], ok=False)
+    calls, result = host.run(host.root / 'bin/setup.sh', ['2', '3', '', '', 'simulation', '9999', '000009', 'client_app', 'tcp://127.0.0.1:41205', 'tcp://127.0.0.1:41213'])
+    assert 'fixes this account' in result.stderr, result.stderr
     assert host.account('two') == previous
+    assert not any(call.startswith(('systemctl restart', 'systemd-run')) for call in calls), calls
 
     # An account's shared lock forbids every program/runtime mutation, regardless
     # of the trading clock. The installer must never stop it on our behalf.
@@ -221,74 +232,83 @@ with tempfile.TemporaryDirectory() as folder:
     assert not (host.root / '.program-incomplete').exists()
     assert (host.root / 'config/accounts/one.json').read_bytes() == before
 
-    # Repeated edits of separate running instances must retain both timers.
-    host.run(host.root / 'bin/setup.sh', ['1', 'one', '', '', ''], active=True, now='4 1000')
-    host.run(host.root / 'bin/setup.sh', ['1', 'two', '', '', ''], active=True, now='4 1000')
+    # Terminal edits of separate running instances must retain both timers,
+    # and several edits in one menu restart once.
+    third = 'ef' * 32
+    calls, _ = host.run(host.root / 'bin/setup.sh', ['1', '1', OTHER, '', '1', third, ''], active=True, now='4 1000')
+    assert host.account('one')['terminals'] == ['ab' * 32, OTHER, third]
+    assert sum(call.startswith('systemd-run') for call in calls) == 1, calls
+    host.run(host.root / 'bin/setup.sh', ['2', '1', third, ''], active=True, now='4 1000')
     assert sorted(p.name for p in host.timers.iterdir()) == [
         'asterion-trading-restart-one', 'asterion-trading-restart-two']
-    # Re-editing one only replaces its own pending restart.
-    calls, _ = host.run(host.root / 'bin/setup.sh', ['1', 'one', '', '', ''], active=True, now='4 1000')
+    # Re-editing one only replaces its own pending restart; one Terminal always stays.
+    calls, result = host.run(host.root / 'bin/setup.sh', ['1', '2', '2 3', '2', '1', ''], active=True, now='4 1000')
+    assert host.account('one')['terminals'] == ['ab' * 32]
+    assert 'At least one Terminal stays registered' in result.stderr, result.stderr
     assert not any(call.startswith('systemctl stop') and 'restart-two' in call for call in calls)
     # Status includes both listeners, active state and the pending deadline.
-    _, status = host.run(host.root / 'bin/setup.sh', ['4'], active=True)
+    _, status = host.run(host.root / 'bin/setup.sh', [], active=True)
     for field in ('ACCOUNT', 'AUTOSTART', 'RESTART', 'one', 'two', '0.0.0.0:7460',
-                  '127.0.0.1:7470', 'active', 'enabled', '2026-10-29 15:30:00'):
+                  '127.0.0.1:7470', 'active', 'enabled', '2026-10-29 15:30:00', fingerprint):
         assert field in status.stdout, status.stdout
-    # A port conflict fails before replacing configuration or scheduling work.
+    # A port in use is asked again; Enter everywhere else saves and restarts nothing.
     previous = host.account('two')
-    calls, result = host.run(host.root / 'bin/setup.sh', ['1', 'two', '', '07460'], ok=False)
+    calls, result = host.run(host.root / 'bin/setup.sh', ['2', '3', '', '07460', '7470'] + UNCHANGED)
     assert 'already configured for account one' in result.stderr
+    assert 'No changes.' in result.stdout, result.stdout
     assert host.account('two') == previous
     assert not any(call.startswith(('systemctl restart', 'systemd-run')) for call in calls)
     # A running instance does not defer starting a different, stopped instance.
-    calls, _ = host.run(host.root / 'bin/setup.sh', ['1', 'two', '', '', ''],
+    calls, _ = host.run(host.root / 'bin/setup.sh', ['2', '2', '3'],
                        now='4 1000', running='asterion-trading@one.service')
     assert 'systemctl restart asterion-trading@two.service' in calls
     assert (host.timers / 'asterion-trading-restart-one').exists()
     # Recreate two's timer, then disable it: it must not start again at the close.
-    host.run(host.root / 'bin/setup.sh', ['1', 'two', '', '', ''], active=True, now='4 1000')
+    host.run(host.root / 'bin/setup.sh', ['2', '1', third, ''], active=True, now='4 1000')
 
     # Disabling stops the instance and keeps its configuration and record.
     (host.root / 'data/two').mkdir(exist_ok=True)
-    calls, _ = host.run(host.root / 'bin/setup.sh', ['2', 'two', 'y'])
+    calls, _ = host.run(host.root / 'bin/setup.sh', ['2', '4', 'y'])
     assert 'systemctl disable --now asterion-trading@two.service' in calls, calls
+    assert not any(call.startswith(('systemctl restart', 'systemd-run')) for call in calls), calls
     assert not (host.timers / 'asterion-trading-restart-two').exists()
     assert (host.timers / 'asterion-trading-restart-one').exists()
     assert (host.root / 'config/accounts/two.json').exists() and (host.root / 'data/two').exists()
-    _, status = host.run(host.root / 'bin/setup.sh', ['4'])
-    row = next(line.split() for line in status.stdout.splitlines() if line.startswith('two '))
-    assert row == ['two', '127.0.0.1:7470', 'inactive', 'disabled', 'none'], row
-    _, result = host.run(host.root / 'bin/setup.sh', ['3'])
-    assert fingerprint in result.stdout
-    _, result = host.run(host.root / 'bin/setup.sh', [], tail=False, args=['fingerprint'])
+    _, status = host.run(host.root / 'bin/setup.sh', [])
+    row = next(line.split() for line in status.stdout.splitlines() if ') two ' in line)
+    assert row == ['2)', 'two', '127.0.0.1:7470', 'inactive', 'disabled', 'none'], row
+    _, result = host.run(host.root / 'bin/setup.sh', [], args=['fingerprint'])
     assert result.stdout.splitlines() == ["This host's certificate fingerprint, to enter in Terminal:", '  ' + fingerprint], result.stdout
 
     # New accounts use script defaults without any installed default configuration file.
-    host.run(host.root / 'bin/setup.sh', ['1', 'three', '', '', TERMINAL,
-        '', '', '000003', '', '', 'tcp://127.0.0.1:41213', 'third-only-password', 'third-only-auth'])
+    host.run(host.root / 'bin/setup.sh', ['a', 'three', '', '', '', '', '000003', '', '', 'tcp://127.0.0.1:41213',
+        TERMINAL, '', 'third-only-password', 'third-only-auth'])
     assert host.account('three') == {'bind': '0.0.0.0', 'port': 7461,
         'terminals': ['ab' * 32], 'environment': 'simulation',
         'market_front': 'tcp://127.0.0.1:41213',
         'broker': {'broker_id': '9999', 'user_id': '000003',
                    'app_id': 'simnow_client_test', 'front': 'tcp://182.254.243.31:40001'}}
-    # Enter on every existing-account field keeps its own values, not the new defaults.
+    # Enter on every existing-account field keeps its own values, not the new defaults,
+    # and keeps the saved password.
     previous = host.account('one')
-    host.run(host.root / 'bin/setup.sh', ['1', 'one'] + [''] * 9 +
-        ['updated-only-password', 'updated-only-auth'])
+    saved = (host.units / 'credstore/asterion-trading-one/password').read_text()
+    host.run(host.root / 'bin/setup.sh', ['1', '3'] + UNCHANGED)
     assert host.account('one') == previous
+    assert (host.units / 'credstore/asterion-trading-one/password').read_text() == saved
+    # New credentials for the same counter are a change of their own.
+    calls, result = host.run(host.root / 'bin/setup.sh', ['1', '3'] + [''] * 8 + ['n', 'updated-only-password', 'updated-only-auth', ''])
+    assert 'CTP password and authentication code: replaced' in result.stdout, result.stdout
+    assert (host.units / 'credstore/asterion-trading-one/password').read_text() == 'updated-only-password'
+    assert 'systemctl restart asterion-trading@one.service' in calls, calls
 
     # Nothing a run stages is left behind, however it ends.
     def staged_files():
         return sorted(str(path) for folder in (host.root, host.units)
                       for path in folder.rglob('.*') if path.is_file() and path.name != '.program.lock')
     assert staged_files() == [], staged_files()
-    # The password may stay when the counter account does not change.
-    saved = (host.units / 'credstore/asterion-trading-one/password').read_text()
-    host.run(host.root / 'bin/setup.sh', ['1', 'one'] + [''] * 9 + ['y'], tail=False)
-    assert (host.units / 'credstore/asterion-trading-one/password').read_text() == saved
     # Input that ends before the credentials writes nothing.
-    calls, result = host.run(host.root / 'bin/setup.sh', ['1', 'four', '', '', TERMINAL,
-        '', '', '000004', '', '', 'tcp://127.0.0.1:41213'], tail=False, ok=False)
+    calls, result = host.run(host.root / 'bin/setup.sh', ['a', 'four', '', '', '', '', '000004', '', '',
+        'tcp://127.0.0.1:41213', TERMINAL, ''], ok=False)
     assert 'Credential input ended' in result.stderr, result.stderr
     assert not (host.root / 'config/accounts/four.json').exists()
     assert not (host.units / 'credstore/asterion-trading-four').exists()

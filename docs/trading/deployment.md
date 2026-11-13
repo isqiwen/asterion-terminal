@@ -24,10 +24,10 @@ sudo /opt/asterion/trading/bin/setup.sh
 }
 ```
 
-- `sudo /opt/asterion/trading/bin/setup.sh` 新增或修改账户、停用实例。密码和授权码在主机上隐藏输入，按账户存为 systemd 加密凭据，不进入配置或 Terminal。
+- `sudo /opt/asterion/trading/bin/setup.sh` 进入菜单：列出账户及其监听地址、运行状态、开机自启和待执行的重启，以及本机证书指纹。可以新增账户，或按编号打开一个账户：添加或按编号删除 Terminal（至少保留一个）、修改配置、停止并停用实例。修改时每项预先填好当前值，输错只重问该项；保存前列出改动并确认，没有改动不保存，也不重启。密码和授权码在主机上隐藏输入，按账户存为 systemd 加密凭据，不进入配置或 Terminal。
 - `environment` 只能是 `real` 或 `simulation`，写入交易记录后不能再改；已有交易记录的实例不能更换账户。
-- 只改账户配置时，交易时段内延到收盘后重启。
-- Terminal 第一次启动时生成本机客户端证书（Warehouse 和交易主机登记同一个），在“设置 → 关于”复制它的指纹写进账户配置的 `terminals`，再在 Terminal 填写主机地址、端口、账户和交易服务证书指纹。连接是双向固定指纹 TLS。Terminal 不部署、启动或备份交易服务。
+- 账户菜单里保存的改动在选“Back”时一起生效，只重启一次；交易时段内延到收盘后重启。重启会结束授权。
+- Terminal 第一次启动时生成本机客户端证书（Warehouse 和交易主机登记同一个），在“设置 → 关于”复制它的指纹登记到账户的 Terminal，再在 Terminal 填写主机地址、端口、账户和交易服务证书指纹。连接是双向固定指纹 TLS。Terminal 不部署、启动或备份交易服务。
 
 账户 ID 是本地实例名；执行归属由 CTP 的 `broker_id` 与 `user_id` 共同确定。同一安装目录内的所有实例共用 `data/owners/`，开通或恢复账户时先取得独占锁，再打开记录和创建交易 SDK；换实例名、端口、前置或 AppID 都不能取得第二份执行权。
 

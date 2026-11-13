@@ -8,14 +8,15 @@ Warehouse 主机是 Ubuntu 24.04 x86_64，安装在 `/opt/asterion/warehouse/`�
 
 ```sh
 sudo bash "Asterion-Warehouse-<版本>-linux-x86_64.sh"         # 第一次：安装并配置；以后：升级
-sudo /opt/asterion/warehouse/bin/setup.sh     # 只修改配置
+sudo /opt/asterion/warehouse/bin/setup.sh     # 菜单：增删 Terminal、修改配置
 ```
 
 - 主机开启时间同步（如 `systemd-timesyncd`）。理由：各来源按主机时钟的北京日期只采到前一天，时钟超前会把未结束的当日数据当作整天存入，之后不再重采。
 - 安装时写入并启用 `asterion-warehouse.service`：以执行 `sudo` 的账户运行，只能写 `logs/` 和数据目录，`Restart=always`。
-- 配置时依次询问监听地址、端口、数据目录（默认 `/opt/asterion/warehouse/data`，可以放到单独的磁盘），登记 Terminal 证书指纹（Terminal 的“设置 → 关于”，多个用空格分隔），选择交易所来源和 Tushare 每分钟请求数（默认 500），最后隐藏输入 Tushare token；已保存的 token 可以保留。
-- 升级只替换程序，保留配置、TLS 身份、仓库和采集任务，随时可以重启，不影响行情和交易。
-- 安装时生成服务端证书 `config/tls/server.crt`，每次运行脚本都显示它的指纹，可直接粘贴到 Terminal。指纹是证书 DER 编码的 SHA-256，不是文件本身的哈希；不重启查看：`sudo /opt/asterion/warehouse/bin/setup.sh fingerprint`。登记的指纹在重启后生效。
+- 安装时依次询问监听地址、端口、数据目录（默认 `/opt/asterion/warehouse/data`，可以放到单独的磁盘）、交易所来源和 Tushare 每分钟请求数（默认 500），再逐个粘贴 Terminal 证书指纹（Terminal 的“设置 → 关于”，直接回车结束），最后隐藏输入 Tushare token。
+- 已安装后运行脚本进入菜单：显示服务状态、监听地址、本机证书指纹和已登记的 Terminal，可以添加或按编号删除 Terminal（至少保留一个），或修改其他配置。修改时每项预先填好当前值，输错只重问该项；保存前列出改动并确认，没有改动不保存；已保存的 token 可以保留。菜单里保存的改动在选“Done”时一起生效，只重启一次。
+- 升级只替换程序，保留配置、TLS 身份、仓库和采集任务，然后进入菜单；随时可以重启，不影响行情和交易。
+- 安装时生成服务端证书 `config/tls/server.crt`，每次运行脚本都显示它的指纹，可直接粘贴到 Terminal。指纹是证书 DER 编码的 SHA-256，不是文件本身的哈希；不重启查看：`sudo /opt/asterion/warehouse/bin/setup.sh fingerprint`。
 
 ## 部署目录
 
@@ -25,7 +26,7 @@ sudo /opt/asterion/warehouse/bin/setup.sh     # 只修改配置
 /opt/asterion/warehouse/
 ├── bin/
 │   ├── asterion_warehouse          # 服务程序
-│   └── setup.sh                 # 修改配置；升级使用新的发布安装包
+│   └── setup.sh                 # 菜单；升级使用新的发布安装包
 ├── config/
 │   ├── warehouse.json             # 安装时生成的非秘密配置
 │   ├── logging.json            # 日志输出、格式和保留期限

@@ -102,9 +102,9 @@ with tempfile.TemporaryDirectory() as folder:
     host = Host(folder)
 
     # Install: the layout, the unit, then the settings (Enter keeps a default,
-    # a bad port is asked again), then the first start.
+    # a bad port is asked again), the Terminals, then the first start.
     calls, result = host.run(release(folder, '1'),
-                             ['', 'abc', '7451', '', client_pin, '', '', 'fixture-token'])
+                             ['', 'abc', '7451', '', '', '', client_pin, '', 'fixture-token'])
     assert 'Invalid value' in result.stderr, result.stderr
     assert sorted(p.name for p in host.root.iterdir()) == ['bin', 'config', 'data', 'logs']
     assert (host.root / 'bin/asterion_warehouse').read_text().endswith('1"\n')
@@ -146,7 +146,7 @@ with tempfile.TemporaryDirectory() as folder:
     preserved.update({str(path.relative_to(host.root)): path.read_bytes()
                       for path in (host.root / 'config/tls').iterdir()})
     second = release(folder, '2')
-    calls, result = host.run(second, ['n'])
+    calls, result = host.run(second, [''])
     assert (host.root / 'bin/asterion_warehouse').read_text().endswith('2"\n')
     assert (host.root / 'config/warehouse.json').read_text() == before
     assert json.loads((host.root / 'config/logging.json').read_text())['level'] == 'debug'
@@ -154,11 +154,23 @@ with tempfile.TemporaryDirectory() as folder:
     assert calls[-1] == 'systemctl restart asterion-warehouse.service', calls
     assert all((host.root / name).read_bytes() == content for name, content in preserved.items())
 
-    # The installed copy only changes the settings. Another data directory is
-    # made for the market and becomes writable; the old data is not moved.
+    # The installed copy's menu adds and removes Terminals (a bad or repeated
+    # fingerprint is asked again, the last one stays) and restarts once.
+    other_pin = 'b' * 64
+    calls, result = host.run(host.root / 'bin/setup.sh',
+                             ['1', 'xyz', ':'.join(['BB'] * 32), client_pin, '', '2', '1', '2', '1', ''])
+    assert '64 hex digits' in result.stderr and 'Already registered' in result.stderr, result.stderr
+    assert 'At least one Terminal stays registered' in result.stderr, result.stderr
+    assert host.settings()['clients'] == [dict(fingerprint=other_pin)]
+    assert host.settings()['port'] == 7999
+    assert calls.count('systemctl restart asterion-warehouse.service') == 1, calls
+
+    # Changing the settings shows what changes. Another data directory is
+    # made for the service and becomes writable; the old data is not moved.
     disk = host.folder / 'disk/market-data'
     calls, result = host.run(host.root / 'bin/setup.sh',
-                             ['', '', str(disk), '', '', '', 'n', 'second-token'])
+                             ['3', '', '', str(disk), '', '', 'n', 'second-token', ''])
+    assert f'Data directory: {host.root}/data -> {disk}' in result.stdout, result.stdout
     assert host.settings()['port'] == 7999
     assert host.settings()['data'] == str(disk)
     assert disk.is_dir() and any(call.startswith('chown ') and call.endswith(f': {disk}')
@@ -169,11 +181,15 @@ with tempfile.TemporaryDirectory() as folder:
     assert (host.root / 'data/acquisition/published.pb').read_bytes() == b'fixture-task'
     assert host.settings()['acquisition']['tushare'] == {'requests_per_minute': 500}
     assert host.secrets.read_text().splitlines() == ['--name=asterion.warehouse.tushare.token=second-token']
-    # Enter keeps the saved token.
-    host.run(host.root / 'bin/setup.sh', [''] * 7)
-    assert not host.secrets.exists()
     assert 'systemctl enable asterion-warehouse.service' not in calls, calls
     assert calls[-1] == 'systemctl restart asterion-warehouse.service', calls
+    # Enter keeps every value and the saved token: nothing is saved or restarted.
+    before = (host.root / 'config/warehouse.json').read_bytes()
+    calls, result = host.run(host.root / 'bin/setup.sh', ['3'] + [''] * 6)
+    assert 'No changes.' in result.stdout, result.stdout
+    assert not host.secrets.exists()
+    assert (host.root / 'config/warehouse.json').read_bytes() == before
+    assert not any(call.startswith('systemctl restart') for call in calls), calls
 
     # Nothing a run stages is left behind, and an upgrade writes its unit again.
     def staged_files():
@@ -181,7 +197,7 @@ with tempfile.TemporaryDirectory() as folder:
                       for path in folder.rglob('.*') if path.is_file())
     assert staged_files() == [], staged_files()
     (host.units / 'asterion-warehouse.service').write_text('[Service]\n')
-    calls, _ = host.run(second, ['n'])
+    calls, _ = host.run(second, [''])
     assert 'ImportCredential=asterion.warehouse.*' in (host.units / 'asterion-warehouse.service').read_text()
     assert 'systemctl daemon-reload' in calls, calls
     # Input that ends early writes no settings.
@@ -189,7 +205,7 @@ with tempfile.TemporaryDirectory() as folder:
     result = subprocess.run(
         namespace + ['bash', '-c', 'source "$5"; SELF=$1; ROOT=$2; UNITS=$3; CREDENTIALS=$4; main',
          'setup', str(host.root / 'bin/setup.sh'), str(host.root), str(host.units), str(host.credentials),
-         str(setup)], input='\n' * 3, capture_output=True, text=True, env=dict(host.env, ACTIVE='3', NOW='4 1700'),
+         str(setup)], input='3\n' + '\n' * 3, capture_output=True, text=True, env=dict(host.env, ACTIVE='3', NOW='4 1700'),
         timeout=60)
     assert result.returncode != 0, result.stdout + result.stderr
     assert (host.root / 'config/warehouse.json').read_bytes() == before

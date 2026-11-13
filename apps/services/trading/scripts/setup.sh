@@ -2,7 +2,7 @@
 # Installs, upgrades and configures Trading on a service host.
 #
 #   sudo bash Asterion-Trading-VERSION-linux-x86_64.sh       install, or upgrade an installation
-#   sudo /opt/asterion/trading/bin/setup.sh   add, change or disable an account
+#   sudo /opt/asterion/trading/bin/setup.sh   add accounts; add or remove an account's Terminals, change or disable it
 #   sudo /opt/asterion/trading/bin/setup.sh fingerprint   show this host's certificate fingerprint
 #
 # The release, Asterion-Trading-VERSION-linux-x86_64.sh, is this script followed
@@ -18,6 +18,8 @@
 # host's TLS certificate (config/tls/) and shows its fingerprint; an account
 # names the Terminals that may connect by theirs. CTP credentials are entered
 # locally and encrypted by systemd-creds, separately for each account.
+# Changes to an account are shown and saved only when confirmed, and take
+# effect together when its menu ends.
 #
 # An upgrade requires every account to be stopped, then replaces bin/, lib/
 # and runtime/. It never stops or starts accounts. Configuration edits alone
@@ -57,74 +59,90 @@ accounts() {
     done
 }
 
-# Account values come from its own file, or the script defaults for new accounts.
-value() {
-    local file="$ROOT/config/accounts/$1.json"
-    if [[ ! -f $file && $2 == port ]]; then
+# The account the questions and the account menu are about.
+INSTANCE=
+
+account_file() {
+    echo "$ROOT/config/accounts/${1:-$INSTANCE}.json"
+}
+
+# A setting of INSTANCE from its own file, or the script default for a new
+# account; a new account's port is the lowest unused one.
+current() {
+    if [[ ! -f $(account_file) && $1 == port ]]; then
         free_port
         return
     fi
-    setting "$file" "$2" "${DEFAULTS[$2]}"
+    setting "$(account_file)" "$1" "${DEFAULTS[$1]}"
 }
 
-# The lowest unused account port, starting at the configured default.
+# port_owner PORT: the other account configured on PORT, if any.
+port_owner() {
+    local other
+    for other in $(accounts); do
+        if [[ $other != "$INSTANCE" && $(setting "$(account_file "$other")" port "") == "$1" ]]; then
+            echo "$other"
+            return
+        fi
+    done
+    return 1
+}
+
 free_port() {
-    local port used other
-    port=${DEFAULTS[port]}
-    used=" $(accounts | while read -r other; do value "$other" port; echo; done | tr '\n' ' ') "
-    while [[ $used == *" $port "* ]]; do
+    local port=${DEFAULTS[port]}
+    while port_owner "$port" >/dev/null; do
         port=$((port + 1))
     done
     echo "$port"
 }
 
+# configure_account: asks for INSTANCE's settings other than its Terminals
+# (those too for a new account) and saves what changed.
 configure_account() {
-    local name bind port terminals other environment broker user app front market_front password='' auth_code=''
-    local file config credentials encrypted_password encrypted_auth_code
-    name=$(ask "Account name (as the Terminal names its instance)" "" "$ACCOUNT_NAME")
-    file=$ROOT/config/accounts/$name.json
-    credentials=$CREDENTIALS/asterion-trading-$name
-    bind=$(ask "Listen address" "$(value "$name" bind)" '^[0-9A-Fa-f.:]+$')
-    port=$(ask "Listen port" "$(value "$name" port)" '^[0-9]{1,5}$')
-    port=$((10#$port))
-    ((port >= 1 && port <= 65535)) || fail "The port must be between 1 and 65535"
-    for other in $(accounts); do
-        if [[ $other != "$name" && $(value "$other" port) == "$port" ]]; then
-            fail "Port $port is already configured for account $other"
-        fi
+    local file credentials bind port owner terminals environment broker user app front market_front
+    local identity saved_identity password='' auth_code='' config encrypted_password encrypted_auth_code
+    file=$(account_file)
+    credentials=$CREDENTIALS/asterion-trading-$INSTANCE
+    CHANGES=()
+    field bind "Listen address" bind '^[0-9A-Fa-f.:]+$'
+    while true; do
+        port=$(ask_number "Listen port" "$(current port)" 1 65535)
+        owner=$(port_owner "$port") || break
+        echo "  Port $port is already configured for account $owner" >&2
     done
-    terminals=$(ask "Terminal fingerprints (space separated)" "$(value "$name" terminals)" '^[0-9A-Fa-f:[:space:]]+$')
-    terminals=$(pins "$terminals")
-    environment=$(ask "Counter environment (real/simulation)" "$(value "$name" environment)" '^(real|simulation)$')
-    broker=$(ask "CTP broker ID" "$(value "$name" broker.broker_id)" '^[A-Za-z0-9_]{1,10}$')
-    user=$(ask "CTP investor ID" "$(value "$name" broker.user_id)" '^[A-Za-z0-9_]{1,15}$')
-    app=$(ask "CTP AppID" "$(value "$name" broker.app_id)" '^[A-Za-z0-9_.-]{1,32}$')
-    front=$(ask "CTP trading front" "$(value "$name" broker.front)" '^tcp://[^[:space:]]+:[0-9]+$')
-    market_front=$(ask "CTP market front" "$(value "$name" market_front)" '^tcp://[A-Za-z0-9.-]+:[0-9]+$')
+    note "Listen port" "$(current port)" "$port"
+    field environment "Counter environment (real/simulation)" environment '^(real|simulation)$'
+    field broker "CTP broker ID" broker.broker_id '^[A-Za-z0-9_]{1,10}$'
+    field user "CTP investor ID" broker.user_id '^[A-Za-z0-9_]{1,15}$'
+    field app "CTP AppID" broker.app_id '^[A-Za-z0-9_.-]{1,32}$'
+    field front "CTP trading front" broker.front '^tcp://[^[:space:]]+:[0-9]+$'
+    field market_front "CTP market front" market_front '^tcp://[A-Za-z0-9.-]+:[0-9]+$'
+    identity="$environment $broker $user $app $front"
+    saved_identity="$(current environment) $(current broker.broker_id) $(current broker.user_id) $(current broker.app_id) $(current broker.front)"
+    if [[ -f $file && -f $ROOT/data/$INSTANCE/journal.sqlite && $identity != "$saved_identity" ]]; then
+        echo "  The trading record in $ROOT/data/$INSTANCE fixes this account's counter; nothing was saved" >&2
+        return
+    fi
+    terminals=$(current terminals)
+    [[ -f $file ]] || terminals=$(add_pins)
     # Credentials of the same counter account may be kept; another account needs its own.
-    if ! [[ -f $file && $environment == "$(value "$name" environment)"
-        && $broker == "$(value "$name" broker.broker_id)" && $user == "$(value "$name" broker.user_id)"
-        && $app == "$(value "$name" broker.app_id)" && $front == "$(value "$name" broker.front)"
-        && -f $credentials/password && -f $credentials/auth_code ]] ||
+    if ! [[ -f $file && $identity == "$saved_identity" && -f $credentials/password && -f $credentials/auth_code ]] ||
         ! confirm "Keep the saved CTP password and authentication code?" y; then
         password=$(secret "CTP trading password (not shown)")
         auth_code=$(secret "CTP authentication code (not shown)")
+        CHANGES+=("CTP password and authentication code: replaced")
     fi
+    if [[ -f $file ]] && ! review; then return; fi
 
     # Everything is asked; now the files, each staged and moved into place.
     stage config "$file"
     python -I -c '
-import json, sys, pathlib
-path, final, bind, port, terminals, environment, broker, user, app, front, market_front = sys.argv[1:]
+import json, sys
+path, bind, port, terminals, environment, broker, user, app, front, market_front = sys.argv[1:]
 identity = {"environment": environment, "broker": {"broker_id": broker, "user_id": user, "app_id": app, "front": front}}
-original = pathlib.Path(final)
-if original.exists() and (original.parents[2] / "data" / original.stem / "journal.sqlite").exists():
-    previous = json.loads(original.read_text())
-    if any(previous[key] != value for key, value in identity.items()):
-        sys.exit("setup: account identity is fixed by its existing journal; restore its original configuration")
 with open(path, "w") as output:
     json.dump({"bind": bind, "port": int(port), "terminals": terminals.split(), "market_front": market_front, **identity}, output, indent=2)
-    output.write("\n")' "$config" "$file" "$bind" "$port" "$terminals" "$environment" "$broker" "$user" "$app" "$front" "$market_front"
+    output.write("\n")' "$config" "$bind" "$port" "$terminals" "$environment" "$broker" "$user" "$app" "$front" "$market_front"
     private "$config"
     if [[ -n $password ]]; then
         install -d -m 0700 "$credentials"
@@ -135,31 +153,81 @@ with open(path, "w") as output:
         mv -f "$encrypted_auth_code" "$credentials/auth_code"
     fi
     mv -f "$config" "$file"
-    systemctl enable "asterion-trading@$name.service" >/dev/null 2>&1
+    CHANGED=1
     echo "Saved $file"
-    echo "In Terminal, give account $name the address of this host and port $port."
-    fingerprint
-    firewall "$port"
-    restart_after_trading "asterion-trading@$name.service" "$RESTART-$name"
-    echo "A restart ends authorization: authorize $name again in Terminal."
 }
 
+# apply_account: starts INSTANCE with what was saved, now or after trading hours.
+apply_account() {
+    systemctl enable "asterion-trading@$INSTANCE.service" >/dev/null 2>&1
+    restart_after_trading "asterion-trading@$INSTANCE.service" "$RESTART-$INSTANCE"
+    echo "A restart ends authorization: authorize $INSTANCE again in Terminal."
+}
+
+add_account() {
+    INSTANCE=$(ask "Account name (as the Terminal names its instance)" "" "$ACCOUNT_NAME")
+    if [[ -f $(account_file) ]]; then
+        account_menu
+        return
+    fi
+    CHANGED=
+    configure_account
+    [[ -n $CHANGED ]] || return 0
+    echo "In Terminal, give account $INSTANCE this host's address, port $(current port) and certificate fingerprint."
+    firewall "$(current port)"
+    apply_account
+}
+
+# Whether the account menu stopped and disabled its account.
+DISABLED=
+
 disable_account() {
-    local name answer
-    name=$(ask "Account to stop and disable" "" "$ACCOUNT_NAME")
-    [[ -f $ROOT/config/accounts/$name.json ]] || fail "No account $name on this host"
-    read -r -p "Stop $name now? Working orders stay at the broker and its authorization ends. [y/N]: " answer
-    [[ $answer == [yY]* ]] || return 0
-    cancel_restart "$RESTART-$name"
-    systemctl disable --now "asterion-trading@$name.service" >/dev/null 2>&1
-    echo "Stopped and disabled $name. Its configuration and its trading record in $ROOT/data/$name are kept."
+    confirm "Stop $INSTANCE now? Working orders stay at the broker and its authorization ends." n || return 0
+    cancel_restart "$RESTART-$INSTANCE"
+    systemctl disable --now "asterion-trading@$INSTANCE.service" >/dev/null 2>&1
+    DISABLED=1
+    echo "Stopped and disabled $INSTANCE. Its configuration and its trading record in $ROOT/data/$INSTANCE are kept."
+}
+
+# account_menu: INSTANCE's choices; saved changes take effect when it ends.
+account_menu() {
+    local choice
+    CHANGED='' DISABLED=''
+    while true; do
+        echo
+        echo "Account $INSTANCE  $(current bind):$(current port)"
+        echo "  Service      $(status "asterion-trading@$INSTANCE.service" "$RESTART-$INSTANCE")"
+        [[ -z $CHANGED ]] || echo "  Pending      a restart on Back applies the saved changes"
+        echo "  Terminals"
+        # shellcheck disable=SC2046
+        numbered $(current terminals)
+        echo
+        echo "  1) Add Terminals"
+        echo "  2) Remove Terminals"
+        echo "  3) Change settings"
+        echo "  4) Stop and disable"
+        echo "  b) Back"
+        read -r -p "Choose [b]: " choice || break
+        case ${choice:-b} in
+            1) edit_pins add "$(account_file)" terminals ;;
+            2) edit_pins remove "$(account_file)" terminals ;;
+            3) configure_account ;;
+            4)
+                disable_account
+                if [[ -n $DISABLED ]]; then return; fi ;;
+            b) break ;;
+            *) echo "  Unknown choice" >&2 ;;
+        esac
+    done
+    if [[ -n $CHANGED ]]; then apply_account; fi
 }
 
 # systemd remains the owner of runtime, boot and pending-restart state.
 list_accounts() {
-    local name unit state enabled pending
-    printf '%-20s %-24s %-14s %-14s %s\n' "ACCOUNT" "LISTEN" "STATE" "AUTOSTART" "RESTART"
+    local name unit state enabled pending i=0
+    printf '    %-20s %-24s %-14s %-14s %s\n' "ACCOUNT" "LISTEN" "STATE" "AUTOSTART" "RESTART"
     for name in $(accounts); do
+        i=$((i + 1))
         unit="asterion-trading@$name.service"
         state=$(systemctl show "$unit" --property=ActiveState --value)
         enabled=$(systemctl is-enabled "$unit" 2>/dev/null) || true
@@ -167,25 +235,36 @@ list_accounts() {
         if systemctl is-active --quiet "$RESTART-$name.timer"; then
             pending=$(systemctl show "$RESTART-$name.timer" --property=NextElapseUSecRealtime --value)
         fi
-        printf '%-20s %-24s %-14s %-14s %s\n' "$name" "$(value "$name" bind ""):$(value "$name" port "")" "${state:-unknown}" "${enabled:-unknown}" "${pending:-scheduled}"
+        printf '%2d) %-20s %-24s %-14s %-14s %s\n' "$i" "$name" "$(setting "$(account_file "$name")" bind ""):$(setting "$(account_file "$name")" port "")" "${state:-unknown}" "${enabled:-unknown}" "${pending:-scheduled}"
     done
 }
 
 menu() {
-    local choice
-    list_accounts
-    echo "  1) Add or change an account"
-    echo "  2) Stop and disable an account"
-    echo "  3) Show this host's certificate fingerprint"
-    echo "  4) Refresh account status"
-    read -r -p "Choose [1]: " choice
-    case ${choice:-1} in
-        1) configure_account ;;
-        2) disable_account ;;
-        3) fingerprint ;;
-        4) list_accounts ;;
-        *) fail "Unknown choice" ;;
-    esac
+    local choice names
+    while true; do
+        echo
+        echo "Asterion Trading  $ROOT"
+        echo "  Certificate  $(certificate)"
+        echo
+        list_accounts
+        mapfile -t names < <(accounts)
+        echo
+        ((${#names[@]} == 0)) || echo "  1-${#names[@]}) Open that account"
+        echo "  a) Add an account"
+        echo "  q) Done"
+        read -r -p "Choose [q]: " choice || break
+        case ${choice:-q} in
+            a) add_account ;;
+            q) break ;;
+            *)
+                if [[ $choice =~ ^[0-9]{1,3}$ ]] && ((choice >= 1 && choice <= ${#names[@]})); then
+                    INSTANCE=${names[choice - 1]}
+                    account_menu
+                else
+                    echo "  Unknown choice" >&2
+                fi ;;
+        esac
+    done
 }
 
 unit_text() {
@@ -275,7 +354,7 @@ setup() {
             exec {program_lock}<&-
             echo "Installed in $ROOT; Trading runs as $ACCOUNT."
             fingerprint
-            configure_account
+            add_account
         fi
     fi
 }

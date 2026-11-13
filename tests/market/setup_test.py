@@ -105,9 +105,9 @@ with tempfile.TemporaryDirectory() as folder:
     host = Host(folder)
 
     # Install: the layout, the unit, then the settings (Enter keeps a default,
-    # a bad port is asked again), then the first start.
+    # a bad port is asked again), the Terminals, then the first start.
     calls, result = host.run(release(folder, '1'),
-                             ['', 'abc', '7461', '', client_pin, '', '', '', '273005', '', 'fixture-password', 'fixture-auth'])
+                             ['', 'abc', '7461', '', '', '', '', '273005', '', client_pin, '', 'fixture-password', 'fixture-auth'])
     assert 'Invalid value' in result.stderr, result.stderr
     assert sorted(p.name for p in host.root.iterdir()) == ['bin', 'config', 'data', 'lib', 'logs']
     assert (host.root / 'bin/asterion_market').read_text().endswith('1"\n')
@@ -147,7 +147,7 @@ with tempfile.TemporaryDirectory() as folder:
     preserved.update({str(path.relative_to(host.root)): path.read_bytes()
                       for path in (host.root / 'config/tls').iterdir()})
     second = release(folder, '2')
-    calls, result = host.run(second, ['n'])
+    calls, result = host.run(second, [''])
     assert (host.root / 'bin/asterion_market').read_text().endswith('2"\n')
     assert (host.root / 'lib/ctp-md.so').read_text() == '2'
     assert (host.root / 'config/market.json').read_text() == before
@@ -159,7 +159,7 @@ with tempfile.TemporaryDirectory() as folder:
     # Recording during trading hours: the upgrade is placed, the restart waits.
     for now, at in (('4 1000', '2026-10-29 15:30'), ('4 2200', '2026-10-30 02:45'),
                     ('5 0100', '2026-10-29 02:45')):
-        calls, result = host.run(second, ['n'], active=True, now=now)
+        calls, result = host.run(second, [''], active=True, now=now)
         assert 'systemctl restart asterion-market.service' not in calls, (now, calls)
         assert calls[-1] == ('systemd-run --quiet --collect --unit=asterion-market-restart '
                              f'--on-calendar={at}:00 Asia/Shanghai systemctl restart '
@@ -167,14 +167,20 @@ with tempfile.TemporaryDirectory() as folder:
         assert at in result.stdout, result.stdout
     # Outside trading hours, and at a weekend, it restarts at once.
     for now in ('4 1530', '4 0245', '6 1000', '1 0100'):
-        calls, _ = host.run(second, ['n'], active=True, now=now)
+        calls, _ = host.run(second, [''], active=True, now=now)
         assert calls[-1] == 'systemctl restart asterion-market.service', (now, calls)
 
-    # The installed copy only changes the settings. Another data directory is
+    # The installed copy's menu adds a Terminal; it takes effect after the trading window.
+    calls, result = host.run(host.root / 'bin/setup.sh', ['1', 'b' * 64, ''], active=True, now='4 1000')
+    assert host.settings()['clients'] == [dict(fingerprint=client_pin), dict(fingerprint='b' * 64)]
+    assert calls[-1].startswith('systemd-run --quiet --collect --unit=asterion-market-restart'), calls
+
+    # Changing the settings shows what changes. Another data directory is
     # made for the market and becomes writable; the old data is not moved.
     disk = host.folder / 'disk/market-data'
     calls, result = host.run(host.root / 'bin/setup.sh',
-                             ['', '', str(disk), '', '', '', '', '', '-', 'fixture-password'])
+                             ['3', '', '', str(disk), '', '', '', '', '-', 'fixture-password', ''])
+    assert 'CTP AppID: simnow_client_test -> none' in result.stdout, result.stdout
     assert host.settings()['port'] == 7999 and host.settings()['counter']['app_id'] == ''
     assert host.settings()['data'] == str(disk)
     assert disk.is_dir() and any(call.startswith('chown ') and call.endswith(f': {disk}')
@@ -186,9 +192,11 @@ with tempfile.TemporaryDirectory() as folder:
     assert host.secrets.read_text().splitlines() == ['--name=asterion.ctp.password=fixture-password']
     assert 'systemctl enable asterion-market.service' not in calls, calls
     assert calls[-1] == 'systemctl restart asterion-market.service', calls
-    # The same counter account keeps its saved password unless told otherwise.
-    host.run(host.root / 'bin/setup.sh', [''] * 10)
+    # The same counter account keeps its saved password; nothing changed is not saved or restarted.
+    calls, result = host.run(host.root / 'bin/setup.sh', ['3'] + [''] * 9)
+    assert 'No changes.' in result.stdout, result.stdout
     assert not host.secrets.exists()
+    assert not any(call.startswith(('systemctl restart', 'systemd-run')) for call in calls), calls
 
     # Nothing a run stages is left behind, and an upgrade writes its unit again.
     def staged_files():
@@ -196,7 +204,7 @@ with tempfile.TemporaryDirectory() as folder:
                       for path in folder.rglob('.*') if path.is_file())
     assert staged_files() == [], staged_files()
     (host.units / 'asterion-market.service').write_text('[Service]\n')
-    calls, _ = host.run(second, ['n'])
+    calls, _ = host.run(second, [''])
     assert 'ImportCredential=asterion.ctp.*' in (host.units / 'asterion-market.service').read_text()
     assert 'systemctl daemon-reload' in calls, calls
     # Input that ends before the credentials writes no settings.
@@ -204,7 +212,7 @@ with tempfile.TemporaryDirectory() as folder:
     result = subprocess.run(
         namespace + ['bash', '-c', 'source "$5"; SELF=$1; ROOT=$2; UNITS=$3; CREDENTIALS=$4; main',
          'setup', str(host.root / 'bin/setup.sh'), str(host.root), str(host.units), str(host.credentials),
-         str(setup)], input='\n' * 9, capture_output=True, text=True, env=dict(host.env, ACTIVE='3', NOW='4 1700'),
+         str(setup)], input='3\n' + '\n' * 8, capture_output=True, text=True, env=dict(host.env, ACTIVE='3', NOW='4 1700'),
         timeout=60)
     assert result.returncode != 0, result.stdout + result.stderr
     assert (host.root / 'config/market.json').read_bytes() == before
