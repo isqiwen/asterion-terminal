@@ -228,14 +228,15 @@ class Data:
             values = published.get(day)
             if values is None:
                 raise ValueError(f"no settlement parameters of {contract} on {day}")
-            if None in values:
-                raise ValueError(f"missing fees of {contract} on {day}")
             long, short, rate, per_lot, today_rate, today_per_lot = values
-            if long != short:
-                raise ValueError(f"long and short margin rates of {contract} differ on {day}")
-            # As COSTS names them: margins are rates only; closing yesterday costs what opening does.
-            costs = [raw(value) for value in (Decimal(0), per_lot, today_per_lot, per_lot,
-                                              long, rate, today_rate, rate)]
+            if None in (long, short, rate, per_lot):
+                raise ValueError(f"missing fees of {contract} on {day}")
+            has_today = today_rate is not None and today_per_lot is not None
+            # As COSTS names them, plus short_margin_rate: closing yesterday costs what opening does;
+            # missing close-today fees stay None and fail only if a close-today trade occurs.
+            costs = [raw(Decimal(0)), raw(per_lot), raw(today_per_lot) if has_today else None,
+                     raw(per_lot), raw(long), raw(rate), raw(today_rate) if has_today else None,
+                     raw(rate), raw(short)]
             if not schedule or schedule[-1]["values"] != costs:
                 schedule.append(dict(effective_from=day, source="warehouse", values=costs))
         return schedule

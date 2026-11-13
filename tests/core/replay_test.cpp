@@ -346,3 +346,36 @@ TEST(Replay, IntradayFloatingGainDoesNotInflateMarginOrCancelOpenOrders)
     EXPECT_EQ(account.margin(), d("1200"));
     EXPECT_EQ(account.available(), d("2800"));
 }
+
+TEST(Replay, AsymmetricMarginsAndLazyCloseTodayFeeValidation)
+{
+    auto item = contract("rb2605", {100, 100, 100});
+    const auto settlements = settled(item);
+    item.terms.costs =
+        {d("0"), d("3"), d("0"), d("3"), d("0.1"), d("0"), d("0"), d("0"), d("0.15"), false};
+    item.cost_schedule = {{days.front(), "test", item.terms.costs}};
+    // Add a second intraday bar on Day 1 to test closing today's position when close-today fee is missing.
+    item.bars[1].timestamp_ns -= 60'000'000'000LL;
+    item.bars.insert(
+        item.bars.begin() + 2,
+        {days[1],
+            item.bars[1].timestamp_ns + 60'000'000'000LL,
+            d("100"),
+            d("110"),
+            d("90"),
+            d("100"),
+            d("1000")});
+    Replay replay(d("10000"), {item}, {settlements}, {}, limits());
+    Seen seen;
+    replay.next(seen);
+    replay.want(0, d("-1"));
+    replay.decide();
+    replay.settle(seen);
+    // Day 1 morning: short 1 lot at 100 (multiplier 10) uses short_margin_rate 0.15 -> margin 150.
+    replay.next(seen);
+    EXPECT_EQ(replay.execution().account().margin(), d("150"));
+    // Attempting to close today's short on Day 1 afternoon fails because close-today fee is missing.
+    replay.want(0, d("0"));
+    replay.decide();
+    EXPECT_THROW(replay.next(seen), std::invalid_argument);
+}

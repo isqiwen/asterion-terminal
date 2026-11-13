@@ -144,13 +144,18 @@ struct Vendor
                 + ",\"items\":[[\"" + code + "\",\"" + day + "\",3089.0,3090,3091,3100.5,3080,"
                 + close + ",3095,100," + amount + ",2000,-1,null]]}}";
         }
-        if (api == "fut_settle")
+        if (api == "fut_settle") {
+            if (p.at("exchange") == "CZCE")
+                return table(
+                    "ts_code,trade_date,trading_fee_rate,trading_fee,offset_today_fee,long_margin_rate,short_margin_rate",
+                    {{"AP1003.ZCE", p.at("trade_date"), 0.0, 5.0, nullptr, 0.10, 0.12}});
             // Rows of Tushare's own fut_settle example, plus a continuous code.
             return table(
-                "ts_code,trade_date,trading_fee_rate,trading_fee,long_margin_rate,short_margin_rate",
-                {{"CU1811.SHF", "20181114", 0.050, 0.0, 0.20, 0.20},
-                    {"AL1901.SHF", "20181114", 0.000, 3.0, 0.07, settle_margin},
-                    {"CU.SHF", "20181114", 0.050, 0.0, 0.07, 0.07}});
+                "ts_code,trade_date,trading_fee_rate,trading_fee,offset_today_fee,long_margin_rate,short_margin_rate",
+                {{"CU1811.SHF", "20181114", 0.050, 0.0, 0.0, 0.20, 0.20},
+                    {"AL1901.SHF", "20181114", 0.000, 3.0, 6.0, 0.07, settle_margin},
+                    {"CU.SHF", "20181114", 0.050, 0.0, 0.0, 0.07, 0.07}});
+        }
         if (api == "ft_mins") {
             const auto offset = p.at("offset").get<std::size_t>();
             minute_offsets.push_back(offset);
@@ -257,10 +262,17 @@ TEST_F(Acquisition, SettlementFeesKeepTheirUnitsAndCloseTodayFeesStayMissing)
     EXPECT_EQ(rows[0].contract, "SHFE/cu/2018-11");
     EXPECT_EQ(std::get<std::string>(rows[0].long_margin_rate), "0.2");
     EXPECT_EQ(std::get<std::string>(rows[0].fee_rate), "0.00005");
+    EXPECT_EQ(std::get<std::string>(rows[0].close_today_fee_rate), "0");
+    EXPECT_EQ(std::get<std::string>(rows[0].close_today_fee_per_lot), "0");
     EXPECT_EQ(rows[1].product, "al");
     EXPECT_EQ(std::get<std::string>(rows[1].fee_per_lot), "3");
-    EXPECT_EQ(rows[0].close_today_fee_rate, wh::Cell{});
-    EXPECT_EQ(rows[0].close_today_fee_per_lot, wh::Cell{});
+    EXPECT_EQ(std::get<std::string>(rows[1].close_today_fee_rate), "0");
+    EXPECT_EQ(std::get<std::string>(rows[1].close_today_fee_per_lot), "6");
+    const auto czce = source->settlement("CZCE", "2020-01-05");
+    ASSERT_EQ(czce.size(), 1);
+    EXPECT_EQ(czce[0].contract, "CZCE/ap/2020-03");
+    EXPECT_EQ(czce[0].close_today_fee_rate, wh::Cell{});
+    EXPECT_EQ(czce[0].close_today_fee_per_lot, wh::Cell{});
     vendor->settle_margin = 7;
     EXPECT_THROW(source->settlement("SHFE", "2018-11-14"), ac::SourceError);
 }

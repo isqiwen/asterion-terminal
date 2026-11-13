@@ -48,10 +48,13 @@ struct FuturesCosts
 {
     Decimal margin_per_lot, open_fee, close_today_fee, close_yesterday_fee;
     Decimal margin_rate, open_fee_rate, close_today_fee_rate, close_yesterday_fee_rate;
+    Decimal short_margin_rate = margin_rate;
+    bool has_close_today_fee = true;
     void validate() const;
     // bucket is open, close_today or close_yesterday (never the generic close).
     Decimal fee(Offset bucket, Decimal quantity, Decimal price, Decimal multiplier) const;
     Decimal margin(Decimal quantity, Decimal price, Decimal multiplier) const;
+    Decimal margin(Side side, Decimal quantity, Decimal price, Decimal multiplier) const;
 };
 
 struct FuturesCostVersion

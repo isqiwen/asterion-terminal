@@ -231,11 +231,11 @@ std::vector<Settlement> Tushare::settlement(const std::string& exchange, const s
     require_exchange(exchange);
     auto compact = day;
     std::erase(compact, '-');
-    const auto table =
-        ask("fut_settle",
-            {{"exchange", exchange}, {"trade_date", compact}},
-            "ts_code,trade_date,trading_fee_rate,trading_fee,long_margin_rate,short_margin_rate",
-            1600);
+    const auto table = ask(
+        "fut_settle",
+        {{"exchange", exchange}, {"trade_date", compact}},
+        "ts_code,trade_date,trading_fee_rate,trading_fee,offset_today_fee,long_margin_rate,short_margin_rate",
+        1600);
     std::vector<Settlement> rows;
     std::set<std::string> seen;
     try {
@@ -248,8 +248,10 @@ std::vector<Settlement> Tushare::settlement(const std::string& exchange, const s
                 throw std::invalid_argument("foreign day or exchange");
             if (!dated(code, exchange))
                 continue;
-            const auto contract =
-                *contract_of(exchange, code.substr(0, code.size() - suffix(exchange).size()), day);
+            const auto symbol = exchange == "CZCE"
+                ? czce_code(code)
+                : code.substr(0, code.size() - suffix(exchange).size());
+            const auto contract = *contract_of(exchange, symbol, day);
             if (!seen.insert(contract).second)
                 throw std::invalid_argument("duplicate settlement row");
             // Fractions, as in Tushare's own example; an exchange's percent copied through would not be.
@@ -258,7 +260,24 @@ std::vector<Settlement> Tushare::settlement(const std::string& exchange, const s
                     throw std::invalid_argument("margin rate is not a fraction");
                 return number(at(field));
             };
-            // offset_today_fee does not say whether it is a rate or per lot, so close-today fees stay missing.
+            const auto fee_rate = number(at("trading_fee_rate"), -3);
+            const auto fee_per_lot = number(at("trading_fee"));
+            Cell close_today_fee_rate, close_today_fee_per_lot;
+            if (!at("offset_today_fee").is_null()) {
+                const bool by_rate = std::holds_alternative<std::string>(fee_rate)
+                    && std::get<std::string>(fee_rate) != "0"
+                    && fee_per_lot == Cell{std::string("0")};
+                const bool by_lot = std::holds_alternative<std::string>(fee_per_lot)
+                    && std::get<std::string>(fee_per_lot) != "0"
+                    && fee_rate == Cell{std::string("0")};
+                if (by_rate) {
+                    close_today_fee_rate = number(at("offset_today_fee"), -3);
+                    close_today_fee_per_lot = std::string("0");
+                } else if (by_lot) {
+                    close_today_fee_rate = std::string("0");
+                    close_today_fee_per_lot = number(at("offset_today_fee"));
+                }
+            }
             rows.push_back(
                 {.exchange = exchange,
                     .product = product_of(contract),
@@ -266,8 +285,10 @@ std::vector<Settlement> Tushare::settlement(const std::string& exchange, const s
                     .day = day,
                     .long_margin_rate = margin("long_margin_rate"),
                     .short_margin_rate = margin("short_margin_rate"),
-                    .fee_rate = number(at("trading_fee_rate"), -3),
-                    .fee_per_lot = number(at("trading_fee"))});
+                    .fee_rate = fee_rate,
+                    .fee_per_lot = fee_per_lot,
+                    .close_today_fee_rate = close_today_fee_rate,
+                    .close_today_fee_per_lot = close_today_fee_per_lot});
         }
     } catch (...) {
         throw SourceError("failed", "Tushare returned invalid settlement data");

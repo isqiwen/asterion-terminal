@@ -56,12 +56,15 @@ def price_tick(contract, value="1", begin=None, end=None, source="https://exampl
                 price_tick=Decimal(value), source_url=source)
 
 
-def settlement(contract, day, fee="3", today_fee="3", margin="0.1"):
+def settlement(contract, day, fee="3", today_fee="3", margin="0.1", short_margin=None):
     exchange, product, _ = contract.split("/")
     rate = lambda value: Decimal(value) if value else None
     return dict(exchange=exchange, product=product, contract=contract, day=day.isoformat(),
-                long_margin_rate=rate(margin), short_margin_rate=rate(margin), fee_rate=Decimal(0),
-                fee_per_lot=rate(fee), close_today_fee_rate=Decimal(0), close_today_fee_per_lot=rate(today_fee))
+                long_margin_rate=rate(margin),
+                short_margin_rate=rate(margin if short_margin is None else short_margin),
+                fee_rate=Decimal(0), fee_per_lot=rate(fee),
+                close_today_fee_rate=Decimal(0) if today_fee else None,
+                close_today_fee_per_lot=rate(today_fee))
 
 
 def closes(count):

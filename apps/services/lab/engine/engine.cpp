@@ -69,18 +69,24 @@ ContractBars contract_of(const py::dict& item, std::vector<DaySettlement>& days)
     instrument.quantity_increment = raw(item["quantity_increment"]);
     instrument.multiplier = raw(item["multiplier"]);
     for (const auto& version : item["costs"].cast<py::list>()) {
-        const auto values = version["values"].cast<std::vector<std::int64_t>>();
-        if (values.size() != 8)
-            throw std::invalid_argument("costs have eight values");
+        const auto values = version["values"].cast<std::vector<std::optional<std::int64_t>>>();
+        if (values.size() != 8 && values.size() != 9)
+            throw std::invalid_argument("costs have eight or nine values");
+        const bool has_close_today = values[2].has_value() && values[6].has_value();
+        if (values[2].has_value() != values[6].has_value() || !values[0] || !values[1] || !values[3]
+            || !values[4] || !values[5] || !values[7] || (values.size() == 9 && !values[8]))
+            throw std::invalid_argument("missing required cost value");
         FuturesCosts costs{
-            Decimal::from_raw(values[0]),
-            Decimal::from_raw(values[1]),
-            Decimal::from_raw(values[2]),
-            Decimal::from_raw(values[3]),
-            Decimal::from_raw(values[4]),
-            Decimal::from_raw(values[5]),
-            Decimal::from_raw(values[6]),
-            Decimal::from_raw(values[7])
+            Decimal::from_raw(*values[0]),
+            Decimal::from_raw(*values[1]),
+            has_close_today ? Decimal::from_raw(*values[2]) : Decimal{},
+            Decimal::from_raw(*values[3]),
+            Decimal::from_raw(*values[4]),
+            Decimal::from_raw(*values[5]),
+            has_close_today ? Decimal::from_raw(*values[6]) : Decimal{},
+            Decimal::from_raw(*values[7]),
+            values.size() == 9 ? Decimal::from_raw(*values[8]) : Decimal::from_raw(*values[4]),
+            has_close_today
         };
         contract.cost_schedule.push_back(
             {version["effective_from"].cast<std::string>(),
@@ -192,6 +198,7 @@ struct Record final : Replay::Observer
                         (lot.side == Side::buy ? held_long : held_short) + lot.quantity;
                     margin = margin
                         + terms.costs.margin(
+                            lot.side,
                             lot.quantity,
                             *day.prices[c],
                             terms.instrument.multiplier);

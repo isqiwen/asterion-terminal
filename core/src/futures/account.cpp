@@ -128,10 +128,11 @@ void FuturesCosts::validate() const
         return rate >= zero && rate < one;
     };
     if (margin_per_lot < zero || open_fee < zero || close_today_fee < zero
-        || close_yesterday_fee < zero || !one_or_less(margin_rate) || !one_or_less(open_fee_rate)
+        || close_yesterday_fee < zero || !one_or_less(margin_rate)
+        || !one_or_less(short_margin_rate) || !one_or_less(open_fee_rate)
         || !one_or_less(close_today_fee_rate) || !one_or_less(close_yesterday_fee_rate))
         throw std::invalid_argument("costs must be nonnegative and rates below 1");
-    if (margin_per_lot == zero && margin_rate == zero)
+    if (margin_per_lot == zero && (margin_rate == zero || short_margin_rate == zero))
         throw std::invalid_argument("margin per lot or margin rate must be positive");
 }
 
@@ -141,6 +142,8 @@ Decimal FuturesCosts::fee(Offset bucket, Decimal quantity, Decimal price, Decima
         case Offset::open:
             return quantity * open_fee + notional_part(quantity, price, multiplier, open_fee_rate);
         case Offset::close_today:
+            if (!has_close_today_fee)
+                throw std::invalid_argument("missing close-today fee");
             return quantity * close_today_fee
                 + notional_part(quantity, price, multiplier, close_today_fee_rate);
         case Offset::close_yesterday:
@@ -152,9 +155,15 @@ Decimal FuturesCosts::fee(Offset bucket, Decimal quantity, Decimal price, Decima
     throw std::invalid_argument("fee requires a position bucket");
 }
 
+Decimal FuturesCosts::margin(Side side, Decimal quantity, Decimal price, Decimal multiplier) const
+{
+    const auto rate = side == Side::buy ? margin_rate : short_margin_rate;
+    return quantity * margin_per_lot + notional_part(quantity, price, multiplier, rate);
+}
+
 Decimal FuturesCosts::margin(Decimal quantity, Decimal price, Decimal multiplier) const
 {
-    return quantity * margin_per_lot + notional_part(quantity, price, multiplier, margin_rate);
+    return margin(Side::buy, quantity, price, multiplier);
 }
 
 FuturesAccount::FuturesAccount(Decimal deposit, std::vector<ContractTerms> contracts)
@@ -296,7 +305,8 @@ Decimal FuturesAccount::margin() const
     for (const auto& lot : lots_) {
         const auto index = contract_index(lot.instrument);
         const auto& terms = contracts_[index];
-        result = result + terms.costs.margin(lot.quantity, lot.price, terms.instrument.multiplier);
+        result = result
+            + terms.costs.margin(lot.side, lot.quantity, lot.price, terms.instrument.multiplier);
     }
     return result;
 }
@@ -324,16 +334,22 @@ Decimal FuturesAccount::reserved(const AccountOrder& item) const
     const auto multiplier = terms.instrument.multiplier;
     switch (item.offset) {
         case Offset::open:
-            return terms.costs.margin(quantity, price, multiplier)
+            return terms.costs.margin(item.order.request().side, quantity, price, multiplier)
                 + terms.costs.fee(Offset::open, quantity, price, multiplier);
         case Offset::close_today:
         case Offset::close_yesterday:
             return terms.costs.fee(item.offset, quantity, price, multiplier);
-        case Offset::close:
-            // The exchange picks the buckets at fill time: reserve the dearer fee.
+        case Offset::close: {
+            const bool has_today = std::ranges::any_of(lots_, [&](const auto& lot) {
+                return lot.instrument == item.order.request().instrument
+                    && lot.side != item.order.request().side && lot.today;
+            });
+            if (!has_today)
+                return terms.costs.fee(Offset::close_yesterday, quantity, price, multiplier);
             return std::max(
                 terms.costs.fee(Offset::close_today, quantity, price, multiplier),
                 terms.costs.fee(Offset::close_yesterday, quantity, price, multiplier));
+        }
     }
     throw std::invalid_argument("invalid open/close offset");
 }

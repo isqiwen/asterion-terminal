@@ -869,23 +869,33 @@ class Backtests(unittest.TestCase):
         (row,) = Runs(self.directory).list()
         self.assertEqual((row["state"], row["error"]), ("failed", "no daily bars of SHFE/rb/2027-01"))
 
-    def fees(self, days, fee, today_fee=None):
+    def fees(self, days, fee, today_fee=None, margin="0.1", short_margin=None):
         """The exchange's fees of SHFE/rb on `days` in a new dataset version."""
         writer = Warehouse(self.directory).writer()
         for day in days:
             writer.put_rows(f"settlement/SHFE/{day.isoformat()}", "settlement",
-                            [settlement(contract, day, fee, fee if today_fee is None else today_fee)
+                            [settlement(contract, day, fee,
+                                        fee if today_fee is None else today_fee,
+                                        margin, short_margin)
                              for contract in ("SHFE/rb/2026-05", "SHFE/rb/2026-10")])
         writer.commit()
 
     def test_fees_follow_each_day_and_a_missing_one_stops_the_run(self):
-        self.fees(DAYS[15:], "5")
+        self.fees(DAYS[15:], "5", margin="0.1", short_margin="0.15")
         backtest.run(self.directory, "dated", self.config(("SHFE/rb/2026-05",)))
         fills = Runs(self.directory).table("dated", "fills")
         self.assertEqual({fee / quantity for fee, quantity in zip(fills["fee"], fills["quantity"])},
                          {Decimal(3), Decimal(5)})
-        # SHFE published no close-today fee before 2024-07-22: never priced as zero.
+        positions = Runs(self.directory).table("dated", "positions")
+        short_rows = positions.filter(positions["short"] > 0)
+        self.assertTrue(len(short_rows) > 0)
+        for row in short_rows.iter_rows(named=True):
+            self.assertEqual(row["margin"], row["short"] * row["settlement_price"] * 10 * Decimal("0.15"))
+        # Daily strategies never close today's position on the same day, so a missing
+        # close-today fee does not block overnight runs, while a missing open fee does.
         self.fees(DAYS[3:4], "3", today_fee="")
+        backtest.run(self.directory, "overnight_ok", self.config(("SHFE/rb/2026-05",)))
+        self.fees(DAYS[3:4], "")
         with self.assertRaisesRegex(ValueError, f"missing fees of SHFE/rb/2026-05 on {DAYS[3].isoformat()}"):
             backtest.run(self.directory, "missing", self.config(("SHFE/rb/2026-05",)))
 
