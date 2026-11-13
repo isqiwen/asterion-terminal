@@ -78,7 +78,7 @@ test(
     prepare();
     await page.goto("/");
     await openView(page, "factors");
-    await page.getByRole("button", { name: /^momentum price · close/ }).click();
+    await page.getByRole("button", { name: /^momentum/ }).click();
     const form = page.locator(".lab-config");
     await form.getByLabel("品种").fill("SHFE/rb/2026-05, SHFE/rb/2026-10, SHFE/rb");
     await form.getByLabel("开始日").fill("2026-01-05");

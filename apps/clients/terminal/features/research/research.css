@@ -403,44 +403,85 @@ button.lab-link.strong {
   grid-area: modules;
   border-right: 1px solid var(--line);
 }
-.lab-modules ul {
+.lab-modules h4 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.lab-modules h4 button[aria-pressed="true"] {
+  text-decoration: underline;
+}
+/* Modules folded by file, one line a strategy or factor. */
+.lab-module-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-4);
+}
+.lab-module-list > :is(input, select) {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  margin-bottom: var(--space-1);
+}
+.lab-module-list ul {
   list-style: none;
-  margin: 0 0 var(--space-5);
+  margin: 0 0 var(--space-1);
   padding: 0;
 }
-.lab-modules li button {
-  display: grid;
-  justify-items: start;
-  gap: 2px;
+button.lab-module-group {
+  display: flex;
+  justify-content: space-between;
   width: 100%;
-  padding: var(--space-2) var(--space-3);
+  min-height: 24px;
+  padding: 0 var(--space-1);
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-xs);
+}
+button.lab-module-group::before {
+  content: "▾";
+  margin-right: var(--space-1);
+}
+button.lab-module-group[aria-expanded="false"]::before {
+  content: "▸";
+}
+button.lab-module-group span {
+  margin-right: auto;
+}
+.lab-module-list li button {
+  display: flex;
+  justify-content: flex-start;
+  align-items: baseline;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 26px;
+  padding: 0 var(--space-2) 0 var(--space-4);
   border: 0;
   border-left: 2px solid transparent;
+  background: none;
+  color: var(--text-strong);
   text-align: left;
-  white-space: normal;
 }
-.lab-modules li button:hover {
+.lab-module-list li button:hover {
   background: var(--hover);
 }
-.lab-modules li button[aria-pressed="true"] {
+.lab-module-list li button[aria-pressed="true"] {
   border-left-color: var(--accent);
   background: var(--accent-surface);
-}
-.lab-modules li strong {
-  color: var(--text-strong);
-  font-weight: 500;
-}
-.lab-modules li button[aria-pressed="true"] strong {
   color: var(--accent);
 }
-.lab-modules li span {
-  color: var(--muted);
-  font-size: var(--font-size-body);
-  line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+.lab-module-list li span {
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lab-module-list li small {
+  margin-left: auto;
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-xs);
 }
 .lab-module-error summary {
   color: var(--warning);

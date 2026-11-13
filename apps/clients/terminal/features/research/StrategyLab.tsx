@@ -20,6 +20,7 @@ import {
   LabCentre,
   LabHeader,
   ModuleErrors,
+  ModuleList,
   NewModule,
   Section,
   useConfigFold,
@@ -40,6 +41,17 @@ export function StrategyLab(context: TerminalContext) {
   const [chosen, setChosen] = useWorkspaceDraft(`strategy:${repository}`, "");
   const [form, setForm] = useWorkspaceDraft<RunForm>("run-form", defaultForm);
   const source = useSource(repository);
+  // The latest results beside each strategy and under the run button.
+  const [runs, setRuns] = useState<RunSummary[]>([]);
+  useEffect(() => {
+    let active = true;
+    void lab({ case: "listRuns", value: {} })
+      .then(reply => active && setRuns(reply.runs))
+      .catch(failure => active && notify(failure));
+    return () => {
+      active = false;
+    };
+  }, []);
   const [saved, setSaved] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const submitted = useActionError();
@@ -107,33 +119,38 @@ export function StrategyLab(context: TerminalContext) {
       <LabHeader context={context} modules={strategies} refresh={() => void readStrategies()} />
       <aside className="lab-modules">
         <h4>{t("策略")}</h4>
-        <ul>
-          {strategies?.strategies.map(item => {
+        <ModuleList
+          folder="strategies"
+          chosen={chosen}
+          items={(strategies?.strategies ?? []).map(item => {
             const [module, name] = item.id.split(".");
-            return (
-              <li key={item.id}>
-                <button
-                  aria-pressed={item.id === chosen}
-                  onClick={() => {
-                    setChosen(item.id);
-                    source.open(`strategies/${module}.py`);
-                    change({
-                      params: Object.fromEntries(
-                        item.parameters.map(p => [p.name, defaultText(p)]),
-                      ),
-                    });
-                  }}
-                >
-                  <strong>{name}</strong>
-                  <small>{module}</small>
-                  {item.description && (
-                    <span>{item.description.split("\n")[0].replace(/`/g, "")}</span>
-                  )}
-                </button>
-              </li>
-            );
+            // Runs list newest first.
+            const latest = runs.find(run => run.strategy === item.id && !run.sweepId);
+            const value = latest?.metrics.total_return;
+            return {
+              id: item.id,
+              name,
+              module,
+              description: item.description.replace(/`/g, ""),
+              figure:
+                value === undefined
+                  ? undefined
+                  : {
+                      text: metric(value, true),
+                      className: signed(value),
+                      title: t("最近一次总收益"),
+                    },
+            };
           })}
-        </ul>
+          choose={item => {
+            const entry = strategies!.strategies.find(entry => entry.id === item.id)!;
+            setChosen(item.id);
+            source.open(`strategies/${item.module}.py`);
+            change({
+              params: Object.fromEntries(entry.parameters.map(p => [p.name, defaultText(p)])),
+            });
+          }}
+        />
         <NewModule
           folder="strategies"
           repository={repository}
@@ -289,7 +306,7 @@ export function StrategyLab(context: TerminalContext) {
                   )}
                   <ActionError error={submitted.error} />
                   <RecentRuns
-                    strategy={strategy.id}
+                    runs={runs.filter(run => run.strategy === strategy.id && !run.sweepId)}
                     open={id => context.navigate("workspace.lab-runs", { params: { run: id } })}
                   />
                 </footer>
@@ -303,26 +320,12 @@ export function StrategyLab(context: TerminalContext) {
 }
 
 // The strategy's last runs, each opening its report.
-function RecentRuns({ strategy, open }: { strategy: string; open: (id: string) => void }) {
-  const [runs, setRuns] = useState<RunSummary[]>([]);
-  useEffect(() => {
-    let active = true;
-    void lab({ case: "listRuns", value: {} })
-      .then(
-        reply =>
-          active &&
-          setRuns(reply.runs.filter(run => run.strategy === strategy && !run.sweepId).slice(0, 3)),
-      )
-      .catch(failure => active && notify(failure));
-    return () => {
-      active = false;
-    };
-  }, [strategy]);
+function RecentRuns({ runs, open }: { runs: RunSummary[]; open: (id: string) => void }) {
   if (!runs.length) return null;
   return (
     <section className="lab-recent" aria-label={t("最近运行")}>
       <h5>{t("最近运行")}</h5>
-      {runs.map(run => (
+      {runs.slice(0, 3).map(run => (
         <button key={run.id} className="lab-link" onClick={() => open(run.id)}>
           <span>{run.label || run.id}</span>
           <span className={signed(run.metrics.total_return)}>

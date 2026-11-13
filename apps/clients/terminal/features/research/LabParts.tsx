@@ -305,3 +305,108 @@ export function Section({
     </details>
   );
 }
+
+// One strategy or factor in a module list.
+export type ModuleItem = {
+  id: string;
+  name: string;
+  module: string;
+  description: string;
+  // Bar fields a factor takes; the list filters by them.
+  inputs?: readonly string[];
+  // Its latest result, on the right of its row.
+  figure?: { text: string; className?: string; title: string };
+};
+
+// Strategies or factors grouped by module, one line each, searchable; a group
+// folds. Many modules stay readable: the description shows on hover.
+export function ModuleList({
+  folder,
+  items,
+  chosen,
+  choose,
+}: {
+  folder: Folder;
+  items: readonly ModuleItem[];
+  chosen: string;
+  choose: (item: ModuleItem) => void;
+}) {
+  const [search, setSearch] = useWorkspaceDraft(`modules-search:${folder}`, "");
+  const [input, setInput] = useWorkspaceDraft(`modules-input:${folder}`, "");
+  const [folded, setFolded] = useWorkspaceDraft<string[]>(`modules-folded:${folder}`, []);
+  const inputs = [...new Set(items.flatMap(item => item.inputs ?? []))].sort();
+  const query = search.trim().toLowerCase();
+  const shown = items.filter(
+    item =>
+      (!input || item.inputs?.includes(input)) &&
+      (!query || `${item.name} ${item.module} ${item.description}`.toLowerCase().includes(query)),
+  );
+  const modules = [...new Set(shown.map(item => item.module))].sort();
+  return (
+    <div className="lab-module-list">
+      <input
+        type="search"
+        aria-label={t(folder === "strategies" ? "搜索策略" : "搜索因子")}
+        placeholder={t(folder === "strategies" ? "搜索策略" : "搜索因子")}
+        value={search}
+        onChange={event => setSearch(event.target.value)}
+      />
+      {inputs.length > 1 && (
+        <select
+          aria-label={t("输入数据")}
+          value={input}
+          onChange={event => setInput(event.target.value)}
+        >
+          <option value="">{t("全部输入")}</option>
+          {inputs.map(item => (
+            <option key={item}>{item}</option>
+          ))}
+        </select>
+      )}
+      {!shown.length && items.length > 0 && <p className="subtle">{t("没有匹配的模块。")}</p>}
+      {modules.map(module => {
+        // A search opens every group it matches in.
+        const open = !!query || !folded.includes(module);
+        const members = shown.filter(item => item.module === module);
+        return (
+          <section key={module} aria-label={module}>
+            <button
+              className="lab-module-group"
+              aria-expanded={open}
+              onClick={() =>
+                setFolded(previous =>
+                  previous.includes(module)
+                    ? previous.filter(item => item !== module)
+                    : [...previous, module],
+                )
+              }
+            >
+              <span>{module}</span>
+              <small>{members.length}</small>
+            </button>
+            {open && (
+              <ul>
+                {members.map(item => (
+                  <li key={item.id}>
+                    <button
+                      aria-pressed={item.id === chosen}
+                      title={item.description}
+                      onClick={() => choose(item)}
+                    >
+                      <span>{item.name}</span>
+                      {item.figure && (
+                        <small className={item.figure.className} title={item.figure.title}>
+                          {item.figure.text}
+                        </small>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        );
+      })}
+    </div>
+  );
+}

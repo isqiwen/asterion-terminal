@@ -202,5 +202,15 @@
   "IC 均值（{count} 根）": "Mean IC ({count} bars)",
   "多空累计": "Long–short cumulative",
   "每日 IC（持有期 {count} 根）": "Daily IC (horizon {count} bars)",
-  "评价设置": "Evaluation settings"
+  "评价设置": "Evaluation settings",
+  "搜索策略": "Search strategies",
+  "搜索因子": "Search factors",
+  "输入数据": "Inputs",
+  "全部输入": "All inputs",
+  "没有匹配的模块。": "No matching modules.",
+  "最近一次总收益": "Latest total return",
+  "最近一次 IC 均值": "Latest mean IC",
+  "因子库": "Factor library",
+  "模块": "Module",
+  "IC 取最近一次评价的第一个持有期。": "IC is the first horizon of the latest evaluation."
 }
