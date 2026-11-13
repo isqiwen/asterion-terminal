@@ -17,7 +17,7 @@ foreach(schema common lab warehouse market strategy trading)
   add_custom_command(OUTPUT ${output}
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/generated-python"
     COMMAND protobuf::protoc --proto_path=${ASTERION_PROTO_ROOT} --python_out=${CMAKE_BINARY_DIR}/generated-python ${ASTERION_PROTO_ROOT}/asterion/${schema}.proto
-    DEPENDS ${ASTERION_PROTO_ROOT}/asterion/${schema}.proto)
+    DEPENDS ${ASTERION_PROTO_FILES} protobuf::protoc VERBATIM)
   list(APPEND ASTERION_PYTHON_PROTOCOL ${output})
 endforeach()
 add_custom_target(asterion_python_protocol ALL DEPENDS ${ASTERION_PYTHON_PROTOCOL})

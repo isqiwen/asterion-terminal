@@ -71,9 +71,11 @@ struct RpcClient::Impl
         Stream stream;
         asio::steady_timer timer;
         Tcp::resolver resolver;
+        std::vector<Tcp::endpoint> endpoints;
         std::promise<Result> result;
         std::function<void(Payload)> frame;
         bool next_frame = false;
+        bool delivered = false;
         Payload payload;
         std::array<unsigned char, 4> header{};
         const std::chrono::milliseconds reply_timeout;
@@ -127,6 +129,8 @@ struct RpcClient::Impl
         void advance() override
         {
             if constexpr (std::is_void_v<Result>) {
+                if (client.polling && std::exchange(delivered, false))
+                    return;
                 if (!this->done && std::exchange(next_frame, false))
                     receive();
             }
@@ -178,9 +182,18 @@ struct RpcClient::Impl
                     [self](asio::error_code error, Tcp::resolver::results_type addresses) {
                         if (!self->accepted(error))
                             return;
+                        self->endpoints.clear();
+                        for (const auto& entry : addresses)
+                            self->endpoints.push_back(entry.endpoint());
+                        std::stable_partition(
+                            self->endpoints.begin(),
+                            self->endpoints.end(),
+                            [](const Tcp::endpoint& endpoint) {
+                                return endpoint.address().is_v4();
+                            });
                         asio::async_connect(
                             self->stream.lowest_layer(),
-                            addresses,
+                            self->endpoints,
                             [self](asio::error_code error, const Tcp::endpoint&) {
                                 if (!self->accepted(error))
                                     return;
@@ -281,6 +294,7 @@ struct RpcClient::Impl
                                 try {
                                     self->frame(std::move(self->payload));
                                     self->next_frame = true;
+                                    self->delivered = !self->client.polling;
                                 } catch (...) {
                                     self->fail(std::current_exception());
                                 }
@@ -303,6 +317,7 @@ struct RpcClient::Impl
     const PayloadBudget payloads;
     std::shared_ptr<asio::ssl::context> tls;
     bool tcp = false;
+    bool polling = false;
     std::vector<std::shared_ptr<Pending>> active;
 
     Impl(
@@ -517,6 +532,7 @@ void RpcClient::cancel()
 
 void RpcClient::poll(std::chrono::milliseconds wait)
 {
+    impl_->polling = true;
     for (const auto& call : impl_->active)
         call->advance();
     impl_->io.restart();
@@ -526,6 +542,9 @@ void RpcClient::poll(std::chrono::milliseconds wait)
         impl_->io.run_for(wait);
     } else
         impl_->io.poll();
+    impl_->polling = false;
+    for (const auto& call : impl_->active)
+        call->advance();
     std::erase_if(impl_->active, [](const auto& call) {
         return call->done;
     });

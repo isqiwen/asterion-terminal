@@ -451,7 +451,8 @@ void validate_message(const google::protobuf::Message& message)
     const auto* descriptor = message.GetDescriptor();
     for (int index = 0; index < descriptor->field_count(); ++index) {
         const auto* field = descriptor->field(index);
-        if (field->cpp_type() == google::protobuf::FieldDescriptor::CPPTYPE_MESSAGE) {
+        if (field->cpp_type() == google::protobuf::FieldDescriptor::CPPTYPE_MESSAGE
+            && !field->is_map()) {
             if (field->is_repeated()) {
                 for (int i = 0; i < reflection->FieldSize(message, field); ++i)
                     validate_message(reflection->GetRepeatedMessage(message, field, i));

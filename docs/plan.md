@@ -144,7 +144,7 @@
 | 129 | M3.133 | 研究：评价记录并入因子视图 | 完成 | M3.128 |
 | 130 | M3.134 | 界面：精简文字与布局整理 | 完成 | M3.133 |
 | 131 | M3.135 | 全面排查（第二轮） | 完成 | |
-| 132 | M3.136 | 进程隔离、流式传输与协议向前兼容修复 | 待做 | |
+| 132 | M3.136 | 进程隔离、流式传输与协议向前兼容修复 | 完成 | |
 | 133 | M3.137 | 交易页安全传达、盘口统一与上期所手工平仓修复 | 待做 | |
 | 134 | M3.138 | CTP 行情盘前快照、跨日时间戳与郑商所夜盘修复 | 待做 | |
 | 135 | M3.139 | 实盘权重编码、乱序回报对账与柜台边界修复 | 待做 | |
@@ -248,14 +248,6 @@ Warehouse：Tushare → 交易所 → gtja → 新浪财经 → 入库 → 来�
 ### M3.135 全面排查（第二轮）
 
 通读全部文档、协议、C++ 核心与服务端、Python 研究与策略运行时、Terminal 原生桥接与前端界面、构建打包及 CI 脚本，核对国内期货交易规则与端到端截图。确定五项核心设计：回测改为次根 K 线开盘主动撮合与同根反手拆单；风控拆分为单合约上限与账户总上限，且区分策略代码故障与外部瞬时拒单；实盘支持本地录播自愈加启动时注入带摘要的静态历史预热包；保证金率按多空分侧计算、平今手续费按实际平今动作惰性校验并交叉核验合入 Tushare 平今字段；五档盘口统一按昨结算价涨跌着色。结果登记为下面的 M3.136–M3.147，并更新[交易规则](safety.md)。
-
-### M3.136 进程隔离、流式传输与协议向前兼容修复
-
-- `ChildProcess`（`core/src/system/process/child.cpp`）：macOS 使用 `POSIX_SPAWN_CLOEXEC_DEFAULT` 时，在 `independent == false` 下显式为子进程准备标准流 `fd 0, 1, 2`（`stdin` 打开 `/dev/null`，未合并 `stderr` 时保留或打开 `/dev/null`），检查全部 `posix_spawn_file_actions_add*` 返回值；删除无调用的 `ChildProcess::release()`。理由：`POSIX_SPAWN_CLOEXEC_DEFAULT` 会关闭父进程所有未登记描述符（含 `0, 1, 2`），导致 Lab 随后打开的数据库或套接字分到 `fd 0/2` 并被错误输出写坏。
-- `RpcClient`、`MarketClient` 与 `RpcHost`（`core/src/system/ipc/rpc_client.cpp`、`apps/clients/terminal/native/market_client.cpp`、`core/src/system/rpc_host.cpp`）：修复 `Reactor::wait` 与 `RpcClient::poll` 共用 `io_context` 时覆盖未消费流帧及首帧后缺少挂起读操作的问题；`RpcClient` 连接前按 IPv4 优先排序端点；`RpcHost` 本地套接字绑定前清理残留失效套接字并核验父目录归属与权限，`EMFILE`/`ENFILE` 时退避重试。理由：`reactor.wait` 已交付首帧后 `market_client` 再次 `poll` 会用第二帧增量覆盖首帧全量目录，且无超时 `wait` 在首帧后无挂起异步读而死锁。
-- `validate_message`、`log_rpc_result` 与协议构建（`protocol/src/trading.cpp`、`protocol/include/asterion/protocol/rpc_diagnostics.hpp`、`protocol/CMakeLists.txt`）：Trading 消息校验不再因未知 Protobuf 字段拒绝请求与响应，也不在 `const Message&` 上通过反射触发 `MapField` 内部同步写；`log_rpc_result` 对未知 `ErrorCode` 不再调用越界 `.substr(11)`；补齐 Python 生成文件的 `.proto` 依赖列表。理由：拒绝未知字段会让不同版本的 Terminal 与 Trading 无法撤单和平仓，违反[通信协议](protocol.md#2-帧格式与版本)。
-
-完成检查：子进程启动后 `fd 0, 1, 2` 均为有效打开描述符；`Reactor` 驱动的 `RpcClient::watch` 在多帧连发时不丢首帧、无超时 `wait` 不死锁；含未知字段的 Trading 消息与未知 `ErrorCode` 通过校验和日志记录。
 
 ### M3.137 交易页安全传达、盘口统一与上期所手工平仓修复
 

@@ -29,8 +29,6 @@ public:
     bool wait(std::chrono::milliseconds timeout);
     // Ask a running child to stop without waiting; destruction still owns reaping.
     void request_stop() noexcept;
-    // Relinquish ownership of an independently managed process.
-    void release();
 
 private:
     struct Impl;

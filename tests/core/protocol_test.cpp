@@ -128,6 +128,8 @@ TEST(Protocol, RpcDiagnosticsNeverSerializeCredentialsOrRemoteErrorMessages)
     response.mutable_error()->set_code(::common::ERROR_CODE_PERMISSION_DENIED);
     response.mutable_error()->set_message("test-only-private-provider-diagnostic");
     protocol::log_rpc_result("rpc-test", request, response, true, {{"session_id", "session.test"}});
+    response.mutable_error()->set_code(static_cast<::common::ErrorCode>(999));
+    protocol::log_rpc_result("rpc-test", request, response, true, {{"session_id", "session.test"}});
     std::vector<std::string> lines;
     for (const auto& entry : std::filesystem::directory_iterator(root / "logs")) {
         std::ifstream stream(entry.path());
@@ -136,10 +138,13 @@ TEST(Protocol, RpcDiagnosticsNeverSerializeCredentialsOrRemoteErrorMessages)
     }
     log::init(root / "none", "test");
     std::filesystem::remove_all(root);
-    ASSERT_EQ(lines.size(), 1U);
+    ASSERT_EQ(lines.size(), 2U);
     // The operation, the error code and the identifiers; never a credential or
     // the remote error's message.
     EXPECT_EQ(
         lines.front(),
         "warning rpc failed: module=rpc-test operation=connect_broker id=7 " "code=permission_denied session_id=session.test");
+    EXPECT_EQ(
+        lines.back(),
+        "warning rpc failed: module=rpc-test operation=connect_broker id=7 " "code=unspecified session_id=session.test");
 }

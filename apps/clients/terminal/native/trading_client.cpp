@@ -20,7 +20,6 @@ std::future<Json> call_trading(ServiceIo& io, TradingEndpoint endpoint, Json pay
                 wire::Request request;
                 if (!google::protobuf::util::JsonStringToMessage(payload.dump(), &request).ok())
                     throw std::invalid_argument("invalid trading request");
-                protocol::validate_message(request);
                 static std::atomic<std::uint64_t> next{0};
                 request.set_id(++next);
                 log_request(request.id());
@@ -50,7 +49,6 @@ std::future<Json> call_trading(ServiceIo& io, TradingEndpoint endpoint, Json pay
                 wire::Response response;
                 if (!response.ParseFromString(*raw))
                     throw Error(ErrorCode::unavailable, "invalid Trading response");
-                protocol::validate_message(response);
                 if (response.id() != request.id())
                     throw Error(ErrorCode::unavailable, "Trading response identity mismatch");
                 if (response.has_error())

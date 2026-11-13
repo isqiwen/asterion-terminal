@@ -210,6 +210,14 @@ TEST(Kernel, child_does_not_inherit_host_pipes)
         EXPECT_EQ(::read(descriptors.read, &byte, 1), 0)
             << "A running child kept the host's pipe writer alive";
     }
+    const auto out =
+        std::filesystem::temp_directory_path() / ("asterion-stdio-" + unique_process_id());
+    {
+        ChildProcess child("/bin/sh", {"-c", "echo ok"}, false, out, false);
+        ASSERT_TRUE(child.wait(std::chrono::seconds(2)));
+        EXPECT_EQ(child.exit_code(), 0);
+    }
+    std::filesystem::remove(out);
 }
 
 TEST(Kernel, FileLockReadersShareWhileWritersRemainExclusive)

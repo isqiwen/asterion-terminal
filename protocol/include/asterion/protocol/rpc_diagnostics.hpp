@@ -45,7 +45,8 @@ void log_rpc_result(
         line += " operation=" + (operation ? operation->name() : std::string("missing"));
         line += " id=" + std::to_string(request.id());
         if (response.has_error()) {
-            auto code = ::common::ErrorCode_Name(response.error().code()).substr(11);
+            auto code = ::common::ErrorCode_Name(response.error().code());
+            code = code.starts_with("ERROR_CODE_") ? code.substr(11) : "unspecified";
             std::ranges::transform(code, code.begin(), [](unsigned char c) {
                 return std::tolower(c);
             });

@@ -63,33 +63,42 @@ ChildProcess::ChildProcess(
     if (independent) {
         flags |= POSIX_SPAWN_SETPGROUP;
         posix_spawnattr_setpgroup(&attrs, 0);
-        for (int descriptor = 0; descriptor < 3; ++descriptor)
-            posix_spawn_file_actions_addopen(
-                &actions,
-                descriptor,
-                "/dev/null",
-                descriptor == 0 ? O_RDONLY : O_WRONLY,
-                0);
     }
+    int result = posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
     if (!stdout_file.empty()) {
         if (!stdout_file.is_absolute()) {
             posix_spawn_file_actions_destroy(&actions);
             posix_spawnattr_destroy(&attrs);
             throw std::invalid_argument("capture path must be absolute");
         }
-        int result = posix_spawn_file_actions_addopen(
-            &actions,
-            STDOUT_FILENO,
-            stdout_file.c_str(),
-            O_WRONLY | O_CREAT | O_EXCL,
-            0600);
-        if (!result && merge_stderr)
-            result = posix_spawn_file_actions_adddup2(&actions, STDOUT_FILENO, STDERR_FILENO);
-        if (result) {
-            posix_spawn_file_actions_destroy(&actions);
-            posix_spawnattr_destroy(&attrs);
-            throw Error(ErrorCode::unavailable, "cannot prepare process output");
-        }
+        if (!result)
+            result = posix_spawn_file_actions_addopen(
+                &actions,
+                STDOUT_FILENO,
+                stdout_file.c_str(),
+                O_WRONLY | O_CREAT | O_EXCL,
+                0600);
+        if (!result)
+            result = merge_stderr
+                ? posix_spawn_file_actions_adddup2(&actions, STDOUT_FILENO, STDERR_FILENO)
+                : posix_spawn_file_actions_addopen(
+                      &actions,
+                      STDERR_FILENO,
+                      "/dev/null",
+                      O_WRONLY,
+                      0);
+    } else {
+        if (!result)
+            result =
+                posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
+        if (!result)
+            result =
+                posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+    }
+    if (result) {
+        posix_spawn_file_actions_destroy(&actions);
+        posix_spawnattr_destroy(&attrs);
+        throw Error(ErrorCode::unavailable, "cannot prepare process output");
     }
     if (posix_spawnattr_setflags(&attrs, flags)) {
         posix_spawn_file_actions_destroy(&actions);
@@ -142,17 +151,6 @@ bool ChildProcess::wait(std::chrono::milliseconds timeout)
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     return true;
-}
-
-void ChildProcess::release()
-{
-    const auto pid = impl_->pid;
-    std::thread([pid] {
-        int status = 0;
-        while (::waitpid(pid, &status, 0) < 0 && errno == EINTR) {
-        }
-    }).detach();
-    impl_->finished = true;
 }
 
 void ChildProcess::request_stop() noexcept

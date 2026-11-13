@@ -70,14 +70,15 @@ struct MarketWatch::Impl
                     else
                         transport->poll();
                     if (frame) {
+                        auto raw = std::move(*frame);
+                        frame.reset();
                         // RpcClient yields one frame per poll; apply it before polling again.
-                        auto value = co_await io.read<Json>([raw = std::move(*frame), &request] {
+                        auto value = co_await io.read<Json>([raw = std::move(raw), &request] {
                             auto response = relay_decode<wire::Response>(*raw, request);
                             if (!response.has_stream_quotes())
                                 throw Error(ErrorCode::unavailable, "missing quote frame");
                             return relay_json(response.stream_quotes());
                         });
-                        frame.reset();
                         frames.push_back(std::move(value));
                         online = true;
                         error.clear();

@@ -96,6 +96,25 @@ TEST(RpcHost, RecreatesTransientSocketDirectoryForLoginServices)
         EXPECT_EQ(std::filesystem::status(root).permissions(), std::filesystem::perms::owner_all);
     }
     EXPECT_FALSE(std::filesystem::exists(endpoint));
+    // A leftover socket file from a crashed process is replaced on startup.
+    {
+        asio::io_context io;
+        asio::local::stream_protocol::acceptor stale(io);
+        stale.open();
+        stale.bind(asio::local::stream_protocol::endpoint(endpoint.string()));
+        stale.close();
+        ASSERT_TRUE(std::filesystem::exists(endpoint));
+        service::RpcHost recovered(
+            {endpoint.string()},
+            [](const auto&, std::string) -> service::RpcHost::Reply {
+                return [] {
+                    return std::optional<std::string>("ready");
+                };
+            },
+            {},
+            progress);
+        EXPECT_TRUE(std::filesystem::exists(endpoint));
+    }
     std::filesystem::remove(root);
 }
 
@@ -616,6 +635,31 @@ TEST(RpcClient, StreamingFramesYieldToControlsAndReleaseTheirCapacityOnFailure)
     }
     ASSERT_EQ(invalid.wait_for(0ms), std::future_status::ready);
     EXPECT_THROW(invalid.get(), std::invalid_argument);
+
+    // Reactor-driven watch preserves the first frame across poll() and keeps reading on wait().
+    ipc::Reactor reactor;
+    ipc::RpcClient watched(reactor, transport.endpoint, 1, PayloadBudget{128 * 1024 * 1024});
+    std::vector<std::string> received;
+    std::optional<Payload> slot;
+    auto stream = watched.watch("watch", 1s, [&](Payload value) {
+        slot = std::move(value);
+    });
+    while (received.size() < 4 && stream.wait_for(0ms) != std::future_status::ready) {
+        watched.poll();
+        if (slot) {
+            received.push_back(**slot);
+            slot.reset();
+            continue;
+        }
+        reactor.wait(std::nullopt);
+    }
+    watched.cancel();
+    EXPECT_THROW(stream.get(), Error);
+    ASSERT_EQ(received.size(), 4U);
+    EXPECT_EQ(received[0], "1");
+    EXPECT_EQ(received[1], "2");
+    EXPECT_EQ(received[2], "3");
+    EXPECT_EQ(received[3], "4");
 }
 
 TEST(RpcClient, SharedPayloadAllowanceFollowsRepliesBeyondConnectionsAndTheirReaders)

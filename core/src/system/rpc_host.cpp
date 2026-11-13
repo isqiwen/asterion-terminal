@@ -56,7 +56,19 @@ struct LocalListener
         if (::mkdir(parent.c_str(), 0700) != 0 && errno != EEXIST)
             throw Error(ErrorCode::unavailable, "cannot create IPC socket directory");
         acceptor.open();
-        acceptor.bind(Local::endpoint(endpoint));
+        asio::error_code bind_error;
+        acceptor.bind(Local::endpoint(endpoint), bind_error);
+        if (bind_error == asio::error::address_in_use) {
+            Local::socket probe(io);
+            asio::error_code connect_error;
+            probe.connect(Local::endpoint(endpoint), connect_error);
+            if (connect_error == asio::error::connection_refused) {
+                ::unlink(endpoint.c_str());
+                acceptor.bind(Local::endpoint(endpoint));
+            } else
+                throw asio::system_error(bind_error);
+        } else if (bind_error)
+            throw asio::system_error(bind_error);
         try {
             if (::chmod(endpoint.c_str(), 0600) != 0)
                 throw Error(ErrorCode::unavailable, "cannot secure IPC endpoint");
