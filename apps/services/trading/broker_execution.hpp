@@ -5,6 +5,7 @@
 #include <future>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string_view>
 #include <vector>
 
@@ -185,6 +186,15 @@ struct BrokerSnapshot
     // observed fills to be included in a completed position query.
     std::uint64_t exposure_revision = 0;
     bool positions_reconciled = false;
+    std::set<InstrumentId> unreconciled_instruments;
+    Decimal unreconciled_open_lots;
+
+    bool reconciled_for(const InstrumentId& id) const
+    {
+        return positions_reconciled
+            || (!unreconciled_instruments.empty() && !unreconciled_instruments.contains(id));
+    }
+
     // Wall-clock ms of the last completed funds/positions/orders/trades query.
     std::int64_t synchronized_ms = 0;
     std::optional<BrokerFunds> funds;

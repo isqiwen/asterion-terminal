@@ -18,6 +18,7 @@ import {
 const currentLimits = (policy: Policy | undefined): LimitsDraft => ({
   max_order_quantity: decimalText(policy?.limits?.maxOrderLots),
   max_gross_quantity: decimalText(policy?.limits?.maxGrossLots),
+  max_contract_quantity: decimalText(policy?.limits?.maxContractLots),
   max_working_orders: String(policy?.limits?.maxWorkingOrders ?? 0),
   max_price_deviation: decimalText(policy?.maxPriceDeviation),
 });
@@ -72,6 +73,7 @@ export function AccountPolicyEditor({
               [
                 ["max_order_quantity", "单笔数量上限"],
                 ["max_gross_quantity", "总持仓量上限"],
+                ["max_contract_quantity", "单合约持仓上限"],
                 ["max_working_orders", "在途委托数上限"],
                 ["max_price_deviation", "价格偏离上限"],
               ] as const
@@ -81,8 +83,13 @@ export function AccountPolicyEditor({
                 <input
                   aria-label={t(label)}
                   inputMode="decimal"
-                  required
-                  value={limits[field]}
+                  placeholder={
+                    field === "max_contract_quantity"
+                      ? limits.max_gross_quantity || undefined
+                      : undefined
+                  }
+                  required={field !== "max_contract_quantity"}
+                  value={limits[field] ?? ""}
                   onChange={event => setLimits({ ...limits, [field]: event.target.value })}
                 />
               </label>

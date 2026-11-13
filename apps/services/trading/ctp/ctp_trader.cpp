@@ -560,6 +560,8 @@ struct Trader::Impl final : CThostFtdcTraderSpi
                     && (state.phase != BrokerPhase::error || state.error_code != ingress_error
                         || state.positions_reconciled)) {
                     state.positions_reconciled = false;
+                    state.unreconciled_instruments.clear();
+                    state.unreconciled_open_lots = Decimal{};
                     fail(ingress_error);
                 }
             } else if (!callback_size) {
@@ -756,6 +758,8 @@ struct Trader::Impl final : CThostFtdcTraderSpi
         ++generation;
         query_outstanding = refresh_queued = false;
         state.positions_reconciled = false;
+        state.unreconciled_instruments.clear();
+        state.unreconciled_open_lots = Decimal{};
         std::erase_if(queue, [](const Command& c) {
             return !c.result;
         });
@@ -906,7 +910,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi
     {
         receive(
             RspQryInvestorPositionEvent{copy_callback(row), copy_callback(info), request, last},
-            true);
+            info && info->ErrorID);
     }
 
     void apply(const RspQryInvestorPositionEvent& event, std::chrono::steady_clock::time_point)
@@ -936,7 +940,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi
     {
         receive(
             RspQryTradingAccountEvent{copy_callback(account), copy_callback(info), request, last},
-            true);
+            info && info->ErrorID);
     }
 
     void apply(const RspQryTradingAccountEvent& event, std::chrono::steady_clock::time_point now)
@@ -1443,7 +1447,9 @@ struct Trader::Impl final : CThostFtdcTraderSpi
                 else if (command.kind == Kind::insert
                     && (command.exposure_revision != state.exposure_revision
                         || (command.order.CombOffsetFlag[0] == THOST_FTDC_OF_Open
-                            && !state.positions_reconciled)))
+                            && !state.reconciled_for(
+                                {field(command.order.ExchangeID),
+                                    field(command.order.InstrumentID)}))))
                     code = broker_code::exposure_changed;
                 else if (command.kind == Kind::insert && !command.permit.consume(command.order_id))
                     code = broker_code::permit_refused;
@@ -1704,7 +1710,7 @@ std::unique_ptr<PreparedBrokerOrder> Trader::prepare(
             throw Error(
                 ErrorCode::unavailable,
                 "CTP trading session changed; the order was not sent");
-        if (offset == Offset::open && !impl_->state.positions_reconciled)
+        if (offset == Offset::open && !impl_->state.reconciled_for(order.instrument))
             throw Error(
                 ErrorCode::unavailable,
                 "broker fills are awaiting position reconciliation; opening orders are paused");
@@ -1787,7 +1793,8 @@ std::future<BrokerDispatchResult> Trader::dispatch(
             return refused(broker_code::expired);
         }
         if (command.exposure_revision != impl_->state.exposure_revision
-            || (pending.offset == Offset::open && !impl_->state.positions_reconciled)) {
+            || (pending.offset == Offset::open
+                && !impl_->state.reconciled_for(pending.instrument))) {
             return refused(broker_code::exposure_changed);
         }
         impl_->reports.remember(

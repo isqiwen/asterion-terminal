@@ -46,7 +46,10 @@ public:
 private:
     BrokerOrder& order_for(const std::string& broker_key);
     bool fills_reported() const;
+    Decimal open_fills() const;
     BrokerSnapshot& state_;
+    bool positions_synchronized_ = false;
+    Decimal reconciled_open_lots_;
     KnownOrders known_;
     std::map<std::string, OrderIdentity> keys_;
     std::map<std::string, std::string> exchange_;

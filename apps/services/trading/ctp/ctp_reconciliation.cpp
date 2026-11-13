@@ -82,6 +82,24 @@ bool ReportReconciler::fills_reported() const
     });
 }
 
+Decimal ReportReconciler::open_fills() const
+{
+    Decimal total;
+    for (const auto& order : state_.orders) {
+        if (order.offset != Offset::open)
+            continue;
+        auto filled = order.filled;
+        if (const auto traded = traded_quantities_.find(order.exchange_order_id);
+            traded != traded_quantities_.end())
+            filled = std::max(filled, traded->second);
+        total = total + filled;
+    }
+    for (const auto& trade : state_.trades)
+        if (trade.offset == Offset::open && !exchange_.contains(trade.exchange_order_id))
+            total = total + trade.quantity;
+    return total;
+}
+
 std::string ReportReconciler::key(int front, int session, const std::string& ref)
 {
     return std::to_string(front) + ":" + std::to_string(session) + ":" + ref;
@@ -133,8 +151,14 @@ bool ReportReconciler::apply(const CThostFtdcOrderField& report)
     if (!terminal(order.status) || (terminal(status) && order.status != BrokerOrderStatus::filled))
         order.status = status;
     ++state_.exposure_revision;
-    if (additional_fill)
+    if (additional_fill) {
         state_.positions_reconciled = false;
+        if (positions_synchronized_) {
+            state_.unreconciled_instruments.insert(order.instrument);
+            state_.unreconciled_open_lots =
+                std::max(Decimal{}, open_fills() - reconciled_open_lots_);
+        }
+    }
     ++state_.sequence;
     return additional_fill;
 }
@@ -166,9 +190,14 @@ bool ReportReconciler::apply(const CThostFtdcTradeField& report)
                             .count();
     traded_quantities_[trade.exchange_order_id] =
         traded_quantities_[trade.exchange_order_id] + trade.quantity;
+    const auto instrument = trade.instrument;
     state_.trades.push_back(std::move(trade));
     ++state_.exposure_revision;
     state_.positions_reconciled = false;
+    if (positions_synchronized_) {
+        state_.unreconciled_instruments.insert(instrument);
+        state_.unreconciled_open_lots = std::max(Decimal{}, open_fills() - reconciled_open_lots_);
+    }
     ++state_.sequence;
     return true;
 }
@@ -199,11 +228,15 @@ void ReportReconciler::clear_reports()
     raw_order_ids_.clear();
     trade_ids_.clear();
     traded_quantities_.clear();
+    positions_synchronized_ = false;
+    reconciled_open_lots_ = Decimal{};
     abandon_positions();
     state_.orders.clear();
     state_.trades.clear();
     state_.positions.clear();
     state_.positions_reconciled = false;
+    state_.unreconciled_instruments.clear();
+    state_.unreconciled_open_lots = Decimal{};
 }
 
 void ReportReconciler::abandon_positions()
@@ -252,7 +285,17 @@ bool ReportReconciler::finish_positions(std::uint64_t query_revision)
     positions_in_progress_.clear();
     const bool changed = query_revision != state_.exposure_revision;
     state_.positions_reconciled = !changed && fills_reported();
-    ++state_.exposure_revision;
+    if (state_.positions_reconciled) {
+        positions_synchronized_ = true;
+        reconciled_open_lots_ = open_fills();
+        state_.unreconciled_instruments.clear();
+        state_.unreconciled_open_lots = Decimal{};
+    } else if (!fills_reported()) {
+        positions_synchronized_ = false;
+        reconciled_open_lots_ = Decimal{};
+        state_.unreconciled_instruments.clear();
+        state_.unreconciled_open_lots = Decimal{};
+    }
     ++state_.sequence;
     return changed;
 }

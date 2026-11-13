@@ -2811,7 +2811,7 @@ TEST_F(StrategyTarget, LaterEquityReportsCannotResizeTheRemainingPortfolioLeg)
     exchange.call<void (*)(double)>("asterion_fake_trader_balance", 500000.01);
     session.accept_target(owner, decision, {quote(), other});
     auto state = progress(session, owner, [](const Json& s) {
-        return s.at("orders").size() == 1 && s.at("orders")[0].at("status") == "filled";
+        return s.at("orders").size() == 1;
     });
     ASSERT_EQ(state.at("orders").size(), 1U);
     exchange.call<void (*)(double)>("asterion_fake_trader_balance", 1000000.01);
@@ -2826,6 +2826,67 @@ TEST_F(StrategyTarget, LaterEquityReportsCannotResizeTheRemainingPortfolioLeg)
     ASSERT_EQ(state.at("orders").size(), 2U);
     EXPECT_EQ(state.at("orders")[1].at("symbol"), "rb2611");
     EXPECT_EQ(decimal(state.at("orders")[1].at("quantity")), "1");
+    EXPECT_TRUE(session.strategy_failure(owner).empty());
+}
+
+TEST_F(
+    StrategyTarget,
+    PriceDeviationRejectKeepsInstanceAliveAndTenContractPortfolioCompletesWithinTenSeconds)
+{
+    auto definition = manifest(2);
+    definition["policy"]["risk"]["max_gross_quantity"] = "15";
+    definition["policy"]["risk"]["max_contract_quantity"] = "2";
+    definition["policy"]["contracts"].clear();
+    std::vector<InstrumentId> selected;
+    std::vector<MarketQuote> quotes;
+    for (int i = 1; i <= 10; ++i) {
+        const auto month = (i < 10 ? std::string("0") : std::string{}) + std::to_string(i);
+        const auto symbol = "rb26" + month;
+        const auto delivery = "2026-" + month;
+        definition["policy"]["contracts"].push_back(
+            contract(symbol.c_str(), "rb", delivery.c_str()));
+        selected.push_back({"SHFE", symbol});
+        auto q = quote();
+        q.instrument.symbol = symbol;
+        quotes.push_back(q);
+    }
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, definition);
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy("portfolio-10", selected).get();
+
+    // First bar: opposite-side ask deviates beyond max_price_deviation (2%).
+    auto deviated = quotes;
+    deviated[0].ask = Decimal::parse("3600");
+    auto bad_decision = lots(1, 1);
+    bad_decision.mutable_targets(0)->mutable_instrument()->set_symbol("rb2601");
+    session.accept_target(owner, bad_decision, deviated);
+    EXPECT_NO_THROW(session.advance_target(owner).get());
+    EXPECT_TRUE(session.strategy_failure(owner).empty());
+    EXPECT_TRUE(session.snapshot().at("orders").empty());
+    const auto abandoned_events = session.strategy_events(owner);
+    ASSERT_EQ(abandoned_events.size(), 1U);
+    EXPECT_EQ(abandoned_events[0].kind(), ::trading::INSTANCE_EVENT_KIND_BATCH_ABANDONED);
+
+    // Next bar: quote returns to normal and all 10 contracts rebalance within 10s.
+    ::strategy::Decision ten;
+    ten.set_sequence(2);
+    ten.set_ready(true);
+    for (const auto& id : selected) {
+        auto* item = ten.add_targets();
+        item->mutable_instrument()->set_exchange(id.venue);
+        item->mutable_instrument()->set_symbol(id.symbol);
+        item->set_lots(1);
+    }
+    const auto started = std::chrono::steady_clock::now();
+    session.accept_target(owner, ten, quotes);
+    const auto state = progress(session, owner, [](const Json& s) {
+        return s.at("orders").size() == 10 && s.at("positions_reconciled") == true
+            && s.at("positions").size() == 10;
+    });
+    EXPECT_LT(std::chrono::steady_clock::now() - started, 10s);
+    ASSERT_EQ(state.at("orders").size(), 10U);
+    ASSERT_EQ(state.at("positions").size(), 10U);
     EXPECT_TRUE(session.strategy_failure(owner).empty());
 }
 

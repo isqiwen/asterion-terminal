@@ -50,9 +50,46 @@ TEST(OrderLimits, gross_risk_does_not_net_sides_or_credit_pending_closes)
     context.offset = Offset::close_today;
     EXPECT_TRUE(risk.evaluate(context).allowed());
     context.gross_position_quantity = d("20");
-    EXPECT_TRUE(risk.evaluate(context).allowed()); // Permit reducing over-limit risk.
+    context.working_orders = 5;
+    EXPECT_TRUE(risk.evaluate(context)
+            .allowed()); // Permit reducing over-limit risk even when working orders are full.
     context.offset = Offset::open;
+    EXPECT_EQ(risk.evaluate(context).reason, RiskReason::working_orders);
+    context.working_orders = 0;
     EXPECT_EQ(risk.evaluate(context).reason, RiskReason::gross_quantity);
+}
+
+TEST(OrderLimits, orthogonal_contract_and_account_gross_limits_across_contracts)
+{
+    auto rb = instrument();
+    Instrument hc{{"SHFE", "hc2610"}, "CNY", d("1"), d("1"), d("10")};
+    FuturesAccount account(
+        d("100000"),
+        {{rb, {d("100"), d("0"), d("0"), d("0")}}, {hc, {d("100"), d("0"), d("0"), d("0")}}});
+    account.mark(rb.id, d("100"));
+    account.mark(hc.id, d("100"));
+    OrderLimits risk({d("5"), d("8"), 2, d("5")});
+    risk.start();
+    LimitOrder first{"rb.1", rb.id, Side::buy, d("5"), d("100")};
+    ASSERT_TRUE(assess_order(risk, account, first, Offset::open).allowed());
+    account.submit(first, Offset::open);
+    account.fill({"fill.rb", "rb.1", d("5"), d("100")});
+    LimitOrder rb_more{"rb.2", rb.id, Side::buy, d("1"), d("100")};
+    EXPECT_EQ(
+        assess_order(risk, account, rb_more, Offset::open).reason,
+        RiskReason::gross_quantity);
+    LimitOrder hc_over{"hc.over", hc.id, Side::buy, d("4"), d("100")};
+    EXPECT_EQ(
+        assess_order(risk, account, hc_over, Offset::open).reason,
+        RiskReason::gross_quantity);
+    LimitOrder hc_fit{"hc.fit", hc.id, Side::buy, d("3"), d("100")};
+    ASSERT_TRUE(assess_order(risk, account, hc_fit, Offset::open).allowed());
+    account.submit(hc_fit, Offset::open);
+    LimitOrder second_working{"rb.close.1", rb.id, Side::sell, d("2"), d("100")};
+    account.submit(second_working, Offset::close_today);
+    ASSERT_EQ(account.working_orders().size(), 2U);
+    LimitOrder close_at_full{"rb.close.2", rb.id, Side::sell, d("2"), d("100")};
+    EXPECT_TRUE(assess_order(risk, account, close_at_full, Offset::close_today).allowed());
 }
 
 TEST(OrderLimits, rejects_bad_configuration_and_context)

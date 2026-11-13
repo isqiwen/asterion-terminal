@@ -317,8 +317,9 @@ export function AccountRecords({
           <h3>{t("风险限制")}</h3>
           <p>
             {t("单笔数量上限")}: {decimalText(policy?.limits?.maxOrderLots)} · {t("总持仓量上限")}:{" "}
-            {decimalText(policy?.limits?.maxGrossLots)} · {t("在途委托数上限")}:{" "}
-            {policy?.limits?.maxWorkingOrders ?? 0} · {t("价格偏离上限")}:{" "}
+            {decimalText(policy?.limits?.maxGrossLots)} · {t("单合约持仓上限")}:{" "}
+            {decimalText(policy?.limits?.maxContractLots ?? policy?.limits?.maxGrossLots)} ·{" "}
+            {t("在途委托数上限")}: {policy?.limits?.maxWorkingOrders ?? 0} · {t("价格偏离上限")}:{" "}
             {decimalText(policy?.maxPriceDeviation)}
           </p>
           <p>

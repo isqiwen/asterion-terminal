@@ -87,4 +87,5 @@ message RiskLimits {
   Decimal max_order_lots = 1;
   Decimal max_gross_lots = 2;
   uint32 max_working_orders = 3;
+  Decimal max_contract_lots = 4;
 }

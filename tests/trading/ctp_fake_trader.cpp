@@ -1462,6 +1462,7 @@ FAKE_EXPORT void asterion_fake_trader_reset()
     x.positions.clear();
     x.trading_day = "20260928";
     x.query_rejections = 0;
+    x.last_query = {};
 }
 
 FAKE_EXPORT void asterion_fake_trader_balance(double balance)

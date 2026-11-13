@@ -325,19 +325,25 @@ AccountCommand LiveAccountState::advance_strategy_target(
             origin);
         batch.last_order = sent;
         // Not std::format: macOS 13.0 libc++ lacks the to_chars it instantiates.
-        strategy_->events.push_back(event(
-            ::trading::INSTANCE_EVENT_KIND_ORDER_SENT,
-            "sent " + leg.instrument.venue + "/" + leg.instrument.symbol
-                + (leg.side == Side::buy ? " buy " : " sell ")
-                + (leg.offset == Offset::open ? "open " : "close ") + leg.quantity.str() + " @ "
-                + price->str()));
+        const auto sent_text = "sent " + leg.instrument.venue + "/" + leg.instrument.symbol
+            + (leg.side == Side::buy ? " buy " : " sell ")
+            + (leg.offset == Offset::open ? "open " : "close ") + leg.quantity.str() + " @ "
+            + price->str();
         // No references to batch survive this suspension: a stop can release it.
         co_await execute_strategy(basis, request, control);
-    } catch (const std::invalid_argument& error) {
-        // Invalid targets and risk refusals would repeat on every batch.
         if (strategy_ && strategy_->authority == authority)
-            fail_strategy(error.what());
-        throw;
+            strategy_->events.push_back(
+                event(::trading::INSTANCE_EVENT_KIND_ORDER_SENT, sent_text));
+    } catch (const std::invalid_argument& error) {
+        if (sent.empty()) {
+            if (strategy_ && strategy_->authority == authority)
+                fail_strategy(error.what());
+            throw;
+        }
+        if (!strategy_ || strategy_->authority != authority || !strategy_->failure.empty())
+            throw;
+        if (strategy_->batch && strategy_->batch->last_order == sent)
+            abandon_strategy_batch(error.what());
     } catch (const std::exception& error) {
         if (!strategy_ || strategy_->authority != authority || !strategy_->failure.empty())
             throw;
@@ -525,7 +531,7 @@ AccountCommand LiveAccountState::execute_strategy(
             throw std::invalid_argument("order contract is not selected by this strategy instance");
         co_await submit(request, order, control, basis);
     } catch (const std::invalid_argument& error) {
-        if (strategy_ && strategy_->authority == basis.authority)
+        if (!basis.quote && strategy_ && strategy_->authority == basis.authority)
             fail_strategy(error.what());
         throw;
     }

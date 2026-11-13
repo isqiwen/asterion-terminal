@@ -639,7 +639,7 @@ AccountCommand LiveAccountState::submit(
     if (!authorization_)
         throw std::invalid_argument("authorize live trading for this account first");
     const auto [permitted, reconciled] = observed([&](const BrokerSnapshot& state) {
-        return std::pair{authorized(state), state.positions_reconciled};
+        return std::pair{authorized(state), state.reconciled_for(id)};
     });
     if (!permitted)
         throw Error(
@@ -662,12 +662,12 @@ AccountCommand LiveAccountState::submit(
     const auto state = trader_->snapshot();
     if (!authorized(state))
         throw Error(ErrorCode::unavailable, "CTP trading session changed; the order was not sent");
-    if (offset == Offset::open && !state.positions_reconciled)
+    if (offset == Offset::open && !state.reconciled_for(id))
         throw Error(
             ErrorCode::unavailable,
             "broker fills are awaiting position reconciliation; opening orders are paused");
     check_price(order, quote, state);
-    if (!strategy && offset != Offset::open && state.positions_reconciled) {
+    if (!strategy && offset != Offset::open && state.reconciled_for(id)) {
         const auto held_side = order.side == Side::buy ? Side::sell : Side::buy;
         Decimal closable;
         for (const auto& position : state.positions) {
@@ -699,26 +699,34 @@ AccountCommand LiveAccountState::submit(
     }
     // Exposure from broker reports, plus recorded orders the broker has not
     // confirmed: they may still reach the exchange.
-    Decimal gross, pending;
+    Decimal gross, pending, account_gross = state.unreconciled_open_lots, account_pending;
     std::size_t working_orders = 0;
-    for (const auto& position : state.positions)
+    for (const auto& position : state.positions) {
+        account_gross = account_gross + position.today + position.yesterday;
         if (position.instrument == id)
             gross = gross + position.today + position.yesterday;
+    }
     for (const auto& o : state.orders) {
         if (!working(o.status))
             continue;
         ++working_orders;
-        if (o.instrument == id && o.offset == Offset::open)
-            pending = pending + (o.quantity - o.filled);
+        if (o.offset == Offset::open) {
+            account_pending = account_pending + (o.quantity - o.filled);
+            if (o.instrument == id)
+                pending = pending + (o.quantity - o.filled);
+        }
     }
     for (const auto& [unconfirmed_id, intent] : unconfirmed(state)) {
         static_cast<void>(unconfirmed_id);
         ++working_orders;
-        if (intent->instrument == id && intent->offset == Offset::open)
-            pending = pending + intent->quantity;
+        if (intent->offset == Offset::open) {
+            account_pending = account_pending + intent->quantity;
+            if (intent->instrument == id)
+                pending = pending + intent->quantity;
+        }
     }
-    const auto decision =
-        policy_->risk->evaluate({terms, order, offset, gross, pending, working_orders});
+    const auto decision = policy_->risk->evaluate(
+        {terms, order, offset, gross, pending, working_orders, account_gross, account_pending});
     if (!decision.allowed())
         throw std::invalid_argument(
             "pre-trade risk rejected: " + std::string(risk_reason_name(decision.reason)));
@@ -1063,6 +1071,9 @@ bool LiveAccountState::authorized(const BrokerSnapshot& state) const
     auto* limits = policy->mutable_limits();
     put(limits->mutable_max_order_lots(), policy_->definition.limits.max_order_quantity);
     put(limits->mutable_max_gross_lots(), policy_->definition.limits.max_gross_quantity);
+    if (policy_->definition.limits.max_contract_quantity
+        != policy_->definition.limits.max_gross_quantity)
+        put(limits->mutable_max_contract_lots(), policy_->definition.limits.max_contract_quantity);
     limits->set_max_working_orders(policy_->definition.limits.max_working_orders);
     put(policy->mutable_max_price_deviation(), policy_->definition.max_price_deviation);
     for (const auto& contract : policy_->definition.contracts) {

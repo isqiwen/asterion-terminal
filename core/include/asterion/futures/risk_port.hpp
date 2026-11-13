@@ -15,6 +15,8 @@ struct PreTradeRiskContext
     Decimal gross_position_quantity;
     Decimal pending_open_quantity;
     std::size_t working_orders;
+    Decimal account_gross_quantity = gross_position_quantity;
+    Decimal account_pending_open_quantity = pending_open_quantity;
 };
 enum class RiskReason
 {

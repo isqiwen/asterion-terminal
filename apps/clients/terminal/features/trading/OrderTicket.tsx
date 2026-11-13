@@ -100,17 +100,40 @@ export function OrderTicket({
     if (confirm && pending !== side) return setPending(side);
     setPending(undefined);
     setSuggested(undefined);
-    void command(run, record, () => ({
-      case: "submitOrder",
-      value: {
-        orderId: crypto.randomUUID(),
-        instrument: traded.instrument,
-        side,
-        offset: offsetValues[offset],
-        lots: decimal(order.quantity),
-        price: decimal(order.price),
-      },
-    })).then(sent => sent && onSent());
+    const maxLots = Number(decimalText(record.session?.policy?.limits?.maxOrderLots));
+    const totalLots = Number(order.quantity);
+    const legs: string[] = [];
+    if (
+      offset !== "open" &&
+      Number.isInteger(totalLots) &&
+      totalLots > 0 &&
+      Number.isFinite(maxLots) &&
+      maxLots >= 1 &&
+      totalLots > maxLots
+    ) {
+      const step = Math.floor(maxLots);
+      for (let remaining = totalLots; remaining > 0; remaining -= step)
+        legs.push(String(Math.min(remaining, step)));
+    } else {
+      legs.push(order.quantity);
+    }
+    void (async () => {
+      for (const leg of legs) {
+        const sent = await command(run, record, () => ({
+          case: "submitOrder",
+          value: {
+            orderId: crypto.randomUUID(),
+            instrument: traded.instrument,
+            side,
+            offset: offsetValues[offset],
+            lots: decimal(leg),
+            price: decimal(order.price),
+          },
+        }));
+        if (!sent) return;
+      }
+      onSent();
+    })();
   };
   return (
     <form aria-label={t("CTP 委托")} onSubmit={event => event.preventDefault()}>

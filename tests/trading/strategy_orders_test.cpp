@@ -210,6 +210,15 @@ TEST_F(StrategyOrders, WorkingOrdersOnAnyContractAndUnknownOutcomesBlockPlanning
             BrokerOrderStatus::accepted,
             BrokerOrderStatus::partially_filled}) {
         account.orders[0].status = status;
+        EXPECT_EQ(plan(1).state, StrategyPlanState::opening);
+        ASSERT_EQ(plan(1).orders.size(), 1U);
+    }
+    account.orders[0].instrument = allowed[0].instrument.id;
+    for (auto status :
+        {BrokerOrderStatus::submitted,
+            BrokerOrderStatus::accepted,
+            BrokerOrderStatus::partially_filled}) {
+        account.orders[0].status = status;
         EXPECT_EQ(plan(1).state, StrategyPlanState::waiting_for_orders);
         EXPECT_TRUE(plan(1).orders.empty());
     }
@@ -220,6 +229,17 @@ TEST_F(StrategyOrders, WorkingOrdersOnAnyContractAndUnknownOutcomesBlockPlanning
         EXPECT_EQ(plan(1, true).state, StrategyPlanState::waiting_for_orders);
         EXPECT_TRUE(plan(1, true).orders.empty());
     }
+    account.positions_reconciled = false;
+    account.unreconciled_instruments = {allowed[0].instrument.id};
+    const std::vector<PositionTarget> multi{
+        {allowed[0].instrument.id, lots(1)},
+        {allowed[1].instrument.id, lots(2)}
+    };
+    const auto next = plan_strategy_orders(multi, allowed, account, false);
+    ASSERT_EQ(next.state, StrategyPlanState::opening);
+    ASSERT_EQ(next.orders.size(), 1U);
+    EXPECT_EQ(next.orders[0].instrument, allowed[1].instrument.id);
+    EXPECT_EQ(next.orders[0].quantity, lots(2));
 }
 
 TEST_F(StrategyOrders, UnreadyOrUnreconciledAccountsNeverImplyAnEmptyPosition)

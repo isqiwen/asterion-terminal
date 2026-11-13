@@ -35,13 +35,19 @@ StrategyOrderPlan plan_strategy_orders(
     }
     if (targets.empty())
         return {};
-    if (account.phase != BrokerPhase::ready || !account.positions_reconciled)
+    if (account.phase != BrokerPhase::ready
+        || (!account.positions_reconciled && account.unreconciled_instruments.empty()))
         return {StrategyPlanState::waiting_for_account, {}};
-    if (has_unconfirmed_orders || std::ranges::any_of(account.orders, working))
+    if (has_unconfirmed_orders)
         return {StrategyPlanState::waiting_for_orders, {}};
 
     std::vector<StrategyOrder> reductions, openings;
+    bool waiting_orders = false, waiting_account = false, pending_reduction = false;
     for (const auto& target : targets) {
+        const bool order_busy = std::ranges::any_of(account.orders, [&](const BrokerOrder& order) {
+            return working(order) && order.instrument == target.instrument;
+        });
+        const bool reconciled = account.reconciled_for(target.instrument);
         HeldPosition long_position{Side::buy, {}, {}}, short_position{Side::sell, {}, {}};
         for (const auto& position : account.positions) {
             if (position.instrument != target.instrument)
@@ -57,15 +63,34 @@ StrategyOrderPlan plan_strategy_orders(
                                                         : std::min(target.quantity, Decimal{});
             for (const auto& order :
                 target_orders(desired, held, close_policy(target.instrument.venue))) {
+                if (order_busy || !reconciled) {
+                    if (order.offset != Offset::open)
+                        pending_reduction = true;
+                    continue;
+                }
                 auto& batch = order.offset == Offset::open ? openings : reductions;
                 batch.push_back({target.instrument, order.side, order.offset, order.quantity});
             }
         }
+        if (order_busy)
+            waiting_orders = true;
+        else if (!reconciled)
+            waiting_account = true;
     }
     if (!reductions.empty())
         return {StrategyPlanState::reducing, std::move(reductions)};
+    if (pending_reduction)
+        return {
+            waiting_orders ? StrategyPlanState::waiting_for_orders
+                           : StrategyPlanState::waiting_for_account,
+            {}
+        };
     if (!openings.empty())
         return {StrategyPlanState::opening, std::move(openings)};
+    if (waiting_orders)
+        return {StrategyPlanState::waiting_for_orders, {}};
+    if (waiting_account)
+        return {StrategyPlanState::waiting_for_account, {}};
     return {};
 }
 

@@ -30,6 +30,7 @@
   "合约": "Contract",
   "单笔数量上限": "Max Order Quantity",
   "总持仓量上限": "Max Gross Quantity",
+  "单合约持仓上限": "Max Contract Quantity",
   "在途委托数上限": "Max Working Orders",
   "风险限制": "Risk Limits",
   "平仓": "Close positions",

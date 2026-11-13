@@ -443,3 +443,47 @@ test("every working order is cancelled only after a second press", async () => {
     ),
   ).toEqual(["a", "b"]);
 });
+
+test("a close order above maxOrderLots splits into maxOrderLots legs", async () => {
+  show("split-close");
+  fireEvent.click(await screen.findByRole("checkbox", { name: "我已核对账户与柜台环境" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "开平仓" }), {
+    target: { value: "close_today" },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "委托手数" }), {
+    target: { value: "12" },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "限价" }), {
+    target: { value: "3560" },
+  });
+  fireEvent.click(button("卖出 account-b"));
+  await waitFor(() => expect(commands()).toHaveLength(1));
+  await act(async () => answer(live(session)));
+  await waitFor(() => expect(commands()).toHaveLength(2));
+  await act(async () => answer(live(session)));
+  await waitFor(() => expect(commands()).toHaveLength(3));
+  await act(async () => answer(live(session)));
+  expect(
+    commands().map(
+      ([, operation]) =>
+        (
+          operation.value as {
+            action: { case: string; value: { lots: { text: string }; offset: Offset } };
+          }
+        ).action.value,
+    ),
+  ).toEqual([
+    expect.objectContaining({
+      lots: expect.objectContaining({ text: "5" }),
+      offset: Offset.CLOSE_TODAY,
+    }),
+    expect.objectContaining({
+      lots: expect.objectContaining({ text: "5" }),
+      offset: Offset.CLOSE_TODAY,
+    }),
+    expect.objectContaining({
+      lots: expect.objectContaining({ text: "2" }),
+      offset: Offset.CLOSE_TODAY,
+    }),
+  ]);
+});
