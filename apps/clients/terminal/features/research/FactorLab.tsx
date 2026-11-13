@@ -46,7 +46,7 @@ export function FactorLab(context: TerminalContext) {
   const [form, setForm] = useWorkspaceDraft<FactorForm>("factor-form", defaultFactorForm);
   const [busy, setBusy] = useState(false);
   const { error, attempt } = useActionError();
-  const source = useSource(repository);
+  const source = useSource(repository, "factors");
   const [saved, setSaved] = useState<string[]>([]);
 
   const factor = modules?.factors.find(item => item.id === chosen);

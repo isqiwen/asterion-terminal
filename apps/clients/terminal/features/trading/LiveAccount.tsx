@@ -34,6 +34,7 @@ export function LiveAccount({
   busy,
   run,
   control,
+  initialContract,
 }: {
   account: TradingConnection;
   // The account as Trading reports it, with its open session.
@@ -44,6 +45,7 @@ export function LiveAccount({
   busy: boolean;
   run: Run;
   control: Run;
+  initialContract?: string;
 }) {
   const [activity, setActivity] = useState<Activity>("positions");
   const [preset, setPreset] = useState<Preset>();
@@ -300,6 +302,7 @@ export function LiveAccount({
               run={run}
               onSent={() => setActivity("orders")}
               preset={preset}
+              initialContract={initialContract}
             />
           )}
         </aside>

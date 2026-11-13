@@ -178,8 +178,8 @@ export function ModuleErrors({
 // The open module, its unsaved edits and whether the centre shows its code or
 // the latest result, which takes over whenever a new one arrives. The edits
 // belong to the workspace: they outlive the editor until saved.
-export function useSource(repository: string) {
-  const [path, setPath] = useWorkspaceDraft(`source-path:${repository}`, "");
+export function useSource(repository: string, folder: "strategies" | "factors" = "strategies") {
+  const [path, setPath] = useWorkspaceDraft(`source-path:${folder}:${repository}`, "");
   const [drafts, setDrafts] = useWorkspaceDraft<Record<string, string>>(
     `source-drafts:${repository}`,
     {},

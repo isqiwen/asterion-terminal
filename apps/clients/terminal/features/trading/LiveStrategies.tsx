@@ -1,7 +1,9 @@
 import type { TradingConnection } from "../../src/bridge/client";
+import { Environment } from "../../src/generated/asterion/trading_pb";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useTradingAccounts } from "../../src/host/trading-accounts";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
+import { StatusBadge } from "../../src/ui/StatusBadge";
 import { t } from "./live-shared";
 import { StrategyInstance } from "./StrategyInstance";
 import { StrategyMonitor } from "./StrategyMonitor";
@@ -64,9 +66,21 @@ function AccountStrategies({
   const host = useStrategyHost(account.id);
   const view = useTradingAccounts().views[account.id];
   const instance = host.state?.instance;
+  const broker = view?.account?.broker;
+  const real = view?.account?.environment === Environment.REAL;
   return (
     <div className="ctp-strategy-body">
       <div className="ctp-account-panel">
+        <div className="ctp-identity" data-real={real || undefined}>
+          <strong>
+            {[account.instance, broker?.brokerId, broker?.userId].filter(Boolean).join(" · ")}
+          </strong>
+          {view?.account && (
+            <StatusBadge tone={real ? "danger" : "neutral"}>
+              {t(real ? "真实资金" : "CTP 仿真")}
+            </StatusBadge>
+          )}
+        </div>
         {instance?.instance && (
           <StrategyMonitor
             instance={instance}

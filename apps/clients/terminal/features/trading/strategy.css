@@ -141,11 +141,20 @@
   text-align: left;
   color: var(--muted);
 }
-.order-book .order-ask {
+.order-book button[data-first-bid] {
+  border-top: 1px solid var(--line);
+}
+.order-book button[data-tone="up"] {
+  color: var(--quote-up);
+}
+.order-book button[data-tone="down"] {
   color: var(--quote-down);
 }
-.order-book .order-bid {
-  color: var(--quote-up);
+.order-book button[data-tone="missing"] {
+  color: var(--muted);
+}
+.order-book button span:last-child {
+  color: var(--text);
 }
 .order-book .order-last {
   display: block;

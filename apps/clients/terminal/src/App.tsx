@@ -297,7 +297,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                   )}
                   <main className="terminal-business">
                     {Panel && currentFeature && (
-                      <WorkspaceDraftScope store={drafts} namespace={current!.id}>
+                      <WorkspaceDraftScope store={drafts} namespace={currentFeature.id}>
                         <Panel {...panelContext} />
                       </WorkspaceDraftScope>
                     )}

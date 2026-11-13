@@ -380,30 +380,39 @@ function LivePositions({
             const total = today + yesterday;
             // Closing a long sells; closing a short buys.
             const closing = p.side === Side.BUY ? Side.SELL : Side.BUY;
-            const held = live.orders
-              .filter(
-                o =>
-                  o.id &&
-                  working.includes(o.state) &&
-                  key(o.instrument) === key(p.instrument) &&
-                  o.side === closing &&
-                  o.offset !== Offset.OPEN,
-              )
-              .reduce(
-                (sum, o) => sum + Number(o.lots?.text ?? 0) - Number(o.filledLots?.text ?? 0),
-                0,
-              );
-            const closable = Math.max(0, total - held);
+            const workingCloses = live.orders.filter(
+              o =>
+                o.id &&
+                working.includes(o.state) &&
+                key(o.instrument) === key(p.instrument) &&
+                o.side === closing &&
+                o.offset !== Offset.OPEN,
+            );
+            const remaining = (o: (typeof workingCloses)[number]) =>
+              Number(o.lots?.text ?? 0) - Number(o.filledLots?.text ?? 0);
+            const heldToday = workingCloses
+              .filter(o => o.offset === Offset.CLOSE_TODAY)
+              .reduce((sum, o) => sum + remaining(o), 0);
+            const heldYesterday = workingCloses
+              .filter(o => o.offset !== Offset.CLOSE_TODAY)
+              .reduce((sum, o) => sum + remaining(o), 0);
+            // Where the exchange keeps today's and earlier lots apart, yesterday's close first.
+            const apart = separate(p.instrument?.exchange ?? "");
+            const closableToday = Math.max(0, today - heldToday);
+            const closableYesterday = Math.max(0, yesterday - heldYesterday);
+            const closable = apart
+              ? closableToday + closableYesterday
+              : Math.max(0, total - heldToday - heldYesterday);
             const multiplier = Number(terms.get(key(p.instrument))?.multiplier?.text ?? 0);
             const cost = Number(p.cost?.text ?? 0);
             const average = multiplier && total && cost ? cost / (total * multiplier) : undefined;
             const profit = Number(p.profit?.text ?? 0);
-            // Where the exchange keeps today's lots apart they close first, on their own.
-            const apart = separate(p.instrument?.exchange ?? "");
             const preset = (): Preset => ({
               contract: key(p.instrument),
-              offset: !apart ? "close" : today ? "close_today" : "close_yesterday",
-              quantity: String(apart ? Math.min(closable, today || yesterday) : closable),
+              offset: !apart ? "close" : closableYesterday > 0 ? "close_yesterday" : "close_today",
+              quantity: String(
+                !apart ? closable : closableYesterday > 0 ? closableYesterday : closableToday,
+              ),
               side: closing,
             });
             return (

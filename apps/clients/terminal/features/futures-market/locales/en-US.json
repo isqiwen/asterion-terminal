@@ -167,6 +167,7 @@
   "展开": "Expand",
   "收起": "Collapse",
   "盘口": "Order book",
+  "下单": "Order",
   "每个合约最近 512 条报价，每 0.25 秒一帧": "Each contract's latest 512 quotes, one frame every 0.25 s",
   "序列曾中断，只显示恢复后的报价": "The series was interrupted; only quotes since recovery are shown",
   "还没有自选合约": "No watchlist contracts yet",

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMarket } from "../../src/host/market";
-import { decimal, decimalText } from "../../src/bridge/decimal";
+import { decimal, decimalText, priceTone } from "../../src/bridge/decimal";
 import { Offset, Side } from "../../src/generated/asterion/common_pb";
 import type { Account } from "../../src/generated/asterion/trading_pb";
 import type { TerminalContext } from "../../src/host/feature-registry";
@@ -35,6 +35,7 @@ export function OrderTicket({
   run,
   onSent,
   preset,
+  initialContract,
 }: Pick<TerminalContext, "snapshot" | "busy"> & {
   record: Account;
   accountName: string;
@@ -42,6 +43,7 @@ export function OrderTicket({
   run: Run;
   onSent: () => void;
   preset?: Preset;
+  initialContract?: string;
 }) {
   const [pending, setPending] = useState<Side>();
   const [order, setOrder] = useState<{
@@ -50,11 +52,14 @@ export function OrderTicket({
     quantity: string;
     price: string;
   }>({
-    contract: "",
+    contract: initialContract ?? "",
     offset: "open",
     quantity: "1",
     price: "",
   });
+  useEffect(() => {
+    if (initialContract) setOrder(current => ({ ...current, contract: initialContract }));
+  }, [initialContract]);
   const [suggested, setSuggested] = useState<Side>();
   const contracts = record.session?.policy?.contracts ?? [];
   const traded = contracts.find(item => key(item.instrument) === order.contract) ?? contracts[0];
@@ -175,32 +180,41 @@ export function OrderTicket({
               <button type="button" className="order-last" onClick={() => fill(quote.last?.text)}>
                 {t("最新 {price}", { price: quote.last?.text ?? "—" })}
               </button>
-              {[...quote.asks.slice(0, 5)].reverse().map((level, index, asks) => (
-                <button
-                  key={`ask${index}`}
-                  type="button"
-                  className="order-ask"
-                  disabled={!level.price}
-                  onClick={() => fill(level.price?.text)}
-                >
-                  <span>{t("卖{n}", { n: asks.length - index })}</span>
-                  <span>{level.price?.text ?? "—"}</span>
-                  <span>{level.price ? String(level.lots ?? "") : ""}</span>
-                </button>
-              ))}
-              {quote.bids.slice(0, 5).map((level, index) => (
-                <button
-                  key={`bid${index}`}
-                  type="button"
-                  className="order-bid"
-                  disabled={!level.price}
-                  onClick={() => fill(level.price?.text)}
-                >
-                  <span>{t("买{n}", { n: index + 1 })}</span>
-                  <span>{level.price?.text ?? "—"}</span>
-                  <span>{level.price ? String(level.lots ?? "") : ""}</span>
-                </button>
-              ))}
+              {[4, 3, 2, 1, 0].map(level => {
+                const ask = quote.asks[level];
+                return (
+                  <button
+                    key={`ask${level}`}
+                    type="button"
+                    className="order-ask"
+                    data-tone={priceTone(ask?.price, quote.previousSettlement)}
+                    disabled={!ask?.price}
+                    onClick={() => fill(ask?.price?.text)}
+                  >
+                    <span>{t("卖{n}", { n: level + 1 })}</span>
+                    <span>{ask?.price?.text ?? "—"}</span>
+                    <span>{ask?.price ? String(ask.lots ?? "") : ""}</span>
+                  </button>
+                );
+              })}
+              {[0, 1, 2, 3, 4].map(level => {
+                const bid = quote.bids[level];
+                return (
+                  <button
+                    key={`bid${level}`}
+                    type="button"
+                    className="order-bid"
+                    data-first-bid={level === 0 || undefined}
+                    data-tone={priceTone(bid?.price, quote.previousSettlement)}
+                    disabled={!bid?.price}
+                    onClick={() => fill(bid?.price?.text)}
+                  >
+                    <span>{t("买{n}", { n: level + 1 })}</span>
+                    <span>{bid?.price?.text ?? "—"}</span>
+                    <span>{bid?.price ? String(bid.lots ?? "") : ""}</span>
+                  </button>
+                );
+              })}
             </>
           ) : (
             <p className="subtle">{t("无行情")}</p>

@@ -71,7 +71,7 @@ export function ContractPicker({
         </label>
         <button
           type="button"
-          disabled={!/^[A-Z]+\/[a-z]{1,3}(\/\d{4}-\d{2})?$/.test(typed) || value.includes(typed)}
+          disabled={!/^[A-Z]+\/[A-Za-z]{1,3}(\/\d{4}-\d{2})?$/.test(typed) || value.includes(typed)}
           onClick={() => {
             onChange([...value, typed]);
             setTyped("");

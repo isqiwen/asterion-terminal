@@ -204,6 +204,18 @@ export function MarketBoard({ market, context }: { market: MarketView; context: 
             initial="1分"
             actions={
               <>
+                <button
+                  className="market-expand"
+                  onClick={() =>
+                    context.navigate("workspace.trading", {
+                      params: {
+                        contract: `${active.instrument!.exchange}/${active.instrument!.symbol}`,
+                      },
+                    })
+                  }
+                >
+                  {t("下单")}
+                </button>
                 <WatchlistToggle context={context} market={market} row={active.instrument!} />
                 <button
                   className="market-expand"

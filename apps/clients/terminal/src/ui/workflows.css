@@ -421,6 +421,9 @@
   font-weight: 500;
   color: var(--canvas);
 }
+.source-actions button:is(.order-buy, .order-sell) small {
+  color: inherit;
+}
 .source-actions button.order-buy,
 .source-actions button.order-buy:enabled:hover {
   background: var(--quote-up);

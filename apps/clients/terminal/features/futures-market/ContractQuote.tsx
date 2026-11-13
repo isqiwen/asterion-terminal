@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { priceTone } from "../../src/bridge/decimal";
 import type { QuoteRow } from "../../src/generated/asterion/market_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
 import { translate } from "../../src/i18n";
@@ -40,7 +41,7 @@ export function ContractQuote({ market, row }: { market: MarketView; row: QuoteR
                 {t("卖")}
                 {level + 1}
               </th>
-              <td data-tone={q?.asks[level]?.price ? "up" : undefined}>
+              <td data-tone={priceTone(q?.asks[level]?.price, q?.previousSettlement)}>
                 {q?.asks[level]?.price?.text ?? "—"}
               </td>
               <td className="depth-lots" data-side="ask" style={bar(q?.asks[level]?.lots)}>
@@ -54,7 +55,7 @@ export function ContractQuote({ market, row }: { market: MarketView; row: QuoteR
                 {t("买")}
                 {level + 1}
               </th>
-              <td data-tone={q?.bids[level]?.price ? "down" : undefined}>
+              <td data-tone={priceTone(q?.bids[level]?.price, q?.previousSettlement)}>
                 {q?.bids[level]?.price?.text ?? "—"}
               </td>
               <td className="depth-lots" data-side="bid" style={bar(q?.bids[level]?.lots)}>

@@ -19,3 +19,16 @@ export function decimal(text: string): Decimal {
     throw new BackendError("invalid_request", `invalid decimal: ${text}`);
   return create(DecimalSchema, { text: text.trim() });
 }
+
+// Display-only tone of a quoted price against previous settlement.
+export function priceTone(
+  price: Decimal | undefined,
+  previousSettlement: Decimal | undefined,
+): "up" | "down" | "missing" | undefined {
+  if (!price?.text) return "missing";
+  if (!previousSettlement?.text) return undefined;
+  const value = Number(price.text);
+  const base = Number(previousSettlement.text);
+  if (!Number.isFinite(value) || !Number.isFinite(base) || base <= 0) return undefined;
+  return value > base ? "up" : value < base ? "down" : undefined;
+}

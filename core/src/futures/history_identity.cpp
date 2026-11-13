@@ -18,7 +18,7 @@ std::string HistoryIdentity::key() const
         || !std::ranges::all_of(
             product,
             [](char c) {
-                return c >= 'a' && c <= 'z';
+                return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
             })
         || delivery_month.size() != 7)
         throw std::invalid_argument("invalid historical contract identity");

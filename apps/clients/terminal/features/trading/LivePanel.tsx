@@ -87,6 +87,7 @@ export function LivePanel(context: TerminalContext) {
               snapshot={snapshot}
               busy={busy}
               runFor={runFor}
+              initialContract={context.workspaceParams?.contract}
               openStrategies={() => context.navigate("workspace.trading-strategies")}
             />
           )}
@@ -105,6 +106,7 @@ function AccountColumn({
   snapshot,
   busy,
   runFor,
+  initialContract,
   openStrategies,
 }: {
   account: TradingConnection;
@@ -113,6 +115,7 @@ function AccountColumn({
   snapshot: TerminalContext["snapshot"];
   busy: boolean;
   runFor: (id: string, hold: boolean) => Run;
+  initialContract?: string;
   openStrategies: () => void;
 }) {
   const instance = useStrategyHost(account.id).state?.instance;
@@ -137,6 +140,7 @@ function AccountColumn({
             busy={busy}
             run={runFor(account.id, true)}
             control={runFor(account.id, false)}
+            initialContract={initialContract}
           />
         ) : view?.account && view.initialized === false ? (
           <div className="account-setup">

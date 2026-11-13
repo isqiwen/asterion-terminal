@@ -19,6 +19,7 @@ import { TradingAccountsProvider } from "../../src/host/trading-accounts";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "../../src/host/workspace/drafts";
 import { readySnapshot } from "../../src/testing/core";
 import { LivePanel } from "./LivePanel";
+import { LiveStrategies } from "./LiveStrategies";
 import { feature } from "./feature";
 
 vi.mock("../../src/bridge/trading", () => ({ tradingRequest: vi.fn() }));
@@ -342,6 +343,72 @@ test("a position shows the broker's amounts and its close fills the ticket witho
   );
   expect(button("卖出 account-b").hasAttribute("data-suggested")).toBe(true);
   expect(commands()).toHaveLength(sent);
+});
+
+test("an explicit-bucket position closes yesterday's remaining lots when today's are held", async () => {
+  read = () =>
+    live(
+      create(SessionSchema, {
+        ...(session as object),
+        positions: [
+          {
+            instrument: { exchange: "SHFE", symbol: "rb2610" },
+            side: Side.BUY,
+            todayLots: { text: "2" },
+            yesterdayLots: { text: "1" },
+            cost: { text: "105000" },
+            profit: { text: "300" },
+            margin: { text: "10500" },
+          },
+        ],
+        orders: [
+          {
+            id: "closing-today",
+            instrument: { exchange: "SHFE", symbol: "rb2610" },
+            side: Side.SELL,
+            offset: Offset.CLOSE_TODAY,
+            lots: { text: "2" },
+            filledLots: { text: "0" },
+            state: 2,
+          },
+        ],
+      } as never),
+    );
+  show("positions-yesterday");
+  fireEvent.click(await screen.findByRole("checkbox", { name: "我已核对账户与柜台环境" }));
+  await screen.findByRole("cell", { name: "3500.00" });
+  fireEvent.click(screen.getByRole("button", { name: "平仓" }));
+  await waitFor(() =>
+    expect((screen.getByRole("textbox", { name: "委托手数" }) as HTMLInputElement).value).toBe("1"),
+  );
+  expect((screen.getByRole("combobox", { name: "开平仓" }) as HTMLSelectElement).value).toBe(
+    "close_yesterday",
+  );
+});
+
+test("the strategy view shares the selected account and marks real-money accounts", async () => {
+  read = () =>
+    create(ResponseSchema, {
+      result: {
+        case: "getAccount",
+        value: create(AccountSchema, { ...account, environment: Environment.REAL, session }),
+      },
+    });
+  render(
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace={feature.id}>
+      <TradingAccountsProvider ids={["account"]} protocol="">
+        <LiveStrategies
+          snapshot={snapshot}
+          busy={false}
+          error=""
+          navigate={() => {}}
+          openSettings={() => {}}
+          trade={async () => {}}
+        />
+      </TradingAccountsProvider>
+    </WorkspaceDraftScope>,
+  );
+  expect(await screen.findByText("真实资金")).toBeTruthy();
 });
 
 test("every working order is cancelled only after a second press", async () => {

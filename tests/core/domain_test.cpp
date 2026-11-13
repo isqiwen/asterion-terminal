@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <asterion/futures/history_identity.hpp>
 #include <asterion/futures/order.hpp>
 #include <asterion/futures/position_target.hpp>
 
@@ -140,6 +141,9 @@ TEST(Domain, market_contract)
             spec.validate();
         })(),
         std::invalid_argument);
+    EXPECT_EQ((HistoryIdentity{"SHFE", "rb", "2026-10"}.key()), "SHFE/rb/2026-10");
+    EXPECT_EQ((HistoryIdentity{"CZCE", "TA", "2026-09"}.key()), "CZCE/TA/2026-09");
+    EXPECT_EQ((HistoryIdentity{"CFFEX", "IF", "2026-06"}.key()), "CFFEX/IF/2026-06");
 }
 
 TEST(Domain, order_contract)
