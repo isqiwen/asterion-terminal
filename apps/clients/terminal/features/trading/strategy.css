@@ -157,3 +157,27 @@
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+
+/* An account's strategies: its instance beside the packages that can run. */
+.ctp-strategy-body {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: var(--space-4);
+  align-items: start;
+  padding: var(--space-4);
+}
+.ctp-strategy-body > .ctp-account-panel > * {
+  padding: var(--space-3) var(--space-4);
+}
+@media (max-width: 1100px) {
+  .ctp-strategy-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.ctp-strategy-notice {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--panel-radius);
+  background: var(--accent-surface);
+}

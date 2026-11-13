@@ -1,5 +1,5 @@
 import { listSeparator } from "../../src/i18n";
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import type { TradingConnection, Snapshot } from "../../src/bridge/client";
 import { groupedText } from "../../src/bridge/decimal";
 import { BrokerState, Environment, type Account } from "../../src/generated/asterion/trading_pb";
@@ -34,7 +34,6 @@ export function LiveAccount({
   busy,
   run,
   control,
-  monitor,
 }: {
   account: TradingConnection;
   // The account as Trading reports it, with its open session.
@@ -45,8 +44,6 @@ export function LiveAccount({
   busy: boolean;
   run: Run;
   control: Run;
-  // The running strategy, shown between the account state and the order ticket.
-  monitor?: ReactNode;
 }) {
   const [activity, setActivity] = useState<Activity>("positions");
   const [preset, setPreset] = useState<Preset>();
@@ -237,7 +234,6 @@ export function LiveAccount({
           ))}
         </dl>
       )}
-      {monitor}
       <div className="ctp-trade-body">
         <div className="ctp-trade-records">
           <AccountRecords

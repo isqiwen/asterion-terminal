@@ -187,7 +187,10 @@ async function closeDesktop(application) {
 
     // The research page reaches the lab service the Terminal starts.
     await openView(page, "research");
-    await expect(page.getByRole("button", { name: /^MaCross ma_cross / })).toBeVisible();
+    // Strategies list grouped by module, one line each.
+    await expect(
+      page.getByRole("region", { name: "ma_cross" }).getByRole("button", { name: /^MaCross/ }),
+    ).toBeVisible();
     await capture(page, "native-research");
     // A draft of the market page, which must survive the settings window and a restart.
     await openView(page, "market");

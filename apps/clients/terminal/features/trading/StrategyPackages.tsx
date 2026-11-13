@@ -1,28 +1,16 @@
 import { listSeparator } from "../../src/i18n";
 import { useEffect, useState } from "react";
 import type { Package } from "../../src/generated/asterion/strategy_pb";
-import type { Account } from "../../src/generated/asterion/trading_pb";
 import { lab } from "../../src/bridge/lab";
 import { ActionError } from "../../src/host/action-error";
 import { notify } from "../../src/host/notifications";
 import { ErrorNotice } from "../../src/i18n/errors";
 import { t } from "./live-shared";
-import { StrategyInstance } from "./StrategyInstance";
 import type { StrategyHost } from "./strategy-host";
 import "./strategy.css";
 
-// Packages of the account's host: prepare from research, publish, start an instance.
-export function StrategyPackages({
-  host,
-  repository,
-  record,
-  connected = false,
-}: {
-  host: StrategyHost;
-  repository: string;
-  record?: Account;
-  connected?: boolean;
-}) {
+// Packages of the account's host: prepare from research and publish.
+export function StrategyPackages({ host, repository }: { host: StrategyHost; repository: string }) {
   const { state, busy, stopping, reading, fresh, readError, error, refresh, mutate, perform } =
     host;
   const [strategies, setStrategies] = useState<string[]>([]);
@@ -147,13 +135,6 @@ export function StrategyPackages({
           ) : (
             <p>{t("此账户尚未安装策略包。")}</p>
           )}
-          <StrategyInstance
-            state={state}
-            account={record}
-            available={fresh && connected}
-            busy={busy || stopping}
-            start={configuration => mutate({ case: "startStrategy", value: configuration })}
-          />
         </>
       )}
     </section>

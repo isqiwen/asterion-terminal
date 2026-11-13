@@ -17,6 +17,7 @@ import { lab } from "../../src/bridge/lab";
 import { strategyRequest } from "../../src/bridge/strategy";
 import { StrategyPackages } from "./StrategyPackages";
 import { StrategyMonitor } from "./StrategyMonitor";
+import { StrategyInstance } from "./StrategyInstance";
 import { useStrategyHost } from "./strategy-host";
 import type { Account } from "../../src/generated/asterion/trading_pb";
 import { NotificationCenter } from "../../src/host/notifications";
@@ -27,7 +28,7 @@ vi.mock("../../src/bridge/strategy", () => ({ strategyRequest: vi.fn() }));
 registerTerminalFeatures([feature]);
 
 type Props = { account: string; repository: string; record?: Account; connected?: boolean };
-// The account column's strategy parts, sharing one host as the trading page does.
+// The strategy view's parts, sharing one host as the view does.
 function Packages(props: Props) {
   return <AccountPackages key={props.account} {...props} />;
 }
@@ -48,7 +49,16 @@ function AccountPackages({ account, ...rest }: Props) {
           flatten={id => host.mutate({ case: "flattenStrategy", value: { id } })}
         />
       )}
-      <StrategyPackages host={host} {...rest} />
+      {host.state && (
+        <StrategyInstance
+          state={host.state}
+          account={rest.record}
+          available={host.fresh && !!rest.connected}
+          busy={host.busy || host.stopping}
+          start={configuration => host.mutate({ case: "startStrategy", value: configuration })}
+        />
+      )}
+      <StrategyPackages host={host} repository={rest.repository} />
     </>
   );
 }

@@ -10,7 +10,7 @@ test(
   async ({ page, tradingHost }, testInfo) => {
     test.setTimeout(90000);
     await page.goto("/");
-    await openView(page, "trading");
+    await openView(page, "tradingStrategies");
     const packages = page.getByRole("region", { name: "策略包", exact: true });
     await packages
       .getByRole("combobox", { name: "策略", exact: true })
@@ -37,7 +37,7 @@ test(
     expect(state.instance).toBeUndefined();
     await trading(page.request, account, await livePolicy(page.request));
     await brokerReady(page.request, account);
-    const form = packages.getByRole("region", { name: "配置策略实例", exact: true });
+    const form = page.getByRole("region", { name: "配置策略实例", exact: true });
     const configure = async (id: string) => {
       await form.getByLabel("实例 ID", { exact: true }).fill(id);
       await form
@@ -53,7 +53,7 @@ test(
     });
     expect((await strategies(page.request, account)).instance).toBeUndefined();
     await form.getByRole("button", { name: "确认启动", exact: true }).click();
-    // The running instance sits with the account, above its order ticket.
+    // The running instance leads the strategy view.
     const monitor = page.getByRole("region", { name: "策略运行状态", exact: true });
     await expect(monitor).toContainText("正在现场预热", { timeout: 20000 });
     // Targets and positions are in view without scrolling.
@@ -63,7 +63,7 @@ test(
     expect(started.instance.id).toBe("ui-run-a");
     expect((await liveAccount(page.request, account)).session.authorizedMs).toBeUndefined();
     await page.reload();
-    await openView(page, "trading");
+    await openView(page, "tradingStrategies");
     await expect(monitor).toContainText("ui-run-a");
     expect((await strategies(page.request, account)).instance.processId).toBe(started.processId);
     await page.screenshot({ path: testInfo.outputPath("strategy-instance.png"), fullPage: true });

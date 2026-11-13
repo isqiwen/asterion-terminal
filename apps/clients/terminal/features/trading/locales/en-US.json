@@ -278,5 +278,10 @@
   "均价": "Average price",
   "保证金": "Margin",
   "持仓已核对成交": "Positions reconciled with fills",
-  "持仓尚未核对成交": "Positions not yet reconciled"
+  "持仓尚未核对成交": "Positions not yet reconciled",
+  "账户": "Accounts",
+  "交易策略": "Trading strategies",
+  "这个账户没有运行中的策略实例。": "No strategy instance runs on this account.",
+  "策略实例 {id} 正在运行": "Strategy instance {id} is running",
+  "查看策略": "Open strategies"
 }

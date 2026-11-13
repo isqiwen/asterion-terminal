@@ -5,6 +5,7 @@ const t = (key: string, values?: MessageValues) =>
 import zh from "./locales/zh-CN.json";
 import en from "./locales/en-US.json";
 import { LivePanel } from "./LivePanel";
+import { LiveStrategies } from "./LiveStrategies";
 export const feature: TerminalFeature = {
   id: "asterion.terminal.trading",
   languageResources: { "zh-CN": zh, "en-US": en },
@@ -12,10 +13,16 @@ export const feature: TerminalFeature = {
     {
       id: "workspace.trading",
       get title() {
-        return t("交易");
+        return t("账户");
       },
-
       component: context => <LivePanel {...context} />,
+    },
+    {
+      id: "workspace.trading-strategies",
+      get title() {
+        return t("策略");
+      },
+      component: context => <LiveStrategies {...context} />,
     },
   ],
 };

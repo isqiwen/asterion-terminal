@@ -14,7 +14,7 @@ export const modules = [
     id: "live",
     title: "交易",
     icon: "trading",
-    views: ["workspace.trading"],
+    views: ["workspace.trading", "workspace.trading-strategies"],
   },
   {
     id: "research",

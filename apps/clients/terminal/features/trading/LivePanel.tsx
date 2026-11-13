@@ -7,9 +7,8 @@ import type { TradingConnection } from "../../src/bridge/client";
 import { BrokerState } from "../../src/generated/asterion/trading_pb";
 import { useTradingAccounts, type TradingView } from "../../src/host/trading-accounts";
 import { t, phases, type Run } from "./live-shared";
-import { StrategyPackages } from "./StrategyPackages";
-import { StrategyMonitor } from "./StrategyMonitor";
 import { useStrategyHost } from "./strategy-host";
+import { activeStrategy } from "./strategy-instance";
 import { CreateLive } from "./CreateLive";
 import { LiveAccount } from "./LiveAccount";
 
@@ -47,7 +46,6 @@ export function LivePanel(context: TerminalContext) {
       return phases[view.live.brokerState] ?? BrokerState[view.live.brokerState];
     return view.live.authorizedMs !== undefined ? "已允许发送委托" : "已就绪";
   };
-  const repository = snapshot?.research_directory ?? "";
   const view = account ? views[account.id] : undefined;
   return (
     <section className="futures-data paper-trading" aria-label={t("CTP 交易账户")}>
@@ -93,7 +91,7 @@ export function LivePanel(context: TerminalContext) {
               snapshot={snapshot}
               busy={busy}
               runFor={runFor}
-              repository={repository}
+              openStrategies={() => context.navigate("workspace.trading-strategies")}
             />
           )}
         </div>
@@ -102,8 +100,8 @@ export function LivePanel(context: TerminalContext) {
   );
 }
 
-// One account: its trading panel, with the running strategy beside the account
-// state, and its strategy packages below.
+// One account's trading panel. A running strategy is named above it: manual
+// orders wait while it runs, and its view has the controls.
 function AccountColumn({
   account,
   view,
@@ -111,7 +109,7 @@ function AccountColumn({
   snapshot,
   busy,
   runFor,
-  repository,
+  openStrategies,
 }: {
   account: TradingConnection;
   view: TradingView | undefined;
@@ -119,34 +117,25 @@ function AccountColumn({
   snapshot: TerminalContext["snapshot"];
   busy: boolean;
   runFor: (id: string, hold: boolean) => Run;
-  repository: string;
+  openStrategies: () => void;
 }) {
-  const host = useStrategyHost(account.id);
+  const instance = useStrategyHost(account.id).state?.instance;
   return (
     <div className="ctp-account-column">
+      {instance?.instance && activeStrategy(instance.state) && (
+        <p className="ctp-strategy-notice" role="status">
+          {t("策略实例 {id} 正在运行", { id: instance.instance.id })}{" "}
+          <button className="link" onClick={openStrategies}>
+            {t("查看策略")}
+          </button>
+        </p>
+      )}
       <div className="ctp-account-panel">
         <ActionError error={error} namespace="asterion.terminal.trading" />
         {view?.live && view.account ? (
           <LiveAccount
             account={account}
             record={view.account}
-            monitor={
-              host.state && (
-                <StrategyMonitor
-                  instance={host.state.instance}
-                  positions={view.live.positions}
-                  observedAt={host.observedAt}
-                  fresh={host.fresh}
-                  stopping={host.stopping}
-                  busy={host.busy}
-                  stop={id => host.mutate({ case: "stopStrategy", value: { id } })}
-                  pause={(id, paused) =>
-                    host.mutate({ case: "pauseStrategy", value: { id, paused } })
-                  }
-                  flatten={id => host.mutate({ case: "flattenStrategy", value: { id } })}
-                />
-              )
-            }
             stale={!!view.failed || view.live.recoveryRequired}
             snapshot={snapshot}
             busy={busy}
@@ -179,14 +168,6 @@ function AccountColumn({
             )}
           </div>
         )}
-      </div>
-      <div className="ctp-account-panel">
-        <StrategyPackages
-          host={host}
-          repository={repository}
-          record={view?.account}
-          connected={!!view && !view.failed}
-        />
       </div>
     </div>
   );
