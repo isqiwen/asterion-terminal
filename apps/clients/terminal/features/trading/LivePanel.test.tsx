@@ -210,10 +210,10 @@ test("an account without a policy offers to open trading in the service's enviro
 
 test("the account's broker facts follow each read", async () => {
   show("facts");
-  expect(await screen.findByText("持仓已核对成交")).toBeTruthy();
+  expect(await screen.findByText("持仓已核对")).toBeTruthy();
   read = () =>
     live({ ...session, brokerState: BrokerState.DISCONNECTED, positionsReconciled: false });
-  expect(await screen.findByText("持仓尚未核对成交", undefined, { timeout: 3000 })).toBeTruthy();
+  expect(await screen.findByText("持仓待核对", undefined, { timeout: 3000 })).toBeTruthy();
   expect(commands()).toEqual([]);
 });
 

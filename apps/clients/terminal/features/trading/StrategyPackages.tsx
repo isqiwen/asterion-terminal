@@ -36,15 +36,10 @@ export function StrategyPackages({ host, repository }: { host: StrategyHost; rep
           {t("读取主机策略包")}
         </button>
       </div>
-      <p className="subtle">{t("发布只安装代码，不启动策略或授权交易。")}</p>
       {!fresh && (
         <p role="status">
           {t(
-            state
-              ? "状态未确认，以下为上次已知状态。请读取主机状态后再启动或发布。"
-              : readError
-                ? "策略状态不可用，请重新读取。"
-                : "正在读取交易主机策略状态。",
+            state ? "状态未确认，显示的是上次读到的状态" : readError ? "策略状态不可用" : "读取中",
           )}
         </p>
       )}
@@ -55,7 +50,7 @@ export function StrategyPackages({ host, repository }: { host: StrategyHost; rep
       )}
       <ActionError error={error} namespace="asterion.terminal.trading" />
       {!repository ? (
-        <p>{t("Terminal 没有策略目录：从项目启动时是项目里的 research/。")}</p>
+        <p>{t("没有策略目录")}</p>
       ) : (
         <div>
           <label>

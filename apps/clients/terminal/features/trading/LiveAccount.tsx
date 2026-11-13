@@ -99,9 +99,6 @@ export function LiveAccount({
         />
         {t("我已核对账户与柜台环境")}
       </label>
-      <p className="subtle">
-        {t("请向开户机构核对账号及前置地址。环境由你确认，系统无法自动验证资金性质。")}
-      </p>
     </div>
   );
   // What takes something back is never held back by another command, of this
@@ -124,13 +121,7 @@ export function LiveAccount({
           {account.instance} · {broker.brokerId} · {broker.userId}
         </strong>
         <StatusBadge tone={!environmentReady ? "attention" : real ? "danger" : "neutral"}>
-          {t(
-            !environmentReady
-              ? "CTP 环境待确认"
-              : real
-                ? "真实资金 · 用户确认"
-                : "CTP 仿真 · 用户确认",
-          )}
+          {t(!environmentReady ? "CTP 环境待确认" : real ? "真实资金" : "CTP 仿真")}
         </StatusBadge>
         <StatusBadge tone={phaseTone(stale, live.brokerState)}>
           <span data-testid="live-phase">
@@ -138,7 +129,7 @@ export function LiveAccount({
           </span>
         </StatusBadge>
         <StatusBadge tone={authorized ? "ok" : "neutral"}>
-          {authorized ? t("已授权") : t("尚未允许发送委托")}
+          {t(authorized ? "已授权" : "未授权")}
         </StatusBadge>
         <span
           title={t(
@@ -146,7 +137,7 @@ export function LiveAccount({
           )}
         >
           <StatusBadge tone={live.positionsReconciled ? "neutral" : "attention"}>
-            {t(live.positionsReconciled ? "持仓已核对成交" : "持仓尚未核对成交")}
+            {t(live.positionsReconciled ? "持仓已核对" : "持仓待核对")}
           </StatusBadge>
         </span>
         <span>{broker.front}</span>
@@ -176,41 +167,26 @@ export function LiveAccount({
           )}
         </div>
       </div>
-      {environmentReady && (
-        <p className={real ? "alert" : "subtle"}>
-          {t(
-            real
-              ? "真实资金账户：授权后的委托可能产生真实成交与盈亏。"
-              : "已标记为 CTP 仿真；委托仍会发送到上方柜台，请确认地址正确。",
-          )}
-        </p>
-      )}
       {stale && (
         <p className="alert" role="alert">
-          {t(
-            "交易服务连接或记录状态不确定，界面显示的是最后读到的状态。断线时的命令不会自动重发。",
-          )}
+          {t("交易服务失联，显示的是最后读到的状态")}
         </p>
       )}
       {live.brokerState === BrokerState.FAILED && (
         <p className="alert" role="alert">
           {live.ctpError === -1008
-            ? t("柜台回报队列已满，新增报单已停止。请重新连接并核对账户；已有委托不会自动撤销。")
-            : t("CTP 返回错误 {code}；核对账户信息后重新连接。", { code: live.ctpError })}
+            ? t("柜台回报队列已满，已停止报单；重连后核对账户")
+            : t("CTP 错误 {code}", { code: live.ctpError })}
         </p>
       )}
       {live.unconfirmed.length > 0 && (
         <section className="alert" role="alert" aria-label={t("未确认委托")}>
           <p>
-            {t(
-              "{n} 笔已记录的委托没有出现在券商回报中：{ids}。它们不会被重发，并继续占用在途委托额度；请在券商端核实。",
-              {
-                n: live.unconfirmed.length,
-                ids: live.unconfirmed.map(item => item.id).join(listSeparator()),
-              },
-            )}
+            {t("{n} 笔委托未出现在柜台回报，不会重发，仍占用在途额度：{ids}", {
+              n: live.unconfirmed.length,
+              ids: live.unconfirmed.map(item => item.id).join(listSeparator()),
+            })}
           </p>
-          <p>{t("在券商端确认某笔委托不存在后，可将其标为已核实，它不再占用在途委托额度。")}</p>
           <div className="source-actions">
             {live.unconfirmed.map(item => (
               <button
@@ -275,7 +251,6 @@ export function LiveAccount({
                   <button className="primary" type="submit">
                     {t("连接账户")}
                   </button>
-                  <span className="subtle">{t("交易服务使用主机本地凭据登录柜台。")}</span>
                 </div>
               </fieldset>
             </form>
@@ -286,10 +261,7 @@ export function LiveAccount({
             </p>
           )}
           {stage === "environment" && (
-            <section aria-label={t("柜台环境")}>
-              <p>{t("账户已连接。此窗口尚未核对柜台环境，核对后才能授权和下单。")}</p>
-              {environmentFields}
-            </section>
+            <section aria-label={t("柜台环境")}>{environmentFields}</section>
           )}
           {stage === "authorize" && (
             <section className="trading-permission" aria-label={t("交易授权")}>
@@ -306,6 +278,7 @@ export function LiveAccount({
               <div className="source-actions">
                 <button
                   className="primary"
+                  title={t("撤销授权、修改风控或交易服务重启后失效")}
                   disabled={busy || !confirmed}
                   onClick={() => {
                     setConfirmedPolicy(null);
@@ -314,11 +287,6 @@ export function LiveAccount({
                 >
                   {t("允许发送委托")}
                 </button>
-                <span className="subtle">
-                  {t(
-                    "授权长期有效，断线重连和换交易日后不需要再次授权；撤销授权、修改风控政策或交易服务重启后失效。",
-                  )}
-                </span>
               </div>
             </section>
           )}

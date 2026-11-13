@@ -49,13 +49,9 @@ export function LivePanel(context: TerminalContext) {
   const view = account ? views[account.id] : undefined;
   return (
     <section className="futures-data paper-trading" aria-label={t("CTP 交易账户")}>
-      <div className="panel-heading">
-        <h2>{t("CTP 交易")}</h2>
-      </div>
       {!accounts.length ? (
         <div className="workspace-empty">
           <strong>{t("还没有交易连接")}</strong>
-          <p>{t("在设置里添加交易连接后，这里显示账户、委托和策略。")}</p>
           <button className="primary" onClick={() => context.openSettings("trading")}>
             {t("添加交易连接")}
           </button>

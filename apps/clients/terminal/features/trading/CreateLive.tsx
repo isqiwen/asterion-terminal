@@ -46,8 +46,6 @@ export function CreateLive({
       <p role="status" aria-label={t("CTP 账户")}>
         {`${account.instance} · ${configuration.id} · ${broker.appId} · ${broker.brokerId} · ${broker.userId} · ${broker.front}`}
       </p>
-      <p className="subtle">{t("账户信息来自交易服务配置，只能在交易主机上设置。")}</p>
-      <p className="subtle">{t("交易服务使用主机本地凭据登录柜台。")}</p>
       <FlowSteps labels={[t("合约与风控"), t("确认创建")]} current={step} />
       <form
         onSubmit={event => {
@@ -72,12 +70,11 @@ export function CreateLive({
       >
         <fieldset disabled={busy}>
           <fieldset hidden={step !== 0} disabled={step !== 0}>
-            <p>{t("账户与柜台环境由交易服务配置，Terminal 只配置风控。")}</p>
             <p>{environment}</p>
             <section className="account-field-group" aria-label={t("可交易合约")}>
               <h3>{t("可交易合约")}</h3>
               {catalog?.status?.state !== CatalogState.READY ? (
-                <p role="status">{t("连接远程行情服务后可选择合约；柜台凭据在服务主机配置。")}</p>
+                <p role="status">{t("连接行情服务后可选择合约")}</p>
               ) : (
                 <div className="futures-file">
                   <label>
@@ -154,11 +151,6 @@ export function CreateLive({
                   </label>
                 ))}
               </div>
-              <p className="subtle">
-                {t(
-                  "限价须在涨跌停范围内，且与券商最新价（当日无成交时为昨结算价）的偏离不超过该比例，例如 0.02 表示 2%。每笔委托发出前查询一次行情，约需 1 秒。",
-                )}
-              </p>
             </section>
           </fieldset>
           {step === 1 && (
@@ -185,9 +177,6 @@ export function CreateLive({
                   {t("价格偏离上限")} {limits.max_price_deviation}
                 </dd>
               </dl>
-              <p className="subtle">
-                {t("创建账户不会登录或发送委托。下一步确认环境、连接并授权。")}
-              </p>
             </section>
           )}
           <div className="workflow-actions">

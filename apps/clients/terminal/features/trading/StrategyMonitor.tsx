@@ -99,11 +99,6 @@ export function StrategyMonitor({
           </>
         )}
       </dl>
-      {instance.state === InstanceState.WARMING && (
-        <p className="subtle">
-          {t("预热是否完成由策略按参数和实际收到的数据判断；批次数不是预热百分比。")}
-        </p>
-      )}
       <table aria-label={t("目标与实际持仓")}>
         <thead>
           <tr>
@@ -150,15 +145,12 @@ export function StrategyMonitor({
           </ul>
         </div>
       )}
-      <p className="subtle">
-        {t("关闭 Terminal 不影响已授权交易。停止策略会尝试撤销其未终结委托，保留持仓与账户授权。")}
-      </p>
       {confirm ? (
         <div className="creation-review">
           <p>
             {confirm.action === "stop"
-              ? t("确认停止实例 {id} 并尝试撤单？此操作不会平仓。", { id: confirm.id })
-              : t("确认对实例 {id} 的合约平仓？实例会暂停新增并继续运行。", { id: confirm.id })}
+              ? t("停止实例 {id} 并撤销它的挂单？持仓保留。", { id: confirm.id })
+              : t("平掉实例 {id} 的持仓？实例暂停新增，继续运行。", { id: confirm.id })}
           </p>
           <button disabled={stopping || busy} onClick={() => setConfirm(undefined)}>
             {t("取消")}

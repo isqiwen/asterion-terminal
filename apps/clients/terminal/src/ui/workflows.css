@@ -67,6 +67,8 @@
 /* Trading: the accounts on the left; the chosen account is one panel whose
    sections share a gutter and are separated by hairlines. */
 .paper-trading {
+  display: flex;
+  flex-direction: column;
   overflow: auto;
 }
 .terminal-business > .paper-trading > .panel-heading {
@@ -78,8 +80,8 @@
 .ctp-accounts {
   display: grid;
   grid-template-columns: 200px minmax(0, 1fr);
+  flex: 1;
   gap: var(--space-4);
-  align-items: start;
   padding: var(--space-4);
 }
 .ctp-account-list {
@@ -108,10 +110,23 @@
   background: var(--accent-surface);
   color: var(--accent);
 }
+/* The account fills the page; its records take the height left. */
 .ctp-account-column {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: var(--space-4);
   min-width: 0;
+}
+.ctp-account-column > .ctp-account-panel {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+}
+.ctp-account-column > .ctp-account-panel > * {
+  flex-shrink: 0;
+}
+.ctp-account-column .ctp-trade-body {
+  flex: 1 0 auto;
 }
 .ctp-strategies {
   display: flex;
@@ -179,9 +194,9 @@
   gap: var(--space-2) var(--space-4);
   min-height: 44px;
   font-size: var(--font-size-body);
-  /* The account being traded stays visible under the page heading. */
+  /* The account being traded stays visible while the page scrolls. */
   position: sticky;
-  top: 64px;
+  top: 0;
   z-index: 2;
   background: var(--panel);
 }

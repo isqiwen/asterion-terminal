@@ -21,9 +21,8 @@ export function LiveStrategies(context: TerminalContext) {
   const account = accounts.find(item => item.id === chosen) ?? accounts[0];
   return (
     <section className="futures-data paper-trading" aria-label={t("交易策略")}>
-      <div className="panel-heading">
-        <h2>{t("交易策略")}</h2>
-        {accounts.length > 1 && (
+      {accounts.length > 1 && (
+        <div className="panel-heading">
           <div className="tabs" role="group" aria-label={t("CTP 账户")}>
             {accounts.map(item => (
               <button
@@ -35,8 +34,8 @@ export function LiveStrategies(context: TerminalContext) {
               </button>
             ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
       {account ? (
         <AccountStrategies
           key={`${account.id}:${account.revision}`}
@@ -68,7 +67,7 @@ function AccountStrategies({
   return (
     <div className="ctp-strategy-body">
       <div className="ctp-account-panel">
-        {instance?.instance ? (
+        {instance?.instance && (
           <StrategyMonitor
             instance={instance}
             positions={view?.live?.positions ?? []}
@@ -80,8 +79,6 @@ function AccountStrategies({
             pause={(id, paused) => host.mutate({ case: "pauseStrategy", value: { id, paused } })}
             flatten={id => host.mutate({ case: "flattenStrategy", value: { id } })}
           />
-        ) : (
-          <p className="subtle">{t("这个账户没有运行中的策略实例。")}</p>
         )}
         {host.state && (
           <StrategyInstance

@@ -203,7 +203,7 @@ export function OrderTicket({
               ))}
             </>
           ) : (
-            <p className="subtle">{t("无行情；可以照常下单和撤单。")}</p>
+            <p className="subtle">{t("无行情")}</p>
           )}
         </div>
         <div className="source-actions">
@@ -219,9 +219,6 @@ export function OrderTicket({
               {t(side === Side.BUY ? "买入" : "卖出")} <small>{accountName}</small>
             </button>
           ))}
-          <span className="subtle">
-            {t("委托先写入交易主机的交易记录再发送；断线后不会自动重发。")}
-          </span>
         </div>
         {pending !== undefined && (
           <div className="order-confirm" role="alertdialog" aria-label={t("确认委托")}>

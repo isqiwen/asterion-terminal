@@ -68,7 +68,7 @@ test(
     expect((await strategies(page.request, account)).instance.processId).toBe(started.processId);
     await page.screenshot({ path: testInfo.outputPath("strategy-instance.png"), fullPage: true });
     await monitor.getByRole("button", { name: "停止策略并撤单", exact: true }).click();
-    await expect(monitor).toContainText("确认停止实例 ui-run-a");
+    await expect(monitor).toContainText("停止实例 ui-run-a");
     await monitor.getByRole("button", { name: "确认停止并撤单", exact: true }).click();
     await expect(monitor.getByRole("status")).toHaveText("已停止");
     await configure("ui-run-b");

@@ -63,18 +63,11 @@ export function StrategyInstance({
       {account && live && (
         <p>
           {t("CTP 账户")} · {account.broker?.brokerId} / {account.broker?.userId} ·{" "}
-          {t("主机配置的柜台环境：{environment}", {
-            environment: t(environmentName(account.environment)),
-          })}{" "}
-          · {t(live.authorizedMs !== undefined ? "已授权" : "尚未允许发送委托")}
+          {t(environmentName(account.environment))} ·{" "}
+          {t(live.authorizedMs !== undefined ? "已授权" : "未授权")}
         </p>
       )}
-      {!usable && <p role="status">{t("请先连接并同步账户，再启动实例。")}</p>}
-      <p className="subtle">
-        {t(
-          "启动从空窗口现场预热，或从已结束实例的记录恢复。启动不授权；账户未授权时，就绪目标只记录、不执行。",
-        )}
-      </p>
+      {!usable && <p role="status">{t("账户连接并同步后可启动")}</p>}
       {review ? (
         <div className="creation-review" aria-label={t("启动配置确认")}>
           <dl>
@@ -205,7 +198,6 @@ export function StrategyInstance({
                 </select>
               </label>
             </div>
-            <p className="subtle">{t("实例 ID 不可复用；重新启动须使用新 ID。")}</p>
             {ended && (
               <button
                 type="button"
@@ -241,7 +233,6 @@ export function StrategyInstance({
             </fieldset>
             <fieldset>
               <legend>{t("参数覆盖")}</legend>
-              <p className="subtle">{t("按策略参数名填写；未覆盖项采用包内默认值。")}</p>
               {rows.map((row, index) => (
                 <div className="strategy-parameter" key={row.id}>
                   <label>
@@ -342,9 +333,6 @@ export function StrategyInstance({
                 </label>
               </div>
             )}
-            <p className="subtle">
-              {t("权重预算按倍数填写，例如 1 表示一倍权益；预算不替代账户风控限额。")}
-            </p>
             <button type="submit" disabled={!usable || busy}>
               {t("核对启动配置")}
             </button>

@@ -309,7 +309,7 @@ export function AccountRecords({
         {ready ? (
           <AccountRates live={live} busy={busy} run={run} />
         ) : (
-          <p className="subtle">{t("连接柜台后可查询账户费率。")}</p>
+          <p className="subtle">{t("未连接柜台")}</p>
         )}
       </div>
       <div hidden={activity !== "policy"}>
@@ -443,12 +443,13 @@ function AccountRates({ live, busy, run }: { live: Session; busy: boolean; run: 
   return (
     <section className="account-rates" aria-label={t("账户费率")}>
       <div className="source-actions">
-        <button disabled={busy} onClick={() => void run({ case: "queryCosts", value: {} })}>
+        <button
+          disabled={busy}
+          title={t("多空保证金不同时取较高者")}
+          onClick={() => void run({ case: "queryCosts", value: {} })}
+        >
           {t("查询账户费率")}
         </button>
-        <span className="subtle">
-          {t("券商对本账户实际收取的保证金率与手续费；多空保证金不同时取较高者。")}
-        </span>
       </div>
       {live.costs.length > 0 && (
         <div className="paper-table" role="region" aria-label={t("账户费率表")} tabIndex={0}>

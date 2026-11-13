@@ -45,11 +45,7 @@ export function AccountPolicyEditor({
       <p>
         {t("政策版本")}：<code>{live.policyRevision}</code>
       </p>
-      <p className="subtle">
-        {t(
-          "保留历史政策与命令。现有持仓和在途委托仍计入风险；变更后断开连接，需重新登录、同步和授权。",
-        )}
-      </p>
+      <p className="subtle">{t("保存后断开柜台连接，需重新授权")}</p>
       <form
         onSubmit={event => {
           event.preventDefault();
@@ -133,9 +129,7 @@ export function AccountPolicyEditor({
             {t("添加")}
           </button>
           {catalog?.status?.state !== CatalogState.READY && (
-            <p className="subtle">
-              {t("新增合约前，请在行情页取得合约目录；现有合约仍可调整风险限额。")}
-            </p>
+            <p className="subtle">{t("合约目录未就绪，暂不能新增合约")}</p>
           )}
           <label className="checkbox">
             <input
