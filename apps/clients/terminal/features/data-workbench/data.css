@@ -1,5 +1,4 @@
-/* The data page fills the workspace edge to edge, like the market page: the
-   list of tables and views beside the chosen one. */
+/* Each data view fills the workspace: a toolbar or header over its content. */
 .data-page {
   display: flex;
   flex-direction: column;
@@ -12,71 +11,103 @@
   flex: 1;
   min-height: 0;
 }
-.data-tasks {
+:is(.data-overview, .data-coverage, .data-browse) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-3) var(--space-4);
+}
+.data-overview h3 {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  color: var(--text-strong);
+}
+.data-overview-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.data-overview-header > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-right: auto;
+}
+.data-overview-header code {
+  color: var(--text);
+}
+.data-status {
+  max-width: 1080px;
+}
+.data-status th[scope="row"] {
+  color: var(--text-strong);
+}
+.data-status td:last-child {
+  text-align: right;
+}
+.data-activity {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  max-width: 1080px;
 }
-.data-tasks > button {
+.data-activity > button {
   align-self: flex-start;
+}
+.data-activity tr[data-kind="version"] {
+  background: var(--row-alt);
+}
+.data-activity td:last-child {
+  text-align: right;
+}
+.data-time {
+  color: var(--muted);
+  width: 1%;
 }
 .task-error {
   color: var(--danger);
   white-space: normal;
 }
-.data-main {
-  display: grid;
-  grid-template-columns: 224px minmax(0, 1fr);
-  flex: 1;
-  min-height: 0;
-  border-top: 1px solid var(--grid);
-}
-.data-views {
+.data-toolbar {
   display: flex;
-  flex-direction: column;
-  overflow: auto;
-  border-right: 1px solid var(--grid);
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
 }
-.data-views > button {
+.data-toolbar > .primary {
+  margin-left: auto;
+}
+.data-toolbar input[type="search"] {
+  width: 180px;
+}
+.segmented {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  padding: var(--space-3) var(--space-3);
-  border: 0;
-  border-bottom: 1px solid var(--grid);
+}
+.segmented > button {
   border-radius: 0;
-  background: transparent;
-  text-align: left;
-  font-size: var(--font-size-md);
+  margin-left: -1px;
 }
-.data-views > button[aria-current] {
+.segmented > button[aria-pressed="true"] {
+  position: relative;
+  color: var(--accent);
+  border-color: var(--accent-line);
   background: var(--accent-surface);
-  box-shadow: inset 2px 0 var(--accent);
 }
-.data-views small {
+.data-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   color: var(--muted);
   font-size: var(--font-size-xs);
-  font-variant-numeric: tabular-nums;
 }
-.data-view {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  min-width: 0;
-  min-height: 0;
-  overflow: auto;
-  padding: var(--space-3) var(--space-4);
-}
-.data-view > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-}
-.data-view h3 {
-  margin: 0;
-  font-size: var(--font-size-lg);
+.data-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-left: var(--space-2);
 }
 .data-dialog {
   display: flex;
@@ -154,7 +185,9 @@
 }
 
 .coverage-matrix {
-  overflow-x: auto;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 .coverage-matrix > .data-table {
   width: auto;
@@ -163,11 +196,35 @@
   min-width: 2.5rem;
   text-align: center;
 }
-.coverage-matrix td[data-share="full"] {
-  background: color-mix(in srgb, var(--success) 35%, transparent);
+.coverage-matrix thead th {
+  position: sticky;
+  top: 0;
+  background: var(--canvas);
+  text-align: center;
 }
-.coverage-matrix td[data-share="partial"] {
-  background: color-mix(in srgb, var(--warning) 30%, transparent);
+.coverage-matrix th[scope="row"] {
+  position: sticky;
+  left: 0;
+  background: var(--canvas);
+  color: var(--text);
+}
+.coverage-group th {
+  padding-top: var(--space-3);
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.08em;
+}
+:is(.coverage-matrix td, .data-legend i)[data-cell="full"] {
+  background: color-mix(in srgb, var(--success) 30%, transparent);
+}
+:is(.coverage-matrix td, .data-legend i)[data-cell="partial"] {
+  background: color-mix(in srgb, var(--warning) 28%, transparent);
+}
+:is(.coverage-matrix td, .data-legend i)[data-cell="missing"] {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+}
+.coverage-matrix td[data-cell="held"] {
+  background: var(--accent-surface);
 }
 
 /* A coverage cell that opens an acquisition of its month. */

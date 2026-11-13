@@ -26,7 +26,7 @@ export const modules = [
     id: "data",
     title: "数据",
     icon: "data",
-    views: ["workspace.coverage"],
+    views: ["workspace.data-overview", "workspace.data-coverage", "workspace.data-browse"],
   },
 ] satisfies { id: string; title: string; icon: IconName; views: string[] }[];
 export type NavigationOptions = {

@@ -1,28 +1,14 @@
-import { Table } from "../../src/generated/asterion/warehouse_pb";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Acquisition, type Preset } from "./Acquisition";
-import { DailyCoverage } from "./DailyCoverage";
-import { DatasetHistory, changeText } from "./DatasetHistory";
-import { MinuteCoverage } from "./MinuteCoverage";
-import { useMarket } from "../../src/host/market";
-import { ReferenceTable } from "./ReferenceTable";
-import { StoredContracts } from "./StoredContracts";
-import { Tasks, activeTask } from "./Tasks";
+import { useMemo, useState } from "react";
 import { warehouseData } from "../../src/bridge/warehouse-data";
-import type {
-  AcquisitionOptions,
-  AcquisitionTask,
-  DatasetChange,
-  DatasetCoverage,
-  DatasetSummary,
-} from "../../src/generated/asterion/warehouse_pb";
-import { ServiceUnset } from "../../src/host/components/ServiceUnset";
+import { Table, type DatasetCoverage } from "../../src/generated/asterion/warehouse_pb";
 import type { TerminalContext } from "../../src/host/feature-registry";
-import { type MessageValues, getLocale, translate } from "../../src/i18n";
-import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/errors";
+import { useMarket } from "../../src/host/market";
+import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
+import { ErrorNotice } from "../../src/i18n/errors";
+import { Acquisition, type Preset } from "./Acquisition";
+import { VersionBanner, WarehousePage } from "./Page";
+import { exchanges, t, tableName, usePolled } from "./dataset";
 
-const t = (key: string, values?: MessageValues) =>
-  translate("asterion.terminal.data-workbench", key, values);
 const day = (offset: number) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
 // A month's days up to yesterday: providers only hold finished trading days.
 const monthRange = (month: string) => {
@@ -30,190 +16,95 @@ const monthRange = (month: string) => {
   const last = new Date(Date.UTC(year!, number!, 0)).toISOString().slice(0, 10);
   return { first: `${month}-01`, last: last < day(-1) ? last : day(-1) };
 };
-const tables: Partial<Record<Table, string>> = {
-  [Table.DAILY]: "日线",
-  [Table.MINUTES]: "分钟线",
-  [Table.SETTLEMENT]: "结算参数",
-  [Table.PRICE_TICKS]: "历史报价单位",
-  [Table.CONTRACTS]: "合约表",
-  [Table.CALENDAR]: "交易日历",
-};
-// One view per table, the stored contracts' charts, then every client's tasks.
-type View = Table | "stored" | "tasks" | "history";
-const views: View[] = [
-  Table.DAILY,
-  Table.MINUTES,
-  Table.SETTLEMENT,
-  Table.PRICE_TICKS,
-  Table.CONTRACTS,
-  Table.CALENDAR,
-  "stored",
-  "tasks",
-  "history",
-];
-const tableName = (table: Table) => t(tables[table] ?? Table[table]);
-const viewName = (view: View) =>
-  typeof view === "number"
-    ? tableName(view)
-    : t({ stored: "已采集合约", tasks: "采集任务", history: "版本历史" }[view]);
-const exchanges = ["SHFE", "INE", "DCE", "CZCE", "CFFEX", "GFEX"];
+const monthsOf = (year: string) =>
+  Array.from({ length: 12 }, (_, index) => `${year}-${String(index + 1).padStart(2, "0")}`);
 
-// Every read and acquisition goes to the saved remote Warehouse service. Browsing a
-// source changes only this component, never the service's collection lifecycle.
-export function Coverage(context: TerminalContext) {
-  const saved = context.snapshot?.warehouse_endpoint;
-  const endpoint = saved && "host" in saved ? saved : null;
-  return (
-    <section className="data-page" aria-label={t("数据")}>
-      {endpoint ? (
-        <DataPage
-          key={`${endpoint.host}:${endpoint.port}/${endpoint.fingerprint}`}
-          context={context}
-        />
-      ) : (
-        <ServiceUnset openSettings={context.openSettings} page="warehouse" />
-      )}
-    </section>
-  );
+// One row of the matrix: a product's daily bars or a contract's minutes.
+type Row = { id: string; exchange: string; months: Map<string, { days: number; open: number }> };
+// Against the calendar's open days; "held" without a calendar, empty outside the row's span.
+type Cell = "full" | "partial" | "missing" | "held" | "";
+
+function cellOf(row: Row, month: string, first: string, last: string): Cell {
+  const cell = row.months.get(month);
+  if (!cell) return month > first && month < last ? "missing" : "";
+  if (!cell.open) return "held";
+  return cell.days >= cell.open ? "full" : "partial";
 }
 
-// Another page can open a version: param `version`.
-function DataPage({ context }: { context: TerminalContext }) {
-  const opened = context.workspaceParams;
-  const [options, setOptions] = useState<AcquisitionOptions>();
-  const [error, setError] = useState<DisplayError>("");
-  const [retry, setRetry] = useState(0);
-  useEffect(() => {
-    let active = true;
-    warehouseData({ case: "getAcquisitionOptions", value: {} })
-      .then(next => {
-        if (!active) return;
-        setOptions(next);
-        setError("");
-      })
-      .catch(failure => active && setError(asDisplayError(failure)));
-    return () => {
-      active = false;
+function rowsOf(coverage: DatasetCoverage, minutes: boolean): Row[] {
+  if (!minutes)
+    return coverage.products.map(item => ({
+      id: item.product,
+      exchange: item.product.split("/")[0]!,
+      months: new Map(item.months.map(m => [m.month, { days: m.days, open: m.openDays }])),
+    }));
+  // Minutes have no calendar of their own: an exchange's open days come from its daily bars.
+  const open = new Map<string, number>();
+  for (const product of coverage.products)
+    for (const month of product.months) {
+      const key = `${product.product.split("/")[0]}/${month.month}`;
+      open.set(key, Math.max(open.get(key) ?? 0, month.openDays));
+    }
+  return coverage.contracts.map(item => {
+    const exchange = item.contract.split("/")[0]!;
+    return {
+      id: item.contract,
+      exchange,
+      months: new Map(
+        item.months.map(m => [
+          m.month,
+          { days: m.days, open: open.get(`${exchange}/${m.month}`) ?? 0 },
+        ]),
+      ),
     };
-  }, [retry]);
-  if (error)
-    return (
-      <div className="workspace-empty" role="alert">
-        <strong>{t("读取历史数据失败")}</strong>
-        <ErrorNotice error={error} />
-        <button className="primary" onClick={() => setRetry(value => value + 1)}>
-          {t("重试")}
-        </button>
-      </div>
-    );
+  });
+}
+
+// Which days each product (daily) or contract (minutes) holds, a year at a
+// time, and acquisition of what is missing.
+export function Coverage(context: TerminalContext) {
   return (
-    <div className="data-body">
-      {!options && (
-        <p className="workspace-empty" role="status">
-          {t("读取中")}
-        </p>
-      )}
-      {options && (
-        <DataCoverage
-          key={`${options.tables.join()}/${options.exchanges.join()}/${opened?.version}`}
-          options={options}
-          opened={opened?.version ?? ""}
-          context={context}
-        />
-      )}
-    </div>
+    <WarehousePage context={context} label={t("数据覆盖")}>
+      {() => <CoverageBody context={context} />}
+    </WarehousePage>
   );
 }
 
-function DataCoverage({
-  options,
-  opened,
-  context,
-}: {
-  options: AcquisitionOptions;
-  opened: string;
-  context: TerminalContext;
-}) {
-  // The version shown; empty for the current one.
-  const [viewed, setViewed] = useState(opened);
-  const [latest, setLatest] = useState("");
-  const [change, setChange] = useState<DatasetChange>();
-  const [view, setView] = useState<View>(Table.DAILY);
+function CoverageBody({ context }: { context: TerminalContext }) {
+  // A run's record or the activity opens an earlier version: param `version`.
+  const [viewed, setViewed] = useState(context.workspaceParams?.version ?? "");
+  const [kind, setKind] = useWorkspaceDraft<"daily" | "minutes">("coverage-kind", "daily");
+  const [exchange, setExchange] = useWorkspaceDraft("coverage-exchange", "");
+  const [search, setSearch] = useWorkspaceDraft("coverage-search", "");
+  const [chosenYear, setYear] = useState("");
   const [acquiring, setAcquiring] = useState<Preset>();
   const catalog = useMarket()?.board.catalog?.contracts;
-  const [summary, setSummary] = useState<DatasetSummary | null>(null);
-  const [coverage, setCoverage] = useState<DatasetCoverage>();
-  const [tasks, setTasks] = useState<AcquisitionTask[]>([]);
-  const [error, setError] = useState<DisplayError>("");
-  const mounted = useRef(false);
-  const pending = useRef(false);
-  // Tasks to show: one page, more on request.
-  const shown = useRef(20);
-  const [older, setOlder] = useState(false);
-
-  const refresh = useCallback(async () => {
-    if (pending.current) return;
-    pending.current = true;
-    try {
-      const current = await warehouseData({ case: "getDatasetSummary", value: {} });
-      const nextLatest = current.dataset?.version ?? "";
-      const nextSummary = viewed
-        ? await warehouseData({ case: "getDatasetSummary", value: { version: viewed } })
-        : current;
-      const version = nextSummary.dataset?.version;
-      const nextCoverage = version
-        ? await warehouseData({ case: "getDatasetCoverage", value: { version } })
-        : undefined;
-      // Warehouse lists tasks newest first; read as many pages as shown.
-      const nextTasks: AcquisitionTask[] = [];
-      let afterId = "";
-      do {
-        const page = await warehouseData({
-          case: "listAcquisitionTasks",
-          value: { afterId },
-        });
-        nextTasks.push(...page.tasks);
-        afterId = page.nextId;
-      } while (afterId && nextTasks.length < shown.current && mounted.current);
-      if (!mounted.current) return;
-      setOlder(afterId !== "");
-      setLatest(nextLatest);
-      setSummary(nextSummary);
-      setCoverage(nextCoverage);
-      setTasks(nextTasks);
-      setError("");
-    } catch (failure) {
-      if (mounted.current) setError(asDisplayError(failure));
-    } finally {
-      pending.current = false;
-    }
+  const options = usePolled(() => warehouseData({ case: "getAcquisitionOptions", value: {} }), []);
+  const state = usePolled(async () => {
+    const current = await warehouseData({ case: "getDatasetSummary", value: {} });
+    const latest = current.dataset?.version ?? "";
+    const version = viewed || latest;
+    const coverage = version
+      ? await warehouseData({ case: "getDatasetCoverage", value: { version } })
+      : undefined;
+    return { latest, coverage };
   }, [viewed]);
-  useEffect(() => {
-    let active = true;
-    setChange(undefined);
-    if (viewed && latest && viewed !== latest)
-      void warehouseData({
-        case: "compareDatasetVersions",
-        value: { version: latest, base: viewed },
-      })
-        .then(next => active && setChange(next))
-        .catch(reason => active && setError(asDisplayError(reason)));
-    return () => {
-      active = false;
-    };
-  }, [viewed, latest]);
-  useEffect(() => {
-    mounted.current = true;
-    void refresh();
-    // Other clients can submit work at any time. Poll even with no local task.
-    const timer = setInterval(() => void refresh(), 3000);
-    return () => {
-      mounted.current = false;
-      clearInterval(timer);
-    };
-  }, [refresh]);
-  // Contracts an acquisition can choose from: those Market lists now and those
-  // the dataset already holds minutes of.
+  const minutes = kind === "minutes";
+  const table = minutes ? Table.MINUTES : Table.DAILY;
+  const coverage = state.value?.coverage;
+  const rows = useMemo(() => (coverage ? rowsOf(coverage, minutes) : []), [coverage, minutes]);
+  const present = exchanges.filter(item => rows.some(row => row.exchange === item));
+  const query = search.trim().toUpperCase();
+  const shown = rows.filter(
+    row =>
+      (!exchange || row.exchange === exchange) && (!query || row.id.toUpperCase().includes(query)),
+  );
+  const years = [
+    ...new Set(rows.flatMap(row => [...row.months.keys()].map(month => month.slice(0, 4)))),
+  ]
+    .sort()
+    .reverse();
+  const year = years.includes(chosenYear) ? chosenYear : (years[0] ?? "");
   const known = useMemo(
     () => [
       ...new Set([
@@ -223,130 +114,177 @@ function DataCoverage({
     ],
     [catalog, coverage],
   );
-  const version = summary?.dataset?.version ?? "";
-  const running = tasks.filter(activeTask).length;
-  const acquires = typeof view === "number" && options.tables.includes(view);
-  const stats = (table: Table) => summary?.tables.find(item => item.table === table);
-  const meta = (table: Table) => {
-    const item = stats(table);
-    if (!item?.rows) return "—";
-    const rows = t("{rows} 行", { rows: Number(item.rows).toLocaleString(getLocale()) });
-    return item.firstDay ? `${rows} · ${item.firstDay} – ${item.lastDay}` : rows;
-  };
+  const acquires = !viewed && (options.value?.tables.includes(table) ?? false);
   return (
     <>
-      <ErrorNotice error={error} />
-      {/* Only a run's record leads here, or the history; every other view is the latest data. */}
-      {viewed && viewed !== latest && (
-        <p className="data-earlier" role="status">
-          {t("正在查看旧数据版本")} <code title={viewed}>{viewed.slice(0, 8)}</code>
-          {" · "}
-          {t("最新数据与它相比：")}
-          {change ? changeText(change) : t("读取中")}{" "}
-          <button type="button" onClick={() => setViewed("")}>
-            {t("回到最新数据")}
-          </button>
-        </p>
-      )}
-      <div className="data-main">
-        <nav className="data-views" aria-label={t("表")}>
-          {views.map(item => (
-            <button
-              key={item}
-              type="button"
-              aria-current={view === item || undefined}
-              onClick={() => setView(item)}
-            >
-              <span>{viewName(item)}</span>
-              {typeof item === "number" && <small>{meta(item)}</small>}
-              {item === "tasks" && running > 0 && (
-                <small>{t("{count} 进行中", { count: running })}</small>
-              )}
-            </button>
-          ))}
-        </nav>
-        <section className="data-view" aria-label={viewName(view)}>
-          <header>
-            <h3>{viewName(view)}</h3>
-            {acquires && (
-              <button type="button" className="primary" onClick={() => setAcquiring({})}>
-                {t("采集")}
+      <VersionBanner
+        viewed={viewed}
+        latest={state.value?.latest ?? ""}
+        back={() => setViewed("")}
+      />
+      <div className="data-coverage">
+        <ErrorNotice error={state.error || options.error} />
+        <div className="data-toolbar">
+          <div className="segmented" role="group" aria-label={t("数据")}>
+            {(["daily", "minutes"] as const).map(item => (
+              <button
+                key={item}
+                type="button"
+                aria-pressed={kind === item}
+                onClick={() => setKind(item)}
+              >
+                {tableName(item === "minutes" ? Table.MINUTES : Table.DAILY)}
               </button>
-            )}
-          </header>
-          {view === Table.DAILY ? (
-            <DailyCoverage
-              products={coverage?.products ?? []}
-              onFill={
-                acquires
-                  ? (product, month) =>
-                      setAcquiring({ instruments: [product], ...monthRange(month) })
-                  : undefined
-              }
-            />
-          ) : view === Table.MINUTES ? (
-            <MinuteCoverage
-              contracts={coverage?.contracts ?? []}
-              onFill={
-                acquires
-                  ? (contract, month) =>
-                      setAcquiring({ instruments: [contract], ...monthRange(month) })
-                  : undefined
-              }
-            />
-          ) : view === "stored" ? (
-            latest && <StoredContracts key={viewed || latest} version={viewed} context={context} />
-          ) : view === "history" ? (
-            <DatasetHistory
-              latest={latest}
-              viewed={viewed}
-              onView={next => {
-                setViewed(next);
-                setView(Table.DAILY);
-              }}
-            />
-          ) : view === "tasks" ? (
-            <Tasks
-              tasks={tasks}
-              tableName={tableName}
-              refresh={refresh}
-              older={
-                older
-                  ? () => {
-                      shown.current += 20;
-                      void refresh();
-                    }
-                  : undefined
-              }
-            />
-          ) : version && stats(view)?.rows ? (
-            <ReferenceTable
-              key={`${version}/${view}`}
-              version={version}
-              table={view}
-              name={tableName(view)}
-              exchanges={options.exchanges.length ? options.exchanges : exchanges}
-            />
-          ) : (
-            <p className="subtle">{t("仓库里还没有这张表。")}</p>
+            ))}
+          </div>
+          <select
+            aria-label={t("交易所")}
+            value={exchange}
+            onChange={event => setExchange(event.target.value)}
+          >
+            <option value="">{t("全部交易所")}</option>
+            {present.map(item => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+          <input
+            type="search"
+            aria-label={minutes ? t("搜索合约") : t("搜索品种")}
+            placeholder={minutes ? t("搜索合约") : t("搜索品种")}
+            value={search}
+            onChange={event => setSearch(event.target.value)}
+          />
+          {years.length > 0 && (
+            <select
+              aria-label={t("年份")}
+              value={year}
+              onChange={event => setYear(event.target.value)}
+            >
+              {years.map(item => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
           )}
-        </section>
+          <span className="data-legend" aria-hidden="true">
+            <i data-cell="full" /> {t("齐全")} <i data-cell="partial" /> {t("部分")}{" "}
+            <i data-cell="missing" /> {t("缺失")}
+          </span>
+          {acquires && (
+            <button type="button" className="primary" onClick={() => setAcquiring({})}>
+              {t("采集")}
+            </button>
+          )}
+        </div>
+        {!state.value ? (
+          <p className="subtle" role="status">
+            {t("读取中")}
+          </p>
+        ) : !rows.length ? (
+          <p className="subtle">{minutes ? t("仓库里还没有分钟线。") : t("仓库里还没有日线。")}</p>
+        ) : (
+          <Matrix
+            rows={shown}
+            months={monthsOf(year)}
+            label={minutes ? t("分钟线覆盖") : t("日线覆盖")}
+            heading={minutes ? t("合约") : t("品种")}
+            onFill={
+              acquires
+                ? (id, month) => setAcquiring({ instruments: [id], ...monthRange(month) })
+                : undefined
+            }
+          />
+        )}
       </div>
-      {acquiring && typeof view === "number" && (
+      {acquiring && options.value && (
         <Acquisition
-          table={view}
-          name={tableName(view)}
-          options={options}
+          table={table}
+          name={tableName(table)}
+          options={options.value}
           known={known}
           preset={acquiring}
           close={() => setAcquiring(undefined)}
           started={() => {
             setAcquiring(undefined);
-            setView("tasks");
-            void refresh();
+            void state.refresh();
           }}
         />
       )}
     </>
+  );
+}
+
+function Matrix({
+  rows,
+  months,
+  label,
+  heading,
+  onFill,
+}: {
+  rows: Row[];
+  months: string[];
+  label: string;
+  heading: string;
+  onFill?: (id: string, month: string) => void;
+}) {
+  const groups = exchanges
+    .map(exchange => ({ exchange, rows: rows.filter(row => row.exchange === exchange) }))
+    .filter(group => group.rows.length);
+  return (
+    <div className="coverage-matrix">
+      <table className="data-table" aria-label={label}>
+        <thead>
+          <tr>
+            <th>{heading}</th>
+            {months.map(month => (
+              <th key={month}>{month.slice(5)}</th>
+            ))}
+          </tr>
+        </thead>
+        {groups.map(group => (
+          <tbody key={group.exchange}>
+            <tr className="coverage-group">
+              <th colSpan={months.length + 1}>{group.exchange}</th>
+            </tr>
+            {group.rows.map(row => {
+              const held = [...row.months.keys()].sort();
+              return (
+                <tr key={row.id}>
+                  <th scope="row">{row.id}</th>
+                  {months.map(month => {
+                    const cell = row.months.get(month);
+                    const state = cellOf(row, month, held[0]!, held.at(-1)!);
+                    return (
+                      <td
+                        key={month}
+                        data-cell={state || undefined}
+                        title={
+                          cell
+                            ? cell.open
+                              ? `${cell.days} / ${cell.open}`
+                              : t("{days} 天", { days: cell.days })
+                            : state && t("无数据")
+                        }
+                      >
+                        {onFill && (state === "partial" || state === "missing") ? (
+                          <button
+                            type="button"
+                            aria-label={t("补采 {target} {month}", { target: row.id, month })}
+                            onClick={() => onFill(row.id, month)}
+                          >
+                            {cell?.days ?? "+"}
+                          </button>
+                        ) : (
+                          cell?.days
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        ))}
+      </table>
+    </div>
   );
 }

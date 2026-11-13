@@ -311,7 +311,7 @@ export function ContractHistory({
             )}
           </p>
           {!loading && contractId && !available && (
-            <button onClick={() => navigate("workspace.coverage")}>{t("采集历史数据")}</button>
+            <button onClick={() => navigate("workspace.data-coverage")}>{t("采集历史数据")}</button>
           )}
         </div>
       )}

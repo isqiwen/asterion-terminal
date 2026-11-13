@@ -18,11 +18,7 @@ test(
       join(process.env.ASTERION_TEST_WAREHOUSE_TLS!, "../../data"),
     ]);
     await page.goto("/");
-    await openView(page, "coverage");
-    await page
-      .getByRole("navigation", { name: "表" })
-      .getByRole("button", { name: "已采集合约" })
-      .click();
+    await openView(page, "browse");
     const contracts = page.getByRole("group", { name: "已采集合约" });
     // Includes Lab startup and the first remote cache download.
     await expect(contracts.getByRole("button")).toHaveCount(2, { timeout: 30000 });

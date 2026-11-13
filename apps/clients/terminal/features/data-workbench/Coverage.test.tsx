@@ -1,8 +1,8 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { create } from "@bufbuild/protobuf";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { AcquisitionTaskSchema, Table, TaskState } from "../../src/generated/asterion/warehouse_pb";
+import { Table } from "../../src/generated/asterion/warehouse_pb";
 import type { TerminalContext } from "../../src/host/feature-registry";
+import { createWorkspaceDrafts, WorkspaceDraftScope } from "../../src/host/workspace/drafts";
 import { Coverage } from "./Coverage";
 
 const request = vi.hoisted(() => vi.fn());
@@ -21,195 +21,154 @@ HTMLDialogElement.prototype.showModal = function () {
 HTMLDialogElement.prototype.close = function () {
   this.removeAttribute("open");
 };
-vi.mock("./StoredContracts", () => ({ StoredContracts: () => null }));
-vi.mock("./DatasetHistory", async importOriginal => ({
-  ...(await importOriginal<typeof import("./DatasetHistory")>()),
-  DatasetHistory: () => null,
-}));
 afterEach(() => vi.restoreAllMocks());
-const context = () =>
+const context = (params?: Record<string, string>) =>
   ({
     trade: vi.fn(),
-    query: vi.fn(),
-    snapshot: {
-      warehouse_endpoint: { host: "market", port: 7450, fingerprint: "f", instruments: [] },
-    },
+    snapshot: { warehouse_endpoint: { host: "market", port: 7450, fingerprint: "f" } },
+    workspaceParams: params,
   }) as unknown as TerminalContext;
-const task = (id: string) =>
-  create(AcquisitionTaskSchema, {
-    request: { id, table: Table.DAILY, firstDay: "2026-10-30", lastDay: "2026-10-30" },
-    state: TaskState.RUNNING,
-    items: 1n,
-  });
-function serve(tables = [Table.DAILY, Table.PRICE_TICKS]) {
-  request.mockImplementation(async (body: { case: string }) => {
+const view = (props: TerminalContext) =>
+  render(
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.data-coverage">
+      <Coverage {...props} />
+    </WorkspaceDraftScope>,
+  );
+const older = "a".repeat(64);
+const current = "b".repeat(64);
+
+// Daily and minute bars on offer, and what each version holds: the current one
+// rebar with a missing August and a partial September, the older one copper.
+function serve(tables = [Table.DAILY, Table.MINUTES, Table.PRICE_TICKS]) {
+  request.mockImplementation(async (body: { case: string; value: { version?: string } }) => {
     switch (body.case) {
       case "getAcquisitionOptions":
         return { tables, exchanges: ["SHFE"] };
       case "getDatasetSummary":
-        return { tables: [] };
-      case "listAcquisitionTasks":
-        return { tasks: [task("first")], nextId: "" };
-      default:
-        return {};
-    }
-  });
-}
-// Opens the shown table's acquisition and returns its dialog.
-async function openAcquisition() {
-  const open = (await screen.findByRole("button", { name: "采集" })) as HTMLButtonElement;
-  await waitFor(() => expect(open.disabled).toBe(false));
-  fireEvent.click(open);
-  return screen.getByRole("dialog", { name: /^采集 / });
-}
-const showTasks = async () =>
-  fireEvent.click(await screen.findByRole("button", { name: /^采集任务/ }));
-const showView = (name: string) =>
-  fireEvent.click(
-    within(screen.getByRole("navigation", { name: "表" })).getByRole("button", {
-      name: new RegExp(`^${name}`),
-    }),
-  );
-const started = () =>
-  request.mock.calls
-    .map(([body]) => body)
-    .filter(body => body.case === "startAcquisition")
-    .map(body => [body.value.table, body.value.exchanges]);
-
-test("clients choose no source, and market data also asks for its price ticks", async () => {
-  serve();
-  const props = context();
-  render(<Coverage {...props} />);
-  const dialog = await openAcquisition();
-  expect(within(dialog).queryByLabelText("数据源")).toBeNull();
-  fireEvent.click(within(dialog).getByRole("button", { name: "开始采集" }));
-  await waitFor(() =>
-    expect(started()).toEqual([
-      [Table.DAILY, ["SHFE"]],
-      [Table.PRICE_TICKS, ["SHFE"]],
-    ]),
-  );
-  // The dialog closes and the tasks show.
-  await screen.findByRole("table", { name: "采集任务" });
-  expect(screen.queryByRole("dialog")).toBeNull();
-  expect(request.mock.calls.flat().some(body => "provider" in (body.value ?? {}))).toBe(false);
-  expect(props.trade).not.toHaveBeenCalled();
-});
-
-test("coverage uses the summary's version and no form appears without a source", async () => {
-  request.mockImplementation(async (body: { case: string; value: { afterId?: string } }) => {
-    switch (body.case) {
-      case "getAcquisitionOptions":
-        return { tables: [], exchanges: [] };
-      case "getDatasetSummary":
-        return { dataset: { version: "fixed-version" }, tables: [] };
+        return { dataset: { version: current }, tables: [] };
       case "getDatasetCoverage":
-        return {
-          products: [{ product: "SHFE/rb", months: [{ month: "2026-10", days: 1, openDays: 0 }] }],
-        };
-      case "listAcquisitionTasks":
-        return body.value.afterId
-          ? { tasks: [task("remote-task")], nextId: "" }
-          : { tasks: [], nextId: "first" };
-      default:
-        return {};
-    }
-  });
-  render(<Coverage {...context()} />);
-  await screen.findByRole("rowheader", { name: "SHFE/rb" });
-  expect(request).toHaveBeenCalledWith({
-    case: "getDatasetCoverage",
-    value: { version: "fixed-version" },
-  });
-  expect(screen.queryByRole("button", { name: "采集" })).toBeNull();
-  await showTasks();
-  const shown = await screen.findByRole("table", { name: "采集任务" });
-  await waitFor(() => expect(within(shown).getAllByRole("row")).toHaveLength(2));
-});
-
-test("polls shared tasks even when this client has no active acquisition", async () => {
-  let poll: () => void = () => {};
-  const interval = globalThis.setInterval;
-  vi.spyOn(globalThis, "setInterval").mockImplementation((callback, delay, ...args) => {
-    if (delay === 3000) poll = callback as () => void;
-    return interval(callback, delay, ...args);
-  });
-  let remote = false;
-  request.mockImplementation(async (body: { case: string }) => {
-    switch (body.case) {
-      case "getAcquisitionOptions":
-        return { tables: [Table.DAILY], exchanges: ["SHFE"] };
-      case "getDatasetSummary":
-        return { tables: [] };
-      case "listAcquisitionTasks":
-        return { tasks: remote ? [task("other-client")] : [], nextId: "" };
-      default:
-        return {};
-    }
-  });
-  render(<Coverage {...context()} />);
-  await showTasks();
-  await waitFor(() =>
-    expect(request).toHaveBeenCalledWith({
-      case: "listAcquisitionTasks",
-      value: { afterId: "" },
-    }),
-  );
-  remote = true;
-  await act(async () => {
-    poll();
-  });
-  await screen.findByRole("table", { name: "采集任务" });
-  fireEvent.click(screen.getByRole("button", { name: "取消" }));
-  await waitFor(() =>
-    expect(request).toHaveBeenCalledWith({
-      case: "cancelAcquisition",
-      value: { id: "other-client" },
-    }),
-  );
-});
-
-// Daily and minute bars on offer, and what the dataset already holds.
-function serveCoverage() {
-  request.mockImplementation(async (body: { case: string }) => {
-    switch (body.case) {
-      case "getAcquisitionOptions":
-        return { tables: [Table.DAILY, Table.MINUTES], exchanges: ["SHFE"] };
-      case "getDatasetSummary":
-        return { dataset: { version: "v" }, tables: [] };
-      case "getDatasetCoverage":
-        return {
-          products: [
-            { product: "SHFE/rb", months: [{ month: "2026-09", days: 10, openDays: 21 }] },
-          ],
-          contracts: [
-            { contract: "SHFE/cu/2026-12", months: [{ month: "2026-10", days: 3 }] },
-            { contract: "SHFE/rb/2027-01", months: [{ month: "2026-10", days: 3 }] },
-            { contract: "SHFE/rb/2027-02", months: [{ month: "2026-10", days: 3 }] },
-          ],
-        };
-      case "listAcquisitionTasks":
-        return { tasks: [], nextId: "" };
+        return body.value.version === older
+          ? {
+              products: [
+                { product: "SHFE/cu", months: [{ month: "2026-10", days: 21, openDays: 21 }] },
+              ],
+            }
+          : {
+              products: [
+                {
+                  product: "SHFE/rb",
+                  months: [
+                    { month: "2026-07", days: 23, openDays: 23 },
+                    { month: "2026-09", days: 10, openDays: 21 },
+                    { month: "2026-10", days: 16, openDays: 16 },
+                  ],
+                },
+              ],
+              contracts: [
+                { contract: "SHFE/cu/2026-12", months: [{ month: "2026-10", days: 3 }] },
+                { contract: "SHFE/rb/2027-01", months: [{ month: "2026-10", days: 3 }] },
+              ],
+            };
+      case "compareDatasetVersions":
+        return { added: 1, replaced: 0, removed: 0 };
       default:
         return {};
     }
   });
 }
 const submitted = () =>
-  request.mock.calls.map(([body]) => body).find(body => body.case === "startAcquisition")?.value;
+  request.mock.calls
+    .map(([body]) => body)
+    .filter(body => body.case === "startAcquisition")
+    .map(body => body.value);
+const startInDialog = () =>
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "开始采集" }));
+const show = (name: string) =>
+  fireEvent.click(
+    within(screen.getByRole("group", { name: "数据" })).getByRole("button", { name }),
+  );
+
+test("each product's months show complete, partial and missing against the calendar", async () => {
+  serve();
+  view(context());
+  const matrix = await screen.findByRole("table", { name: "日线覆盖" });
+  expect(request).toHaveBeenCalledWith({ case: "getDatasetCoverage", value: { version: current } });
+  const row = within(matrix).getByRole("row", { name: /SHFE\/rb/ });
+  const cells = within(row).getAllByRole("cell");
+  expect(cells.slice(6, 10).map(cell => cell.getAttribute("data-cell"))).toEqual([
+    "full",
+    "missing",
+    "partial",
+    "full",
+  ]);
+  // Months before the first and after the last held one are not gaps.
+  expect(cells[5]!.hasAttribute("data-cell")).toBe(false);
+  expect(cells[10]!.hasAttribute("data-cell")).toBe(false);
+});
+
+test("a gap opens an acquisition of its product or contract and month only", async () => {
+  serve();
+  view(context());
+  fireEvent.click(await screen.findByRole("button", { name: "补采 SHFE/rb 2026-08" }));
+  const dialog = screen.getByRole("dialog");
+  expect((within(dialog).getByLabelText("品种或合约") as HTMLInputElement).checked).toBe(true);
+  startInDialog();
+  await waitFor(() =>
+    expect(submitted()[0]).toMatchObject({
+      table: Table.DAILY,
+      exchanges: [],
+      instruments: ["SHFE/rb"],
+      firstDay: "2026-08-01",
+      lastDay: "2026-08-31",
+    }),
+  );
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  request.mockClear();
+  // Minutes are measured against the exchange's open days from its daily bars.
+  show("分钟线");
+  fireEvent.click(await screen.findByRole("button", { name: "补采 SHFE/rb/2027-01 2026-10" }));
+  startInDialog();
+  await waitFor(() =>
+    expect(submitted()[0]).toMatchObject({
+      table: Table.MINUTES,
+      instruments: ["SHFE/rb/2027-01"],
+      firstDay: "2026-10-01",
+      lastDay: "2026-10-31",
+    }),
+  );
+});
+
+test("clients choose no source, and daily bars also ask for their price ticks", async () => {
+  serve();
+  const props = context();
+  view(props);
+  fireEvent.click(await screen.findByRole("button", { name: "采集" }));
+  const dialog = screen.getByRole("dialog", { name: /^采集 / });
+  expect(within(dialog).queryByLabelText("数据源")).toBeNull();
+  startInDialog();
+  await waitFor(() =>
+    expect(submitted().map(value => [value.table, value.exchanges])).toEqual([
+      [Table.DAILY, ["SHFE"]],
+      [Table.PRICE_TICKS, ["SHFE"]],
+    ]),
+  );
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(request.mock.calls.flat().some(body => "provider" in (body.value ?? {}))).toBe(false);
+  expect(props.trade).not.toHaveBeenCalled();
+});
 
 test("a minute acquisition of a whole product spans its contracts' listed lives", async () => {
-  serveCoverage();
-  render(<Coverage {...context()} />);
+  serve();
+  view(context());
   await screen.findByRole("table", { name: "日线覆盖" });
-  showView("分钟线");
-  const dialog = await openAcquisition();
-  const picker = within(dialog).getByRole("group", { name: "品种或合约" });
+  show("分钟线");
+  fireEvent.click(await screen.findByRole("button", { name: "采集" }));
+  const picker = within(screen.getByRole("dialog")).getByRole("group", { name: "品种或合约" });
   fireEvent.change(within(picker).getByLabelText("品种"), { target: { value: "SHFE/rb" } });
   fireEvent.click(within(picker).getByRole("button", { name: "整个品种" }));
-  fireEvent.click(within(dialog).getByRole("button", { name: "开始采集" }));
+  startInDialog();
   await waitFor(() =>
-    expect(submitted()).toMatchObject({
+    expect(submitted()[0]).toMatchObject({
       table: Table.MINUTES,
       exchanges: [],
       instruments: ["SHFE/rb"],
@@ -220,23 +179,19 @@ test("a minute acquisition of a whole product spans its contracts' listed lives"
 });
 
 test("daily bars of one contract ask for it and its price ticks, not its exchange", async () => {
-  serve([Table.DAILY, Table.PRICE_TICKS]);
-  render(<Coverage {...context()} />);
-  const dialog = await openAcquisition();
+  serve();
+  view(context());
+  fireEvent.click(await screen.findByRole("button", { name: "采集" }));
+  const dialog = screen.getByRole("dialog");
   fireEvent.click(within(dialog).getByRole("radio", { name: "品种或合约" }));
   const picker = within(dialog).getByRole("group", { name: "品种或合约" });
   fireEvent.change(within(picker).getByLabelText("其他品种或合约"), {
     target: { value: "SHFE/rb/2027-01" },
   });
   fireEvent.click(within(picker).getByRole("button", { name: "添加" }));
-  fireEvent.click(within(dialog).getByRole("button", { name: "开始采集" }));
-  const sent = () =>
-    request.mock.calls
-      .map(([body]) => body)
-      .filter(body => body.case === "startAcquisition")
-      .map(body => body.value);
-  await waitFor(() => expect(sent()).toHaveLength(2));
-  for (const value of sent())
+  startInDialog();
+  await waitFor(() => expect(submitted()).toHaveLength(2));
+  for (const value of submitted())
     expect(value).toMatchObject({
       exchanges: [],
       instruments: ["SHFE/rb/2027-01"],
@@ -245,80 +200,28 @@ test("daily bars of one contract ask for it and its price ticks, not its exchang
     });
 });
 
-const startInDialog = () =>
-  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "开始采集" }));
-
-test("a coverage gap opens an acquisition of its product and month only", async () => {
-  serveCoverage();
-  render(<Coverage {...context()} />);
-  fireEvent.click(await screen.findByRole("button", { name: "补采 SHFE/rb 2026-09" }));
-  const dialog = screen.getByRole("dialog");
-  expect((within(dialog).getByLabelText("品种或合约") as HTMLInputElement).checked).toBe(true);
-  expect(within(dialog).getByText("SHFE/rb")).toBeTruthy();
-  startInDialog();
-  await waitFor(() =>
-    expect(submitted()).toMatchObject({
-      table: Table.DAILY,
-      exchanges: [],
-      instruments: ["SHFE/rb"],
-      firstDay: "2026-09-01",
-      lastDay: "2026-09-30",
-    }),
-  );
-  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  request.mockClear();
-  showView("分钟线");
-  const minutes = screen.getByRole("region", { name: "分钟线" });
-  fireEvent.change(within(minutes).getByLabelText("品种"), { target: { value: "SHFE/rb" } });
-  fireEvent.click(within(minutes).getByRole("button", { name: "补采 SHFE/rb/2027-01 2026-10" }));
-  startInDialog();
-  await waitFor(() =>
-    expect(submitted()).toMatchObject({
-      table: Table.MINUTES,
-      instruments: ["SHFE/rb/2027-01"],
-      firstDay: "2026-10-01",
-      lastDay: "2026-10-31",
-    }),
-  );
+test("without a source for the table nothing offers an acquisition", async () => {
+  serve([]);
+  view(context());
+  await screen.findByRole("rowheader", { name: "SHFE/rb" });
+  expect(screen.queryByRole("button", { name: "采集" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^补采/ })).toBeNull();
 });
 
-test("each refresh reads one page of tasks; earlier ones are read on request", async () => {
-  const page = Array.from({ length: 20 }, (_, i) => task(`task-${i}`));
-  request.mockImplementation(async (body: { case: string; value: { afterId?: string } }) => {
-    switch (body.case) {
-      case "getAcquisitionOptions":
-        return { tables: [Table.DAILY], exchanges: ["SHFE"] };
-      case "getDatasetSummary":
-        return { tables: [] };
-      case "listAcquisitionTasks":
-        return body.value.afterId
-          ? { tasks: [task("oldest")], nextId: "" }
-          : { tasks: page, nextId: "task-19" };
-      default:
-        return {};
-    }
-  });
-  render(<Coverage {...context()} />);
-  await showTasks();
-  fireEvent.click(await screen.findByRole("button", { name: "更早的任务" }));
-  const reads = () =>
-    request.mock.calls.filter(([body]) => body.case === "listAcquisitionTasks").map(([b]) => b);
-  expect(reads()).toEqual([{ case: "listAcquisitionTasks", value: { afterId: "" } }]);
-  // The heading row, the first page and the oldest task.
+test("a research run's version shows its own coverage until the latest is chosen", async () => {
+  serve();
+  view(context({ version: older }));
+  await screen.findByRole("rowheader", { name: "SHFE/cu" });
+  expect(screen.queryByRole("button", { name: "采集" })).toBeNull();
   await waitFor(() =>
-    expect(
-      within(screen.getByRole("table", { name: "采集任务" })).getAllByRole("row"),
-    ).toHaveLength(22),
+    expect(screen.getByRole("status").textContent).toContain("新增 1 · 替换 0 · 删除 0"),
   );
-  expect(reads().at(-1)).toEqual({
-    case: "listAcquisitionTasks",
-    value: { afterId: "task-19" },
-  });
-  expect(screen.queryByRole("button", { name: "更早的任务" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "回到最新数据" }));
+  await screen.findByRole("rowheader", { name: "SHFE/rb" });
 });
 
-test("the data page says it is reading while the data service has not answered", async () => {
+test("the view says it is reading while the data service has not answered", async () => {
   request.mockImplementation(() => new Promise(() => {}));
-  render(<Coverage {...context()} />);
+  view(context());
   expect((await screen.findByRole("status")).textContent).toBe("读取中");
 });

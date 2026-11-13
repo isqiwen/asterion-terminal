@@ -11,7 +11,9 @@ const destinations = {
   research: ["研究", "策略"],
   factors: ["研究", "因子"],
   trading: ["交易"],
-  coverage: ["数据"],
+  overview: ["数据", "概览"],
+  coverage: ["数据", "覆盖"],
+  browse: ["数据", "浏览"],
 } as const;
 
 export async function openView(page: Page, view: keyof typeof destinations) {

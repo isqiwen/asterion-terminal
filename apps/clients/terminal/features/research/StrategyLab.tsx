@@ -230,7 +230,7 @@ export function StrategyLab(context: TerminalContext) {
               id={shown.id}
               state={runState(runs.find(run => run.id === shown.id)?.state ?? 0)}
               openVersion={version =>
-                context.navigate("workspace.coverage", {
+                context.navigate("workspace.data-coverage", {
                   params: { version },
                 })
               }

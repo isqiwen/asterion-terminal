@@ -29,7 +29,7 @@ test("an earlier version lists its own contracts and draws its own bars", async 
   });
   const context = { snapshot: {}, navigate: vi.fn() } as unknown as TerminalContext;
   render(
-    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.coverage">
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.data-browse">
       <StoredContracts version="earlier" context={context} />
     </WorkspaceDraftScope>,
   );

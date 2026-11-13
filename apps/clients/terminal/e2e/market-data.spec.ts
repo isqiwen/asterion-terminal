@@ -24,15 +24,18 @@ test(
     try {
       const version = readFileSync(join(data, "sources/research/warehouse/current"), "utf8").trim();
       await page.goto("/");
-      await openView(page, "coverage");
+      await openView(page, "overview");
       await rpc(page.request, "market.close");
+      await expect(
+        page.getByRole("table", { name: "数据状态" }).getByRole("row", { name: /^日线/ }),
+      ).toContainText("2026-01-05 – 2026-02-13");
+      await expect(
+        page.getByRole("table", { name: "最近活动" }).locator(`code[title="${version}"]`),
+      ).toBeVisible();
+      await openView(page, "coverage");
       await expect(page.getByRole("button", { name: "采集", exact: true })).toBeVisible();
       await expect(page.getByRole("rowheader", { name: "SHFE/rb", exact: true })).toBeVisible();
-      await expect(page.getByRole("columnheader", { name: "2026-01", exact: true })).toBeVisible();
-      await page.getByRole("button", { name: /^版本历史/ }).click();
-      await expect(
-        page.getByRole("table", { name: "版本历史" }).locator(`code[title="${version}"]`),
-      ).toBeVisible();
+      await expect(page.getByRole("columnheader", { name: "01", exact: true })).toBeVisible();
       expect((await rpc(page.request, "market.watch", { restart: false })).market_watch).toBeNull();
     } finally {
       rmSync(join(data, "sources/research"), { recursive: true, force: true });

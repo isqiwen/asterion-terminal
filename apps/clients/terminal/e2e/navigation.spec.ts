@@ -37,7 +37,9 @@ test("four business modules preserve navigation without starting work", async ({
   // A module with one view shows no row of view tabs.
   await expect(page.getByRole("navigation", { name: "子模块视图" })).toHaveCount(0);
   await openView(page, "coverage");
-  await expect(page.getByRole("navigation", { name: "子模块视图" })).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "子模块视图" }).getByRole("button")).toHaveText(
+    ["概览", "覆盖", "浏览"],
+  );
   expect(
     methods.filter(
       ({ method, params }) =>
