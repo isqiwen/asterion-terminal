@@ -28,13 +28,11 @@ export const activeTask = (task: AcquisitionTask) =>
 export function Tasks({
   tasks,
   tableName,
-  canManage,
   older,
   refresh,
 }: {
   tasks: AcquisitionTask[];
   tableName: (table: number) => string;
-  canManage: boolean;
   older?: () => void;
   refresh: () => Promise<void>;
 }) {
@@ -90,7 +88,7 @@ export function Tasks({
                       ` · ${t("{count} 天尚无数据", { count: Number(task.itemsEmpty) })}`}
                   </td>
                   <td>
-                    {canManage && activeTask(task) && (
+                    {activeTask(task) && (
                       <button type="button" onClick={() => void cancel(request.id)}>
                         {t("取消")}
                       </button>

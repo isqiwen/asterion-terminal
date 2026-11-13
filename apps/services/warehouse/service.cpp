@@ -33,27 +33,24 @@ enum class Lane
     analysis
 };
 
-struct Route
-{
-    Lane lane;
-    bool manage = false;
-};
-
-Route route(const wire::Request& request)
+Lane lane(const wire::Request& request)
 {
     switch (request.call_case()) {
-        case wire::Request::kStartAcquisition:
-        case wire::Request::kCancelAcquisition:
-            return {Lane::reader, true};
         case wire::Request::kGetDatasetSummary:
         case wire::Request::kGetDatasetCoverage:
         case wire::Request::kGetTableRows:
         case wire::Request::kListDatasetVersions:
         case wire::Request::kCompareDatasetVersions:
-            return {Lane::analysis};
+            return Lane::analysis;
         default:
-            return {Lane::reader};
+            return Lane::reader;
     }
+}
+
+bool routine(const wire::Request& request)
+{
+    return request.call_case() != wire::Request::kStartAcquisition
+        && request.call_case() != wire::Request::kCancelAcquisition;
 }
 
 // Only `Error` and invalid-request messages reach the client; anything else is
@@ -77,7 +74,7 @@ wire::Response respond(const wire::Request& request, Fill&& fill)
     } catch (const std::exception& error) {
         fail(response, error);
     }
-    protocol::log_rpc_result("warehouse", request, response, !route(request).manage);
+    protocol::log_rpc_result("warehouse", request, response, routine(request));
     return response;
 }
 
@@ -152,8 +149,7 @@ void answer_reader(
     wire::Response& response,
     const std::filesystem::path& directory,
     acquisition::Manager& tasks,
-    std::int64_t started_ms,
-    bool can_manage)
+    std::int64_t started_ms)
 {
     const warehouse::Reader datasets(directory);
     switch (request.call_case()) {
@@ -193,7 +189,6 @@ void answer_reader(
             break;
         case wire::Request::kGetAcquisitionOptions:
             *response.mutable_get_acquisition_options() = tasks.options();
-            response.mutable_get_acquisition_options()->set_can_manage(can_manage);
             break;
         case wire::Request::kStartAcquisition:
             *response.mutable_start_acquisition() = tasks.submit(request.start_acquisition());
@@ -241,20 +236,14 @@ struct WarehouseService::Running
               })
     {}
 
-    Reply ask(ThreadPool& pool, wire::Request request, bool can_manage)
+    Reply ask(ThreadPool& pool, wire::Request request)
     {
         const auto id = request.id();
         auto promise = std::make_shared<std::promise<Message>>();
         auto result = promise->get_future();
-        pool.submit([this, request = std::move(request), promise, can_manage](std::stop_token) {
+        pool.submit([this, request = std::move(request), promise](std::stop_token) {
             promise->set_value(reply(respond(request, [&](wire::Response& out) {
-                answer_reader(
-                    request,
-                    out,
-                    settings.directory,
-                    acquisitions,
-                    started_ms,
-                    can_manage);
+                answer_reader(request, out, settings.directory, acquisitions, started_ms);
             })));
             service::wake_io_owner();
         });
@@ -268,7 +257,7 @@ WarehouseService::WarehouseService(Settings settings)
 
 WarehouseService::~WarehouseService() = default;
 
-WarehouseService::Reply WarehouseService::serve(std::string frame, std::optional<bool> can_manage)
+WarehouseService::Reply WarehouseService::serve(std::string frame, bool known)
 {
     wire::Request request;
     try {
@@ -279,15 +268,11 @@ WarehouseService::Reply WarehouseService::serve(std::string frame, std::optional
         protocol::validate_message(request);
         if (request.call_case() == wire::Request::CALL_NOT_SET)
             throw std::invalid_argument("missing market operation");
-        const auto [lane, manage] = route(request);
-        if (!can_manage || (manage && !*can_manage))
-            throw Error(
-                ErrorCode::permission_denied,
-                "Warehouse acquisition management permission is required");
+        if (!known)
+            throw Error(ErrorCode::permission_denied, "this client is not registered");
         return running_->ask(
-            lane == Lane::analysis ? running_->analysis : running_->readers,
-            std::move(request),
-            *can_manage);
+            lane(request) == Lane::analysis ? running_->analysis : running_->readers,
+            std::move(request));
     } catch (const std::exception& error) {
         wire::Response response;
         response.set_id(request.id());

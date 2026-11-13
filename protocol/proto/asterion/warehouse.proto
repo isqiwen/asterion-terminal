@@ -208,11 +208,10 @@ message MinuteMonth {
 
 // ---- Acquisition
 
-// What this client may ask Warehouse to acquire.
+// What Warehouse can acquire.
 message AcquisitionOptions {
-  bool can_manage = 1;
-  repeated Table tables = 2;
-  repeated string exchanges = 3;
+  repeated Table tables = 1;
+  repeated string exchanges = 2;
 }
 
 // The client chooses the id. Warehouse takes what it lacks from its sources in order

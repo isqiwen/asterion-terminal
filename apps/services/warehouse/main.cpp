@@ -56,11 +56,9 @@ int main(int argc, char** argv)
         Host host(
             transport,
             [&](const Host::Peer& peer, std::string frame) {
-                const auto client = settings.clients.find(peer.fingerprint);
                 return service->serve(
                     std::move(frame),
-                    client == settings.clients.end() ? std::nullopt
-                                                     : std::optional<bool>(client->second));
+                    settings.clients.contains(peer.fingerprint));
             },
             std::move(options),
             io_progress);

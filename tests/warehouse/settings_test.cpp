@@ -21,7 +21,7 @@ struct Installation
     // The settings file the installer writes for this installation.
     std::string configuration;
     static constexpr const char* template_text = R"({"bind":"0.0.0.0","port":7450,
-    "clients":[{"fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","role":"read"}],
+    "clients":[{"fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],
     "acquisition":{"exchanges":[],"tushare":null}})";
 
     Installation()
@@ -95,14 +95,13 @@ TEST(WarehouseSettings, ARefusalNamesTheFileItRefuses)
     EXPECT_FALSE(names(malformed, "private-config-marker"));
 }
 
-TEST(WarehouseSettings, ClientRolesAndHostOnlyProviderCredentialsAreExplicit)
+TEST(WarehouseSettings, ClientsAndHostOnlyProviderCredentialsAreExplicit)
 {
     Installation installation;
     auto config = nlohmann::json::parse(installation.configuration);
     const auto save = [&] {
         replace_file_durably(installation.file, config.dump());
     };
-    config["clients"][0]["role"] = "manage";
     config["acquisition"] = {
         {"exchanges", {"SHFE", "CZCE"}},
         {"tushare", {{"requests_per_minute", 23U}}}
@@ -114,7 +113,6 @@ TEST(WarehouseSettings, ClientRolesAndHostOnlyProviderCredentialsAreExplicit)
         installation.credentials / "asterion.warehouse.tushare.token",
         "fixture-token");
     auto settings = load_settings(installation.root, installation.credentials);
-    EXPECT_TRUE(settings.clients.at(std::string(64, 'a')));
     EXPECT_EQ(settings.tls.peers, (std::vector<std::string>{std::string(64, 'a')}));
     EXPECT_EQ(settings.tushare_token, "fixture-token");
     EXPECT_EQ(settings.tushare_requests_per_minute, 23U);
@@ -122,10 +120,6 @@ TEST(WarehouseSettings, ClientRolesAndHostOnlyProviderCredentialsAreExplicit)
     save();
     EXPECT_TRUE(names(installation.refusal(installation.credentials), "unknown key token"));
     config["acquisition"]["tushare"].erase("token");
-    config["clients"][0]["role"] = "admin";
-    save();
-    EXPECT_TRUE(names(installation.refusal(installation.credentials), "invalid role"));
-    config["clients"][0]["role"] = "read";
     config["clients"].push_back(config["clients"][0]);
     save();
     EXPECT_TRUE(names(installation.refusal(installation.credentials), "duplicate clients"));

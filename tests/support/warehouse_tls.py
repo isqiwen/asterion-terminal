@@ -26,8 +26,7 @@ def fingerprint(tls, name='server'):
 
 
 def clients(tls):
-    return [dict(fingerprint=fingerprint(tls, name), role=role)
-            for name, role in [('reader', 'read'), ('manager', 'manage')]]
+    return [dict(fingerprint=fingerprint(tls, name)) for name in ('reader', 'manager')]
 
 
 def connect(tls, port, name='reader', pin=None):

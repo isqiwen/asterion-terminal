@@ -56,8 +56,7 @@ configure() {
     ((port >= 1 && port <= 65535)) || fail "The port must be between 1 and 65535"
     previous=$(current data)
     data=$(ask "Data directory" "$previous" '^/[^[:space:]]*$')
-    clients=$(ask "Terminal fingerprints as <fingerprint>=read or <fingerprint>=manage (space separated)" \
-        "$(current clients)" '^([0-9A-Fa-f:]+=(read|manage))( [0-9A-Fa-f:]+=(read|manage))*$')
+    clients=$(ask "Terminal fingerprints (space separated)" "$(current clients)" '^[0-9A-Fa-f:[:space:]]+$')
     clients=$(pins "$clients")
     exchanges=$(current acquisition.exchanges)
     exchanges=$(ask "Public exchanges (- for none)" "${exchanges:--}" '^[A-Z[:space:]-]+$')
@@ -77,7 +76,7 @@ exchanges = [] if exchanges == "-" else exchanges.split()
 if len(set(exchanges)) != len(exchanges) or set(exchanges) - {"SHFE", "INE", "CZCE", "DCE", "CFFEX", "GFEX"}:
     raise SystemExit("setup: invalid or duplicate acquisition exchanges")
 settings = {"bind": bind, "port": int(port), "data": data,
-    "clients": [dict(zip(("fingerprint", "role"), item.split("="))) for item in clients.split()],
+    "clients": [{"fingerprint": pin} for pin in clients.split()],
     "acquisition": {"exchanges": exchanges, "tushare": {"requests_per_minute": int(budget)}}}
 with open(path, "w") as output:
     json.dump(settings, output, ensure_ascii=False, indent=2)
@@ -127,7 +126,7 @@ EOF
 
 setup() {
     install_or_configure "$1"
-    echo "Client roles and providers take effect after restart. Provider credentials stay on this host."
+    echo "Registered clients and providers take effect after restart. Provider credentials stay on this host."
     systemctl restart "$UNIT"
     echo "Restarted $UNIT. Logs in $ROOT/logs"
 }

@@ -129,7 +129,6 @@
   "任务 {id} · 请求 {count} 次": "Task {id} · {count} requests",
   "还没有采集任务。": "No acquisition tasks yet.",
   "{rows} 行": "{rows} rows",
-  "只读连接，不能采集或取消任务": "Read-only connection: cannot acquire or cancel tasks",
   "{count} 进行中": "{count} running",
   "仓库里还没有这张表。": "The warehouse holds none of this table yet.",
   "正在查看旧数据版本": "Viewing earlier data version",

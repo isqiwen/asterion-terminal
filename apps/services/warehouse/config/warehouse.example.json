@@ -4,8 +4,7 @@
   "data": "/srv/asterion-warehouse/data",
   "clients": [
     {
-      "fingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-      "role": "manage"
+      "fingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     }
   ],
   "acquisition": {

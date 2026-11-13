@@ -8,7 +8,7 @@ import { test, expect } from "./test";
 // Only the independently supervised test Warehouse gets this fixture. Lab's
 // directory stays absent: data browsing must work without starting Python.
 test(
-  "Warehouse data page reads the shared warehouse with read-only permissions and no live watch",
+  "Warehouse data page reads the shared warehouse with no live watch",
   { tag: "@journey" },
   async ({ page }) => {
     const source = resolve(__dirname, "../../../..");
@@ -26,8 +26,7 @@ test(
       await page.goto("/");
       await openView(page, "coverage");
       await rpc(page.request, "market.close");
-      await expect(page.getByText("只读连接，不能采集或取消任务", { exact: true })).toBeVisible();
-      await expect(page.getByRole("button", { name: "采集", exact: true })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "采集", exact: true })).toBeVisible();
       await expect(page.getByRole("rowheader", { name: "SHFE/rb", exact: true })).toBeVisible();
       await expect(page.getByRole("columnheader", { name: "2026-01", exact: true })).toBeVisible();
       await page.getByRole("button", { name: /^版本历史/ }).click();

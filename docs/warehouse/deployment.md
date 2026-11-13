@@ -13,9 +13,9 @@ sudo /opt/asterion/warehouse/bin/setup.sh     # 只修改配置
 
 - 主机开启时间同步（如 `systemd-timesyncd`）。理由：各来源按主机时钟的北京日期只采到前一天，时钟超前会把未结束的当日数据当作整天存入，之后不再重采。
 - 安装时写入并启用 `asterion-warehouse.service`：以执行 `sudo` 的账户运行，只能写 `logs/` 和数据目录，`Restart=always`。
-- 配置时依次询问监听地址、端口、数据目录（默认 `/opt/asterion/warehouse/data`，可以放到单独的磁盘），登记 Terminal 证书（Terminal 的“设置 → 关于”，写成 `<指纹>=read` 或 `<指纹>=manage`），选择交易所来源和 Tushare 每分钟请求数（默认 500），最后隐藏输入 Tushare token；已保存的 token 可以保留。
+- 配置时依次询问监听地址、端口、数据目录（默认 `/opt/asterion/warehouse/data`，可以放到单独的磁盘），登记 Terminal 证书指纹（Terminal 的“设置 → 关于”，多个用空格分隔），选择交易所来源和 Tushare 每分钟请求数（默认 500），最后隐藏输入 Tushare token；已保存的 token 可以保留。
 - 升级只替换程序，保留配置、TLS 身份、仓库和采集任务，随时可以重启，不影响行情和交易。
-- 安装时生成服务端证书 `config/tls/server.crt`，每次运行脚本都显示它的指纹，可直接粘贴到 Terminal。指纹是证书 DER 编码的 SHA-256，不是文件本身的哈希；不重启查看：`sudo /opt/asterion/warehouse/bin/setup.sh fingerprint`。权限修改在重启后生效。
+- 安装时生成服务端证书 `config/tls/server.crt`，每次运行脚本都显示它的指纹，可直接粘贴到 Terminal。指纹是证书 DER 编码的 SHA-256，不是文件本身的哈希；不重启查看：`sudo /opt/asterion/warehouse/bin/setup.sh fingerprint`。登记的指纹在重启后生效。
 
 ## 部署目录
 
@@ -73,7 +73,7 @@ Tushare token 由 `systemd-creds` 加密保存，不写入 `warehouse.json`。sy
   "bind": "0.0.0.0",
   "port": 7450,
   "data": "/opt/asterion/warehouse/data",
-  "clients": [{"fingerprint": "<客户端证书的 SHA-256 指纹>", "role": "manage"}],
+  "clients": [{"fingerprint": "<客户端证书的 SHA-256 指纹>"}],
   "acquisition": {"exchanges": ["SHFE", "INE", "CZCE", "DCE", "CFFEX", "GFEX"], "tushare": {"requests_per_minute": 500}}
 }
 ```
@@ -87,5 +87,5 @@ Tushare token 由 `systemd-creds` 加密保存，不写入 `warehouse.json`。sy
 ## 运行
 
 - systemd 直接启动 `/opt/asterion/warehouse/bin/asterion_warehouse`，程序自动定位旁边的配置，不需要传入 `--installation`。
-- 默认监听 `0.0.0.0:7450`；Terminal 和 Lab 通过双向 TLS 连接，客户端指纹与权限配置见 [Terminal 和 Lab 的连接](README.md#terminal-和-lab-的连接)。
+- 默认监听 `0.0.0.0:7450`；Terminal 和 Lab 通过双向 TLS 连接，客户端指纹登记见 [Terminal 和 Lab 的连接](README.md#terminal-和-lab-的连接)。
 - 收到 SIGTERM 后停止接收，结束后台任务再退出。

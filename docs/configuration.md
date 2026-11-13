@@ -34,7 +34,7 @@ Lab 的研究任务通过通信协议提交，没有单独的研究或任务配�
 | --- | --- |
 | `bind`、`port` | 服务监听地址和端口 |
 | `data` | 已存在的数据目录绝对路径 |
-| `clients[].fingerprint`、`role` | 客户端证书 SHA-256 指纹；`read` 只读，`manage` 可管理采集 |
+| `clients[].fingerprint` | 客户端证书 SHA-256 指纹；登记的客户端都能读取数据和管理采集 |
 | `acquisition.exchanges` | 开启日线采集的交易所列表，可为空 |
 | `acquisition.tushare` | `null` 表示关闭；开启时填写 `requests_per_minute`（1–500） |
 

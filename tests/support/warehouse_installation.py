@@ -57,8 +57,7 @@ def market_host(build, root, *, vendor=False, user="steady", also_trust=None):
         probe.bind(('127.0.0.1',0));port=probe.getsockname()[1]
     tls = warehouse_tls.prepare(root)
     (root/'config/market.json').write_text(json.dumps({'bind':'127.0.0.1','port':port, 'data':str(root/'data'),
-        'clients':[dict(fingerprint=c['fingerprint']) for c in warehouse_tls.clients(tls)]
-                  + ([dict(fingerprint=c['fingerprint']) for c in warehouse_tls.clients(also_trust)] if also_trust else []),
+        'clients':warehouse_tls.clients(tls) + (warehouse_tls.clients(also_trust) if also_trust else []),
         'counter':{'market_front':'tcp://127.0.0.1:1','trade_front':'tcp://127.0.0.1:1',
                    'broker':'test','user':user,'app_id':'app'}}))
     (root/'credentials/asterion.ctp.password').write_text('fixture-only-secret')

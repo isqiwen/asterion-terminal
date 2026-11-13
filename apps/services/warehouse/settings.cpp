@@ -97,19 +97,15 @@ Settings load_settings(const fs::path& root, const std::optional<fs::path>& cred
     if (!clients.is_array() || clients.empty() || clients.size() > 64)
         throw Error(ErrorCode::invalid_request, where + " needs 1-64 clients");
     for (const auto& client : clients) {
-        exact(client, {"fingerprint", "role"}, where);
-        const auto role = text(client, "role", where);
+        exact(client, {"fingerprint"}, where);
         std::string fingerprint;
         try {
             fingerprint = ipc::normalize_fingerprint(text(client, "fingerprint", where));
         } catch (...) {
             throw Error(ErrorCode::invalid_request, where + " has an invalid client fingerprint");
         }
-        if ((role != "read" && role != "manage")
-            || !result.clients.emplace(fingerprint, role == "manage").second)
-            throw Error(
-                ErrorCode::invalid_request,
-                where + " has duplicate clients or an invalid role");
+        if (!result.clients.insert(fingerprint).second)
+            throw Error(ErrorCode::invalid_request, where + " has duplicate clients");
         result.tls.peers.push_back(fingerprint);
     }
     const auto certificate = root / "config/tls/server.crt", key = root / "config/tls/server.key";

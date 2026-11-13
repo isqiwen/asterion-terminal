@@ -7,7 +7,7 @@
 | 连接 | 传输 | 身份 |
 | --- | --- | --- |
 | Terminal → Market | TCP + TLS 1.3 双向认证 | 双方证书指纹固定；行情主机登记 Terminal 的证书 |
-| Terminal → Warehouse、Lab → Warehouse | TCP + TLS 1.3 双向认证 | 双方证书指纹固定；Warehouse 按客户端证书授予 `read` 或 `manage` 权限 |
+| Terminal → Warehouse、Lab → Warehouse | TCP + TLS 1.3 双向认证 | 双方证书指纹固定 |
 | Terminal → Trading | TCP + TLS 1.3 双向认证 | 双方证书指纹固定；交易主机登记 Terminal 的证书 |
 | Terminal → Lab | 本机 Unix 套接字 | 套接字目录只有当前用户可读写 |
 | Trading → 策略进程 | 本机私有 Unix 套接字 | 由 Trading 启动的子进程 |
@@ -124,7 +124,7 @@ sequenceDiagram
 
 ## 8. Warehouse
 
-定义在 [warehouse.proto](../protocol/proto/asterion/warehouse.proto)。行为说明见 [Warehouse](warehouse/README.md)。除标明 `manage` 的操作外，只需要 `read` 权限。
+定义在 [warehouse.proto](../protocol/proto/asterion/warehouse.proto)。行为说明见 [Warehouse](warehouse/README.md)。
 
 | 操作 | 参数 | 结果 |
 | --- | --- | --- |
@@ -136,11 +136,11 @@ sequenceDiagram
 | `list_dataset_versions` | 分页游标 | 从当前版本往前的一页版本，每个都带与上一版相比新增、替换、删除的分区数 |
 | `compare_dataset_versions` | 两个版本 | 前者相比后者新增、替换、删除的分区数 |
 | `get_dataset_coverage` | 版本 | 品种 × 月份的日线天数和开市天数；合约 × 月份的分钟线天数 |
-| `get_acquisition_options` | — | 可采集的表和交易所，及当前证书能否管理 |
-| `start_acquisition` | 表，交易所和区间，或品种、合约和可选区间（`manage`） | 已接纳的任务 |
+| `get_acquisition_options` | — | 可采集的表和交易所 |
+| `start_acquisition` | 表，交易所和区间，或品种、合约和可选区间 | 已接纳的任务 |
 | `get_acquisition_task` | 任务 ID | 任务现状 |
 | `list_acquisition_tasks` | 分页游标 | 一页任务，新的在前，每页 20 个 |
-| `cancel_acquisition` | 任务 ID（`manage`） | 取消请求发出时的任务现状 |
+| `cancel_acquisition` | 任务 ID | 取消请求发出时的任务现状 |
 
 版本参数 `DatasetRef` 的 `version` 为空时表示当前版本；回复带回实际版本，后续分页和下载都使用这个版本。
 

@@ -108,21 +108,19 @@ for key in sys.argv[2].split("."):
         raise SystemExit
     value = value[key]
 if isinstance(value, list):
-    value = " ".join("=".join(map(str, item.values())) if isinstance(item, dict) else str(item) for item in value)
+    value = " ".join(item["fingerprint"] if isinstance(item, dict) else str(item) for item in value)
 print(value)' "$1" "$2" "$3"
 }
 
-# pins TEXT: the space-separated Terminal fingerprints, each optionally
-# followed by =SUFFIX, as 64 lowercase hex digits; 1-64 distinct ones.
+# pins TEXT: the space-separated Terminal fingerprints as 64 lowercase hex
+# digits; 1-64 distinct ones.
 pins() {
     local item pin result=() seen=" "
     for item in $1; do
-        pin=${item%%=*}
-        pin=${pin//:/}
+        pin=${item//:/}
         pin=${pin,,}
-        [[ $pin =~ ^[0-9a-f]{64}$ && $seen != *" $pin "* ]] || fail "Invalid or duplicate Terminal fingerprint: ${item%%=*}"
+        [[ $pin =~ ^[0-9a-f]{64}$ && $seen != *" $pin "* ]] || fail "Invalid or duplicate Terminal fingerprint: $item"
         seen+="$pin "
-        [[ $item == *=* ]] && pin+="=${item#*=}"
         result+=("$pin")
     done
     ((${#result[@]} >= 1 && ${#result[@]} <= 64)) || fail "Register 1-64 Terminal fingerprints"

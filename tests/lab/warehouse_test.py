@@ -17,9 +17,7 @@ source, build = Path(sys.argv.pop(1)), Path(sys.argv.pop(1))
 sys.path[:0] = [str(source / 'apps/services/lab'), str(build / 'generated-python'),
                str(build / 'engine-python'), str(source / 'tests/support'), str(Path(__file__).parent)]
 from asterion.lab_pb2 import Request
-from asterion import common_pb2 as common, warehouse_pb2 as market
 from asterion.common_pb2 import Period
-from asterion.warehouse_pb2 import Request as MarketRequest, Response as MarketResponse
 from asterion_lab.warehouse_client import Client, Dataset, Endpoint, WarehouseError
 from asterion_lab.service import Service
 from asterion_lab.runs import Runs
@@ -88,29 +86,8 @@ class RemoteResearch(unittest.TestCase):
             writer = Warehouse(self.data).writer()
             writer.put_rows('price_ticks/SHFE', 'price_ticks', [price_tick(symbol, tick)])
             return writer.commit().identity
-        def rpc(operation, role='reader', **values):
-            request = MarketRequest(id=1)
-            call = getattr(request, operation)
-            call.SetInParent()
-            call.CopyFrom(type(call)(**values))
-            payload = request.SerializeToString()
-            with warehouse_tls.connect(self.tls, self.port, role) as stream:
-                stream.sendall(len(payload).to_bytes(4, 'big') + payload)
-                def read(n):
-                    out = bytearray()
-                    while len(out) < n:
-                        chunk = stream.recv(n-len(out))
-                        self.assertTrue(chunk)
-                        out.extend(chunk)
-                    return bytes(out)
-                return MarketResponse.FromString(read(int.from_bytes(read(4), 'big')))
         left = Dataset(self.lab, history=self.warehouse)
         right = Dataset(self.node / 'second-lab', history=self.warehouse)
-        # Reading needs no permission to manage; starting a task does.
-        values = dict(id='denied', table=market.TABLE_PRICE_TICKS,
-                      first_day='2026-10-28', last_day='2026-10-28')
-        self.assertEqual(rpc('start_acquisition', **values).error.code,
-                         common.ERROR_CODE_PERMISSION_DENIED)
         identity = publish('1')
         sql = 'select price_tick from price_ticks'
         expected = [(Decimal('1'),)]

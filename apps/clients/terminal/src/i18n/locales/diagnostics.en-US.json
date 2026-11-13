@@ -243,7 +243,6 @@
   "risk policy is required": "A risk policy is required",
   "Warehouse replied with another operation": "Data service replied with another operation",
   "invalid coverage product cursor": "invalid coverage product cursor",
-  "Warehouse acquisition management permission is required": "Data service acquisition management permission is required",
   "stopping a strategy requires its instance id": "stopping a strategy requires its instance id",
   "strategy instance changed; inspect before stopping": "strategy instance changed; inspect before stopping",
   "Trading restarted; explicitly start a new strategy instance": "Trading restarted; explicitly start a new strategy instance",

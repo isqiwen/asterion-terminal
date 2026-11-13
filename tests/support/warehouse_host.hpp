@@ -51,9 +51,7 @@ struct WarehouseHost
             {"bind", "127.0.0.1"},
             {"port", port},
             {"data", (root / "data").string()},
-            {"clients",
-                {{{"fingerprint", reader_pin}, {"role", "read"}},
-                    {{"fingerprint", manager_pin}, {"role", "manage"}}}},
+            {"clients", {{{"fingerprint", reader_pin}}, {{"fingerprint", manager_pin}}}},
             {"acquisition", {{"exchanges", nlohmann::json::array()}, {"tushare", nullptr}}}
         };
         replace_file_durably(root / "config/warehouse.json", config.dump());

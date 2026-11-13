@@ -16,9 +16,8 @@ public:
     explicit WarehouseService(Settings settings);
     ~WarehouseService();
 
-    // One request frame from a client; `can_manage` is absent for an unknown
-    // certificate. Every call is answered where its route says.
-    Reply serve(std::string frame, std::optional<bool> can_manage);
+    // One request frame from a client; `known` says its certificate is registered.
+    Reply serve(std::string frame, bool known);
     void stop();
     std::shared_future<void> stopped() const;
 

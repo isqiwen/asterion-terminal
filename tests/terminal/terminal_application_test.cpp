@@ -585,8 +585,7 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
     {
         std::ifstream input(host.root / "config/warehouse.json");
         auto config = Json::parse(input);
-        config["clients"].push_back(
-            {{"fingerprint", identity.at("client_fingerprint")}, {"role", "read"}});
+        config["clients"].push_back({{"fingerprint", identity.at("client_fingerprint")}});
         config["acquisition"]["exchanges"] = {"SHFE", "GFEX"};
         replace_file_durably(host.root / "config/warehouse.json", config.dump());
     }
@@ -622,23 +621,11 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
         terminal::ApplicationTestAccess::submit(app, call({{"getDatasetVersion", Json::object()}}));
     const auto catalog = first.get();
     const auto& options = catalog.at("warehouse").at("getAcquisitionOptions");
-    EXPECT_FALSE(options.value("canManage", false));
     EXPECT_EQ(
         options.at("tables"),
         Json::array({"TABLE_DAILY", "TABLE_MINUTES", "TABLE_SETTLEMENT", "TABLE_PRICE_TICKS"}));
     EXPECT_EQ(options.at("exchanges"), Json::array({"GFEX", "SHFE"}));
     EXPECT_TRUE(second.get().at("warehouse").contains("getDatasetVersion"));
-    try {
-        app.dispatch(call(
-            {{"startAcquisition",
-                {{"id", "forbidden"},
-                    {"table", "TABLE_DAILY"},
-                    {"firstDay", "2026-10-30"},
-                    {"lastDay", "2026-10-30"}}}}));
-        FAIL() << "a read-only client started acquisition";
-    } catch (const Error& error) {
-        EXPECT_EQ(error.code(), ErrorCode::permission_denied);
-    }
     EXPECT_THROW(
         app.dispatch(request("market.call", {{"request", {{"streamQuotes", Json::object()}}}})),
         std::invalid_argument);

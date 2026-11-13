@@ -1006,7 +1006,7 @@ TEST_F(Acquisition, InvalidMinuteLabelsVolumesAndContractIdentityAreRejected)
 
 } // namespace
 
-TEST_F(Acquisition, RemoteManagementRequiresItsVerifiedCertificateAndSurvivesDisconnect)
+TEST_F(Acquisition, RemoteTasksAreSharedByRegisteredClientsAndSurviveDisconnect)
 {
     testing_support::WarehouseHost host(root);
     std::ifstream input(root / "config/warehouse.json");
@@ -1030,16 +1030,12 @@ TEST_F(Acquisition, RemoteManagementRequiresItsVerifiedCertificateAndSurvivesDis
     query.mutable_get_acquisition_options();
     const auto catalog = call("reader", query);
     ASSERT_TRUE(catalog.has_get_acquisition_options()) << catalog.DebugString();
-    EXPECT_FALSE(catalog.get_acquisition_options().can_manage());
     EXPECT_EQ(catalog.get_acquisition_options().tables_size(), 5);
-    EXPECT_TRUE(call("manager", query).get_acquisition_options().can_manage());
     auto* start = query.mutable_start_acquisition();
     *start = request("remote");
     // Future dates exercise real admission and persistence without provider traffic.
     start->set_first_day("9999-01-01");
     start->set_last_day("9999-01-01");
-    EXPECT_EQ(call("reader", query).error().code(), ::common::ERROR_CODE_PERMISSION_DENIED);
-    EXPECT_FALSE(fs::exists(root / "data/acquisition/remote.pb"));
     const auto admitted = call("manager", query);
     ASSERT_TRUE(admitted.has_start_acquisition()) << admitted.DebugString();
     EXPECT_EQ(call("manager", query).error().code(), ::common::ERROR_CODE_CONFLICT);
@@ -1054,8 +1050,7 @@ TEST_F(Acquisition, RemoteManagementRequiresItsVerifiedCertificateAndSurvivesDis
     EXPECT_EQ(observed.get_acquisition_task().state(), ac::wire::TASK_STATE_SUCCEEDED);
     EXPECT_EQ(observed.get_acquisition_task().requests_sent(), 0U);
     query.mutable_cancel_acquisition()->set_id("remote");
-    EXPECT_EQ(call("reader", query).error().code(), ::common::ERROR_CODE_PERMISSION_DENIED);
-    EXPECT_TRUE(call("manager", query).has_cancel_acquisition());
+    EXPECT_TRUE(call("reader", query).has_cancel_acquisition());
     // An unregistered identity and a wrong server pin fail before business admission.
     ipc::create_identity(root / "stranger.crt", root / "stranger.key", "unregistered test");
     query.mutable_get_status();

@@ -243,7 +243,6 @@
   "risk policy is required": "必须配置风控政策",
   "Warehouse replied with another operation": "数据服务 返回了其他操作的回复",
   "invalid coverage product cursor": "数据覆盖分页游标无效",
-  "Warehouse acquisition management permission is required": "此操作需要 数据服务 采集管理权限",
   "stopping a strategy requires its instance id": "停止策略必须指定实例 ID",
   "strategy instance changed; inspect before stopping": "策略实例已变化，请读取当前状态后再停止",
   "Trading restarted; explicitly start a new strategy instance": "Trading 已重启；须显式启动新策略实例。",

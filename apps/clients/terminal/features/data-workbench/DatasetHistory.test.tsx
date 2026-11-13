@@ -29,7 +29,7 @@ request.mockImplementation(
     const version = body.value.version || current;
     switch (body.case) {
       case "getAcquisitionOptions":
-        return { tables: [], exchanges: [], canManage: false };
+        return { tables: [], exchanges: [] };
       case "listDatasetVersions":
         return {
           versions: [

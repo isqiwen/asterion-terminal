@@ -134,7 +134,6 @@ function DataCoverage({
   opened: string;
   context: TerminalContext;
 }) {
-  const canManage = options.canManage;
   // The version shown; empty for the current one.
   const [viewed, setViewed] = useState(opened);
   const [latest, setLatest] = useState("");
@@ -227,7 +226,6 @@ function DataCoverage({
   const version = summary?.dataset?.version ?? "";
   const running = tasks.filter(activeTask).length;
   const acquires = typeof view === "number" && options.tables.includes(view);
-  const fills = canManage && acquires;
   const stats = (table: Table) => summary?.tables.find(item => item.table === table);
   const meta = (table: Table) => {
     const item = stats(table);
@@ -270,20 +268,17 @@ function DataCoverage({
         <section className="data-view" aria-label={viewName(view)}>
           <header>
             <h3>{viewName(view)}</h3>
-            {acquires &&
-              (canManage ? (
-                <button type="button" className="primary" onClick={() => setAcquiring({})}>
-                  {t("采集")}
-                </button>
-              ) : (
-                <span className="subtle">{t("只读连接，不能采集或取消任务")}</span>
-              ))}
+            {acquires && (
+              <button type="button" className="primary" onClick={() => setAcquiring({})}>
+                {t("采集")}
+              </button>
+            )}
           </header>
           {view === Table.DAILY ? (
             <DailyCoverage
               products={coverage?.products ?? []}
               onFill={
-                fills
+                acquires
                   ? (product, month) =>
                       setAcquiring({ instruments: [product], ...monthRange(month) })
                   : undefined
@@ -293,7 +288,7 @@ function DataCoverage({
             <MinuteCoverage
               contracts={coverage?.contracts ?? []}
               onFill={
-                fills
+                acquires
                   ? (contract, month) =>
                       setAcquiring({ instruments: [contract], ...monthRange(month) })
                   : undefined
@@ -314,7 +309,6 @@ function DataCoverage({
             <Tasks
               tasks={tasks}
               tableName={tableName}
-              canManage={canManage}
               refresh={refresh}
               older={
                 older

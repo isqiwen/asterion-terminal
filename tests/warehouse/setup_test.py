@@ -96,7 +96,7 @@ class Host:
 
 client_pin = 'a' * 64
 shipped = {'bind': '0.0.0.0', 'port': 7450,
-           'clients': [dict(fingerprint=client_pin, role='manage')],
+           'clients': [dict(fingerprint=client_pin)],
            'acquisition': {'exchanges': ['SHFE', 'INE', 'CZCE', 'DCE', 'CFFEX', 'GFEX'], 'tushare': {'requests_per_minute': 500}}}
 with tempfile.TemporaryDirectory() as folder:
     host = Host(folder)
@@ -104,7 +104,7 @@ with tempfile.TemporaryDirectory() as folder:
     # Install: the layout, the unit, then the settings (Enter keeps a default,
     # a bad port is asked again), then the first start.
     calls, result = host.run(release(folder, '1'),
-                             ['', 'abc', '7451', '', client_pin + '=manage', '', '', 'fixture-token'])
+                             ['', 'abc', '7451', '', client_pin, '', '', 'fixture-token'])
     assert 'Invalid value' in result.stderr, result.stderr
     assert sorted(p.name for p in host.root.iterdir()) == ['bin', 'config', 'data', 'logs']
     assert (host.root / 'bin/asterion_warehouse').read_text().endswith('1"\n')

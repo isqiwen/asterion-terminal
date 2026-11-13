@@ -41,11 +41,11 @@ const task = (id: string) =>
     state: TaskState.RUNNING,
     items: 1n,
   });
-function serve(canManage = true, tables = [Table.DAILY, Table.PRICE_TICKS]) {
+function serve(tables = [Table.DAILY, Table.PRICE_TICKS]) {
   request.mockImplementation(async (body: { case: string }) => {
     switch (body.case) {
       case "getAcquisitionOptions":
-        return { tables, exchanges: ["SHFE"], canManage };
+        return { tables, exchanges: ["SHFE"] };
       case "getDatasetSummary":
         return { tables: [] };
       case "listAcquisitionTasks":
@@ -96,21 +96,11 @@ test("clients choose no source, and market data also asks for its price ticks", 
   expect(props.trade).not.toHaveBeenCalled();
 });
 
-test("read-only clients see shared tasks but cannot start or cancel them", async () => {
-  serve(false);
-  render(<Coverage {...context()} />);
-  await screen.findByText("只读连接，不能采集或取消任务");
-  expect(screen.queryByRole("button", { name: "采集" })).toBeNull();
-  await showTasks();
-  await screen.findByRole("table", { name: "采集任务" });
-  expect(screen.queryByRole("button", { name: "取消" })).toBeNull();
-});
-
 test("coverage uses the summary's version and no form appears without a source", async () => {
   request.mockImplementation(async (body: { case: string; value: { afterId?: string } }) => {
     switch (body.case) {
       case "getAcquisitionOptions":
-        return { tables: [], exchanges: [], canManage: false };
+        return { tables: [], exchanges: [] };
       case "getDatasetSummary":
         return { dataset: { version: "fixed-version" }, tables: [] };
       case "getDatasetCoverage":
@@ -148,7 +138,7 @@ test("polls shared tasks even when this client has no active acquisition", async
   request.mockImplementation(async (body: { case: string }) => {
     switch (body.case) {
       case "getAcquisitionOptions":
-        return { tables: [Table.DAILY], exchanges: ["SHFE"], canManage: true };
+        return { tables: [Table.DAILY], exchanges: ["SHFE"] };
       case "getDatasetSummary":
         return { tables: [] };
       case "listAcquisitionTasks":
@@ -184,7 +174,7 @@ function serveCoverage() {
   request.mockImplementation(async (body: { case: string }) => {
     switch (body.case) {
       case "getAcquisitionOptions":
-        return { tables: [Table.DAILY, Table.MINUTES], exchanges: ["SHFE"], canManage: true };
+        return { tables: [Table.DAILY, Table.MINUTES], exchanges: ["SHFE"] };
       case "getDatasetSummary":
         return { dataset: { version: "v" }, tables: [] };
       case "getDatasetCoverage":
@@ -230,7 +220,7 @@ test("a minute acquisition of a whole product spans its contracts' listed lives"
 });
 
 test("daily bars of one contract ask for it and its price ticks, not its exchange", async () => {
-  serve(true, [Table.DAILY, Table.PRICE_TICKS]);
+  serve([Table.DAILY, Table.PRICE_TICKS]);
   render(<Coverage {...context()} />);
   const dialog = await openAcquisition();
   fireEvent.click(within(dialog).getByRole("radio", { name: "品种或合约" }));
@@ -297,7 +287,7 @@ test("each refresh reads one page of tasks; earlier ones are read on request", a
   request.mockImplementation(async (body: { case: string; value: { afterId?: string } }) => {
     switch (body.case) {
       case "getAcquisitionOptions":
-        return { tables: [Table.DAILY], exchanges: ["SHFE"], canManage: false };
+        return { tables: [Table.DAILY], exchanges: ["SHFE"] };
       case "getDatasetSummary":
         return { tables: [] };
       case "listAcquisitionTasks":

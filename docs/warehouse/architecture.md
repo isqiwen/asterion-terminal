@@ -29,13 +29,12 @@ flowchart LR
 
 ## 核心类关系
 
-RPC 接入负责收发帧；`Composer` 在自己的线程里更新统一数据。每个调用走哪条路径，只由 `service.cpp` 的 `route()` 决定。可能耗时的扫描单独排队，理由：Lab 下载和任务查询不等它们。
+RPC 接入负责收发帧；`Composer` 在自己的线程里更新统一数据。每个调用走哪条路径，只由 `service.cpp` 的 `lane()` 决定。可能耗时的扫描单独排队，理由：Lab 下载和任务查询不等它们。
 
-| 调用 | 路径 | 权限 |
-| --- | --- | --- |
-| `start_acquisition`、`cancel_acquisition` | 读取线程 | `manage` |
-| 摘要、覆盖、参考表、版本历史与比较 | 分析线程 | `read` |
-| 其余调用 | 读取线程 | `read` |
+| 调用 | 路径 |
+| --- | --- |
+| 摘要、覆盖、参考表、版本历史与比较 | 分析线程 |
+| 其余调用 | 读取线程 |
 
 来源适配器负责供应商数据转换，`Manager` 负责任务与提交，`Store` 负责固定版本。客户端看不到来源：协议只有一份数据集。来源按表返回记录（`records.hpp` 的 `DailyBar`、`Settlement` 等），每张表的列顺序只在 `records.cpp` 定义一次；`Manager` 写入前把记录转成行。理由：按位置拼行时字段写错位置，编译和入库都发现不了。
 
@@ -88,7 +87,6 @@ sequenceDiagram
     participant Writer
     participant Research as Composer
     Client->>RPC: start_acquisition
-    RPC->>RPC: 由已验证证书检查 manage 权限
     RPC->>Manager: submit(request)
     Manager->>Manager: 持久化 QUEUED 任务
     Manager-->>Client: 经 RPC 返回已接纳任务
@@ -129,7 +127,7 @@ sequenceDiagram
 
 | 顺序 | 入口 | 阅读目标 |
 | --- | --- | --- |
-| 1 | [main.cpp](../../apps/services/warehouse/main.cpp)、[settings.cpp](../../apps/services/warehouse/settings.cpp) | 配置、数据目录锁、TLS 身份、权限和停止流程 |
+| 1 | [main.cpp](../../apps/services/warehouse/main.cpp)、[settings.cpp](../../apps/services/warehouse/settings.cpp) | 配置、数据目录锁、TLS 身份和停止流程 |
 | 2 | [service.cpp](../../apps/services/warehouse/service.cpp) | 调用路径表 |
 | 3 | [manager.cpp](../../apps/services/warehouse/acquisition/manager.cpp)、[source.hpp](../../apps/services/warehouse/acquisition/source.hpp) | 来源扩展、任务生命周期与批量提交 |
 | 4 | [records.hpp](../../apps/services/warehouse/records.hpp)、[store.cpp](../../apps/services/warehouse/store.cpp)、[composition.cpp](../../apps/services/warehouse/composition.cpp)、[composer.cpp](../../apps/services/warehouse/composer.cpp) | 表结构、不可变版本、月度分片、来源合成 |
