@@ -13,7 +13,7 @@ sudo /opt/asterion/warehouse/bin/setup.sh     # 菜单：增删 Terminal、修�
 
 - 主机开启时间同步（如 `systemd-timesyncd`）。理由：各来源按主机时钟的北京日期只采到前一天，时钟超前会把未结束的当日数据当作整天存入，之后不再重采。
 - 安装时写入并启用 `asterion-warehouse.service`：以执行 `sudo` 的账户运行，只能写 `logs/` 和数据目录，`Restart=always`。
-- 安装时依次询问监听地址、端口、数据目录（默认 `/opt/asterion/warehouse/data`，可以放到单独的磁盘）、交易所来源和 Tushare 每分钟请求数（默认 500），再逐个粘贴 Terminal 证书指纹（Terminal 的“设置 → 关于”，直接回车结束），最后隐藏输入 Tushare token。
+- 安装时依次询问监听地址、端口、数据目录（默认 `/opt/asterion/warehouse/data`，可以放到单独的磁盘）、交易所来源、Tushare 每分钟请求数（默认 500）和每日自动更新时间（北京时间，默认 06:00，`-` 关闭），再逐个粘贴 Terminal 证书指纹（Terminal 的“设置 → 关于”，直接回车结束），最后隐藏输入 Tushare token。
 - 已安装后运行脚本进入菜单：显示服务状态、监听地址、本机证书指纹和已登记的 Terminal，可以添加或按编号删除 Terminal（至少保留一个），或修改其他配置。修改时每项预先填好当前值，输错只重问该项；保存前列出改动并确认，没有改动不保存；已保存的 token 可以保留。菜单里保存的改动在选“Done”时一起生效，只重启一次。
 - 升级只替换程序，保留配置、TLS 身份、仓库和采集任务，然后进入菜单；随时可以重启，不影响行情和交易。
 - 安装时生成服务端证书 `config/tls/server.crt`，每次运行脚本都显示它的指纹，可直接粘贴到 Terminal。指纹是证书 DER 编码的 SHA-256，不是文件本身的哈希；不重启查看：`sudo /opt/asterion/warehouse/bin/setup.sh fingerprint`。
@@ -75,12 +75,13 @@ Tushare token 由 `systemd-creds` 加密保存，不写入 `warehouse.json`。sy
   "port": 7450,
   "data": "/opt/asterion/warehouse/data",
   "clients": [{"fingerprint": "<客户端证书的 SHA-256 指纹>"}],
-  "acquisition": {"exchanges": ["SHFE", "INE", "CZCE", "DCE", "CFFEX", "GFEX"], "tushare": {"requests_per_minute": 500}}
+  "acquisition": {"exchanges": ["SHFE", "INE", "CZCE", "DCE", "CFFEX", "GFEX"], "tushare": {"requests_per_minute": 500}, "update_at": "06:00"}
 }
 ```
 
 - `data` 是仓库和采集任务所在的目录，必须是绝对路径。改目录请用 `setup.sh`：它创建新目录并允许服务写入；旧目录里的数据不搬动，要继续使用就先停服务再自己移过去。
 - `tushare.requests_per_minute` 是每分钟请求上限（1–500），`setup.sh` 默认 500；超过账户积分允许的频率时，Tushare 拒绝请求，采集任务以 `rate_limit` 失败，调低后重试。token 来自主机凭据 `asterion.warehouse.tushare.token`。合约表和交易日历只来自 Tushare，所以 `setup.sh` 总是开启它；`null` 只用于离线测试。
+- `update_at` 是每日自动更新的北京时间，`null` 关闭，见[自动更新](README.md#历史采集)。默认 06:00，理由：各来源只采到前一天，凌晨收盘后的夜盘已归入下一交易日，早上更新就能拿到昨天的全部数据。
 - `exchanges` 启用对应交易所的公开来源及[历史报价单位](README.md#历史最小变动价位)来源；非郑商所品种自动启用 `gtja`，无需额外凭据。
 - 缺少配置、TLS 文件或已启用来源的凭据时拒绝启动，并报告路径；多出不认识的键同样拒绝。
 - 默认日志在 `logs/asterion_warehouse_YYYY-MM-DD.log`，保留 30 天；输出方式由 `config/logging.json` 控制。默认关闭控制台日志，`journalctl -u asterion-warehouse -f` 用于查看服务启停和标准输出、错误，业务日志应读取日志文件。

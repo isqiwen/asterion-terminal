@@ -36,6 +36,7 @@ declare -Ar DEFAULTS=(
     [clients]=''
     [acquisition.exchanges]='SHFE INE CZCE DCE CFFEX GFEX'
     [acquisition.tushare.requests_per_minute]='500'
+    [acquisition.update_at]='06:00'
 )
 
 python() {
@@ -77,7 +78,7 @@ ask_exchanges() {
 # configure: asks for the settings other than the Terminals (those too on
 # install) and saves what changed.
 configure() {
-    local bind port data previous settings clients exchanges budget token='' encrypted_token=''
+    local bind port data previous settings clients exchanges budget update_at previous_update token='' encrypted_token=''
     CHANGES=()
     field bind "Listen address" bind '^[0-9A-Fa-f.:]+$'
     number_field port "Listen port" port 1 65535
@@ -88,6 +89,11 @@ configure() {
     [[ $exchanges != - ]] || exchanges=
     note "Public exchanges" "$(current acquisition.exchanges)" "$exchanges"
     number_field budget "Tushare requests per minute" acquisition.tushare.requests_per_minute 1 500
+    # Saved as null when off.
+    previous_update=$(current acquisition.update_at)
+    previous_update=${previous_update:--}
+    update_at=$(ask "Daily update, Beijing time (HH:MM, - for off)" "$previous_update" '^(([01][0-9]|2[0-3]):[0-5][0-9]|-)$')
+    note "Daily update" "$previous_update" "$update_at"
     clients=$(current clients)
     [[ -f $ROOT/$SETTINGS ]] || clients=$(add_pins)
     if ! [[ -f $CREDENTIALS/asterion.warehouse.tushare.token ]] || ! confirm "Keep the saved Tushare token?" y; then
@@ -104,13 +110,14 @@ configure() {
     stage settings "$ROOT/$SETTINGS"
     python -I -c '
 import json, sys
-path, bind, port, data, clients, exchanges, budget = sys.argv[1:]
+path, bind, port, data, clients, exchanges, budget, update_at = sys.argv[1:]
 settings = {"bind": bind, "port": int(port), "data": data,
     "clients": [{"fingerprint": pin} for pin in clients.split()],
-    "acquisition": {"exchanges": exchanges.split(), "tushare": {"requests_per_minute": int(budget)}}}
+    "acquisition": {"exchanges": exchanges.split(), "tushare": {"requests_per_minute": int(budget)},
+        "update_at": None if update_at == "-" else update_at}}
 with open(path, "w") as output:
     json.dump(settings, output, ensure_ascii=False, indent=2)
-    output.write("\n")' "$settings" "$bind" "$port" "$data" "$clients" "$exchanges" "$budget"
+    output.write("\n")' "$settings" "$bind" "$port" "$data" "$clients" "$exchanges" "$budget" "$update_at"
     private "$settings"
     [[ -z $token ]] || seal encrypted_token "$CREDENTIALS/asterion.warehouse.tushare.token" asterion.warehouse.tushare.token "$token"
     token=''

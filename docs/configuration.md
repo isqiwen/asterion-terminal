@@ -37,6 +37,7 @@ Lab 的研究任务通过通信协议提交，没有单独的研究或任务配�
 | `clients[].fingerprint` | 客户端证书 SHA-256 指纹；登记的客户端都能读取数据和管理采集 |
 | `acquisition.exchanges` | 开启日线采集的交易所列表，可为空 |
 | `acquisition.tushare` | `null` 表示关闭；开启时填写 `requests_per_minute`（1–500） |
+| `acquisition.update_at` | 每日自动更新的北京时间 `HH:MM`，`null` 表示关闭 |
 
 Warehouse 不连接柜台，也没有 CTP 凭据。开启 Tushare 后，服务从 systemd 凭据目录读取 `asterion.warehouse.tushare.token`，token 不写在 JSON 里。
 

@@ -11,6 +11,7 @@
     "exchanges": ["SHFE", "INE", "CZCE", "DCE", "CFFEX", "GFEX"],
     "tushare": {
       "requests_per_minute": 500
-    }
+    },
+    "update_at": "06:00"
   }
 }

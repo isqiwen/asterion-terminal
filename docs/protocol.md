@@ -141,6 +141,7 @@ sequenceDiagram
 | `get_acquisition_task` | 任务 ID | 任务现状 |
 | `list_acquisition_tasks` | 分页游标 | 一页任务，新的在前，每页 20 个 |
 | `cancel_acquisition` | 任务 ID | 取消请求发出时的任务现状 |
+| `start_update` | — | 为每张已采集的表提交补到昨天的任务，已有等待或运行中任务的表跳过；返回已接纳的任务 |
 
 版本参数 `DatasetRef` 的 `version` 为空时表示当前版本；回复带回实际版本，后续分页和下载都使用这个版本。
 

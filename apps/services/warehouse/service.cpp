@@ -4,14 +4,17 @@
 #include "acquisition/manager.hpp"
 #include "acquisition/sina.hpp"
 #include "acquisition/tushare.hpp"
+#include "acquisition/update.hpp"
 #include "composer.hpp"
 #include "reader.hpp"
 #include "composition.hpp"
+#include "freshness.hpp"
 #include <asterion/version.hpp>
 #include <asterion/protocol/common.hpp>
 #include <asterion/protocol/rpc_diagnostics.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <asterion/system/log.hpp>
+#include <condition_variable>
 #include <thread>
 
 namespace asterion::warehouse {
@@ -24,7 +27,7 @@ using Reply = service::RpcHost::Reply;
 
 namespace {
 
-// Where a call is answered and whether it needs the `manage` permission.
+// Where a call is answered.
 enum class Lane
 {
     // Quick lookups and file chunks.
@@ -41,6 +44,7 @@ Lane lane(const wire::Request& request)
         case wire::Request::kGetTableRows:
         case wire::Request::kListDatasetVersions:
         case wire::Request::kCompareDatasetVersions:
+        case wire::Request::kStartUpdate:
             return Lane::analysis;
         default:
             return Lane::reader;
@@ -50,7 +54,8 @@ Lane lane(const wire::Request& request)
 bool routine(const wire::Request& request)
 {
     return request.call_case() != wire::Request::kStartAcquisition
-        && request.call_case() != wire::Request::kCancelAcquisition;
+        && request.call_case() != wire::Request::kCancelAcquisition
+        && request.call_case() != wire::Request::kStartUpdate;
 }
 
 // Only `Error` and invalid-request messages reach the client; anything else is
@@ -144,6 +149,32 @@ std::map<std::string, acquisition::Factory> sources(const Settings& settings)
     return result;
 }
 
+// Submits the update's acquisitions, leaving out tables with a task in progress.
+wire::AcquisitionTasks update(const std::filesystem::path& directory, acquisition::Manager& tasks)
+{
+    // The daily update and a client's can coincide; neither may add a table's task twice.
+    static std::mutex updating;
+    std::lock_guard lock(updating);
+    const auto prefix = "update-"
+        + std::to_string(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch())
+                .count());
+    wire::AcquisitionTasks result;
+    for (auto& request : acquisition::update_requests(directory, yesterday(), prefix))
+        if (!tasks.busy(request.table()))
+            *result.add_tasks() = tasks.submit(std::move(request));
+    return result;
+}
+
+// The next time of day `at` in Beijing after now.
+std::chrono::system_clock::time_point next(std::chrono::minutes at)
+{
+    const auto now = std::chrono::system_clock::now();
+    const auto midnight = std::chrono::floor<std::chrono::days>(now + 8h) - 8h;
+    return midnight + at > now ? midnight + at : midnight + std::chrono::days{1} + at;
+}
+
 void answer_reader(
     const wire::Request& request,
     wire::Response& response,
@@ -205,6 +236,9 @@ void answer_reader(
             tasks.cancel(request.cancel_acquisition().id());
             *response.mutable_cancel_acquisition() = tasks.get(request.cancel_acquisition().id());
             break;
+        case wire::Request::kStartUpdate:
+            *response.mutable_start_update() = update(directory, tasks);
+            break;
         default:
             break;
     }
@@ -224,6 +258,8 @@ struct WarehouseService::Running
     std::promise<void> completion;
     std::shared_future<void> stopped = completion.get_future().share();
     std::jthread closing;
+    // Last, so it stops before the acquisitions it submits to.
+    std::jthread daily;
 
     explicit Running(Settings settings)
         : settings(std::move(settings)),
@@ -234,7 +270,23 @@ struct WarehouseService::Running
               [this](const auto& committed) {
                   composer.request(committed);
               })
-    {}
+    {
+        if (this->settings.update_at)
+            daily = std::jthread([this](std::stop_token stop) {
+                std::mutex mutex;
+                std::condition_variable_any wake;
+                std::unique_lock lock(mutex);
+                while (!wake.wait_until(lock, stop, next(*this->settings.update_at), [] {
+                    return false;
+                }) && !stop.stop_requested())
+                    try {
+                        const auto tasks = update(this->settings.directory, acquisitions);
+                        log::info("daily update submitted {} tasks", tasks.tasks_size());
+                    } catch (const std::exception& error) {
+                        log::error("daily update failed: {}", error.what());
+                    }
+            });
+    }
 
     Reply ask(ThreadPool& pool, wire::Request request)
     {
@@ -287,6 +339,7 @@ void WarehouseService::stop()
     if (running_->closing.joinable())
         return;
     // Tasks may take a while to notice; the I/O owner keeps serving meanwhile.
+    running_->daily.request_stop();
     running_->closing = std::jthread([running = running_.get()] {
         running->acquisitions.stop();
         running->composer.stop();

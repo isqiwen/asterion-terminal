@@ -2,6 +2,7 @@
 #include <asterion/base/error.hpp>
 #include <asterion/base/serialization.hpp>
 #include <fstream>
+#include <regex>
 #include <set>
 #include <algorithm>
 
@@ -117,7 +118,15 @@ Settings load_settings(const fs::path& root, const std::optional<fs::path>& cred
     result.tls.certificate_file = certificate.string();
     result.tls.private_key_file = key.string();
     const auto& acquisition = document.at("acquisition");
-    exact(acquisition, {"exchanges", "tushare"}, where);
+    exact(acquisition, {"exchanges", "tushare", "update_at"}, where);
+    if (const auto& at = acquisition.at("update_at"); !at.is_null()) {
+        static const std::regex clock("([01][0-9]|2[0-3]):[0-5][0-9]");
+        const auto text = at.is_string() ? at.get<std::string>() : std::string{};
+        if (!std::regex_match(text, clock))
+            throw Error(ErrorCode::invalid_request, where + " needs update_at as HH:MM or null");
+        result.update_at = std::chrono::hours(std::stoi(text.substr(0, 2)))
+            + std::chrono::minutes(std::stoi(text.substr(3)));
+    }
     const auto& exchanges = acquisition.at("exchanges");
     if (!exchanges.is_array() || exchanges.size() > 6)
         throw Error(ErrorCode::invalid_request, where + " needs up to six acquisition exchanges");

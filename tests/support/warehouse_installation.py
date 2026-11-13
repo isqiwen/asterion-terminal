@@ -34,7 +34,7 @@ def warehouse_host(build, root, *, exchanges=()):
     tls = warehouse_tls.prepare(root)
     (root/'config/warehouse.json').write_text(json.dumps({'bind':'127.0.0.1','port':port, 'data':str(root/'data'),
         'clients':warehouse_tls.clients(tls),
-        'acquisition':{'exchanges':list(exchanges),'tushare':None}}))
+        'acquisition':{'exchanges':list(exchanges),'tushare':None,'update_at':None}}))
     with running(root, port, 'asterion_warehouse') as process:
         yield port
         assert process.poll() is None, "a client stopped the independent Warehouse"

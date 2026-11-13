@@ -22,6 +22,9 @@ message Request {
     TaskId get_acquisition_task = 32;
     ListAcquisitionTasks list_acquisition_tasks = 33;
     TaskId cancel_acquisition = 34;
+    // Acquisitions that bring each acquired table to yesterday's trading day;
+    // a table with a queued or running task is left out.
+    common.Empty start_update = 35;
   }
 }
 
@@ -44,6 +47,8 @@ message Response {
     AcquisitionTask get_acquisition_task = 32;
     AcquisitionTasks list_acquisition_tasks = 33;
     AcquisitionTask cancel_acquisition = 34;
+    // The admitted tasks; none when every table is up to date or busy.
+    AcquisitionTasks start_update = 35;
   }
 }
 

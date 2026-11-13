@@ -393,6 +393,14 @@ wire::AcquisitionTasks Manager::list(const wire::ListAcquisitionTasks& query) co
     return result;
 }
 
+bool Manager::busy(wire::Table table) const
+{
+    std::lock_guard lock(mutex_);
+    return std::any_of(active_.begin(), active_.end(), [&](const auto& entry) {
+        return entry.second->task.request().table() == table && pending(entry.second->task);
+    });
+}
+
 void Manager::cancel(const std::string& id)
 {
     require_id(id);

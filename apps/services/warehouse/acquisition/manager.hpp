@@ -27,6 +27,8 @@ public:
     wire::AcquisitionTask get(const std::string& id) const;
     wire::AcquisitionTasks list(const wire::ListAcquisitionTasks&) const;
     wire::AcquisitionOptions options() const;
+    // Whether a task of this table is queued or running.
+    bool busy(wire::Table) const;
     void stop();
 
 private:

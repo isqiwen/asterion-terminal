@@ -22,7 +22,7 @@ struct Installation
     std::string configuration;
     static constexpr const char* template_text = R"({"bind":"0.0.0.0","port":7450,
     "clients":[{"fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],
-    "acquisition":{"exchanges":[],"tushare":null}})";
+    "acquisition":{"exchanges":[],"tushare":null,"update_at":null}})";
 
     Installation()
     {
@@ -104,7 +104,8 @@ TEST(WarehouseSettings, ClientsAndHostOnlyProviderCredentialsAreExplicit)
     };
     config["acquisition"] = {
         {"exchanges", {"SHFE", "CZCE"}},
-        {"tushare", {{"requests_per_minute", 23U}}}
+        {"tushare", {{"requests_per_minute", 23U}}},
+        {"update_at", "06:30"}
     };
     save();
     EXPECT_TRUE(
@@ -116,10 +117,15 @@ TEST(WarehouseSettings, ClientsAndHostOnlyProviderCredentialsAreExplicit)
     EXPECT_EQ(settings.tls.peers, (std::vector<std::string>{std::string(64, 'a')}));
     EXPECT_EQ(settings.tushare_token, "fixture-token");
     EXPECT_EQ(settings.tushare_requests_per_minute, 23U);
+    EXPECT_EQ(settings.update_at, std::chrono::minutes(6 * 60 + 30));
     config["acquisition"]["tushare"]["token"] = "must-not-be-in-config";
     save();
     EXPECT_TRUE(names(installation.refusal(installation.credentials), "unknown key token"));
     config["acquisition"]["tushare"].erase("token");
+    config["acquisition"]["update_at"] = "6:30";
+    save();
+    EXPECT_TRUE(names(installation.refusal(installation.credentials), "update_at as HH:MM"));
+    config["acquisition"]["update_at"] = nullptr;
     config["clients"].push_back(config["clients"][0]);
     save();
     EXPECT_TRUE(names(installation.refusal(installation.credentials), "duplicate clients"));
@@ -127,7 +133,9 @@ TEST(WarehouseSettings, ClientsAndHostOnlyProviderCredentialsAreExplicit)
     config["acquisition"]["tushare"] = nullptr;
     save();
     fs::remove(installation.credentials / "asterion.warehouse.tushare.token");
-    EXPECT_TRUE(load_settings(installation.root, installation.credentials).tushare_token.empty());
+    settings = load_settings(installation.root, installation.credentials);
+    EXPECT_TRUE(settings.tushare_token.empty());
+    EXPECT_FALSE(settings.update_at);
     config["acquisition"]["exchanges"] = {"SHFE", "SHFE"};
     save();
     EXPECT_TRUE(

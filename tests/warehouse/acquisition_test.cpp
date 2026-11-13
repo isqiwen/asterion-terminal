@@ -1,6 +1,7 @@
 #include "acquisition/tushare.hpp"
 #include "composition.hpp"
 #include "acquisition/manager.hpp"
+#include "acquisition/update.hpp"
 #include "support/warehouse_host.hpp"
 #include "support/timing.hpp"
 #include <asterion/warehouse.pb.h>
@@ -1005,6 +1006,52 @@ TEST_F(Acquisition, InvalidMinuteLabelsVolumesAndContractIdentityAreRejected)
 }
 
 } // namespace
+
+TEST_F(Acquisition, AnUpdateBringsEachAcquiredTableToYesterday)
+{
+    wh::Store research(wh::source_directory(root, "research"), "research");
+    auto writer = research.writer();
+    std::vector<wh::CalendarDay> calendar;
+    for (const auto* day : {"2026-10-28", "2026-10-29", "2026-10-30"})
+        calendar.push_back({"SHFE", day, true, {}});
+    writer.put("calendar/SHFE/2026", wh::rows(calendar));
+    wh::Contract listed{.exchange = "SHFE", .contract = "SHFE/rb/2027-01", .product = "rb"};
+    listed.list_date = "2026-01-16";
+    listed.delist_date = "2027-01-15";
+    writer.put("contracts/SHFE", wh::rows(std::vector{listed}));
+    writer.put(
+        "daily/SHFE/2026-10-28",
+        wh::rows(std::vector<wh::DailyBar>{{"SHFE", "rb", "SHFE/rb/2027-01", "2026-10-28"}}));
+    writer.put(
+        "settlement/SHFE/2026-10-30",
+        wh::rows(std::vector<wh::Settlement>{{"SHFE", "rb", "SHFE/rb/2027-01", "2026-10-30"}}));
+    writer.put(
+        "minutes/SHFE/2026-10-29/rb/2027-01",
+        wh::rows(std::vector<wh::MinuteBar>{{"SHFE", "rb", "SHFE/rb/2027-01", "2026-10-29"}}));
+    writer.commit();
+
+    // Daily and minutes end before the last open day; settlement is current and
+    // price ticks were never acquired.
+    auto requests = ac::update_requests(root, "2026-10-30", "update-1");
+    ASSERT_EQ(requests.size(), 2);
+    EXPECT_EQ(requests[0].id(), "update-1-daily");
+    EXPECT_EQ(requests[0].table(), ac::wire::TABLE_DAILY);
+    EXPECT_EQ(requests[0].first_day(), "2026-10-29");
+    EXPECT_EQ(requests[0].last_day(), "2026-10-30");
+    EXPECT_EQ(
+        std::vector<std::string>(requests[0].exchanges().begin(), requests[0].exchanges().end()),
+        std::vector<std::string>{"SHFE"});
+    EXPECT_EQ(requests[1].table(), ac::wire::TABLE_MINUTES);
+    EXPECT_EQ(requests[1].first_day(), "2026-10-30");
+    EXPECT_TRUE(requests[1].last_day().empty());
+    EXPECT_EQ(requests[1].instruments(0), "SHFE/rb/2027-01");
+    // A new year without its calendar asks for the calendar first.
+    requests = ac::update_requests(root, "2027-01-04", "update-2");
+    ASSERT_EQ(requests.size(), 3);
+    EXPECT_EQ(requests[0].table(), ac::wire::TABLE_CALENDAR);
+    EXPECT_EQ(requests[0].exchanges(0), "SHFE");
+    EXPECT_EQ(requests[0].first_day(), "2027-01-04");
+}
 
 TEST_F(Acquisition, RemoteTasksAreSharedByRegisteredClientsAndSurviveDisconnect)
 {

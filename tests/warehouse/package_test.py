@@ -93,7 +93,7 @@ def main():
             port = probe.getsockname()[1]
         # The container mounts the installation at /market.
         (root / 'config/warehouse.json').write_text(json.dumps(dict(bind='127.0.0.1', port=port,
-            data='/market/data', clients=warehouse_tls.clients(tls), acquisition=dict(exchanges=[], tushare=None))))
+            data='/market/data', clients=warehouse_tls.clients(tls), acquisition=dict(exchanges=[], tushare=None, update_at=None))))
         with running(root, port):
             dataset = dict(version=fixed)
             def published():

@@ -97,14 +97,14 @@ class Host:
 client_pin = 'a' * 64
 shipped = {'bind': '0.0.0.0', 'port': 7450,
            'clients': [dict(fingerprint=client_pin)],
-           'acquisition': {'exchanges': ['SHFE', 'INE', 'CZCE', 'DCE', 'CFFEX', 'GFEX'], 'tushare': {'requests_per_minute': 500}}}
+           'acquisition': {'exchanges': ['SHFE', 'INE', 'CZCE', 'DCE', 'CFFEX', 'GFEX'], 'tushare': {'requests_per_minute': 500}, 'update_at': '06:00'}}
 with tempfile.TemporaryDirectory() as folder:
     host = Host(folder)
 
     # Install: the layout, the unit, then the settings (Enter keeps a default,
     # a bad port is asked again), the Terminals, then the first start.
     calls, result = host.run(release(folder, '1'),
-                             ['', 'abc', '7451', '', '', '', client_pin, '', 'fixture-token'])
+                             ['', 'abc', '7451', '', '', '', '', client_pin, '', 'fixture-token'])
     assert 'Invalid value' in result.stderr, result.stderr
     assert sorted(p.name for p in host.root.iterdir()) == ['bin', 'config', 'data', 'logs']
     assert (host.root / 'bin/asterion_warehouse').read_text().endswith('1"\n')
@@ -169,8 +169,10 @@ with tempfile.TemporaryDirectory() as folder:
     # made for the service and becomes writable; the old data is not moved.
     disk = host.folder / 'disk/market-data'
     calls, result = host.run(host.root / 'bin/setup.sh',
-                             ['3', '', '', str(disk), '', '', 'n', 'second-token', ''])
+                             ['3', '', '', str(disk), '', '', '-', 'n', 'second-token', ''])
     assert f'Data directory: {host.root}/data -> {disk}' in result.stdout, result.stdout
+    assert 'Daily update: 06:00 -> -' in result.stdout, result.stdout
+    assert host.settings()['acquisition']['update_at'] is None
     assert host.settings()['port'] == 7999
     assert host.settings()['data'] == str(disk)
     assert disk.is_dir() and any(call.startswith('chown ') and call.endswith(f': {disk}')
@@ -185,7 +187,7 @@ with tempfile.TemporaryDirectory() as folder:
     assert calls[-1] == 'systemctl restart asterion-warehouse.service', calls
     # Enter keeps every value and the saved token: nothing is saved or restarted.
     before = (host.root / 'config/warehouse.json').read_bytes()
-    calls, result = host.run(host.root / 'bin/setup.sh', ['3'] + [''] * 6)
+    calls, result = host.run(host.root / 'bin/setup.sh', ['3'] + [''] * 7)
     assert 'No changes.' in result.stdout, result.stdout
     assert not host.secrets.exists()
     assert (host.root / 'config/warehouse.json').read_bytes() == before

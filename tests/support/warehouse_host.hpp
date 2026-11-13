@@ -52,7 +52,10 @@ struct WarehouseHost
             {"port", port},
             {"data", (root / "data").string()},
             {"clients", {{{"fingerprint", reader_pin}}, {{"fingerprint", manager_pin}}}},
-            {"acquisition", {{"exchanges", nlohmann::json::array()}, {"tushare", nullptr}}}
+            {"acquisition",
+                {{"exchanges", nlohmann::json::array()},
+                    {"tushare", nullptr},
+                    {"update_at", nullptr}}}
         };
         replace_file_durably(root / "config/warehouse.json", config.dump());
     }

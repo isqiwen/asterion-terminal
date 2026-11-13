@@ -152,8 +152,9 @@ confirm() {
 }
 
 # setting FILE KEY DEFAULT: the dotted KEY of a JSON settings FILE, or DEFAULT
-# when the file or the key is missing. A list prints space separated, a
-# client in it as its fingerprint.
+# when the file, the key or an object on its way is missing or null; a null
+# value prints empty. A list prints space separated, a client in it as its
+# fingerprint.
 setting() {
     if [[ ! -f $1 ]]; then
         printf '%s' "$3"
@@ -162,12 +163,15 @@ setting() {
     python -I -c '
 import json, sys
 value = json.load(open(sys.argv[1]))
-for key in sys.argv[2].split("."):
-    if not isinstance(value, dict) or key not in value or value[key] is None:
+keys = sys.argv[2].split(".")
+for at, key in enumerate(keys):
+    if not isinstance(value, dict) or key not in value or (value[key] is None and at < len(keys) - 1):
         print(sys.argv[3])
         raise SystemExit
     value = value[key]
-if isinstance(value, list):
+if value is None:
+    value = ""
+elif isinstance(value, list):
     value = " ".join(item["fingerprint"] if isinstance(item, dict) else str(item) for item in value)
 print(value)' "$1" "$2" "$3"
 }

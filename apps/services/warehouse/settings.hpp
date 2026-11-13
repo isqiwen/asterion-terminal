@@ -1,4 +1,5 @@
 #pragma once
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -21,6 +22,8 @@ struct Settings
     std::vector<std::string> exchanges;
     std::string tushare_token;
     unsigned tushare_requests_per_minute = 0;
+    // Beijing time of day for the daily update; none when it is off.
+    std::optional<std::chrono::minutes> update_at;
 };
 
 Settings load_settings(
