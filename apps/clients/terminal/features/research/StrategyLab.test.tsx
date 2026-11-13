@@ -4,12 +4,7 @@ import { EditorView } from "codemirror";
 import { expect, test, vi } from "vitest";
 import { lab } from "../../src/bridge/lab";
 import type { TerminalContext } from "../../src/host/feature-registry";
-import {
-  RunState,
-  RunsSchema,
-  SourceSchema,
-  StrategiesSchema,
-} from "../../src/generated/asterion/lab_pb";
+import { RunsSchema, SourceSchema, StrategiesSchema } from "../../src/generated/asterion/lab_pb";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "../../src/host/workspace/drafts";
 import { StrategyLab } from "./StrategyLab";
 
@@ -25,7 +20,7 @@ vi.mock("@asterion/terminal/charts/PriceChart", () => ({ PriceChart: () => null 
 
 const editor = () => EditorView.findFromDOM(document.querySelector(".cm-editor") as HTMLElement)!;
 
-test("an unsaved edit survives the result and is saved before the run reads it", async () => {
+test("an unsaved edit is saved before the run reads it, and the run opens its report", async () => {
   const files: Record<string, string> = { "strategies/once.py": "LOTS = 1\n" };
   const order: string[] = [];
   vi.mocked(lab).mockImplementation(async operation => {
@@ -63,20 +58,14 @@ test("an unsaved edit survives the result and is saved before the run reads it",
   });
   fireEvent.click(screen.getByRole("button", { name: "运行" }));
 
-  // The run shows its result; the edit was saved first and the run read it.
+  // The edit was saved first and the run read it; its report opens in the runs view.
   await screen.findByText("已保存 {files} strategies/once.py");
   expect(order).toEqual(["saved LOTS = 2\n", "ran with LOTS = 2\n"]);
-  await waitFor(() => expect(document.querySelector(".cm-editor")).toBeNull());
-  fireEvent.click(screen.getByRole("button", { name: "代码" }));
-  await waitFor(() => expect(editor().state.doc.toString()).toBe("LOTS = 2\n"));
-
-  // An edit left unsaved is still there after the result and back.
-  editor().dispatch({ changes: { from: 7, to: 8, insert: "3" } });
-  fireEvent.click(screen.getByRole("button", { name: "结果" }));
-  fireEvent.click(screen.getByRole("button", { name: "代码" }));
-  await waitFor(() => expect(editor().state.doc.toString()).toBe("LOTS = 3\n"));
-  expect(screen.getByRole("button", { name: "保存" }).hasAttribute("disabled")).toBe(false);
-  expect(files["strategies/once.py"]).toBe("LOTS = 2\n");
+  expect(context.navigate).toHaveBeenCalledWith("workspace.lab-runs", {
+    params: { run: expect.stringMatching(/^once-/) },
+  });
+  // The code stays open for the next edit.
+  expect(editor().state.doc.toString()).toBe("LOTS = 2\n");
 });
 
 test("the run configuration folds away to give the result the width", async () => {
@@ -98,29 +87,4 @@ test("the run configuration folds away to give the result the width", async () =
   expect(screen.queryByText("先选择一个策略。")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "展开配置" }));
   expect(screen.getByText("先选择一个策略。")).toBeTruthy();
-});
-
-test("a run is deleted only on the second click", async () => {
-  vi.mocked(lab).mockReset();
-  vi.mocked(lab).mockImplementation(async operation =>
-    operation?.case === "listStrategies"
-      ? (create(StrategiesSchema, { strategies: [] }) as never)
-      : operation?.case === "listRuns"
-        ? (create(RunsSchema, {
-            runs: [{ id: "r1", strategy: "once.Once", state: RunState.SUCCEEDED }],
-          }) as never)
-        : ({} as never),
-  );
-  const context = { snapshot: { research_directory: "/research" } } as unknown as TerminalContext;
-  render(
-    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.lab-strategies">
-      <StrategyLab {...context} />
-    </WorkspaceDraftScope>,
-  );
-  fireEvent.click(await screen.findByRole("button", { name: "删除 {name} r1" }));
-  expect(vi.mocked(lab).mock.calls.some(([call]) => call?.case === "deleteRun")).toBe(false);
-  fireEvent.click(screen.getByRole("button", { name: "确认删除 {name} r1" }));
-  await waitFor(() =>
-    expect(vi.mocked(lab)).toHaveBeenCalledWith({ case: "deleteRun", value: { id: "r1" } }),
-  );
 });

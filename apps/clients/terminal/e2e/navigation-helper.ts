@@ -9,6 +9,7 @@ import trading from "../features/trading/locales/en-US.json";
 const destinations = {
   market: ["行情"],
   research: ["研究", "策略"],
+  runs: ["研究", "回测"],
   factors: ["研究", "因子"],
   trading: ["交易"],
   overview: ["数据", "概览"],

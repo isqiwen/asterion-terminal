@@ -35,6 +35,7 @@ message Request {
     // With its results and code copy; a run of a sweep takes the whole sweep.
     RunId delete_run = 51;
     RunId delete_factor_result = 52;
+    RenameRun rename_run = 53;
   }
 }
 
@@ -67,6 +68,7 @@ message Response {
     FactorResult get_factor_result = 50;
     common.Empty delete_run = 51;
     common.Empty delete_factor_result = 52;
+    common.Empty rename_run = 53;
   }
 }
 
@@ -302,6 +304,12 @@ message RunId {
   string id = 1;
 }
 
+// A name the user gives a run; empty gives it back its id.
+message RenameRun {
+  string id = 1;
+  string label = 2;
+}
+
 // A sweep's run that has not started has no state.
 enum RunState {
   RUN_STATE_UNSPECIFIED = 0;
@@ -328,6 +336,12 @@ message RunSummary {
   map<string, double> metrics = 8;
   map<string, strategy.ParameterValue> params = 9;
   string sweep_id = 10;
+  // What it ran, from its record.
+  repeated string symbols = 11;
+  string first_day = 12;
+  string last_day = 13;
+  common.Period period = 14;
+  string label = 15;
 }
 
 message RunDetail {

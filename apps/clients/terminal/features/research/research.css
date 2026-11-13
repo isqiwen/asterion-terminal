@@ -816,3 +816,95 @@ button.lab-fold {
   border: 0;
   color: var(--muted);
 }
+/* The strategy view has no run records below; the code takes the height. */
+.lab-research:not(:has(> .lab-runs)) {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+/* The runs view: the records, or one report, a comparison or a sweep, each the whole page. */
+.lab-runs-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-4) var(--space-page);
+}
+.lab-runs-view > .lab-toolbar input[type="search"] {
+  width: 220px;
+}
+.lab-records td {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lab-records button.lab-link.strong {
+  padding: 0;
+}
+.lab-id {
+  display: block;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+}
+.lab-records td.lab-params {
+  min-width: 140px;
+  max-width: 220px;
+  white-space: normal;
+}
+.lab-compare {
+  width: auto;
+}
+.lab-compare td,
+.lab-compare th {
+  min-width: 140px;
+}
+button.lab-sort {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+button.lab-sort:hover {
+  color: var(--text-strong);
+}
+.lab-report-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+.lab-report-header h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: var(--font-size-lg);
+  font-weight: 500;
+}
+.lab-rename {
+  display: flex;
+  gap: var(--space-2);
+}
+.lab-rename input {
+  width: 260px;
+}
+.lab-report-tabs {
+  margin-top: var(--space-2);
+}
+.lab-segments {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: var(--space-4);
+}
+.lab-monthly {
+  width: auto;
+}
+.lab-monthly td {
+  min-width: 64px;
+}
+.lab-differs td:first-child {
+  color: var(--warning);
+}

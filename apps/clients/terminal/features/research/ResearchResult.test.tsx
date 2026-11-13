@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 import { expect, test, vi } from "vitest";
 import { lab } from "../../src/bridge/lab";
@@ -187,6 +187,7 @@ test("a Friday night fill shows Monday's trading day and Friday's time", async (
     }) as never;
   });
   render(<RunResult id="night" state="succeeded" />);
+  fireEvent.click(await screen.findByRole("button", { name: "成交（{count} 笔）" }));
   const row = (await screen.findByText("2026-01-05", { selector: "td" })).closest("tr")!;
   expect(row.textContent).toContain("01-02 21:05");
 });

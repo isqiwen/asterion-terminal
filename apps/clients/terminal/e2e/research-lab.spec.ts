@@ -54,13 +54,16 @@ test(
     await expect(page.getByText(/^QuantStats \d/)).toBeVisible({ timeout: 65000 });
     await page.screenshot({ path: join(__dirname, "../test-results/research-lab-result.png") });
 
+    // The configuration stays on the strategy view while the report shows.
+    await openView(page, "research");
     await backtest(page, "3", "6");
-    const runs = page.locator(".lab-runs tbody tr");
+    await page.getByRole("button", { name: "← 回测记录", exact: true }).click();
+    const runs = page.locator(".lab-records tbody tr");
     await expect(runs).toHaveCount(2);
     await expect(runs.locator(".status-badge")).toHaveText(["已完成", "已完成"]);
     for (const box of await page.getByRole("checkbox", { name: /^比较 / }).all()) await box.check();
-    await page.getByRole("button", { name: "比较所选两次" }).click();
-    const comparison = page.locator(".lab-center table");
+    await page.getByRole("button", { name: "比较所选（2）" }).click();
+    const comparison = page.locator(".lab-runs-view table");
     await expect(comparison.getByRole("columnheader", { name: /^ma_cross-\d+$/ })).toHaveCount(2);
     await expect(comparison.getByRole("row", { name: /^总收益 / })).toBeVisible();
     await page.screenshot({ path: join(__dirname, "../test-results/research-lab-comparison.png") });

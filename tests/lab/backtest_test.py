@@ -1035,7 +1035,23 @@ class Backtests(unittest.TestCase):
             (row,) = listed.list_runs.runs
             self.assertEqual(row.state, SUCCEEDED, row.error)
             self.assertIn("total_return", row.metrics)
+            # The list says what each run ran, so records compare without opening them.
+            self.assertEqual(list(row.symbols), ["SHFE/rb/2026-05"])
+            self.assertEqual((row.first_day, row.last_day), (run.first_day, run.last_day))
+            self.assertEqual(row.period, run.period)
+            self.assertEqual(row.params["slow"].integer, 4)
             detail = (await service.reply(Request(id=1, get_run={"id": "child"}))).get_run
+            self.assertEqual(row.metrics["fills"], len(detail.fills))
+            # A name the user gives a run lists with it; an empty one removes it.
+            renamed = await service.reply(Request(id=1, rename_run={"id": "child", "label": " 快慢均线 "}))
+            self.assertEqual(renamed.WhichOneof("result"), "rename_run", renamed.error)
+            (row,) = (await service.reply(Request(id=1, list_runs={}))).list_runs.runs
+            self.assertEqual(row.label, "快慢均线")
+            await service.reply(Request(id=1, rename_run={"id": "child", "label": ""}))
+            (row,) = (await service.reply(Request(id=1, list_runs={}))).list_runs.runs
+            self.assertEqual(row.label, "")
+            missing = await service.reply(Request(id=1, rename_run={"id": "nothing", "label": "x"}))
+            self.assertEqual(missing.error.code, INVALID)
             self.assertEqual(detail.summary.state, SUCCEEDED)
             report_reply = await service.reply(Request(id=1,
                                                        get_run_report={"id": "child"}))

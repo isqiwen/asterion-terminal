@@ -345,7 +345,7 @@ class Records(unittest.TestCase):
         self.assertEqual(runs.table("run-1", "equity")["equity"].to_list()[0], Decimal("1000000.12345678"))
         listed = Runs(self.directory).list()  # as the next lab process reads it
         self.assertEqual((listed[0]["state"], listed[0]["metrics"]),
-                         ("succeeded", {"total_return": -0.0000005, "sharpe": None}))
+                         ("succeeded", {"total_return": -0.0000005, "sharpe": None, "fills": 0}))
         with self.assertRaises(ValueError):
             runs.end("run-1", "failed", "late")
 

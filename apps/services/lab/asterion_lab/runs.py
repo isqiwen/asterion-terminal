@@ -3,7 +3,8 @@
     runs/<run>/run.json          what was run: strategy, parameters, data, engine, costs, risk
     runs/<run>/<table>.parquet   equity, orders, fills, positions and daily settlements
     runs.sqlite                  every run's state and metrics, for lists and rankings,
-                                 and the runs of each parameter sweep with their values
+                                 the runs of each parameter sweep with their values, and
+                                 the names the user gave runs
 
 run.json is written when the run starts; on success its data gain what the
 bars turned out to lack. The tables are written when it succeeds, before the
@@ -87,7 +88,8 @@ class Runs:
                 primary key (run, name));
             create table if not exists sweeps (
                 sweep text not null, position integer not null, run text not null unique,
-                params text not null, primary key (sweep, position));""")
+                params text not null, primary key (sweep, position));
+            create table if not exists labels (run text primary key, label text not null);""")
 
     def used(self, identity: str) -> bool:
         """An admitted run keeps its identity, even if its sweep was cancelled
@@ -156,6 +158,7 @@ class Runs:
             record["data"].update(data)
             write_durably(directory / "run.json",
                           json.dumps(record, indent=2, ensure_ascii=False).encode() + b"\n")
+        metrics = {**metrics, "fills": tables["fills"].height}
         with self.index:
             self.index.execute("begin")
             self.index.executemany("insert into metrics (run, name, value) values (?, ?, ?)",
@@ -195,6 +198,7 @@ class Runs:
                 self.index.execute("delete from metrics where run = ?", (run,))
                 self.index.execute("delete from runs where id = ?", (run,))
                 self.index.execute("delete from sweeps where run = ?", (run,))
+                self.index.execute("delete from labels where run = ?", (run,))
         for run in identities:
             if (self.root / run).exists():
                 shutil.rmtree(self.root / run)
@@ -228,6 +232,19 @@ class Runs:
         return [{**listed.get(run, {"id": run, "state": "", "metrics": {}}),
                  "params": json.loads(params)} for run, params in rows]
 
+    def rename(self, identity: str, label: str):
+        """Names a run; an empty label gives it back its id."""
+        label = label.strip()
+        if len(label) > 64:
+            raise ValueError("a run name has at most 64 characters")
+        if self.index.execute("select 1 from runs where id = ?", (identity,)).fetchone() is None:
+            raise ValueError(f"no run {identity}")
+        if label:
+            self.index.execute("insert into labels (run, label) values (?, ?) on conflict (run)"
+                               " do update set label = excluded.label", (identity, label))
+        else:
+            self.index.execute("delete from labels where run = ?", (identity,))
+
     def list(self) -> list:
         rows = self.index.execute(
             "select id, strategy, commit_id, changes, dataset_version, state, error, started_ns,"
@@ -236,7 +253,16 @@ class Runs:
         for run, name, value in self.index.execute("select run, name, value from metrics"):
             metrics.setdefault(run, {})[name] = value
         sweeps = dict(self.index.execute("select run, sweep from sweeps"))
+        labels = dict(self.index.execute("select run, label from labels"))
         names = ("id", "strategy", "commit", "changes", "dataset_version", "state", "error",
                  "started_ns", "finished_ns")
-        return [{**dict(zip(names, row)), "metrics": metrics.get(row[0], {}),
-                 "sweep": sweeps.get(row[0], "")} for row in rows]
+        result = []
+        for row in rows:
+            record = self.record(row[0])
+            data = record["data"]
+            result.append({**dict(zip(names, row)), "metrics": metrics.get(row[0], {}),
+                           "sweep": sweeps.get(row[0], ""), "label": labels.get(row[0], ""),
+                           "params": record["params"], "symbols": data["symbols"],
+                           "begin_day": data["begin_day"], "end_day": data["end_day"],
+                           "period": data["bars"]["period"]})
+        return result

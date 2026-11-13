@@ -19,7 +19,7 @@ const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
 
 // The figures every run has, in the order the result shows them.
-const figures = [
+export const figures = [
   ["total_return", "总收益", true],
   ["annual_return", "年化收益", true],
   ["sharpe", "夏普比率", false],
@@ -104,6 +104,9 @@ export function RunResult({
   const [contract, setContract] = useState("");
   const [bars, setBars] = useState<ChartBars["bars"][number][]>([]);
   const [error, setError] = useState<DisplayError>("");
+  const [tab, setTab] = useState<"overview" | "bars" | "fills" | "days" | "quantstats" | "record">(
+    "overview",
+  );
   useEffect(() => {
     let active = true;
     setDetail(null);
@@ -183,12 +186,26 @@ export function RunResult({
       side: fill.side === Side.BUY ? ("buy" as const) : ("sell" as const),
       text: `${fill.side === Side.BUY ? t("买") : t("卖")} ${Number(fill.lots?.text)}@${Number(fill.price?.text)}`,
     }));
-  const months = monthlyReturns(record.costs.deposit, detail.days);
   const holdout = record.statistics?.holdout_day as string | undefined;
   const rolling = record.statistics?.rolling;
   const excluded = record.data.excluded as { bars: number; days: string[] } | undefined;
   const rejections = (record.data.rejections ?? []) as Rejection[];
   const refused = rejections.reduce((sum, row) => sum + row.count, 0);
+  const equity = detail.days.map(item => Number(item.equity?.text));
+  let peak = -Infinity;
+  const drawdown = equity.map(value => {
+    peak = Math.max(peak, value);
+    return value / peak - 1;
+  });
+  const time = (index: number) => String(detail.days[index].settledMs * 1_000_000n);
+  const tabs = [
+    ["overview", t("概览")],
+    ["bars", t("K 线与买卖点")],
+    ["fills", t("成交（{count} 笔）", { count: detail.fills.length })],
+    ["days", t("每日资金")],
+    ["quantstats", t("QuantStats 指标")],
+    ["record", t("复现信息")],
+  ] as const;
   return (
     <div className="lab-result">
       {excluded && excluded.bars > 0 && (
@@ -231,12 +248,16 @@ export function RunResult({
       )}
       <Figures summary={summary} />
       {holdout && (
-        <>
-          <h5>{t("留出日 {day} 之前", { day: holdout })}</h5>
-          <Figures summary={summary} prefix="development_" />
-          <h5>{t("留出段")}</h5>
-          <Figures summary={summary} prefix="holdout_" />
-        </>
+        <div className="lab-segments">
+          <div>
+            <h5>{t("留出日 {day} 之前", { day: holdout })}</h5>
+            <Figures summary={summary} prefix="development_" />
+          </div>
+          <div>
+            <h5>{t("留出段")}</h5>
+            <Figures summary={summary} prefix="holdout_" />
+          </div>
+        </div>
       )}
       {rolling && (
         <>
@@ -244,56 +265,81 @@ export function RunResult({
           <Figures summary={summary} prefix="out_of_sample_" />
         </>
       )}
-      <PriceChart
-        series={{
-          kind: "line",
-          points: detail.days.map(item => ({
-            timestamp_ns: String(item.settledMs * 1_000_000n),
-            price: item.equity?.text ?? "",
-          })),
-        }}
-        label={t("权益（逐日结算）")}
-        volumeLabel={t("成交量")}
-        showVolume={false}
-        fillArea
-        formatTime={value => day(BigInt(value))}
-        describe={index => `${detail.days[index].tradingDay} · ${detail.days[index].equity?.text}`}
-      />
-      {contracts.length > 0 && (
+      <nav className="lab-report-tabs tabs" aria-label={t("报告")}>
+        {tabs.map(([key, label]) => (
+          <button key={key} aria-pressed={tab === key} onClick={() => setTab(key)}>
+            {label}
+          </button>
+        ))}
+      </nav>
+      {tab === "overview" && (
         <>
-          <label className="lab-inline">
-            {t("K 线与买卖点")}
-            <select value={contract} onChange={event => setContract(event.target.value)}>
-              {contracts.map(item => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
-          </label>
-          {candles.length > 0 && (
-            <PriceChart
-              series={{ kind: "candles", points: candles }}
-              label={contract}
-              volumeLabel={t("成交量")}
-              trades={trades.filter(trade => trade.index >= 0)}
-              formatTime={value => (daily ? day(BigInt(value)) : minute(BigInt(value)))}
-              describe={index =>
-                `${daily ? bars[index].tradingDay : minute(bars[index].endMs * 1_000_000n)} · ${bars[index].open?.text} ${bars[index].high?.text} ${bars[index].low?.text} ${bars[index].close?.text}`
-              }
-            />
-          )}
+          <PriceChart
+            series={{
+              kind: "line",
+              points: detail.days.map((item, index) => ({
+                timestamp_ns: time(index),
+                price: item.equity?.text ?? "",
+              })),
+            }}
+            label={t("权益（逐日结算）")}
+            volumeLabel={t("成交量")}
+            showVolume={false}
+            fillArea
+            formatTime={value => day(BigInt(value))}
+            describe={index =>
+              `${detail.days[index].tradingDay} · ${detail.days[index].equity?.text}`
+            }
+          />
+          <PriceChart
+            series={{
+              kind: "line",
+              points: drawdown.map((value, index) => ({
+                timestamp_ns: time(index),
+                price: (value * 100).toFixed(2),
+              })),
+            }}
+            label={t("回撤（%）")}
+            volumeLabel={t("成交量")}
+            showVolume={false}
+            fillArea
+            formatTime={value => day(BigInt(value))}
+            describe={index =>
+              `${detail.days[index].tradingDay} · ${metric(drawdown[index], true)}`
+            }
+          />
+          <h5>{t("月度收益")}</h5>
+          <MonthlyReturns months={monthlyReturns(record.costs.deposit, detail.days)} />
         </>
       )}
-      <h5>{t("月度收益")}</h5>
-      <div className="lab-months">
-        {months.map(item => (
-          <span key={item.month} className={signed(item.value)}>
-            <small>{item.month}</small>
-            {metric(item.value, true)}
-          </span>
+      {tab === "bars" &&
+        (contracts.length ? (
+          <>
+            <label className="lab-inline">
+              {t("合约")}
+              <select value={contract} onChange={event => setContract(event.target.value)}>
+                {contracts.map(item => (
+                  <option key={item}>{item}</option>
+                ))}
+              </select>
+            </label>
+            {candles.length > 0 && (
+              <PriceChart
+                series={{ kind: "candles", points: candles }}
+                label={contract}
+                volumeLabel={t("成交量")}
+                trades={trades.filter(trade => trade.index >= 0)}
+                formatTime={value => (daily ? day(BigInt(value)) : minute(BigInt(value)))}
+                describe={index =>
+                  `${daily ? bars[index].tradingDay : minute(bars[index].endMs * 1_000_000n)} · ${bars[index].open?.text} ${bars[index].high?.text} ${bars[index].low?.text} ${bars[index].close?.text}`
+                }
+              />
+            )}
+          </>
+        ) : (
+          <p className="subtle">{t("这次运行没有成交。")}</p>
         ))}
-      </div>
-      <details>
-        <summary>{t("成交（{count} 笔）", { count: detail.fills.length })}</summary>
+      {tab === "fills" && (
         <div className="lab-scroll">
           <table className="lab-table">
             <thead>
@@ -319,9 +365,78 @@ export function RunResult({
             </tbody>
           </table>
         </div>
-      </details>
-      <QuantStats id={id} />
-      <RunDetails record={detail.record} openVersion={openVersion} />
+      )}
+      {tab === "days" && (
+        <div className="lab-scroll">
+          <table className="lab-table">
+            <thead>
+              <tr>
+                {["交易日", "权益", "结存", "手续费", "保证金"].map(label => (
+                  <th key={label} className={label === "交易日" ? undefined : "numeric"}>
+                    {t(label)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {detail.days.map(item => (
+                <tr key={item.tradingDay}>
+                  <td>{item.tradingDay}</td>
+                  <td className="numeric">{groupedText(item.equity)}</td>
+                  <td className="numeric">{groupedText(item.balance)}</td>
+                  <td className="numeric">{groupedText(item.fees)}</td>
+                  <td className="numeric">{groupedText(item.margin)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {tab === "quantstats" && <QuantStats id={id} />}
+      {tab === "record" && <RunDetails record={detail.record} openVersion={openVersion} />}
+    </div>
+  );
+}
+
+// Each month's return, a year to a row, with the year's compounded total.
+function MonthlyReturns({ months }: { months: { month: string; value: number }[] }) {
+  const years = [...new Set(months.map(item => item.month.slice(0, 4)))];
+  const of = new Map(months.map(item => [item.month, item.value]));
+  return (
+    <div className="lab-scroll">
+      <table className="lab-table lab-monthly" aria-label={t("月度收益")}>
+        <thead>
+          <tr>
+            <th />
+            {Array.from({ length: 12 }, (_, index) => (
+              <th key={index} className="numeric">
+                {index + 1}
+              </th>
+            ))}
+            <th className="numeric">{t("全年")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {years.map(year => {
+            const values = Array.from({ length: 12 }, (_, index) =>
+              of.get(`${year}-${String(index + 1).padStart(2, "0")}`),
+            );
+            const total =
+              values.reduce<number>((product, value) => product * (1 + (value ?? 0)), 1) - 1;
+            return (
+              <tr key={year}>
+                <th scope="row">{year}</th>
+                {values.map((value, index) => (
+                  <td key={index} className={`numeric ${signed(value)}`}>
+                    {value === undefined ? "" : metric(value, true)}
+                  </td>
+                ))}
+                <td className={`numeric ${signed(total)}`}>{metric(total, true)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -335,13 +450,11 @@ const quantStats = [
   ["conditional_value_at_risk", "日 CVaR（95%）", true],
 ] as const;
 
-// QuantStats figures of the run, computed by the lab when first opened.
+// QuantStats figures of the run, computed by the lab when first shown.
 function QuantStats({ id }: { id: string }) {
   const [report, setReport] = useState<RunReport | null>(null);
   const [error, setError] = useState<DisplayError>("");
-  const [asked, setAsked] = useState(false);
   useEffect(() => {
-    if (!asked) return;
     let active = true;
     void lab({ case: "getRunReport", value: { id } })
       .then(reply => active && setReport(reply))
@@ -349,10 +462,9 @@ function QuantStats({ id }: { id: string }) {
     return () => {
       active = false;
     };
-  }, [asked, id]);
+  }, [id]);
   return (
-    <details onToggle={event => event.currentTarget.open && setAsked(true)}>
-      <summary>{t("QuantStats 指标")}</summary>
+    <div>
       {error ? (
         <ErrorNotice error={error} />
       ) : !report ? (
@@ -373,7 +485,7 @@ function QuantStats({ id }: { id: string }) {
           </p>
         </>
       )}
-    </details>
+    </div>
   );
 }
 
@@ -419,8 +531,7 @@ function RunDetails({
 }) {
   const value = JSON.parse(record);
   return (
-    <details className="lab-details">
-      <summary>{t("复现信息")}</summary>
+    <div className="lab-details">
       <dl>
         <dt>{t("策略")}</dt>
         <dd>
@@ -452,50 +563,81 @@ function RunDetails({
       <pre>
         {JSON.stringify({ params: value.params, costs: value.costs, risk: value.risk }, null, 2)}
       </pre>
-    </details>
+    </div>
   );
 }
 
-// Two runs side by side: their figures, and their equity on the days both have.
-export function RunComparison({ ids }: { ids: readonly [string, string] }) {
-  return <Comparison key={ids.join(":")} ids={ids} />;
+// Colours of the compared runs after the first, which takes the chart's own.
+const overlayColors = ["#e0a030", "#b07cf0", "#4cc38a", "#f06292", "#8a9bb0"];
+
+// Runs side by side: their figures, the parameters that differ, and their net
+// value on the first run's days.
+export function RunComparison({ ids }: { ids: readonly string[] }) {
+  return <Comparison key={ids.join("\n")} joined={ids.join("\n")} />;
 }
 
-function Comparison({ ids: [firstId, secondId] }: { ids: readonly [string, string] }) {
+// `joined` is the run ids, one a line: a parent's new array of the same ids reads nothing again.
+function Comparison({ joined }: { joined: string }) {
+  const ids = joined.split("\n");
   const [details, setDetails] = useState<RunDetail[]>([]);
   const [error, setError] = useState<DisplayError>("");
   useEffect(() => {
     let active = true;
-    void Promise.all([firstId, secondId].map(id => lab({ case: "getRun", value: { id } })))
+    void Promise.all(joined.split("\n").map(id => lab({ case: "getRun", value: { id } })))
       .then(replies => active && setDetails(replies))
       .catch(failure => active && setError(asDisplayError(failure)));
     return () => {
       active = false;
     };
-  }, [firstId, secondId]);
+  }, [joined]);
   if (error) return <ErrorNotice error={error} />;
-  if (details.length !== 2) return <p className="subtle">{t("正在读取结果…")}</p>;
-  const [first, second] = details;
-  const other = new Map(second.days.map(item => [item.tradingDay, Number(item.equity?.text)]));
+  if (details.length !== ids.length) return <p className="subtle">{t("正在读取结果…")}</p>;
+  const [first, ...others] = details;
+  const name = (detail: RunDetail) => detail.summary!.label || detail.summary!.id;
   const base = (detail: RunDetail) => Number(JSON.parse(detail.record).costs.deposit);
+  const params = [...new Set(details.flatMap(detail => Object.keys(detail.summary!.params)))];
+  const differing = params.filter(
+    param => new Set(details.map(detail => parameterText(detail.summary!.params[param]))).size > 1,
+  );
   return (
     <div className="lab-result">
       <div className="lab-scroll">
-        <table className="lab-table">
+        <table className="lab-table lab-compare">
           <thead>
             <tr>
               <th />
               {details.map(detail => (
-                <th key={detail.summary!.id}>{detail.summary!.id}</th>
+                <th key={detail.summary!.id} className="numeric">
+                  {name(detail)}
+                </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {figures.map(([name, label, percent]) => (
-              <tr key={name}>
-                <td>{t(label)}</td>
+            {[...figures, ["fills", "成交笔数", false] as const].map(
+              ([metricName, label, percent]) => (
+                <tr key={metricName}>
+                  <td>{t(label)}</td>
+                  {details.map(detail => (
+                    <td
+                      key={detail.summary!.id}
+                      className={`numeric ${metricName.endsWith("return") ? signed(detail.summary!.metrics[metricName]) : ""}`}
+                    >
+                      {metricName === "fills"
+                        ? (detail.summary!.metrics.fills ?? "—")
+                        : metric(detail.summary!.metrics[metricName], percent)}
+                    </td>
+                  ))}
+                </tr>
+              ),
+            )}
+            {differing.map(param => (
+              <tr key={param} className="lab-differs">
+                <td>{param}</td>
                 {details.map(detail => (
-                  <td key={detail.summary!.id}>{metric(detail.summary!.metrics[name], percent)}</td>
+                  <td key={detail.summary!.id} className="numeric">
+                    {parameterText(detail.summary!.params[param])}
+                  </td>
                 ))}
               </tr>
             ))}
@@ -510,20 +652,20 @@ function Comparison({ ids: [firstId, secondId] }: { ids: readonly [string, strin
             price: String(Number(item.equity?.text) / base(first)),
           })),
         }}
-        overlays={[
-          {
-            label: second.summary!.id,
-            color: "#e0a030",
+        overlays={others.map((detail, index) => {
+          const equity = new Map(
+            detail.days.map(item => [item.tradingDay, Number(item.equity?.text)]),
+          );
+          return {
+            label: name(detail),
+            color: overlayColors[index % overlayColors.length],
             values: first.days.map(item => {
-              const value = other.get(item.tradingDay);
-              return value === undefined ? null : value / base(second);
+              const value = equity.get(item.tradingDay);
+              return value === undefined ? null : value / base(detail);
             }),
-          },
-        ]}
-        label={t("净值：{first} 与 {second}", {
-          first: first.summary!.id,
-          second: second.summary!.id,
+          };
         })}
+        label={t("净值：{names}", { names: details.map(name).join(listSeparator()) })}
         volumeLabel={t("成交量")}
         showVolume={false}
         formatTime={value => day(BigInt(value))}

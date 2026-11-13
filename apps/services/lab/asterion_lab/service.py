@@ -77,7 +77,24 @@ def summary(item, row):
         if value is not None:
             item.metrics[name] = value
     item.sweep_id = row.get("sweep", "")
+    # A sweep's run that has not started has no record yet.
+    if "symbols" in row:
+        item.label = row["label"]
+        item.symbols.extend(row["symbols"])
+        item.first_day, item.last_day = row["begin_day"], row["end_day"]
+        item.period = next(key for key, value in PERIODS.items()
+                           if value == ("day" if row["period"] == "day" else int(row["period"][:-1])))
+        parameters(item.params, row["params"])
     return item
+
+
+def parameters(target, values: dict):
+    """Parameter values into a ParameterValue map; a rolling run's candidate
+    lists are not values of one run."""
+    fields = {bool: "flag", int: "integer", float: "number", str: "text"}
+    for name, value in values.items():
+        if type(value) in fields:
+            setattr(target[name], fields[type(value)], value)
 
 
 class Service:
@@ -487,9 +504,9 @@ class Service:
         best = None
         for row in rows:
             item = summary(reply.runs.add(), row)
-            for name, value in row["params"].items():
-                field = {bool: "flag", int: "integer", float: "number", str: "text"}[type(value)]
-                setattr(item.params[name], field, value)
+            # Only the swept values: they name the run within its sweep.
+            item.params.clear()
+            parameters(item.params, row["params"])
             sharpe = row["metrics"].get("development_sharpe")
             if sharpe is not None and (best is None or sharpe > best[1]):
                 best = (row["id"], sharpe)
@@ -629,6 +646,9 @@ class Service:
                             offset=Offset.Value(f"OFFSET_{fill['offset'].upper()}"),
                             lots=decimal(fill["quantity"]), price=decimal(fill["price"]),
                             fee=decimal(fill["fee"]))
+
+    async def on_rename_run(self, request, _):
+        await asyncio.to_thread(self.runs.rename, request.id, request.label)
 
     async def on_list_runs(self, _, result):
         for row in await self.read(self.runs.list):
