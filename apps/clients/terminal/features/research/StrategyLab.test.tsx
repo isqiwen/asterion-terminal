@@ -84,9 +84,9 @@ test("the run configuration folds away to give the result the width", async () =
   );
   fireEvent.click(await screen.findByRole("button", { name: "收起配置" }));
   expect(container.querySelector(".lab-research")?.hasAttribute("data-folded")).toBe(true);
-  expect(screen.queryByText("先选择一个策略。")).toBeNull();
+  expect(screen.getAllByText("选择策略")).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "展开配置" }));
-  expect(screen.getByText("先选择一个策略。")).toBeTruthy();
+  expect(screen.getAllByText("选择策略")).toHaveLength(2);
 });
 
 test("a folded group says what is set, and a recent run opens its report", async () => {

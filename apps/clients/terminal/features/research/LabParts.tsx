@@ -363,7 +363,7 @@ export function ModuleList({
           ))}
         </select>
       )}
-      {!shown.length && items.length > 0 && <p className="subtle">{t("没有匹配的模块。")}</p>}
+      {!shown.length && items.length > 0 && <p className="subtle">{t("没有匹配的模块")}</p>}
       {modules.map(module => {
         // A search opens every group it matches in.
         const open = !!query || !folded.includes(module);

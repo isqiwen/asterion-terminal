@@ -171,9 +171,7 @@ export function StrategyLab(context: TerminalContext) {
         }}
       >
         <>
-          <p className="lab-placeholder">
-            {t("选择左侧的策略，填写右侧的配置后运行；结果在“回测”里。")}
-          </p>
+          <p className="lab-placeholder">{t("选择策略")}</p>
         </>
       </LabCentre>
       <aside className="lab-config">
@@ -184,7 +182,7 @@ export function StrategyLab(context: TerminalContext) {
         {!folded && (
           <>
             {!strategy ? (
-              <p className="subtle">{t("先选择一个策略。")}</p>
+              <p className="subtle">{t("选择策略")}</p>
             ) : (
               <>
                 <Section
@@ -226,7 +224,7 @@ export function StrategyLab(context: TerminalContext) {
                     .join(" ")}
                   open
                 >
-                  <p className="wide subtle">{t("一格填多个值（逗号分隔）就是参数扫描。")}</p>
+                  <p className="wide subtle">{t("多个值用逗号分隔即为扫描")}</p>
                   {strategy.parameters.map(parameter => (
                     <label key={parameter.name}>
                       <span>

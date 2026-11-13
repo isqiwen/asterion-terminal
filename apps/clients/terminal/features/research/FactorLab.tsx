@@ -139,9 +139,7 @@ export function FactorLab(context: TerminalContext) {
             setLibrary(false);
           }}
         />
-        {modules && !modules.factors.length && (
-          <p className="subtle">{t("factors/ 里还没有因子函数。")}</p>
-        )}
+        {modules && !modules.factors.length && <p className="subtle">{t("还没有因子")}</p>}
         <NewModule
           folder="factors"
           repository={repository}

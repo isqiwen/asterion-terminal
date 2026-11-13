@@ -337,7 +337,7 @@ export function RunResult({
             )}
           </>
         ) : (
-          <p className="subtle">{t("这次运行没有成交。")}</p>
+          <p className="subtle">{t("没有成交")}</p>
         ))}
       {tab === "fills" && (
         <div className="lab-scroll">
@@ -480,8 +480,7 @@ function QuantStats({ id }: { id: string }) {
             ))}
           </dl>
           <p className="subtle">
-            QuantStats {report.quantstatsVersion} ·{" "}
-            {t("按逐日结算权益的日收益计算，无风险利率为零，一年 252 期。")}
+            QuantStats {report.quantstatsVersion} · {t("日收益 · 无风险利率 0 · 一年 252 期")}
           </p>
         </>
       )}

@@ -270,9 +270,7 @@ export function Runs(context: TerminalContext) {
           {t("读取中")}
         </p>
       ) : !rows.length ? (
-        <p className="lab-placeholder">
-          {runs.length ? t("没有匹配的运行。") : t("还没有运行。在“策略”里选择策略并运行。")}
-        </p>
+        <p className="lab-placeholder">{t(runs.length ? "没有匹配的运行" : "还没有运行")}</p>
       ) : (
         <div className="lab-scroll">
           <table className="lab-table lab-records" aria-label={t("回测记录")}>
