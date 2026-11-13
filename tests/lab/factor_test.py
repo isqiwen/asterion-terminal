@@ -21,7 +21,7 @@ from service_fixture import Service  # noqa: E402
 from warehouse_writer import Warehouse  # noqa: E402
 from warehouse_fixture import DAYS, warehouse  # noqa: E402
 
-EXAMPLES = Path(__file__).parent / "strategies"
+EXAMPLES = Path(__file__).resolve().parents[2] / "research"
 
 
 def git(root, *arguments):
@@ -34,7 +34,7 @@ def frame(values, rates, bars=5):
     rows = []
     for symbol, (value, rate) in enumerate(zip(values, rates), 1):
         for bar in range(bars):
-            rows.append(dict(symbol=f"s{symbol}", day=f"2026-01-0{bar + 1}", bar=bar,
+            rows.append(dict(symbol=f"s{symbol}", day=f"2026-01-{bar + 1:02d}", bar=bar,
                              close=100 * (1 + rate) ** bar, value=float(value)))
     return pl.DataFrame(rows)
 
@@ -95,6 +95,22 @@ class Evaluation(unittest.TestCase):
             factor.values(lambda close: close[:1], ["close"], {}, symbols)
         with self.assertRaisesRegex(ValueError, "failed on a: ZeroDivisionError"):
             factor.values(lambda close: 1 / 0, ["close"], {}, symbols)
+
+    def test_segments_keep_point_in_time_prices_and_returns_align_by_trading_day(self):
+        # Segment 0 sees unadjusted [100, 110]; segment 1 sees [120, 132, 135].
+        symbols = {"s": {"day": ["2026-01-01", "2026-01-02", "2026-01-03"],
+                         "close": np.array([120.0, 132.0, 135.0]),
+                         "segments": [(0, {"close": np.array([100.0, 110.0])}),
+                                      (2, {"close": np.array([120.0, 132.0, 135.0])})]}}
+        evaluated = factor.values(lambda close: close, ["close"], {}, symbols)
+        self.assertEqual(evaluated["value"].to_list(), [100.0, 110.0, 135.0])
+        # s2 misses 2026-01-02: its 1-day return on 2026-01-01 is absent rather than taken from 2026-01-03.
+        gapped = frame([1, 2, 3], [0.01, 0.02, 0.03], bars=3).filter(
+            ~((pl.col("symbol") == "s2") & (pl.col("day") == "2026-01-02")))
+        result = factor.evaluate(gapped, [1, 2], 2)
+        self.assertEqual(result["horizons"][0]["days"], 0)
+        self.assertEqual(result["horizons"][1]["days"], 1)
+        self.assertAlmostEqual(result["horizons"][1]["mean"], 1.0)
 
 
 class Repository(unittest.TestCase):

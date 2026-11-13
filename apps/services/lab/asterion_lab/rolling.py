@@ -65,13 +65,15 @@ class Curve:
             base, list(zip(self.days[begin:first], self.equity[begin:first])),
             self.marks[start:self.day_end[first - 1] + 1],
             self.times[begin - 1] if begin else self.first_ns, self.times[first - 1],
-            config.annual_periods, config.zero_risk_free, begin > 0)
+            config.annual_periods, config.zero_risk_free, True)
         return values["sharpe"]
 
 
 def select(runs: Runs, candidates: list, config, training: int, validation: int):
     """Each round with every candidate's training Sharpe ratio and its choice,
     and for each trading day whom the account follows."""
+    if not config.annual_periods or not config.zero_risk_free:
+        raise ValueError("rolling validation requires periods_per_year and zero_risk_free_rate")
     curves = [Curve(runs, identity) for identity in candidates]
     days = curves[0].days
     if any(curve.days != days for curve in curves):

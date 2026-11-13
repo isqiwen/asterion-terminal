@@ -146,6 +146,7 @@ struct TradedFill
     std::size_t contract; // An index into the multipliers.
     bool buy;
     Decimal quantity, price, fee;
+    bool roll = false;
 };
 
 // `fills` are in the order they happened. A fill that takes a position
@@ -184,10 +185,17 @@ struct DailyDrawdown
     DrawdownUnavailable unavailable = DrawdownUnavailable::none;
 };
 
-// Original day-end observations only: no deposit, missing days or intraday
-// peaks are inserted. All indices refer to this fixed observation sequence.
-// A missing recovery is still underwater; durations use index differences,
-// not an inferred calendar or exchange-session count.
-DailyDrawdown daily_drawdown(std::span<const EquityDay>, std::stop_token = {});
+// Original day-end observations only: no missing days or intraday peaks are
+// inserted. All indices refer to this fixed observation sequence. A missing
+// recovery is still underwater; durations use index differences, not an
+// inferred calendar or exchange-session count.
+DailyDrawdown daily_drawdown(
+    std::span<const EquityDay>,
+    std::stop_token = {},
+    Decimal deposit = {});
+DailyDrawdown daily_drawdown(
+    Decimal deposit,
+    std::span<const EquityDay>,
+    std::stop_token = {});
 
 } // namespace asterion

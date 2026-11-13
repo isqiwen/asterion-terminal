@@ -381,8 +381,13 @@ def contract_input(data: Data, config: Config, contract: str, begin: str, end: s
 
 def series_input(data: Data, config: Config, exchange: str, product: str):
     """The months of a product's traded dominant series and its rolls."""
+    product_months = data.product(exchange, product)
+    anchor = max((day for month in product_months.values()
+                  for day, row in month.days.items()
+                  if day < config.begin_day and row["settlement"] is not None),
+                 default=config.begin_day)
     traded = {}
-    for contract, month in data.product(exchange, product).items():
+    for contract, month in product_months.items():
         bars = month.bars(config.begin_day, config.end_day)
         if bars:
             traded[contract] = bars
@@ -391,14 +396,14 @@ def series_input(data: Data, config: Config, exchange: str, product: str):
     months = []
     for contract in sorted(traded):
         item = dominant.Month(contract, contract.rsplit("/", 1)[1], last_bar=traded[contract][-1])
-        for day, row in data.product(exchange, product)[contract].days.items():
-            if config.begin_day <= day <= config.end_day:
+        for day, row in product_months[contract].days.items():
+            if day >= anchor:
                 if row["settlement"] is not None:
                     item.settlement[day] = Decimal(row["settlement"])
                 if row["open_interest"] is not None:
                     item.open_interest[day] = Decimal(row["open_interest"])
         months.append(item)
-    plan = dominant.plan(months, traded=True)
+    plan = dominant.plan(months, traded=True, end=config.end_day)
     contracts, rolls = [], []
     for i, segment in enumerate(plan.segments):
         month = months[segment.month]
@@ -586,13 +591,13 @@ def metrics(config: Config, engine) -> dict:
     days = engine.settlements
     if not days:
         raise ValueError("the run settled no trading day")
-    result = segment(config, engine, 0, len(days), raw(config.deposit), engine.equity[0][0], False)
+    result = segment(config, engine, 0, len(days), raw(config.deposit), engine.equity[0][0], True)
     if config.holdout_day:
         split = next((n for n, row in enumerate(days) if row[0] >= config.holdout_day), len(days))
         if not 0 < split < len(days):
             raise ValueError("the holdout day leaves no days before it or after it")
         for name, value in segment(config, engine, 0, split, raw(config.deposit),
-                                   engine.equity[0][0], False).items():
+                                   engine.equity[0][0], True).items():
             result[f"development_{name}"] = value
         for name, value in segment_metrics(config, engine, split).items():
             result[f"holdout_{name}"] = value

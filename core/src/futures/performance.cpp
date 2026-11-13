@@ -11,7 +11,11 @@ namespace {
 // Subtract before converting, so small changes of large balances survive.
 long double change(Decimal from, Decimal to)
 {
-    return static_cast<long double>(to.raw() - from.raw()) / static_cast<long double>(from.raw());
+    const auto a = static_cast<std::uint64_t>(from.raw());
+    const auto b = static_cast<std::uint64_t>(to.raw());
+    const auto diff = to >= from ? static_cast<long double>(b - a)
+                                 : -static_cast<long double>(a - b);
+    return diff / static_cast<long double>(from.raw());
 }
 
 } // namespace
@@ -205,10 +209,24 @@ monthly_contributions(Decimal deposit, std::span<const SettlementDay> days)
 
 Trades trades(std::span<const TradedFill> fills, std::span<const Decimal> multipliers)
 {
+    struct Leg
+    {
+        std::size_t contract;
+        Decimal gross, fees, net;
+    };
+    struct Carry
+    {
+        bool active = false;
+        std::size_t first_fill = 0;
+        Decimal gross, fees, net;
+        std::vector<Leg> legs;
+    };
     // What each contract holds now, and what its open trade has paid and received.
     std::vector<Decimal> position(multipliers.size()), cash(multipliers.size()),
         fees(multipliers.size());
     std::vector<TradeContribution> contributions(multipliers.size());
+    std::vector<Carry> carried(multipliers.size());
+    Carry pending_roll{};
     Trades result{};
     long double won = 0, lost = 0;
     std::vector<std::size_t> first_fill(multipliers.size());
@@ -217,8 +235,14 @@ Trades trades(std::span<const TradedFill> fills, std::span<const Decimal> multip
         auto& held = position.at(fill.contract);
         auto& paid = cash[fill.contract];
         auto& charged = fees[fill.contract];
-        if (held == Decimal{})
-            first_fill[fill.contract] = index;
+        if (held == Decimal{}) {
+            if (fill.roll && pending_roll.active) {
+                first_fill[fill.contract] = pending_roll.first_fill;
+                carried[fill.contract] = std::move(pending_roll);
+                pending_roll = {};
+            } else
+                first_fill[fill.contract] = index;
+        }
         const auto after = fill.buy ? held + fill.quantity : held - fill.quantity;
         if ((held > Decimal{} && after < Decimal{}) || (held < Decimal{} && after > Decimal{}))
             throw std::invalid_argument("a fill takes a position through flat to the other side");
@@ -230,17 +254,31 @@ Trades trades(std::span<const TradedFill> fills, std::span<const Decimal> multip
             continue;
         const auto gross = paid * multipliers[fill.contract];
         const auto net = gross - charged;
-        result.closed.push_back(
-            {fill.contract, gross, charged, net, first_fill[fill.contract], index});
-        auto& contribution = contributions[fill.contract];
-        contribution.contract = fill.contract;
-        ++contribution.count;
-        contribution.gross = contribution.gross + gross;
-        contribution.fees = contribution.fees + charged;
-        contribution.net = contribution.net + net;
-        const auto profit = static_cast<long double>(net.raw());
+        auto carry = std::move(carried[fill.contract]);
+        carried[fill.contract] = {};
+        carry.active = true;
+        carry.first_fill = first_fill[fill.contract];
+        carry.gross = carry.gross + gross;
+        carry.fees = carry.fees + charged;
+        carry.net = carry.net + net;
+        carry.legs.push_back({fill.contract, gross, charged, net});
         paid = {};
         charged = {};
+        if (fill.roll) {
+            pending_roll = std::move(carry);
+            continue;
+        }
+        result.closed.push_back(
+            {fill.contract, carry.gross, carry.fees, carry.net, carry.first_fill, index});
+        for (const auto& leg : carry.legs) {
+            auto& contribution = contributions[leg.contract];
+            contribution.contract = leg.contract;
+            ++contribution.count;
+            contribution.gross = contribution.gross + leg.gross;
+            contribution.fees = contribution.fees + leg.fees;
+            contribution.net = contribution.net + leg.net;
+        }
+        const auto profit = static_cast<long double>(carry.net.raw());
         if (profit > 0) {
             ++result.winning;
             won += profit;
@@ -252,10 +290,12 @@ Trades trades(std::span<const TradedFill> fills, std::span<const Decimal> multip
     for (const auto& contribution : contributions)
         if (contribution.count)
             result.by_contract.push_back(contribution);
+    result.open_fees = pending_roll.fees;
     for (std::size_t i = 0; i < fees.size(); ++i) {
-        result.open_fees = result.open_fees + fees[i];
+        const auto total_fees = carried[i].fees + fees[i];
+        result.open_fees = result.open_fees + total_fees;
         if (position[i] != Decimal{})
-            result.open.push_back({i, first_fill[i], position[i], fees[i]});
+            result.open.push_back({i, first_fill[i], position[i], total_fees});
     }
     // Raw decimals carry eight places.
     if (result.winning)
@@ -267,13 +307,15 @@ Trades trades(std::span<const TradedFill> fills, std::span<const Decimal> multip
     return result;
 }
 
-DailyDrawdown daily_drawdown(std::span<const EquityDay> days, std::stop_token stop)
+DailyDrawdown
+daily_drawdown(std::span<const EquityDay> days, std::stop_token stop, Decimal deposit)
 {
     if (days.empty())
         throw std::invalid_argument("daily drawdown requires an observed settlement");
     DailyDrawdown result;
     result.points.reserve(days.size());
     std::size_t peak = 0;
+    Decimal peak_equity = deposit > Decimal{} ? deposit : days[0].equity;
     std::optional<std::size_t> active;
     double maximum = 0;
     std::size_t maximum_index = 0;
@@ -284,7 +326,7 @@ DailyDrawdown daily_drawdown(std::span<const EquityDay> days, std::stop_token st
         if (i && days[i].day <= days[i - 1].day)
             throw std::invalid_argument(
                 "daily drawdown observations must ascend by original trading day");
-        if (days[i].equity >= days[peak].equity) {
+        if (days[i].equity >= peak_equity) {
             if (active) {
                 auto& episode = result.episodes[*active];
                 episode.recovery_index = i;
@@ -292,6 +334,7 @@ DailyDrawdown daily_drawdown(std::span<const EquityDay> days, std::stop_token st
                 active.reset();
             }
             peak = i;
+            peak_equity = days[i].equity;
         } else {
             if (!active) {
                 active = result.episodes.size();
@@ -302,19 +345,19 @@ DailyDrawdown daily_drawdown(std::span<const EquityDay> days, std::stop_token st
                 episode.trough_index = i;
             episode.observed_end_index = i;
         }
-        const auto loss = days[peak].equity - days[i].equity;
+        const auto loss = peak_equity - days[i].equity;
         std::optional<double> fraction;
-        if (days[peak].equity > Decimal{} && days[i].equity > Decimal{}) {
+        if (peak_equity > Decimal{} && days[i].equity > Decimal{}) {
             fraction = static_cast<double>(
                 static_cast<long double>(loss.raw())
-                / static_cast<long double>(days[peak].equity.raw()));
+                / static_cast<long double>(peak_equity.raw()));
             if (*fraction > maximum) {
                 maximum = *fraction;
                 maximum_index = i;
             }
         } else
             positive_path = false;
-        result.points.push_back({peak, days[peak].equity, loss, fraction});
+        result.points.push_back({peak, peak_equity, loss, fraction});
         if (loss > result.max_loss) {
             result.max_loss = loss;
             result.max_loss_index = i;
@@ -322,13 +365,21 @@ DailyDrawdown daily_drawdown(std::span<const EquityDay> days, std::stop_token st
     }
     if (!positive_path)
         result.unavailable = DrawdownUnavailable::non_positive_equity;
-    else if (days.size() < 2)
+    else if (days.size() < 2 && deposit <= Decimal{})
         result.unavailable = DrawdownUnavailable::fewer_than_two_observations;
     else {
         result.max_fraction = maximum;
         result.max_fraction_index = maximum_index;
     }
     return result;
+}
+
+DailyDrawdown
+daily_drawdown(Decimal deposit, std::span<const EquityDay> days, std::stop_token stop)
+{
+    if (deposit <= Decimal{})
+        throw std::invalid_argument("daily drawdown deposit must be positive");
+    return daily_drawdown(days, stop, deposit);
 }
 
 } // namespace asterion

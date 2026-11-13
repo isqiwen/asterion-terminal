@@ -555,6 +555,8 @@ class Service:
         if request.HasField("walk_forward"):
             if request.base.holdout_day or len(runs) < 2:
                 raise ValueError("rolling validation compares two or more candidates and takes no holdout")
+            if not request.base.periods_per_year or not request.base.zero_risk_free_rate:
+                raise ValueError("rolling validation requires periods_per_year and zero_risk_free_rate")
             if request.walk_forward.training_days < 20 or request.walk_forward.validation_days < 1:
                 raise ValueError("rolling validation needs at least 20 training days and one validation day")
             rolling = RollingRun(id=f"{request.id}-rolling", sweep_id=request.id, base=base,

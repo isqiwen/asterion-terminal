@@ -406,6 +406,31 @@ TEST(Trades, AveragesNeedTradesOfTheirKindAndAFillNeverCrossesFlat)
     EXPECT_THROW(trades(crossing, multipliers), std::invalid_argument);
 }
 
+TEST(Trades, DominantRollHandoversCarryIntoOneRoundTrip)
+{
+    const std::vector<Decimal> multipliers{d("10"), d("10")};
+    // Open 2605 at 100, roll out at 99 (fee 3) and into 2610 at 102 (fee 3),
+    // then close 2610 at 106 (fee 3): one winning round trip of (-10 + 40) - 12 = +18.
+    const std::vector<TradedFill> rolled{
+        {0, true, d("1"), d("100"), d("3"), false},
+        {0, false, d("1"), d("99"), d("3"), true},
+        {1, true, d("1"), d("102"), d("3"), true},
+        {1, false, d("1"), d("106"), d("3"), false},
+    };
+    const auto result = trades(rolled, multipliers);
+    ASSERT_EQ(result.closed.size(), 1U);
+    EXPECT_EQ(result.closed[0].first_fill, 0U);
+    EXPECT_EQ(result.closed[0].last_fill, 3U);
+    EXPECT_EQ(result.closed[0].gross, d("30"));
+    EXPECT_EQ(result.closed[0].fees, d("12"));
+    EXPECT_EQ(result.closed[0].net, d("18"));
+    EXPECT_EQ(result.winning, 1U);
+    EXPECT_EQ(result.losing, 0U);
+    ASSERT_TRUE(result.average_win);
+    EXPECT_DOUBLE_EQ(*result.average_win, 18);
+    EXPECT_FALSE(result.average_loss);
+}
+
 TEST(DailyDrawdown, OriginalFiveObservationsKeepThePeakTroughAndFirstRecovery)
 {
     const auto rows = record_of({"100", "110", "99", "105", "112"});
@@ -462,6 +487,10 @@ TEST(DailyDrawdown, NonpositiveEquityRetainsMoneyAndMakesIncompletePercentCovera
     const auto single = daily_drawdown(record_of({"100"}));
     EXPECT_FALSE(single.max_fraction);
     EXPECT_EQ(single.unavailable, DrawdownUnavailable::fewer_than_two_observations);
+    const auto first_day_loss = daily_drawdown(d("100"), record_of({"90"}));
+    ASSERT_TRUE(first_day_loss.max_fraction);
+    EXPECT_DOUBLE_EQ(*first_day_loss.max_fraction, 0.1);
+    EXPECT_EQ(first_day_loss.max_loss, d("10"));
 }
 
 TEST(DailyDrawdown, InvalidOrderAndCancellationCannotProduceAPartialPublishedPath)

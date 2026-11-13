@@ -20,7 +20,7 @@ class MomentumRank(Strategy):
         super().__init__(**values)
         p = self.params
         self.need = max(p["lookback"] + 1, p["volatility"] + 1 if p["volatility"] else 0)
-        self.closes = None
+        self.indices = None
         self.shared = 0
 
     def ready(self, ctx):
@@ -29,22 +29,25 @@ class MomentumRank(Strategy):
     def on_bars(self, ctx, bars):
         p = self.params
         if p["sides"] not in SIDES or p["lookback"] < 1 or p["rebalance"] < 1 \
-                or len(ctx.symbols) < 2 * p["count"] or p["volatility"] == 1:
+                or p["count"] < 1 or len(ctx.symbols) < 2 * p["count"] \
+                or p["weight"] <= 0 or p["volatility"] < 0 or p["volatility"] == 1:
             raise ValueError("invalid ranking parameters")
-        if self.closes is None:
-            self.closes = {symbol: deque(maxlen=self.need) for symbol in ctx.symbols}
+        if self.indices is None:
+            self.indices = {symbol: deque(maxlen=self.need) for symbol in ctx.symbols}
         # Only the times every symbol has a bar count.
         if len(bars) != len(ctx.symbols):
             return
         for symbol, bar in bars.items():
             if bar.close <= 0:
                 raise ValueError("a ranking needs positive closes")
-            self.closes[symbol].append(units([bar.close])[0])
+            self.indices[symbol].append(len(ctx.history(symbol, "close", 1 << 30)) - 1)
         self.shared += 1
         if self.shared < self.need or (self.shared - self.need) % p["rebalance"]:
             return
-        score = {symbol: returns(list(closes)[-p["lookback"] - 1:], p["lookback"])[0]
-                 for symbol, closes in self.closes.items()}
+        closes = {symbol: units(ctx.history(symbol, "close", 1 << 30)[list(indices)])
+                  for symbol, indices in self.indices.items()}
+        score = {symbol: returns(values[-p["lookback"] - 1:], p["lookback"])[0]
+                 for symbol, values in closes.items()}
         # Equal scores keep the order the symbols were given in.
         order = sorted(ctx.symbols, key=lambda symbol: score[symbol], reverse=not p["reversed"])
         wanted = dict.fromkeys(ctx.symbols, 0.0)
@@ -57,7 +60,7 @@ class MomentumRank(Strategy):
             inverse = {}
             for symbol, side in wanted.items():
                 if side:
-                    changes = returns(list(self.closes[symbol])[-p["volatility"] - 1:], 1)
+                    changes = returns(closes[symbol][-p["volatility"] - 1:], 1)
                     sigma = deviation(changes)
                     if sigma > 0:
                         inverse[symbol] = 1 / sigma

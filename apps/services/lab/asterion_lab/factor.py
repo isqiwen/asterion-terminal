@@ -86,12 +86,18 @@ def bars(data: Data, symbol: str) -> dict:
     contracts, series, _ = prepare(data, config(data, (symbol,)))
     limit = raw(Decimal(1))
     engine = asterion_engine.Replay(limit, contracts, series, (limit, limit, 1))
-    context, days = Context([symbol], rolls(contracts)), []
+    context, days, segments, start = Context([symbol], rolls(contracts)), [], [], 0
     for completed in observations(engine, {0: symbol}, contracts):
         if completed:
+            if context.contracts.get(symbol, completed[0].contract) != completed[0].contract:
+                segments.append((start, {field: context.history(symbol, field, len(days))
+                                         for field in FIELDS}))
+                start = len(days)
             observe(context, completed)
             days.extend(bar.time.date().isoformat() for bar in completed)
-    return {"day": days, **{field: context.history(symbol, field, len(days)) for field in FIELDS}}
+    snapshot = {field: context.history(symbol, field, len(days)) for field in FIELDS}
+    segments.append((start, snapshot))
+    return {"day": days, "segments": segments, **snapshot}
 
 
 def values(function, inputs, settings, symbols: dict) -> pl.DataFrame:
@@ -99,13 +105,20 @@ def values(function, inputs, settings, symbols: dict) -> pl.DataFrame:
     frames = []
     for symbol, columns in symbols.items():
         count = len(columns["day"])
-        try:
-            computed = function(**{name: columns[name] for name in inputs}, **settings)
-            result = np.asarray(computed, dtype=float)
-        except Exception as error:
-            raise ValueError(f"the factor failed on {symbol}: {type(error).__name__}: {error}")
-        if result.shape != (count,):
-            raise ValueError(f"the factor gave {result.shape} values for the {count} bars of {symbol}")
+        segments = columns.get("segments") or [(0, columns)]
+        parts = []
+        for start, snapshot in segments:
+            end = len(snapshot["close"])
+            try:
+                computed = function(**{name: snapshot[name] for name in inputs}, **settings)
+                part = np.asarray(computed, dtype=float)
+            except Exception as error:
+                raise ValueError(f"the factor failed on {symbol}: {type(error).__name__}: {error}")
+            if part.shape != (end,):
+                raise ValueError(
+                    f"the factor gave {part.shape} values for the {end} bars of {symbol}")
+            parts.append(part[start:end])
+        result = np.concatenate(parts) if parts else np.empty(0, dtype=float)
         frames.append(pl.DataFrame({
             "symbol": [symbol] * count, "day": columns["day"], "bar": np.arange(count),
             "close": columns["close"], "value": result}))
@@ -116,10 +129,16 @@ def values(function, inputs, settings, symbols: dict) -> pl.DataFrame:
 def evaluate(frame: pl.DataFrame, horizons: list, groups: int) -> dict:
     """IC at each horizon, the days' IC and group returns at the first, and
     each group's mean return and turnover."""
-    frame = frame.sort("symbol", "bar").with_columns([
-        (pl.col("close").shift(-h).over("symbol") / pl.col("close") - 1).alias(f"ahead{h}")
-        for h in sorted({1, *horizons})])
     days = sorted(set(frame["day"]))
+    index = {day: i for i, day in enumerate(days)}
+    frame = frame.sort("symbol", "day").with_columns(
+        pl.col("day").replace_strict(index).alias("day_index"))
+    future = frame.select("symbol", "day_index", pl.col("close").alias("future_close"))
+    for h in sorted({1, *horizons}):
+        frame = (frame.join(future.with_columns((pl.col("day_index") - h).alias("day_index")),
+                            on=["symbol", "day_index"], how="left")
+                 .with_columns((pl.col("future_close") / pl.col("close") - 1).alias(f"ahead{h}"))
+                 .drop("future_close"))
     summary, first_ic = [], {}
     for n, h in enumerate(horizons):
         ranked = frame.filter(pl.col("value").is_not_null() & pl.col(f"ahead{h}").is_finite())

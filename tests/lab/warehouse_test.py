@@ -45,7 +45,7 @@ class RemoteResearch(unittest.TestCase):
         warehouse(cls.data)
         cls.original = Warehouse(cls.data).current()
         cls.repository = cls.root / 'strategies'
-        shutil.copytree(source / 'tests/lab/strategies', cls.repository)
+        shutil.copytree(source / 'research', cls.repository)
         for args in [('init', '-q'), ('add', '.'), ('commit', '-qm', 'fixture')]:
             subprocess.run(['git', '-C', str(cls.repository), '-c', 'user.name=test',
                             '-c', 'user.email=test@invalid', *args], check=True, capture_output=True)

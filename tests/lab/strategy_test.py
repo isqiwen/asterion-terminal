@@ -22,7 +22,7 @@ from asterion_lab.runs import TABLES, Plan, Runs  # noqa: E402
 from asterion_lab.service import Service  # noqa: E402
 from asterion_strategy import Bar, Context, Strategy, step  # noqa: E402
 
-EXAMPLES = Path(__file__).parent / "strategies"
+EXAMPLES = Path(__file__).resolve().parents[2] / "research"
 
 
 def bar(symbol, minute, close):
@@ -240,6 +240,30 @@ class Repository(unittest.TestCase):
         self.assertEqual(wanted, [{}] * 5 + [{"SHFE/rb": 1}] * 2 + [{"SHFE/rb": -1}] * 2)
         with self.assertRaisesRegex(ValueError, "unknown parameters: window"):
             repository.load(self.root, "ma_cross.MaCross", {"window": 3})
+        with self.assertRaisesRegex(ValueError, "lots must be positive"):
+            invalid_lots = repository.load(self.root, "ma_cross.MaCross", {"fast": 1, "slow": 2, "lots": 0})
+            lots_ctx = Context(["SHFE/rb"])
+            step(invalid_lots, lots_ctx, [bar("SHFE/rb", 0, 10.0)])
+            step(invalid_lots, lots_ctx, [bar("SHFE/rb", 1, 11.0)])
+        for invalid in ({"count": 0}, {"volatility": -1}, {"weight": 0.0}):
+            with self.assertRaisesRegex(ValueError, "invalid ranking parameters"):
+                step(repository.load(self.root, "momentum_rank.MomentumRank", invalid),
+                     Context(["SHFE/rb", "SHFE/cu"]),
+                     [bar("SHFE/rb", 0, 10.0), bar("SHFE/cu", 0, 10.0)])
+        # MomentumRank reads roll-adjusted history: a flat roll with a 20% basis gap
+        # does not outrank a true +5% move.
+        rank = repository.load(self.root, "momentum_rank.MomentumRank",
+                               {"lookback": 1, "rebalance": 1, "count": 1, "weight": 0.1})
+        rank_ctx = Context(["SHFE/rb", "SHFE/cu"], {"SHFE/rb/2026-10": 1.2})
+        step(rank, rank_ctx, [Bar("SHFE/rb", "SHFE/rb/2026-05", bar("SHFE/rb", 0, 100.0).time,
+                                  100.0, 100.0, 100.0, 100.0, 10.0, 100.0),
+                              Bar("SHFE/cu", "SHFE/cu/2026-05", bar("SHFE/cu", 0, 100.0).time,
+                                  100.0, 100.0, 100.0, 100.0, 10.0, 100.0)])
+        weights = step(rank, rank_ctx, [Bar("SHFE/rb", "SHFE/rb/2026-10", bar("SHFE/rb", 1, 120.0).time,
+                                            120.0, 120.0, 120.0, 120.0, 10.0, 100.0),
+                                        Bar("SHFE/cu", "SHFE/cu/2026-05", bar("SHFE/cu", 1, 105.0).time,
+                                            105.0, 105.0, 105.0, 105.0, 10.0, 100.0)])
+        self.assertEqual(weights, {"SHFE/cu": 0.1, "SHFE/rb": -0.1})
         with self.assertRaisesRegex(ValueError, "parameter slow is a int"):
             repository.load(self.root, "ma_cross.MaCross", {"slow": "20"})
         with self.assertRaisesRegex(ValueError, "no strategy"):

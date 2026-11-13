@@ -17,8 +17,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-e2e-", ignore_cleanup_errors=T
     env = dict(os.environ, ASTERION_TABLE_FIXTURE_CONTROL=str(root / "table-source-control"))
     # Editors such as VS Code export this; Electron would then start as plain Node.
     env.pop("ELECTRON_RUN_AS_NODE", None)
-    # The fixture strategies are the built-in ones, never the project's research/.
-    env["ASTERION_BUILTIN_RESEARCH"] = str(TESTS / "lab/strategies")
+    env["ASTERION_BUILTIN_RESEARCH"] = str(TESTS.parent / "research")
     with warehouse_host(BUILD, root / "warehouse", exchanges=("SHFE", "GFEX")) as warehouse, market_host(BUILD, root / "market", also_trust=root / "warehouse/config/tls") as market:
         env["ASTERION_TEST_WAREHOUSE_PORT"] = str(warehouse)
         env["ASTERION_TEST_WAREHOUSE_TLS"] = str(root / "warehouse/config/tls")

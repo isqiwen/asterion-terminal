@@ -54,6 +54,11 @@ class Dominant(unittest.TestCase):
         self.assertEqual(traded.segments[1].begin, "2026-03-04")
         # June over April at the settlements of the day before: 72100 / 70100.
         self.assertEqual(traded.ratios[1], Decimal("1.02853067"))
+        # Ending the requested window on April's last day keeps the same handover.
+        short = plan([april, june], traded=True, end="2026-03-04")
+        self.assertEqual([(s.month, s.begin) for s in short.segments],
+                         [(s.month, s.begin) for s in traded.segments])
+        self.assertEqual(short.ratios, traded.ratios)
 
     def test_a_traded_series_refuses_a_roll_away_from_a_month_without_bars(self):
         may = month("SHFE/rb/2026-05", ["3100", "3110", "3120", "3130", "3140", "3150"],

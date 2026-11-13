@@ -13,6 +13,8 @@ def units(values) -> list:
 def lots(side: int, params: dict) -> int:
     """What a rule holds when it takes `side`: its lots on a side it may hold,
     nothing on one it may not."""
+    if params["lots"] <= 0:
+        raise ValueError("lots must be positive")
     if params["sides"] not in SIDES:
         raise ValueError(f"sides is one of {', '.join(SIDES)}")
     if side > 0 and params["sides"] != "short":

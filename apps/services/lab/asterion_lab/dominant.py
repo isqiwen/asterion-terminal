@@ -48,11 +48,11 @@ class Plan:
     ratios: list  # of each segment's roll; 1 for the first
 
 
-def plan(months: list, traded: bool) -> Plan:
+def plan(months: list, traded: bool, end: str = "") -> Plan:
     for i in range(1, len(months)):
         if months[i].delivery_month <= months[i - 1].delivery_month:
             raise ValueError("a dominant series lists each month once, in delivery order")
-    days = sorted({day for month in months for day in month.settlement})
+    days = sorted({day for month in months for day in month.settlement if not end or day <= end})
     if len(days) < 2:
         raise ValueError("a dominant series requires at least two trading days")
     segments, ratios = [], []
@@ -65,7 +65,9 @@ def plan(months: list, traded: bool) -> Plan:
             if day not in months[m].settlement or interest is None:
                 continue
             # Held past its last day, a month could not be left. The series may end in it.
-            if traded and day == max(months[m].settlement) and d + 1 < len(days):
+            if traded and day == max(months[m].settlement) and any(
+                max(later.settlement) > day for later in months[m + 1:]
+            ):
                 ending = m
                 continue
             if chosen is None or interest > months[chosen].open_interest[previous]:

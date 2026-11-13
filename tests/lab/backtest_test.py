@@ -31,7 +31,7 @@ from service_fixture import Service  # noqa: E402
 from warehouse_writer import Dataset, Warehouse  # noqa: E402
 from warehouse_fixture import DAYS, price_tick, settlement, warehouse  # noqa: E402
 
-EXAMPLES = Path(__file__).parent / "strategies"
+EXAMPLES = Path(__file__).resolve().parents[2] / "research"
 
 
 def git(root, *arguments):
@@ -431,6 +431,12 @@ class Backtests(unittest.TestCase):
                          [(DAYS[1].isoformat(), 0), (DAYS[16].isoformat(), 1)])
         self.assertEqual(contracts[1]["bars"][0][0], DAYS[15].isoformat())
         self.assertEqual(contracts[0]["bars"][-1][0], DAYS[-1].isoformat())
+        # Starting after the first stored day uses the previous trading day as anchor,
+        # so the dominant series is active from begin_day itself.
+        anchored = self.config(("SHFE/rb",), begin_day=DAYS[5].isoformat())
+        _, anchored_series, _ = backtest.prepare(
+            backtest.Data(Warehouse(self.directory), anchored.begin_day, anchored.end_day), anchored)
+        self.assertEqual(anchored_series, [[(DAYS[5].isoformat(), 0), (DAYS[16].isoformat(), 1)]])
 
     def test_later_days_never_change_what_a_series_showed_before(self):
         import asterion_engine
@@ -1469,10 +1475,15 @@ builtins.print = delayed_print
         self.assertTrue(all(time_ns >= first for time_ns in runs.table("walk-rolling", "fills")["time_ns"]))
         request = self.sweep_request("refused", [2, 3], [4], 2)
         request.start_sweep.walk_forward.training_days, request.start_sweep.walk_forward.validation_days = 20, 3
+        no_sharpe = self.sweep_request("no-sharpe", [2, 3], [4], 2)
+        no_sharpe.start_sweep.base.holdout_day = ""
+        no_sharpe.start_sweep.base.zero_risk_free_rate = False
+        no_sharpe.start_sweep.walk_forward.training_days, no_sharpe.start_sweep.walk_forward.validation_days = 20, 3
 
         async def refused():
             service = Service("lab", self.directory, type("Log", (), {"write": lambda *a, **k: None})())
             self.assertEqual((await service.reply(request)).error.code, INVALID)
+            self.assertEqual((await service.reply(no_sharpe)).error.code, INVALID)
 
         asyncio.run(refused())
         with self.assertRaises(ValueError):
