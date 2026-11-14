@@ -2,7 +2,12 @@ import { useEffect, useState } from "react";
 import type { Snapshot, TradingConnection } from "../../bridge/client";
 import { warehouseData } from "../../bridge/warehouse-data";
 import { translate, useLocale } from "../../i18n";
-import { asDisplayError, errorSummary } from "../../i18n/errors";
+import {
+  asDisplayError,
+  ctpErrorSummary,
+  diagnosticSummary,
+  errorSummary,
+} from "../../i18n/errors";
 import { useMarket, useMarketOpenError } from "../market";
 import { stalled, useTradingAccounts } from "../trading-accounts";
 import { FeedState } from "../../generated/asterion/market_pb";
@@ -76,11 +81,13 @@ export function StatusIndicators({
     ? ["danger", "中断"]
     : feed?.state === FeedState.CONNECTED
       ? ["ok", ""]
-      : feed?.state === FeedState.CONNECTING ||
-          feed?.state === FeedState.LOGGING_IN ||
-          feed?.state === FeedState.RECONNECTING
+      : feed?.state === FeedState.CONNECTING
         ? ["", "连接柜台中"]
-        : ["danger", "柜台未连接"];
+        : feed?.state === FeedState.LOGGING_IN
+          ? ["", "登录柜台中"]
+          : feed?.state === FeedState.RECONNECTING
+            ? ["", "柜台重连中"]
+            : ["danger", "柜台未连接"];
   const warehouse = snapshot.warehouse_endpoint;
   // The sidebar's order; trading last, since there is one light per account.
   return (
@@ -102,7 +109,11 @@ export function StatusIndicators({
         <span
           className="status-item"
           data-tone={marketTone || undefined}
-          title={market.error || (feed?.ctpError ? `CTP ${feed.ctpError}` : undefined)}
+          title={
+            market.error ||
+            (feed?.error ? diagnosticSummary(feed.error) || feed.error : undefined) ||
+            (feed?.ctpError ? ctpErrorSummary(feed.ctpError) : undefined)
+          }
         >
           {label(t("行情"), marketState)}
         </span>

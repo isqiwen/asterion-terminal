@@ -1,6 +1,7 @@
 import { quoteColumns, type QuoteColumn } from "./QuoteColumns";
 import "./quotes.css";
 import { getLocale, translate } from "../../src/i18n";
+import { ctpErrorSummary } from "../../src/i18n/errors";
 import { FeedState, Subscription, type QuoteRow } from "../../src/generated/asterion/market_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
@@ -179,7 +180,10 @@ export function QuoteTable({
                   )}
                   <small className="quote-venue">{exchange}</small>
                   {onSelect && !overviewStyle && quoteStatus(market, row) !== t("实时") && (
-                    <small className="quote-inline-status">
+                    <small
+                      className="quote-inline-status"
+                      title={row.ctpError ? ctpErrorSummary(row.ctpError) : undefined}
+                    >
                       {quoteStatus(market, row)}
                       {row.ctpError !== 0 && ` · CTP ${row.ctpError}`}
                     </small>
@@ -261,7 +265,8 @@ export function QuoteTable({
                     <span className="quote-status-label">{quoteStatus(market, row)}</span>
                     {row.ctpError !== 0 && (
                       <details>
-                        <summary>{t("详情")}</summary>CTP {row.ctpError}
+                        <summary>{t("详情")}</summary>
+                        {ctpErrorSummary(row.ctpError)}
                       </details>
                     )}
                   </td>

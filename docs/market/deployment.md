@@ -35,6 +35,6 @@ CTP 密码和授权码由 `systemd-creds` 加密保存在 `/etc/credstore.encryp
 
 ## 运行
 
-- 启动后立即登录 CTP，不等客户端。行情登录被拒时每分钟重试一次。
+- 启动后立即登录 CTP，不等客户端。超时及柜台临时不可用时自动恢复；恢复时机与错误说明见[实时行情](README.md#实时行情)。
 - 收到 SIGTERM 后报价流发出最后一帧再退出。原始行情队列写满时进程退出，由 systemd 重启。
 - 默认日志在 `logs/asterion_market_YYYY-MM-DD.log`，保留 30 天。行情连接每次变化（登录、断线及 CTP 原因码、重连）记一行。

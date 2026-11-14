@@ -25,10 +25,7 @@ public:
     explicit Live(const Settings& settings);
     ~Live();
 
-    // Logs in again a minute after a failed login, refreshes the catalog after
-    // each login, on each new trading day and five minutes after a failed
-    // refresh, subscribes once the catalog lists contracts, and retries refused
-    // subscriptions every five minutes.
+    // Recovers the provider connection, refreshes the catalog and retries refused subscriptions.
     void maintain(Clock::time_point now);
     // The feed's changes since the last call, in order.
     ctp::FeedEvents poll();
@@ -47,7 +44,7 @@ public:
     ::market::QuoteFrame frame(const ::market::StreamQuotes& selection, Sent& sent) const;
 
 private:
-    void login();
+    void login(Clock::time_point now);
     void subscribe();
     ::market::Feed feed_state() const;
 
@@ -60,6 +57,7 @@ private:
     IntradayBars minutes_;
     MarketPhase phase_ = MarketPhase::disconnected;
     int feed_error_ = 0;
+    std::string connection_error_;
     std::uint32_t subscribed_ = 0;
     std::uint64_t subscribed_catalog_ = 0;
     std::int64_t last_quote_ms_ = 0;
@@ -68,6 +66,7 @@ private:
     bool in_night_session_ = false;
     std::string trading_day_;
     Clock::time_point next_login_{}, next_refresh_{}, next_retry_{};
+    Clock::time_point connection_deadline_{};
 };
 
 } // namespace asterion::market

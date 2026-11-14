@@ -25,7 +25,7 @@ endif()
 set(asterion_process_test_targets
   asterion_python_runtime_tests asterion_warehouse_tests
   asterion_acquisition_tests
-  asterion_ctp_catalog_tests asterion_ctp_tests asterion_ctp_trader_tests
+  asterion_ctp_catalog_tests asterion_ctp_tests asterion_ctp_trader_tests asterion_market_live_tests
   asterion_kernel_tests asterion_live_tests
   asterion_rpc_host_tests asterion_terminal_application_tests)
 # Optional argument: a timeout in seconds.
@@ -104,6 +104,10 @@ target_compile_definitions(asterion_ctp_catalog_tests PRIVATE ASTERION_TEST_CTP_
 target_compile_definitions(asterion_ctp_catalog_tests PRIVATE ASTERION_TEST_CTP="$<TARGET_FILE:asterion_test_ctp>" ASTERION_MARKET_PATH="$<TARGET_FILE:asterion_market>")
 target_link_libraries(asterion_ctp_catalog_tests PRIVATE asterion_protocol)
 add_dependencies(asterion_ctp_catalog_tests asterion_test_ctp_trader asterion_test_ctp asterion_market)
+asterion_unit_tests(asterion_market_live_tests market/live_test.cpp asterion_market_live)
+target_include_directories(asterion_market_live_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/services/market)
+target_compile_definitions(asterion_market_live_tests PRIVATE ASTERION_TEST_CTP_TRADER="$<TARGET_FILE:asterion_test_ctp_trader>" ASTERION_TEST_CTP="$<TARGET_FILE:asterion_test_ctp>")
+add_dependencies(asterion_market_live_tests asterion_test_ctp asterion_test_ctp_trader)
 add_test(NAME market_process COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/market/live_process.py $<TARGET_FILE:asterion_market> $<TARGET_FILE:asterion_test_ctp> $<TARGET_FILE:asterion_test_ctp_trader> --terminal ${CMAKE_BINARY_DIR})
 set_tests_properties(market_process PROPERTIES TIMEOUT 60)
 add_test(NAME ctp_sdk_smoke COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/market/ctp_sdk_smoke.py ${CMAKE_BINARY_DIR})

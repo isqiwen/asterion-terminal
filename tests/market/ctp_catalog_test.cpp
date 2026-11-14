@@ -6,6 +6,7 @@
 #include <asterion/system/ipc/local_channel.hpp>
 #include <asterion/protocol/market.hpp>
 #include <gtest/gtest.h>
+#include <fstream>
 #include <thread>
 using namespace asterion;
 using namespace std::chrono_literals;
@@ -60,7 +61,6 @@ TEST_F(CtpCatalog, ReturnsOnlyActiveFuturesWithoutSettlementOrOrderActions)
 TEST_F(CtpCatalog, AuthAndLoginErrorsRejectRatherThanReturnAnEmptyCatalog)
 {
     config.app_id = "app";
-    // The refusal names its step: authentication is the AppID, login the password.
     const auto refusal = [&] {
         try {
             (void)read();
@@ -76,6 +76,23 @@ TEST_F(CtpCatalog, AuthAndLoginErrorsRejectRatherThanReturnAnEmptyCatalog)
     EXPECT_NE(refusal().find("CTP catalog login rejected"), std::string::npos);
     config.password = "secret";
     EXPECT_EQ(read().contracts.size(), 1U);
+}
+
+TEST_F(CtpCatalog, AnInactiveFrontIsUnavailableAndKeepsTheBrokerMessage)
+{
+    std::filesystem::create_directories(flow);
+    std::ofstream(flow / "front-inactive").put('1');
+    config.app_id = "app";
+    config.auth_code = "auth";
+    try {
+        read();
+        FAIL() << "expected inactive front";
+    } catch (const Error& error) {
+        EXPECT_EQ(error.code(), ErrorCode::unavailable);
+        EXPECT_STREQ(
+            error.what(),
+            "CTP catalog front inactive: CTP catalog authentication rejected: 8: CTP:前置不活跃");
+    }
 }
 
 TEST_F(CtpCatalog, RejectsPartialAndDuplicateResults)

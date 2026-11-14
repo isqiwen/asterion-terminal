@@ -16,13 +16,13 @@
 namespace asterion::ctp {
 namespace {
 
-std::string name_utf8(std::string input)
+std::string text_utf8(std::string input)
 {
     if (input.empty())
         return {};
     const auto converter = iconv_open("UTF-8", "GB18030");
     if (converter == reinterpret_cast<iconv_t>(-1))
-        throw Error(ErrorCode::unavailable, "CTP catalog name conversion unavailable");
+        throw Error(ErrorCode::unavailable, "CTP catalog text conversion unavailable");
 
     struct Close
     {
@@ -40,7 +40,7 @@ std::string name_utf8(std::string input)
     auto remaining = input.size(), space = result.size();
     if (iconv(converter, &in, &remaining, &out, &space) == static_cast<std::size_t>(-1)
         || remaining)
-        throw Error(ErrorCode::operation_failed, "invalid CTP catalog name encoding");
+        throw Error(ErrorCode::operation_failed, "invalid CTP catalog text encoding");
     result.resize(result.size() - space);
     return result;
 }
@@ -85,33 +85,37 @@ struct Reader final : CThostFtdcTraderSpi
 
     struct Failure
     {
-        int code;
+        CThostFtdcRspInfoField error;
     };
 
     struct Auth
     {
-        int code, id;
+        CThostFtdcRspInfoField error;
+        int id;
         bool last;
     };
 
     struct Login
     {
         std::optional<CThostFtdcRspUserLoginField> value;
-        int code, id;
+        CThostFtdcRspInfoField error;
+        int id;
         bool last;
     };
 
     struct Instrument
     {
         std::optional<CThostFtdcInstrumentField> value;
-        int code, id;
+        CThostFtdcRspInfoField error;
+        int id;
         bool last;
     };
 
     struct Product
     {
         std::optional<std::pair<std::string, std::string>> value; // exchange, product
-        int code, id;
+        CThostFtdcRspInfoField error;
+        int id;
         bool last;
     };
 
@@ -128,8 +132,7 @@ struct Reader final : CThostFtdcTraderSpi
         }
     }
 
-    // Names the step: a login refusal means the password, an authentication one the AppID.
-    void check(int code) const
+    void check(const CThostFtdcRspInfoField& error) const
     {
         static constexpr const char* names[] = {
             "connection",
@@ -139,11 +142,16 @@ struct Reader final : CThostFtdcTraderSpi
             "instrument query",
             "instrument query"
         };
-        if (code)
-            throw Error(
-                ErrorCode::operation_failed,
-                std::string("CTP catalog ") + names[static_cast<int>(step)]
-                    + " rejected: " + std::to_string(code));
+        if (!error.ErrorID)
+            return;
+        auto diagnostic = std::string("CTP catalog ") + names[static_cast<int>(step)]
+            + " rejected: " + std::to_string(error.ErrorID);
+        const auto message = text_utf8(field(error.ErrorMsg));
+        if (!message.empty())
+            diagnostic += ": " + message;
+        if (error.ErrorID == 8)
+            throw Error(ErrorCode::unavailable, "CTP catalog front inactive: " + diagnostic);
+        throw Error(ErrorCode::operation_failed, std::move(diagnostic));
     }
 
     void OnFrontConnected() override
@@ -159,7 +167,7 @@ struct Reader final : CThostFtdcTraderSpi
     void OnRspError(CThostFtdcRspInfoField* info, int, bool) override
     {
         if (info && info->ErrorID)
-            deliver(Failure{info->ErrorID});
+            deliver(Failure{*info});
     }
 
     void OnRspAuthenticate(
@@ -168,7 +176,7 @@ struct Reader final : CThostFtdcTraderSpi
         int id,
         bool last) override
     {
-        deliver(Auth{info ? info->ErrorID : 0, id, last});
+        deliver(Auth{info ? *info : CThostFtdcRspInfoField{}, id, last});
     }
 
     void OnRspUserLogin(
@@ -180,7 +188,7 @@ struct Reader final : CThostFtdcTraderSpi
         deliver(
             Login{
                 value ? std::optional(*value) : std::nullopt,
-                info ? info->ErrorID : 0,
+                info ? *info : CThostFtdcRspInfoField{},
                 id,
                 last
             });
@@ -197,7 +205,7 @@ struct Reader final : CThostFtdcTraderSpi
             future = std::pair{field(value->ExchangeID), field(value->ProductID)};
         const int code = info ? info->ErrorID : 0;
         if (future || code || last)
-            deliver(Product{std::move(future), code, id, last});
+            deliver(Product{std::move(future), info ? *info : CThostFtdcRspInfoField{}, id, last});
     }
 
     void OnRspQryInstrument(
@@ -215,7 +223,8 @@ struct Reader final : CThostFtdcTraderSpi
             future = *value;
         const int code = info ? info->ErrorID : 0;
         if (future || code || last)
-            deliver(Instrument{std::move(future), code, id, last});
+            deliver(
+                Instrument{std::move(future), info ? *info : CThostFtdcRspInfoField{}, id, last});
     }
 
     void instrument(const CThostFtdcInstrumentField* item)
@@ -223,7 +232,7 @@ struct Reader final : CThostFtdcTraderSpi
         if (item) {
             CatalogContract entry;
             entry.instrument = {field(item->ExchangeID), field(item->InstrumentID)};
-            entry.name = name_utf8(field(item->InstrumentName));
+            entry.name = text_utf8(field(item->InstrumentName));
             // One odd listing must not cost the whole market its subscription.
             try {
                 validate_instruments({entry.instrument});
@@ -285,16 +294,16 @@ struct Reader final : CThostFtdcTraderSpi
                             ErrorCode::unavailable,
                             "CTP catalog disconnected: " + std::to_string(value.reason));
                     } else if constexpr (std::is_same_v<T, Failure>) {
-                        check(value.code);
+                        check(value.error);
                     } else if constexpr (std::is_same_v<T, Auth>) {
                         if (step != Step::authenticate || value.id != 1)
                             return;
-                        check(value.code);
+                        check(value.error);
                         completed = value.last;
                     } else if constexpr (std::is_same_v<T, Login>) {
                         if (step != Step::login || value.id != 2)
                             return;
-                        check(value.code);
+                        check(value.error);
                         if (value.value)
                             result.trading_day = field(value.value->TradingDay);
                         if (value.last
@@ -306,14 +315,14 @@ struct Reader final : CThostFtdcTraderSpi
                     } else if constexpr (std::is_same_v<T, Product>) {
                         if (step != Step::products || value.id != 4)
                             return;
-                        check(value.code);
+                        check(value.error);
                         if (value.value)
                             products.push_back(*value.value);
                         completed = value.last;
                     } else if constexpr (std::is_same_v<T, Instrument>) {
                         if (step != Step::query || value.id != 3)
                             return;
-                        check(value.code);
+                        check(value.error);
                         instrument(value.value ? &*value.value : nullptr);
                         completed = value.last;
                     }

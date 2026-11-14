@@ -28,7 +28,7 @@ Live::Live(const Settings& settings)
       feed_(sdk_, settings.ctp_library, settings.directory / "ctp-flow"),
       catalog_(sdk_, settings.directory / "ctp-catalog.pb")
 {
-    login();
+    login(Clock::now());
 }
 
 Live::~Live()
@@ -36,26 +36,38 @@ Live::~Live()
     feed_.stop();
 }
 
-void Live::login()
+void Live::login(Clock::time_point now)
 {
     feed_.connect(settings_.market, {});
+    connection_error_.clear();
     subscribed_ = 0;
     subscribed_catalog_ = 0;
-    next_login_ = Clock::now() + 60s;
+    connection_deadline_ = now + 30s;
 }
 
 void Live::maintain(Clock::time_point now)
 {
     catalog_.poll();
+    const auto phase = feed_.phase();
+    if ((phase == MarketPhase::connecting || phase == MarketPhase::logging_in
+            || phase == MarketPhase::reconnecting)
+        && now >= connection_deadline_) {
+        connection_error_ = phase == MarketPhase::logging_in
+            ? "CTP market login timed out"
+            : "CTP market front connection timed out";
+        log::warn("{}: {}; retrying in 5 seconds", connection_error_, settings_.market.front);
+        feed_.disconnect();
+        next_login_ = now + 5s;
+    }
     if (feed_.phase() == MarketPhase::connected && now >= next_retry_) {
         feed_.retry_failed_subscriptions();
         next_retry_ = now + 5min;
     }
-    if (feed_.phase() == MarketPhase::error && now >= next_login_)
-        login();
+    if ((feed_.phase() == MarketPhase::error || !connection_error_.empty()) && now >= next_login_)
+        login(now);
     const auto catalog = catalog_.state().status().state();
     if (catalog == wire::CATALOG_STATE_FAILED && next_refresh_ == Clock::time_point{})
-        next_refresh_ = now + 5min;
+        next_refresh_ = now + catalog_.retry_delay();
     if ((refresh_wanted_ || (next_refresh_ != Clock::time_point{} && now >= next_refresh_))
         && !catalog_.running()) {
         catalog_.refresh(
@@ -98,6 +110,13 @@ ctp::FeedEvents Live::poll()
 void Live::apply(const ctp::FeedEvent& event)
 {
     if (const auto* status = std::get_if<ctp::FeedStatus>(&event)) {
+        if (status->phase != phase_) {
+            if (status->phase == MarketPhase::logging_in
+                || status->phase == MarketPhase::reconnecting)
+                connection_deadline_ = Clock::now() + 30s;
+            if (status->phase == MarketPhase::error)
+                next_login_ = Clock::now() + (status->error_code == 8 ? 10s : 60s);
+        }
         if (status->phase != phase_ || status->error_code != feed_error_) {
             if (!status->error_code)
                 log::info("market feed {}", market_phase_name(status->phase));
@@ -139,6 +158,11 @@ void Live::apply(const ctp::FeedEvent& event)
 wire::Feed Live::feed_state() const
 {
     auto out = protocol::encode_feed(feed_.phase(), feed_error_);
+    if (!connection_error_.empty()) {
+        out.set_state(wire::FEED_STATE_FAILED);
+        out.set_ctp_error(0);
+        out.set_error(connection_error_);
+    }
     if (settings_.ctp_library.empty())
         out.set_state(wire::FEED_STATE_NO_SDK);
     return out;

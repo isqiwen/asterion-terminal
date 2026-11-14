@@ -34,6 +34,9 @@ const errors: Record<string, string> = {
 // These messages carry operation-specific evidence after a stable prefix.
 // Keep that evidence in Details; do not expose service identifiers as UI copy.
 const prefixedDiagnostics = [
+  ["CTP catalog front inactive: ", "CTP catalog front inactive"],
+  ["CTP catalog disconnected: ", "CTP catalog disconnected"],
+  ["CTP catalog instrument query timed out after ", "CTP catalog instrument query timed out"],
   ["a module of this name already exists: ", "a module of this name already exists"],
   ["a built-in module cannot be changed: ", "a built-in module cannot be changed"],
   ["a built-in module cannot be deleted: ", "a built-in module cannot be deleted"],
@@ -150,10 +153,34 @@ const prefixedDiagnostics = [
     "\u6240\u9009\u7684\u54c1\u79cd\u6216\u5408\u7ea6\u91cc\u6709\u5728\u8fd9\u4e2a\u8303\u56f4\u5185\u8bfb\u4e0d\u51fa\u7684\uff1b\u8be6\u60c5\u91cc\u9010\u4e2a\u5217\u51fa\u4ee3\u7801\u548c\u539f\u56e0\uff0c\u628a\u5b83\u4eec\u79fb\u9664\u540e\u518d\u63d0\u4ea4",
   ],
 ] as const;
+
+const ctpReasons: Record<number, string> = {
+  [-1000]: "CTP market SDK failed",
+  [-1]: "CTP network disconnected",
+  [-2]: "CTP requests pending",
+  [-3]: "CTP request rate exceeded",
+  3: "CTP login rejected",
+  8: "CTP front inactive",
+  63: "CTP authentication rejected",
+  4097: "CTP network read failed",
+  4098: "CTP network write failed",
+  8193: "CTP receive heartbeat timed out",
+  8194: "CTP send heartbeat failed",
+  8195: "CTP invalid packet received",
+};
+export function ctpErrorSummary(code: number, detail = "") {
+  const reason = ctpReasons[code];
+  return `${reason ? translate("diagnostics", reason) : detail || translate("diagnostics", "CTP request rejected")} (CTP ${code})`;
+}
 // The localized form of a known English service diagnostic.
 export function diagnosticSummary(message: string) {
   const known = localizeText("diagnostics", message);
   if (known) return known;
+  const ctp = message.match(
+    /^CTP catalog (authentication|login|product query|instrument query) rejected: (-?\d+)(?:: (.*))?$/,
+  );
+  if (ctp)
+    return `${translate("diagnostics", `CTP catalog ${ctp[1]} rejected`)}: ${ctpErrorSummary(Number(ctp[2]), ctp[3])}`;
   const match = prefixedDiagnostics.find(([prefix]) => message.startsWith(prefix));
   return match ? translate("diagnostics", match[1]) : undefined;
 }

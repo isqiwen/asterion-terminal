@@ -41,6 +41,8 @@ public:
                 std::lock_guard lock(mutex);
                 if (!spi)
                     continue;
+                if (std::filesystem::exists(flow / "hold-front"))
+                    continue;
                 if (n == 0 || (reconnect && n == 14))
                     spi->OnFrontConnected();
                 if (reconnect && n == 9)
@@ -237,6 +239,8 @@ public:
     int ReqUserLogin(CThostFtdcReqUserLoginField* login, int id) override
     {
         require_owner();
+        if (std::filesystem::exists(flow / "hold-login"))
+            return 0;
         std::lock_guard lock(mutex);
         const std::string user(login->UserID);
         publication = user == "publication" || user == "concurrency";

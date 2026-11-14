@@ -76,7 +76,27 @@ test("the market indicator shows the service's own link to the broker and why it
 
   vi.mocked(useMarket).mockReturnValue(market(FeedState.LOGGING_IN));
   view.rerender(show());
+  expect(screen.getByText("● 行情 登录柜台中")).toBeTruthy();
+
+  vi.mocked(useMarket).mockReturnValue(market(FeedState.CONNECTING));
+  view.rerender(show());
   expect(screen.getByText("● 行情 连接柜台中")).toBeTruthy();
+
+  vi.mocked(useMarket).mockReturnValue(market(FeedState.RECONNECTING));
+  view.rerender(show());
+  expect(screen.getByText("● 行情 柜台重连中")).toBeTruthy();
+
+  const timeout = market(FeedState.FAILED);
+  timeout.board.feed!.error = "CTP market front connection timed out";
+  vi.mocked(useMarket).mockReturnValue(timeout);
+  view.rerender(show());
+  expect(screen.getByText("● 行情 柜台未连接").title).toContain("超过 30 秒未响应");
+
+  const inactive = market(FeedState.FAILED);
+  inactive.board.feed!.ctpError = 8;
+  vi.mocked(useMarket).mockReturnValue(inactive);
+  view.rerender(show());
+  expect(screen.getByText("● 行情 柜台未连接").title).toContain("柜台前置未就绪");
 
   vi.mocked(useMarket).mockReturnValue(market(FeedState.CONNECTED));
   view.rerender(show());

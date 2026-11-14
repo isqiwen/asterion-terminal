@@ -393,9 +393,13 @@ public:
     int ReqAuthenticate(CThostFtdcReqAuthenticateField* request, int id) override
     {
         check_sdk_thread();
-        const int code = std::string(request->AuthCode) == "bad-auth" ? 63 : 0;
+        const int code = std::filesystem::exists(flow / "front-inactive")
+            ? 8
+            : (std::string(request->AuthCode) == "bad-auth" ? 63 : 0);
         emit([code, id](CThostFtdcTraderSpi* s) {
             auto rsp = info(code);
+            if (code == 8)
+                put(rsp.ErrorMsg, "CTP:\xc7\xb0\xd6\xc3\xb2\xbb\xbb\xee\xd4\xbe");
             CThostFtdcRspAuthenticateField field{};
             s->OnRspAuthenticate(&field, &rsp, id, true);
         });

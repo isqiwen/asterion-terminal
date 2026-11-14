@@ -193,5 +193,7 @@
   "图表": "Charts",
   "服务版本": "Service version",
   "磁盘可用": "Free disk space",
-  "选择日期": "Choose a date"
+  "选择日期": "Choose a date",
+  "登录柜台中": "Logging in to broker",
+  "柜台重连中": "Reconnecting to broker"
 }

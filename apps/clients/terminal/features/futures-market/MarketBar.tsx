@@ -5,7 +5,7 @@ import { ActionError, useActionError } from "../../src/host/action-error";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { translate } from "../../src/i18n";
-import { BackendError, ErrorNotice } from "../../src/i18n/errors";
+import { BackendError, ErrorNotice, ctpErrorSummary } from "../../src/i18n/errors";
 import { defaultSort } from "./MarketBoard";
 import { MarketStatus } from "./MarketStatus";
 import { QuoteColumns, defaultQuoteColumns } from "./QuoteColumns";
@@ -126,10 +126,14 @@ export function MarketBar({ context }: { context: TerminalContext }) {
             {t("行情连接失败")}: {market.error}
           </p>
         )}
-        {!!feed?.ctpError && (
-          <p role="alert">
-            {t("行情连接异常")} CTP {feed.ctpError}
-          </p>
+        {(feed?.error || !!feed?.ctpError) && (
+          <ErrorNotice
+            error={
+              feed.error
+                ? new BackendError("unavailable", feed.error)
+                : ctpErrorSummary(feed.ctpError)
+            }
+          />
         )}
         {market.board.catalog?.status?.state === CatalogState.FAILED && (
           <ErrorNotice

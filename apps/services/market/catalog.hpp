@@ -53,6 +53,7 @@ class Catalog
                 }
                 result = std::move(ready);
             } catch (const Error& error) {
+                unavailable = error.code() == ErrorCode::unavailable;
                 result.emplace();
                 result->mutable_status()->set_state(::market::CATALOG_STATE_FAILED);
                 result->mutable_status()->set_error(error.what());
@@ -70,6 +71,7 @@ class Catalog
         std::stop_source stop;
         std::unique_ptr<ctp::CatalogQuery> query;
         std::optional<State> result;
+        bool unavailable = false;
     };
 
 public:
@@ -140,12 +142,14 @@ public:
             return;
         }
         auto result = std::move(*operation_->result);
+        unavailable_ = operation_->unavailable;
         operation_.reset(); // Its SDK resource was released before completing the step.
         const auto state = result.status().state();
         if (state == ::market::CATALOG_STATE_READY || state == ::market::CATALOG_STATE_CACHED) {
             cached_ = result;
             cached_.mutable_status()->set_state(::market::CATALOG_STATE_CACHED);
         } else if (state == ::market::CATALOG_STATE_FAILED) {
+            log::warn("contract catalog refresh failed: {}", result.status().error());
             // A failed refresh reports its error while retaining known contracts.
             *result.mutable_contracts() = cached_.contracts();
             result.mutable_status()->set_trading_day(cached_.status().trading_day());
@@ -156,6 +160,11 @@ public:
     bool running() const
     {
         return bool(operation_);
+    }
+
+    std::chrono::seconds retry_delay() const
+    {
+        return std::chrono::seconds{unavailable_ ? 10 : 300};
     }
 
     const State& state() const
@@ -194,6 +203,7 @@ private:
     std::uint64_t revision_ = 0;
     std::unique_ptr<Operation> operation_;
     std::future<void> pending_;
+    bool unavailable_ = false;
 };
 
 } // namespace asterion::market

@@ -122,6 +122,8 @@ sequenceDiagram
 
 客户端收到 `full` 时替换全部内容；收到 `changed` 时按 `Instrument` 替换整行，带目录时替换目录。合约集合变化时 Market 发送新的 `full`。
 
+`Feed.error` 说明服务主动结束连接的原因，例如连接或登录超时；柜台返回的错误码保留在 `ctp_error`。目录失败的 `CatalogStatus.error` 包含失败阶段及柜台原始说明。
+
 ## 8. Warehouse
 
 定义在 [warehouse.proto](../protocol/proto/asterion/warehouse.proto)。行为说明见 [Warehouse](warehouse/README.md)。
