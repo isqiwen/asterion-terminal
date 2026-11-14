@@ -3,10 +3,14 @@ import { expect, test, vi } from "vitest";
 import { FeedState } from "../../generated/asterion/market_pb";
 import { warehouseData } from "../../bridge/warehouse-data";
 import { readySnapshot } from "../../testing/core";
-import { useMarket, type MarketView } from "../market";
+import { useMarket, useMarketOpenError, type MarketView } from "../market";
+import { BackendError } from "../../i18n/errors";
 import { StatusIndicators } from "./StatusIndicators";
 
-vi.mock("../market", () => ({ useMarket: vi.fn(() => null) }));
+vi.mock("../market", () => ({
+  useMarket: vi.fn(() => null),
+  useMarketOpenError: vi.fn(() => ""),
+}));
 vi.mock("../../bridge/warehouse-data", () => ({
   warehouseData: vi.fn(() => new Promise(() => {})),
 }));
@@ -93,6 +97,29 @@ test("the warehouse indicator reads the service and says why it failed", async (
   vi.mocked(warehouseData).mockRejectedValueOnce(new Error("connection refused"));
   render(show());
   await waitFor(() => expect(screen.getByText("● 数据 中断").title).toBe("connection refused"));
+});
+
+test("failed initial connections have the same danger state for Market and Warehouse", async () => {
+  vi.mocked(useMarketOpenError).mockReturnValue(
+    new BackendError("conflict", "market protocol differs from this Terminal"),
+  );
+  vi.mocked(warehouseData).mockRejectedValueOnce(
+    new BackendError("conflict", "warehouse protocol differs from this Terminal"),
+  );
+  const view = render(show());
+  expect(screen.getByText("● 行情 中断").dataset.tone).toBe("danger");
+  expect(screen.getByText("● 行情 中断").title).toBe(
+    "行情服务与 Terminal 的通信协议不一致，请将两边更新到同一版本。",
+  );
+  await waitFor(() => expect(screen.getByText("● 数据 中断").dataset.tone).toBe("danger"));
+  expect(screen.getByText("● 数据 中断").title).toBe(
+    "数据服务与 Terminal 的通信协议不一致，请将两边更新到同一版本。",
+  );
+
+  vi.mocked(useMarketOpenError).mockReturnValue("");
+  view.rerender(show());
+  expect(screen.getByText("● 行情 未连接").dataset.tone).toBeUndefined();
+  expect(screen.getByText("● 行情 未连接").title).toBe("");
 });
 
 test("an unset Warehouse opens its settings", () => {

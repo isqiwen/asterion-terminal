@@ -3,7 +3,7 @@ import type { Snapshot, TradingConnection } from "../../bridge/client";
 import { warehouseData } from "../../bridge/warehouse-data";
 import { translate, useLocale } from "../../i18n";
 import { asDisplayError, errorSummary } from "../../i18n/errors";
-import { useMarket } from "../market";
+import { useMarket, useMarketOpenError } from "../market";
 import { stalled, useTradingAccounts } from "../trading-accounts";
 import { FeedState } from "../../generated/asterion/market_pb";
 import { BrokerState } from "../../generated/asterion/trading_pb";
@@ -63,6 +63,7 @@ export function StatusIndicators({
   useLocale();
   const t = (key: string) => translate("host", key);
   const market = useMarket();
+  const marketOpenError = useMarketOpenError();
   const accounts = useTradingAccounts().views;
   if (!snapshot) return null;
   const lab = snapshot.lab;
@@ -89,8 +90,13 @@ export function StatusIndicators({
           {label(t("行情"), "未设置")}
         </button>
       ) : !market ? (
-        <button className="status-item" onClick={openMarket}>
-          {label(t("行情"), "未连接")}
+        <button
+          className="status-item"
+          data-tone={marketOpenError ? "danger" : undefined}
+          title={marketOpenError ? errorSummary(marketOpenError) : undefined}
+          onClick={openMarket}
+        >
+          {label(t("行情"), marketOpenError ? "中断" : "未连接")}
         </button>
       ) : (
         <span
