@@ -46,7 +46,6 @@ export function LiveStrategies(context: TerminalContext) {
         />
       ) : (
         <div className="workspace-empty">
-          <strong>{t("还没有交易连接")}</strong>
           <button className="primary" onClick={() => context.openSettings("trading")}>
             {t("添加交易连接")}
           </button>
