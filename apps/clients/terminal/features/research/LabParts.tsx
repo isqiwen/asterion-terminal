@@ -234,7 +234,7 @@ export function LabCentre({
   repository: string;
   changed: () => void;
   deleted: () => void;
-  children: ReactNode;
+  children?: ReactNode;
 }) {
   return (
     <main className="lab-center">

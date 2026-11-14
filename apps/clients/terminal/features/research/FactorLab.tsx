@@ -184,9 +184,7 @@ export function FactorLab(context: TerminalContext) {
             setChosen("");
             void read();
           }}
-        >
-          <p className="lab-placeholder">{t("选择因子")}</p>
-        </LabCentre>
+        />
       )}
       {factor && (
         <aside className="lab-config">
