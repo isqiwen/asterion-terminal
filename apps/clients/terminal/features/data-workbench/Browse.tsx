@@ -58,7 +58,7 @@ function BrowseBody({ context }: { context: TerminalContext }) {
       <div className="data-browse">
         <ErrorNotice error={state.error} />
         <div className="data-toolbar">
-          <div className="segmented" role="group" aria-label={t("浏览")}>
+          <div className="tabs" role="group" aria-label={t("浏览")}>
             <button
               type="button"
               aria-pressed={shown === "contracts"}

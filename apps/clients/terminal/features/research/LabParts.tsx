@@ -31,7 +31,7 @@ export function useModules(repository: string) {
 }
 
 // The code commit and the research dataset version the next run will use.
-export function LabHeader({
+export function LabStatus({
   context,
   modules,
   refresh,
@@ -59,7 +59,7 @@ export function LabHeader({
     };
   }, [address]);
   return (
-    <header className="lab-header">
+    <footer className="lab-status">
       {modules?.commit && <code className="lab-chip">{modules.commit.slice(0, 8)}</code>}
       {modules?.changes && <span className="lab-chip warn">{t("有未提交改动")}</span>}
       <button className="lab-chip" onClick={() => context.navigate("workspace.data-overview", {})}>
@@ -70,11 +70,10 @@ export function LabHeader({
           t("未设置")
         )}
       </button>
-      <span className="lab-spacer" />
       <button className="lab-link" onClick={refresh}>
         {t("刷新")}
       </button>
-    </header>
+    </footer>
   );
 }
 

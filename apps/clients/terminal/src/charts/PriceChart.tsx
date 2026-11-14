@@ -38,6 +38,8 @@ export type TradeMark = { index: number; side: "buy" | "sell"; text: string };
 type Props = {
   series: Series;
   label: string;
+  // Shows the label before the readout, where nothing else names the chart.
+  titled?: boolean;
   volumeLabel: string;
   formatTime: (value: string) => string;
   formatAxisTime?: (value: string) => string;
@@ -93,6 +95,7 @@ export function PriceChart(props: Props) {
   const {
     series,
     label,
+    titled = false,
     volumeLabel,
     describe,
     controls,
@@ -580,6 +583,7 @@ export function PriceChart(props: Props) {
   return (
     <div className="price-chart" data-fit-height={fitHeight || undefined}>
       <p className="price-chart-cursor" aria-live="polite">
+        {titled && <strong>{label}</strong>}
         {count ? describe(index) : null}
       </p>
       {!!overlays.length && (

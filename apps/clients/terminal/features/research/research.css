@@ -3,22 +3,24 @@
 .lab-research {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr) 320px;
-  grid-template-rows: auto auto minmax(0, 1fr) minmax(150px, 28%);
+  grid-template-rows: auto minmax(0, 1fr);
   grid-template-areas:
-    "header header header"
     "notice notice notice"
-    "modules center config"
-    "runs runs runs";
+    "modules center config";
   height: 100%;
 }
-.lab-header {
-  grid-area: header;
+/* The code and data the next run uses, at the foot of the module list. */
+.lab-status {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-3);
-  min-height: 48px;
-  padding: 0 var(--space-page);
-  border-bottom: 1px solid var(--line);
+  gap: var(--space-2);
+  margin-top: auto;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
+}
+.lab-status > .lab-link {
+  margin-left: auto;
 }
 .lab-chip {
   padding: 1px var(--space-2);
@@ -72,8 +74,7 @@ button.lab-link.strong {
   padding: var(--space-4);
 }
 .lab-modules h4,
-.lab-config > h4,
-.lab-runs h4 {
+.lab-config > h4 {
   margin: 0 0 var(--space-3);
   color: var(--muted);
   font-size: var(--font-size-body);
@@ -81,7 +82,15 @@ button.lab-link.strong {
 }
 .lab-modules {
   grid-area: modules;
+  display: flex;
+  flex-direction: column;
   border-right: 1px solid var(--line);
+}
+.lab-modules > * {
+  flex-shrink: 0;
+}
+.lab-modules > .lab-link {
+  align-self: flex-start;
 }
 .lab-modules h4 {
   display: flex;
@@ -304,23 +313,8 @@ button.lab-module-group span {
   border-top: 1px solid var(--line);
   background: var(--canvas);
 }
-.lab-submit button {
+.lab-submit > .primary {
   width: 100%;
-}
-.lab-runs {
-  grid-area: runs;
-  min-height: 0;
-  overflow: auto;
-  padding: var(--space-3) var(--space-page);
-  border-top: 1px solid var(--line);
-}
-.lab-runs > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.lab-runs > header h4 {
-  margin: 0;
 }
 .lab-table {
   width: 100%;
@@ -370,6 +364,12 @@ button.lab-module-group span {
 .lab-result {
   display: grid;
   gap: var(--space-4);
+}
+/* Stacked charts are spaced by the grid, not ruled off from each other. */
+.lab-result .price-chart {
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 .lab-result h5 {
   margin: 0;
@@ -540,10 +540,6 @@ button.lab-fold {
   padding: 0 var(--space-2);
   border: 0;
   color: var(--muted);
-}
-/* The strategy view has no run records below; the code takes the height. */
-.lab-research:not(:has(> .lab-runs)) {
-  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 /* The runs view: the records, or one report, a comparison or a sweep, each the whole page. */

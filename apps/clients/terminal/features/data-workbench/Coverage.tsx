@@ -142,7 +142,7 @@ function CoverageBody({ context }: { context: TerminalContext }) {
       <div className="data-coverage">
         <ErrorNotice error={state.error || options.error} />
         <div className="data-toolbar">
-          <div className="segmented" role="group" aria-label={t("数据")}>
+          <div className="tabs" role="group" aria-label={t("数据")}>
             {(["daily", "minutes"] as const).map(item => (
               <button
                 key={item}

@@ -39,7 +39,8 @@
 .data-overview-header code {
   color: var(--text);
 }
-.data-status {
+/* The heading and its action end where the tables end. */
+.data-overview > * {
   max-width: 1080px;
 }
 .data-status th[scope="row"] {
@@ -52,7 +53,6 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  max-width: 1080px;
 }
 .data-activity > button {
   align-self: flex-start;
@@ -82,19 +82,6 @@
 }
 .data-toolbar input[type="search"] {
   width: 180px;
-}
-.segmented {
-  display: flex;
-}
-.segmented > button {
-  border-radius: 0;
-  margin-left: -1px;
-}
-.segmented > button[aria-pressed="true"] {
-  position: relative;
-  color: var(--accent);
-  border-color: var(--accent-line);
-  background: var(--accent-surface);
 }
 .data-legend {
   display: inline-flex;
@@ -189,8 +176,8 @@
   min-height: 0;
   overflow: auto;
 }
-.coverage-matrix > .data-table {
-  width: auto;
+.coverage-matrix th[scope="row"] {
+  width: 1%;
 }
 .coverage-matrix td {
   min-width: 2.5rem;

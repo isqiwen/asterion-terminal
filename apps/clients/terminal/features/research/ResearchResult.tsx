@@ -285,6 +285,7 @@ export function RunResult({
               })),
             }}
             label={t("权益（逐日结算）")}
+            titled
             volumeLabel={t("成交量")}
             showVolume={false}
             fillArea
@@ -302,6 +303,7 @@ export function RunResult({
               })),
             }}
             label={t("回撤（%）")}
+            titled
             volumeLabel={t("成交量")}
             showVolume={false}
             fillArea
@@ -667,6 +669,7 @@ function Comparison({ joined }: { joined: string }) {
           };
         })}
         label={t("净值：{names}", { names: details.map(name).join(listSeparator()) })}
+        titled
         volumeLabel={t("成交量")}
         showVolume={false}
         formatTime={value => day(BigInt(value))}

@@ -18,7 +18,7 @@ import {
 import {
   ConfigFold,
   LabCentre,
-  LabHeader,
+  LabStatus,
   ModuleErrors,
   ModuleList,
   NewModule,
@@ -116,7 +116,6 @@ export function StrategyLab(context: TerminalContext) {
   const [folded, setFolded] = useConfigFold();
   return (
     <section className="lab-research" data-folded={folded || undefined}>
-      <LabHeader context={context} modules={strategies} refresh={() => void readStrategies()} />
       <aside className="lab-modules">
         <h4>{t("策略")}</h4>
         <ModuleList
@@ -160,6 +159,7 @@ export function StrategyLab(context: TerminalContext) {
           }}
         />
         <ModuleErrors folder="strategies" modules={strategies} open={source.open} />
+        <LabStatus context={context} modules={strategies} refresh={() => void readStrategies()} />
       </aside>
       <LabCentre
         source={source}

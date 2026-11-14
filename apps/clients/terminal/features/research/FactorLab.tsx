@@ -21,7 +21,7 @@ import {
   ConfigFold,
   DeleteRecord,
   LabCentre,
-  LabHeader,
+  LabStatus,
   ModuleErrors,
   ModuleList,
   type ModuleItem,
@@ -122,7 +122,6 @@ export function FactorLab(context: TerminalContext) {
   const [folded, setFolded] = useConfigFold();
   return (
     <section className="lab-research lab-factors" data-folded={folded || undefined}>
-      <LabHeader context={context} modules={modules} refresh={() => void read()} />
       <aside className="lab-modules">
         <h4>
           {t("因子")}
@@ -149,6 +148,7 @@ export function FactorLab(context: TerminalContext) {
           }}
         />
         <ModuleErrors folder="factors" modules={modules} open={source.open} />
+        <LabStatus context={context} modules={modules} refresh={() => void read()} />
       </aside>
       {library ? (
         <FactorLibrary

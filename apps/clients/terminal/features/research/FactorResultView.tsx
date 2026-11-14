@@ -142,6 +142,7 @@ export function FactorResultView({ result }: { result: FactorResult }) {
                   })),
                 }}
                 label={t("每日 IC（持有期 {count} 根）", { count: first?.horizon ?? 1 })}
+                titled
                 volumeLabel={t("成交量")}
                 showVolume={false}
                 formatTime={dayOf}
@@ -158,6 +159,7 @@ export function FactorResultView({ result }: { result: FactorResult }) {
                   })),
                 }}
                 label={t("累计 IC（持有期 {count} 根）", { count: first?.horizon ?? 1 })}
+                titled
                 volumeLabel={t("成交量")}
                 showVolume={false}
                 fillArea
@@ -181,6 +183,7 @@ export function FactorResultView({ result }: { result: FactorResult }) {
                 values: grouped.map(day => day.groups[index] ?? null),
               }))}
               label={t("分组累计收益（最高组减最低组为主线）")}
+              titled
               volumeLabel={t("成交量")}
               showVolume={false}
               formatTime={dayOf}

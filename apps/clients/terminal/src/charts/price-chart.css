@@ -38,6 +38,11 @@
   font-variant-numeric: tabular-nums;
   min-height: 32px;
 }
+.price-chart-cursor strong {
+  margin-right: var(--space-3);
+  color: var(--text-strong);
+  font-weight: 500;
+}
 .price-chart-controls {
   display: flex;
   flex-wrap: wrap;
