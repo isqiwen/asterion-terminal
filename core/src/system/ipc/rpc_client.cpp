@@ -58,30 +58,16 @@ struct RpcClient::Impl
 {
     struct Pending
     {
-        bool done = false;
         virtual ~Pending() = default;
         virtual void cancel() = 0;
         virtual void advance() = 0;
+
+        bool done = false;
     };
 
     template <class Stream, class Result>
     struct Exchange final : Pending, std::enable_shared_from_this<Exchange<Stream, Result>>
     {
-        Impl& client;
-        Stream stream;
-        asio::steady_timer timer;
-        Tcp::resolver resolver;
-        std::vector<Tcp::endpoint> endpoints;
-        std::promise<Result> result;
-        std::function<void(Payload)> frame;
-        bool next_frame = false;
-        bool delivered = false;
-        Payload payload;
-        std::array<unsigned char, 4> header{};
-        const std::chrono::milliseconds reply_timeout;
-        const std::chrono::milliseconds send_timeout;
-        const std::chrono::steady_clock::time_point expires;
-
         Exchange(
             Impl& client,
             Stream stream,
@@ -306,19 +292,22 @@ struct RpcClient::Impl
                         });
                 });
         }
-    };
 
-    // A client pumped on its own has its own loop.
-    const std::unique_ptr<asio::io_context> own;
-    asio::io_context& io;
-    const std::string address;
-    const std::uint16_t port;
-    const std::size_t capacity, frame_bytes;
-    const PayloadBudget payloads;
-    std::shared_ptr<asio::ssl::context> tls;
-    bool tcp = false;
-    bool polling = false;
-    std::vector<std::shared_ptr<Pending>> active;
+        Impl& client;
+        Stream stream;
+        asio::steady_timer timer;
+        Tcp::resolver resolver;
+        std::vector<Tcp::endpoint> endpoints;
+        std::promise<Result> result;
+        std::function<void(Payload)> frame;
+        bool next_frame = false;
+        bool delivered = false;
+        Payload payload;
+        std::array<unsigned char, 4> header{};
+        const std::chrono::milliseconds reply_timeout;
+        const std::chrono::milliseconds send_timeout;
+        const std::chrono::steady_clock::time_point expires;
+    };
 
     Impl(
         Reactor* reactor,
@@ -412,6 +401,18 @@ struct RpcClient::Impl
             send_timeout,
             std::move(frame));
     }
+
+    // A client pumped on its own has its own loop.
+    const std::unique_ptr<asio::io_context> own;
+    asio::io_context& io;
+    const std::string address;
+    const std::uint16_t port;
+    const std::size_t capacity, frame_bytes;
+    const PayloadBudget payloads;
+    std::shared_ptr<asio::ssl::context> tls;
+    bool tcp = false;
+    bool polling = false;
+    std::vector<std::shared_ptr<Pending>> active;
 };
 
 RpcClient::RpcClient(

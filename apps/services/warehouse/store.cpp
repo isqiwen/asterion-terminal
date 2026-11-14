@@ -380,14 +380,14 @@ void Writer::put(std::string key, std::span<const Row> rows, std::vector<std::st
 
     struct Temporary
     {
-        fs::path file;
-
         ~Temporary()
         {
             std::error_code ignored;
             fs::remove(file, ignored);
             fs::remove(file.string() + ".tmp", ignored);
         }
+
+        fs::path file;
     } temporary{directory / (".partition-" + unique_process_id() + ".parquet")};
 
     {

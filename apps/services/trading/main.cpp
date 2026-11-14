@@ -88,6 +88,12 @@ int main(int argc, char** argv)
 
         struct Pending
         {
+            void fail(const std::exception& error)
+            {
+                *response.mutable_error() = asterion::protocol::error(error);
+                needs_account = false;
+            }
+
             wire::Request request;
             wire::Response response;
             asterion::trading::LiveSession* session = nullptr;
@@ -99,12 +105,6 @@ int main(int argc, char** argv)
             bool needs_account = false;
             // The Terminal logs the same id when it sends the request.
             std::string trace_id;
-
-            void fail(const std::exception& error)
-            {
-                *response.mutable_error() = asterion::protocol::error(error);
-                needs_account = false;
-            }
         };
 
         auto serve = [&](const asterion::service::RpcHost::Peer&, std::string frame) {

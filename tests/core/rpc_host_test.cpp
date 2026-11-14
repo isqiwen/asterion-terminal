@@ -733,12 +733,6 @@ namespace {
 // An echo host on a free loopback port, plain or with the given TLS identity.
 struct TcpEcho
 {
-    service::Transport transport;
-    Progress progress;
-    std::atomic<int> requests{0};
-    std::unique_ptr<service::RpcHost> server;
-    std::jthread worker;
-
     explicit TcpEcho(ipc::TlsIdentity tls = {})
     {
         service::reset_stop_request();
@@ -771,6 +765,12 @@ struct TcpEcho
     {
         service::request_stop();
     }
+
+    service::Transport transport;
+    Progress progress;
+    std::atomic<int> requests{0};
+    std::unique_ptr<service::RpcHost> server;
+    std::jthread worker;
 };
 
 std::future<Payload> ask(ipc::RpcClient& client, std::string request)
@@ -816,12 +816,12 @@ TEST(RpcClient, TlsAcceptsOnlyThePinnedPeers)
 
     struct Remove
     {
-        std::filesystem::path root;
-
         ~Remove()
         {
             std::filesystem::remove_all(root);
         }
+
+        std::filesystem::path root;
     } remove{root};
 
     std::map<std::string, std::string> fingerprints;

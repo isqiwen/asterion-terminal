@@ -189,14 +189,14 @@ TEST(Kernel, child_does_not_inherit_host_pipes)
 
         struct Descriptors
         {
-            int read, write;
-
             ~Descriptors()
             {
                 ::close(read);
                 if (write >= 0)
                     ::close(write);
             }
+
+            int read, write;
         } descriptors{pipe_fds[0], pipe_fds[1]};
 
         ASSERT_EQ(::fcntl(descriptors.read, F_SETFL, O_NONBLOCK), 0);
@@ -229,13 +229,13 @@ TEST(Kernel, FileLockReadersShareWhileWritersRemainExclusive)
 
     struct Cleanup
     {
-        std::filesystem::path path;
-
         ~Cleanup()
         {
             std::error_code error;
             std::filesystem::remove_all(path, error);
         }
+
+        std::filesystem::path path;
     } cleanup{root};
 
     using Access = FileLock::Access;
@@ -286,8 +286,6 @@ namespace {
 class DurableFiles : public testing::Test
 {
 protected:
-    std::filesystem::path root;
-
     void SetUp() override
     {
         root = std::filesystem::temp_directory_path() / ("ast-durable-" + unique_process_id());
@@ -308,6 +306,8 @@ protected:
             throw std::runtime_error("fixture file is missing");
         return {std::istreambuf_iterator<char>(file), {}};
     }
+
+    std::filesystem::path root;
 };
 
 } // namespace

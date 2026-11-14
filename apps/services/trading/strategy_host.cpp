@@ -244,24 +244,6 @@ std::vector<wire::Bars> load_local_bars(sqlite::Database& db, const wire::Instan
 
 struct StrategyHost::State
 {
-    fs::path installation, root, endpoint;
-    std::unique_ptr<FileLock> lock;
-    pb::InstanceStatus instance;
-    std::unique_ptr<ChildProcess> child;
-    ipc::Channel channel;
-    ctp::Configuration market;
-    ThreadPool sdk_owner{1, 8};
-    std::unique_ptr<ctp::Feed> feed;
-    std::unique_ptr<StrategyBars> bars;
-    std::unique_ptr<sqlite::Database> records;
-    std::unique_ptr<sqlite::Database> local_bars;
-    LiveSession* account = nullptr;
-    StrategyAuthorityPtr authority;
-    std::map<InstrumentId, MarketQuote> quotes;
-    std::future<void> execution;
-    bool connected = false, online = false;
-    std::chrono::steady_clock::time_point connect_deadline;
-
     State(fs::path installed, fs::path account, ctp::Configuration configuration)
         : installation(std::move(installed)),
           root(std::move(account) / "strategies"),
@@ -776,6 +758,24 @@ struct StrategyHost::State
         instance.set_process_id(0);
         save();
     }
+
+    fs::path installation, root, endpoint;
+    std::unique_ptr<FileLock> lock;
+    pb::InstanceStatus instance;
+    std::unique_ptr<ChildProcess> child;
+    ipc::Channel channel;
+    ctp::Configuration market;
+    ThreadPool sdk_owner{1, 8};
+    std::unique_ptr<ctp::Feed> feed;
+    std::unique_ptr<StrategyBars> bars;
+    std::unique_ptr<sqlite::Database> records;
+    std::unique_ptr<sqlite::Database> local_bars;
+    LiveSession* account = nullptr;
+    StrategyAuthorityPtr authority;
+    std::map<InstrumentId, MarketQuote> quotes;
+    std::future<void> execution;
+    bool connected = false, online = false;
+    std::chrono::steady_clock::time_point connect_deadline;
 };
 
 StrategyHost::StrategyHost(fs::path installation, fs::path account, ctp::Configuration market)

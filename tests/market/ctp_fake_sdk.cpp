@@ -14,52 +14,6 @@
 
 class Fake final : public CThostFtdcMdApi
 {
-    CThostFtdcMdSpi* spi = nullptr;
-    std::recursive_mutex mutex;
-    std::jthread worker;
-    const std::thread::id owner = std::this_thread::get_id();
-    const std::filesystem::path flow;
-    CThostFtdcMdSpi* retiring_spi = nullptr;
-
-    void require_owner() const
-    {
-        if (owner != std::this_thread::get_id())
-            std::abort();
-    }
-
-    bool gate(const char* name)
-    {
-        const auto held = flow / name;
-        if (!std::filesystem::exists(held))
-            return false;
-        std::ofstream(held.string() + ".entered").put('1');
-        while (std::filesystem::exists(held))
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        return true;
-    }
-
-    bool reconnect = true;
-    bool publication = false, flood = false;
-    bool strategy_stream = false, offline = false;
-    std::optional<CThostFtdcDepthMarketDataField> publication_tick;
-    // The connection stays up while its quotes move on to the next trading day.
-    bool next_day = false;
-    // Now is a night session of tomorrow's trading day, dated as DCE or CZCE date it.
-    std::string night;
-
-    // Minutes past Beijing midnight when the connection logged in.
-    int login_minute = 0;
-
-    static std::string beijing_date(int days_after)
-    {
-        auto epoch = std::time(nullptr) + 8 * 3600 + days_after * 86400;
-        std::tm tm{};
-        gmtime_r(&epoch, &tm);
-        char text[9];
-        std::strftime(text, sizeof(text), "%Y%m%d", &tm);
-        return text;
-    }
-
 public:
     explicit Fake(const char* path)
         : flow(path)
@@ -312,6 +266,53 @@ public:
     {
         return 0;
     }
+
+private:
+    void require_owner() const
+    {
+        if (owner != std::this_thread::get_id())
+            std::abort();
+    }
+
+    bool gate(const char* name)
+    {
+        const auto held = flow / name;
+        if (!std::filesystem::exists(held))
+            return false;
+        std::ofstream(held.string() + ".entered").put('1');
+        while (std::filesystem::exists(held))
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        return true;
+    }
+
+    static std::string beijing_date(int days_after)
+    {
+        auto epoch = std::time(nullptr) + 8 * 3600 + days_after * 86400;
+        std::tm tm{};
+        gmtime_r(&epoch, &tm);
+        char text[9];
+        std::strftime(text, sizeof(text), "%Y%m%d", &tm);
+        return text;
+    }
+
+    CThostFtdcMdSpi* spi = nullptr;
+    std::recursive_mutex mutex;
+    std::jthread worker;
+    const std::thread::id owner = std::this_thread::get_id();
+    const std::filesystem::path flow;
+    CThostFtdcMdSpi* retiring_spi = nullptr;
+
+    bool reconnect = true;
+    bool publication = false, flood = false;
+    bool strategy_stream = false, offline = false;
+    std::optional<CThostFtdcDepthMarketDataField> publication_tick;
+    // The connection stays up while its quotes move on to the next trading day.
+    bool next_day = false;
+    // Now is a night session of tomorrow's trading day, dated as DCE or CZCE date it.
+    std::string night;
+
+    // Minutes past Beijing midnight when the connection logged in.
+    int login_minute = 0;
 };
 
 CThostFtdcMdApi* CThostFtdcMdApi::CreateFtdcMdApi(const char* flow, bool, bool)

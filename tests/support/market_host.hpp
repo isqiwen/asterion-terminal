@@ -15,11 +15,6 @@ namespace asterion::testing_support {
 // clients use precisely the same pinned TLS entry point as Terminal.
 struct MarketHost
 {
-    std::filesystem::path root;
-    std::uint16_t port;
-    std::string server_pin, reader_pin, manager_pin;
-    std::unique_ptr<ChildProcess> process;
-
     explicit MarketHost(std::filesystem::path directory, std::string user = "fixture")
         : root(std::move(directory))
     {
@@ -96,6 +91,11 @@ struct MarketHost
             }
         }
     }
+
+    std::filesystem::path root;
+    std::uint16_t port;
+    std::string server_pin, reader_pin, manager_pin;
+    std::unique_ptr<ChildProcess> process;
 };
 
 } // namespace asterion::testing_support

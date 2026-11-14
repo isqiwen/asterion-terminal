@@ -299,14 +299,14 @@ struct Trader::Impl final : CThostFtdcTraderSpi
 {
     struct Prepared final : PreparedBrokerOrder
     {
-        Impl* owner;
-        Command command;
-
         Prepared(Impl* owner, Command command, BrokerOrder order)
             : PreparedBrokerOrder(std::move(order)),
               owner(owner),
               command(std::move(command))
         {}
+
+        Impl* owner;
+        Command command;
     };
 
     using Factory = CThostFtdcTraderApi* (*)(const char*);

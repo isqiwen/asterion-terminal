@@ -81,11 +81,6 @@ struct QuoteStream
         : request(std::move(request))
     {}
 
-    const wire::Request request;
-    // Market thread only.
-    Sent sent;
-    Clock::time_point due{};
-
     bool waiting() const
     {
         std::lock_guard lock(mutex);
@@ -106,6 +101,11 @@ struct QuoteStream
             taken->more = false;
         return taken;
     }
+
+    const wire::Request request;
+    // Market thread only.
+    Sent sent;
+    Clock::time_point due{};
 
 private:
     mutable std::mutex mutex;
@@ -136,15 +136,6 @@ void answer_live(const wire::Request& request, wire::Response& response, const L
 struct MarketService::Running
 {
     using Call = std::packaged_task<Message(const Live&)>;
-
-    const Settings settings;
-    BoundedQueue<Call> calls{64};
-    std::mutex streams_mutex;
-    std::vector<std::weak_ptr<QuoteStream>> streams;
-    std::atomic<bool> draining = false;
-    std::promise<void> completion;
-    std::shared_future<void> stopped = completion.get_future().share();
-    std::jthread thread;
 
     explicit Running(Settings settings)
         : settings(std::move(settings))
@@ -248,6 +239,15 @@ struct MarketService::Running
             throw Error(ErrorCode::resource_exhausted, "market request queue is full or stopped");
         return waiting(std::move(result), id);
     }
+
+    const Settings settings;
+    BoundedQueue<Call> calls{64};
+    std::mutex streams_mutex;
+    std::vector<std::weak_ptr<QuoteStream>> streams;
+    std::atomic<bool> draining = false;
+    std::promise<void> completion;
+    std::shared_future<void> stopped = completion.get_future().share();
+    std::jthread thread;
 };
 
 MarketService::MarketService(Settings settings)

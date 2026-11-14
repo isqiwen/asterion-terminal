@@ -9,8 +9,9 @@ namespace asterion::ctp {
 // Front/session/reference identifies an order only within its trading day.
 struct OrderIdentity
 {
-    std::string trading_day, broker_key;
     auto operator<=>(const OrderIdentity&) const = default;
+
+    std::string trading_day, broker_key;
 };
 
 struct KnownOrder

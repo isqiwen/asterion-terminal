@@ -53,27 +53,6 @@ bool heartbeat(const std::string& endpoint)
 
 struct LabSupervisor::Impl
 {
-    std::function<std::optional<fs::path>()> python;
-    std::unique_ptr<FileLock> owner;
-    const std::string instance = unique_process_id();
-    fs::path sockets;
-
-    // Owned by the supervisor thread.
-    bool wanted = false, answered = false, ready = false, unresponsive = false;
-    std::unique_ptr<ChildProcess> process;
-    Clock::time_point started{}, probe{}, retry{};
-    unsigned failures = 0, restarts = 0;
-    std::string error;
-    // Callers of serving() waiting for Lab to answer its first heartbeat.
-    std::vector<std::promise<ServiceEndpoint>> waiting;
-
-    mutable std::mutex mutex;
-    std::condition_variable wake;
-    std::deque<std::function<void()>> work;
-    Json published = nullptr;
-    bool stopping = false;
-    std::jthread supervisor;
-
     std::string endpoint() const
     {
         return utf8(sockets / "lab.sock");
@@ -317,6 +296,27 @@ struct LabSupervisor::Impl
         } catch (...) {
         }
     }
+
+    std::function<std::optional<fs::path>()> python;
+    std::unique_ptr<FileLock> owner;
+    const std::string instance = unique_process_id();
+    fs::path sockets;
+
+    // Owned by the supervisor thread.
+    bool wanted = false, answered = false, ready = false, unresponsive = false;
+    std::unique_ptr<ChildProcess> process;
+    Clock::time_point started{}, probe{}, retry{};
+    unsigned failures = 0, restarts = 0;
+    std::string error;
+    // Callers of serving() waiting for Lab to answer its first heartbeat.
+    std::vector<std::promise<ServiceEndpoint>> waiting;
+
+    mutable std::mutex mutex;
+    std::condition_variable wake;
+    std::deque<std::function<void()>> work;
+    Json published = nullptr;
+    bool stopping = false;
+    std::jthread supervisor;
 };
 
 LabSupervisor::LabSupervisor(std::function<std::optional<fs::path>()> python)

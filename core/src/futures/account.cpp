@@ -190,16 +190,6 @@ FuturesAccount::FuturesAccount(Decimal deposit, std::vector<ContractTerms> contr
 
 struct FuturesAccount::Transaction::State
 {
-    FuturesAccount* owner;
-    std::vector<Decimal> marks;
-    std::vector<FuturesCosts> costs;
-    std::vector<Decimal> increments;
-    std::vector<PositionLot> lots;
-    std::vector<std::pair<std::size_t, AccountOrder>> orders;
-    std::set<std::size_t> working;
-    std::size_t order_count, fill_count;
-    Decimal balance, fees, realized;
-
     explicit State(FuturesAccount& account)
         : owner(&account),
           marks(account.marks_),
@@ -246,6 +236,16 @@ struct FuturesAccount::Transaction::State
         account.fees_ = fees;
         account.realized_ = realized;
     }
+
+    FuturesAccount* owner;
+    std::vector<Decimal> marks;
+    std::vector<FuturesCosts> costs;
+    std::vector<Decimal> increments;
+    std::vector<PositionLot> lots;
+    std::vector<std::pair<std::size_t, AccountOrder>> orders;
+    std::set<std::size_t> working;
+    std::size_t order_count, fill_count;
+    Decimal balance, fees, realized;
 };
 
 static_assert(std::is_nothrow_move_assignable_v<AccountOrder>);

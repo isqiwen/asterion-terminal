@@ -52,12 +52,12 @@ constexpr std::string_view risk_reason_name(RiskReason reason) noexcept
 
 struct RiskDecision
 {
-    RiskReason reason;
-
     [[nodiscard]] bool allowed() const noexcept
     {
         return reason == RiskReason::allowed;
     }
+
+    RiskReason reason;
 };
 
 // Risk implementations own algorithms and parameters; execution owns routing

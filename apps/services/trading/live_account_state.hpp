@@ -128,10 +128,6 @@ private:
     template <class T>
     struct BrokerWait
     {
-        LiveAccountState& account;
-        std::future<T> result;
-        bool yields;
-
         bool await_ready() const
         {
             return result.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
@@ -152,13 +148,11 @@ private:
             account.poll_broker();
             return result.get();
         }
-    };
 
-    template <class T>
-    BrokerWait<T> wait_sdk(std::future<T> result, bool yields = false)
-    {
-        return {*this, std::move(result), yields};
-    }
+        LiveAccountState& account;
+        std::future<T> result;
+        bool yields;
+    };
 
     // Commands suspended on an SDK result, innermost last. There is one, or two
     // while a cancel runs in front of a command parked on its quote.
@@ -168,9 +162,6 @@ private:
         std::coroutine_handle<> command;
         bool yields;
     };
-
-    std::vector<SdkWait> sdk_waits_;
-    std::size_t parked_ = 0;
 
     struct Intent
     {
@@ -185,39 +176,14 @@ private:
         bool cancel_requested = false;
     };
 
-    static void check_terminal(const TerminalOrder& order, const Intent& intent);
-
-    struct Attribution
-    {
-        std::string day;
-        std::uint64_t generation = 0, cursor = 0;
-        bool complete = false;
-    } attribution_;
-
-    AccountCommand append(JournalEntry entry);
-    AccountCommand revise_policy(const AccountRequest& request, const ChangePolicy& change);
-    void log_broker_observations(const BrokerSnapshot& state) const noexcept;
-
     struct ObservedOrder
     {
+        bool operator==(const ObservedOrder&) const = default;
+
         BrokerOrderStatus status;
         Decimal filled;
         std::string exchange_id, order_id;
-        bool operator==(const ObservedOrder&) const = default;
     };
-
-    // Diagnostic observations are sampled by the service, never by SDK callbacks.
-    // They do not replace the journal or broker execution history.
-    mutable std::uint64_t observed_generation_ = 0, observed_sequence_ = 0;
-    mutable std::size_t observed_trades_ = 0;
-    mutable std::map<std::string, ObservedOrder> observed_orders_;
-    const Instrument& allowed(const InstrumentId& id) const;
-    AccountCommand submit(
-        const AccountRequest& request,
-        const SubmitOrder& submission,
-        std::uint64_t control,
-        std::optional<StrategyOrderBasis> strategy = std::nullopt);
-    void check_strategy(const StrategyOrderBasis& basis) const;
 
     struct StrategyTargetBatch
     {
@@ -247,7 +213,24 @@ private:
         std::vector<::trading::InstanceEvent> events = {};
     };
 
-    std::optional<ActiveStrategy> strategy_;
+    template <class T>
+    BrokerWait<T> wait_sdk(std::future<T> result, bool yields = false)
+    {
+        return {*this, std::move(result), yields};
+    }
+
+    static void check_terminal(const TerminalOrder& order, const Intent& intent);
+
+    AccountCommand append(JournalEntry entry);
+    AccountCommand revise_policy(const AccountRequest& request, const ChangePolicy& change);
+    void log_broker_observations(const BrokerSnapshot& state) const noexcept;
+    const Instrument& allowed(const InstrumentId& id) const;
+    AccountCommand submit(
+        const AccountRequest& request,
+        const SubmitOrder& submission,
+        std::uint64_t control,
+        std::optional<StrategyOrderBasis> strategy = std::nullopt);
+    void check_strategy(const StrategyOrderBasis& basis) const;
     AccountCommand cancel(const AccountRequest& request, const std::string& order_id);
 
     void end_authorization();
@@ -271,6 +254,33 @@ private:
         return result;
     }
 
+    void record_trade(::trading::Trade trade);
+    // Broker fills not yet recorded, at most one batch.
+    std::vector<::trading::Trade> unrecorded() const;
+    // The previous trading day's close once the next one began, until recorded.
+    std::optional<::trading::DayClose> unclosed() const;
+    // Authorized, and connected to a synchronized broker: orders may be sent.
+    bool authorized(const BrokerSnapshot& state) const;
+    bool identities_ready(const BrokerSnapshot& state) const;
+
+    std::vector<SdkWait> sdk_waits_;
+    std::size_t parked_ = 0;
+
+    struct Attribution
+    {
+        std::string day;
+        std::uint64_t generation = 0, cursor = 0;
+        bool complete = false;
+    } attribution_;
+
+    // Diagnostic observations are sampled by the service, never by SDK callbacks.
+    // They do not replace the journal or broker execution history.
+    mutable std::uint64_t observed_generation_ = 0, observed_sequence_ = 0;
+    mutable std::size_t observed_trades_ = 0;
+    mutable std::map<std::string, ObservedOrder> observed_orders_;
+
+    std::optional<ActiveStrategy> strategy_;
+
     // Declared first: ownership outlives the SDK, risk policy and journal.
     std::unique_ptr<FileLock> account_owner_;
     // Delivers a completion to the account loop from another thread.
@@ -290,24 +300,16 @@ private:
     // Recorded fills by trading day, oldest first; rebuilt from the journal on start.
     std::map<std::string, std::vector<::trading::Trade>> trades_;
     std::map<std::string, std::map<std::string, std::string>> recorded_ids_;
-    void record_trade(::trading::Trade trade);
     // The leading broker fills known recorded. The broker rebuilds its list on
     // a new connection or trading day, which restarts the check.
     mutable std::size_t recorded_through_ = 0;
     mutable std::pair<std::uint64_t, std::string> recorded_list_;
-    // Broker fills not yet recorded, at most one batch.
-    std::vector<::trading::Trade> unrecorded() const;
     // Recorded closes by trading day; rebuilt from the journal on start.
     std::map<std::string, ::trading::DayClose> closes_;
     // The current trading day's funds and positions as last synchronized.
     mutable ::trading::DayClose latest_;
-    // The previous trading day's close once the next one began, until recorded.
-    std::optional<::trading::DayClose> unclosed() const;
     // Lasts across connections and trading days; never restored.
     std::optional<Authorization> authorization_;
-    // Authorized, and connected to a synchronized broker: orders may be sent.
-    bool authorized(const BrokerSnapshot& state) const;
-    bool identities_ready(const BrokerSnapshot& state) const;
     bool failed_ = false;
 };
 

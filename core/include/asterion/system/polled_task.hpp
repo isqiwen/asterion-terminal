@@ -13,8 +13,6 @@ namespace polled_detail {
 template <class T>
 struct Result
 {
-    std::optional<T> value;
-
     void return_value(T result)
     {
         value.emplace(std::move(result));
@@ -24,6 +22,8 @@ struct Result
     {
         return std::move(*value);
     }
+
+    std::optional<T> value;
 };
 
 template <>
@@ -45,9 +45,6 @@ class PolledTask
 public:
     struct promise_type : polled_detail::Result<T>
     {
-        std::function<bool()> ready;
-        std::exception_ptr error;
-
         PolledTask get_return_object()
         {
             return PolledTask(std::coroutine_handle<promise_type>::from_promise(*this));
@@ -67,6 +64,9 @@ public:
         {
             error = std::current_exception();
         }
+
+        std::function<bool()> ready;
+        std::exception_ptr error;
     };
 
     PolledTask(PolledTask&& other) noexcept
@@ -131,8 +131,6 @@ private:
 template <class Predicate>
 struct PollUntil
 {
-    Predicate ready;
-
     bool await_ready() const
     {
         return ready();
@@ -147,13 +145,13 @@ struct PollUntil
     }
 
     void await_resume() const noexcept {}
+
+    Predicate ready;
 };
 
 template <class T>
 struct PollFuture
 {
-    std::future<T> future;
-
     bool await_ready() const
     {
         return future.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
@@ -171,6 +169,8 @@ struct PollFuture
     {
         return future.get();
     }
+
+    std::future<T> future;
 };
 
 } // namespace asterion

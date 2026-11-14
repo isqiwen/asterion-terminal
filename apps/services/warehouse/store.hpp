@@ -10,12 +10,13 @@ namespace asterion::warehouse {
 
 struct Partition
 {
+    bool operator==(const Partition&) const = default;
+
     std::string file, sha256;
     std::uint64_t rows = 0;
     std::vector<std::string> days;
     // The provider whose partition this is, when taken from another store.
     std::string source = {};
-    bool operator==(const Partition&) const = default;
 };
 
 struct Version

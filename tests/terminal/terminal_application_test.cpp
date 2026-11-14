@@ -26,10 +26,6 @@ namespace {
 // These IPC doubles own a disposable installation root, never the user's node.
 class IsolatedTerminalEnvironment final : public testing::Environment
 {
-    std::filesystem::path root_ =
-        std::filesystem::temp_directory_path() / ("ast-terminal-query-" + unique_process_id());
-    std::optional<std::string> previous_ = environment_variable("ASTERION_ROOT");
-
     void SetUp() override
     {
         std::filesystem::create_directory(root_);
@@ -45,6 +41,10 @@ class IsolatedTerminalEnvironment final : public testing::Environment
         std::error_code ignored;
         std::filesystem::remove_all(root_, ignored);
     }
+
+    std::filesystem::path root_ =
+        std::filesystem::temp_directory_path() / ("ast-terminal-query-" + unique_process_id());
+    std::optional<std::string> previous_ = environment_variable("ASTERION_ROOT");
 };
 
 [[maybe_unused]] const auto isolated_terminal_environment =
@@ -202,17 +202,6 @@ namespace {
 // broker state is touched: this exercises Terminal concurrency at its boundary.
 struct LiveService
 {
-    std::filesystem::path root =
-        std::filesystem::path("/tmp") / ("ast-live-" + unique_process_id().substr(0, 12));
-    std::string endpoint = (root / "service").string();
-    std::mutex mutex;
-    std::condition_variable condition;
-    bool entered = false, released;
-    std::unique_ptr<service::RpcHost> host;
-    Progress progress;
-    terminal::TradingEndpoint target;
-    std::future<bool> running;
-
     explicit LiveService(bool block)
         : released(!block)
     {
@@ -354,6 +343,17 @@ struct LiveService
         std::filesystem::remove_all(root, ignored);
         service::reset_stop_request();
     }
+
+    std::filesystem::path root =
+        std::filesystem::path("/tmp") / ("ast-live-" + unique_process_id().substr(0, 12));
+    std::string endpoint = (root / "service").string();
+    std::mutex mutex;
+    std::condition_variable condition;
+    bool entered = false, released;
+    std::unique_ptr<service::RpcHost> host;
+    Progress progress;
+    terminal::TradingEndpoint target;
+    std::future<bool> running;
 };
 
 } // namespace
@@ -373,10 +373,6 @@ TEST(TerminalApplication, DelayedSnapshotKeepsItsRevisionWithoutReplacingANewerP
 
         struct Release
         {
-            std::promise<void>& signal;
-            std::future<void>& pending;
-            std::future<void>& old;
-
             ~Release()
             {
                 signal.set_value();
@@ -385,6 +381,10 @@ TEST(TerminalApplication, DelayedSnapshotKeepsItsRevisionWithoutReplacingANewerP
                 if (old.valid())
                     old.wait();
             }
+
+            std::promise<void>& signal;
+            std::future<void>& pending;
+            std::future<void>& old;
         } guard{release, pending, old};
 
         pending = terminal::ApplicationTestAccess::slow_read(
@@ -452,15 +452,15 @@ TEST(TerminalApplication, WireResponsesCompleteWhileReadWorkersAreBlocked)
 
     struct Release
     {
-        std::promise<void>& signal;
-        std::vector<std::future<void>>& pending;
-
         ~Release()
         {
             signal.set_value();
             for (auto& operation : pending)
                 operation.wait();
         }
+
+        std::promise<void>& signal;
+        std::vector<std::future<void>>& pending;
     } guard{release, pending};
 
     for (unsigned i = 0; i < 2; ++i)
@@ -614,13 +614,13 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
 
     struct Cleanup
     {
-        std::filesystem::path root;
-
         ~Cleanup()
         {
             std::error_code ignored;
             std::filesystem::remove_all(root, ignored);
         }
+
+        std::filesystem::path root;
     } cleanup{root};
 
     testing_support::WarehouseHost host(root / "warehouse");

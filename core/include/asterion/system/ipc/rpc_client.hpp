@@ -25,8 +25,10 @@ public:
     void wake();
 
 private:
-    friend class RpcClient;
     struct Impl;
+
+    friend class RpcClient;
+
     std::unique_ptr<Impl> impl_;
 };
 
@@ -85,6 +87,8 @@ public:
     void poll(std::chrono::milliseconds wait = std::chrono::milliseconds::zero());
 
 private:
+    struct Impl;
+
     RpcClient(
         Reactor* reactor,
         std::string endpoint,
@@ -99,7 +103,7 @@ private:
         std::size_t capacity,
         PayloadBudget payloads,
         std::size_t frame_bytes);
-    struct Impl;
+
     std::unique_ptr<Impl> impl_;
 };
 

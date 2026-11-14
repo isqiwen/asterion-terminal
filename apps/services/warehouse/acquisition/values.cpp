@@ -8,48 +8,7 @@ using warehouse::Cell;
 // bits. Binary is an internal marker that JSON input itself cannot produce.
 class ExactJson : public nlohmann::json_sax<Json>
 {
-    struct Frame
-    {
-        Json* node;
-        std::string key;
-    };
-
-    std::vector<Frame> stack_;
-
-    Json* add(Json value)
-    {
-        if (stack_.empty()) {
-            root = std::move(value);
-            return &root;
-        }
-        auto& frame = stack_.back();
-        if (frame.node->is_array()) {
-            frame.node->push_back(std::move(value));
-            return &frame.node->back();
-        }
-        auto& child = (*frame.node)[frame.key];
-        child = std::move(value);
-        return &child;
-    }
-
-    bool number(const std::string& value)
-    {
-        add(Json::binary(std::vector<std::uint8_t>(value.begin(), value.end())));
-        return true;
-    }
-
-    bool start(Json value)
-    {
-        if (stack_.size() >= 16)
-            return false;
-        auto* child = add(std::move(value));
-        stack_.push_back({child, {}});
-        return true;
-    }
-
 public:
-    Json root;
-
     bool null() override
     {
         add(nullptr);
@@ -122,6 +81,49 @@ public:
     {
         return false;
     }
+
+private:
+    struct Frame
+    {
+        Json* node;
+        std::string key;
+    };
+
+    Json* add(Json value)
+    {
+        if (stack_.empty()) {
+            root = std::move(value);
+            return &root;
+        }
+        auto& frame = stack_.back();
+        if (frame.node->is_array()) {
+            frame.node->push_back(std::move(value));
+            return &frame.node->back();
+        }
+        auto& child = (*frame.node)[frame.key];
+        child = std::move(value);
+        return &child;
+    }
+
+    bool number(const std::string& value)
+    {
+        add(Json::binary(std::vector<std::uint8_t>(value.begin(), value.end())));
+        return true;
+    }
+
+    bool start(Json value)
+    {
+        if (stack_.size() >= 16)
+            return false;
+        auto* child = add(std::move(value));
+        stack_.push_back({child, {}});
+        return true;
+    }
+
+    std::vector<Frame> stack_;
+
+public:
+    Json root;
 };
 
 std::string numeric(const Json& value, std::int64_t shift)

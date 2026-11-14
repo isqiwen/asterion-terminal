@@ -13,12 +13,6 @@ namespace asterion::terminal {
 
 struct ServiceIo::Impl
 {
-    const std::array<PayloadBudget, 3> payloads{
-        PayloadBudget{128 * 1024 * 1024},
-        PayloadBudget{128 * 1024 * 1024},
-        PayloadBudget{32 * 1024 * 1024}
-    };
-
     struct Pending
     {
         std::function<PolledTask<void>(std::stop_token)> begin;
@@ -31,24 +25,6 @@ struct ServiceIo::Impl
     // Includes suspended operations, not just the incoming queue.
     static constexpr std::array<std::size_t, 4>
         capacity{32, 16, 64, ServiceIo::application_capacity};
-    std::mutex mutex;
-    std::deque<std::unique_ptr<Pending>> incoming;
-    std::array<std::size_t, 4> admitted{};
-    bool closing = false;
-    // The owner waits here; sockets, finished pool work and admissions end the wait.
-    ipc::Reactor reactor;
-    const std::function<void()> finished = [this] {
-        reactor.wake();
-    };
-    ThreadPool readers{2, 8, finished};
-    // One response job per admitted operation; bulk reads cannot consume these slots.
-    ThreadPool responses{
-        1,
-        std::accumulate(capacity.begin(), capacity.end(), std::size_t{0}),
-        finished
-    };
-    ThreadPool administrators{2, 8, finished};
-    std::jthread owner;
 
     Impl()
         : owner([this](std::stop_token stop) {
@@ -118,6 +94,30 @@ struct ServiceIo::Impl
                                      : std::optional(std::chrono::milliseconds(50)));
         }
     }
+
+    const std::array<PayloadBudget, 3> payloads{
+        PayloadBudget{128 * 1024 * 1024},
+        PayloadBudget{128 * 1024 * 1024},
+        PayloadBudget{32 * 1024 * 1024}
+    };
+    std::mutex mutex;
+    std::deque<std::unique_ptr<Pending>> incoming;
+    std::array<std::size_t, 4> admitted{};
+    bool closing = false;
+    // The owner waits here; sockets, finished pool work and admissions end the wait.
+    ipc::Reactor reactor;
+    const std::function<void()> finished = [this] {
+        reactor.wake();
+    };
+    ThreadPool readers{2, 8, finished};
+    // One response job per admitted operation; bulk reads cannot consume these slots.
+    ThreadPool responses{
+        1,
+        std::accumulate(capacity.begin(), capacity.end(), std::size_t{0}),
+        finished
+    };
+    ThreadPool administrators{2, 8, finished};
+    std::jthread owner;
 };
 
 ServiceIo::ServiceIo()

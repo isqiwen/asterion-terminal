@@ -65,13 +65,13 @@ ac::wire::AcquisitionTask wait(ac::Manager& manager, const std::string& id)
 class GuotaiSource : public testing::Test
 {
 protected:
-    fs::path root = fs::temp_directory_path() / ("asterion-guotai-" + unique_process_id());
-
     void TearDown() override
     {
         std::error_code error;
         fs::remove_all(root, error);
     }
+
+    fs::path root = fs::temp_directory_path() / ("asterion-guotai-" + unique_process_id());
 };
 
 TEST_F(GuotaiSource, DatedReportsCoverFiveExchangesAndKeepHistoricalChanges)

@@ -46,15 +46,16 @@ ClosePolicy close_policy(std::string_view venue) noexcept;
 // currency; per-lot parts are exact. Rates default to 0 (per-lot only).
 struct FuturesCosts
 {
-    Decimal margin_per_lot, open_fee, close_today_fee, close_yesterday_fee;
-    Decimal margin_rate, open_fee_rate, close_today_fee_rate, close_yesterday_fee_rate;
-    Decimal short_margin_rate = margin_rate;
-    bool has_close_today_fee = true;
     void validate() const;
     // bucket is open, close_today or close_yesterday (never the generic close).
     Decimal fee(Offset bucket, Decimal quantity, Decimal price, Decimal multiplier) const;
     Decimal margin(Decimal quantity, Decimal price, Decimal multiplier) const;
     Decimal margin(Side side, Decimal quantity, Decimal price, Decimal multiplier) const;
+
+    Decimal margin_per_lot, open_fee, close_today_fee, close_yesterday_fee;
+    Decimal margin_rate, open_fee_rate, close_today_fee_rate, close_yesterday_fee_rate;
+    Decimal short_margin_rate = margin_rate;
+    bool has_close_today_fee = true;
 };
 
 struct FuturesCostVersion
@@ -84,11 +85,12 @@ inline constexpr std::size_t max_account_contracts = 256;
 
 struct PositionLot
 {
+    bool operator==(const PositionLot&) const = default;
+
     InstrumentId instrument;
     Side side;
     bool today;
     Decimal quantity, price;
-    bool operator==(const PositionLot&) const = default;
 };
 
 struct AccountOrder
@@ -110,34 +112,38 @@ struct AccountSnapshot
 {
     struct Mark
     {
+        bool operator==(const Mark&) const = default;
+
         InstrumentId instrument;
         Decimal price;
-        bool operator==(const Mark&) const = default;
     };
 
     struct OrderView
     {
+        bool operator==(const OrderView&) const = default;
+
         LimitOrder request;
         Offset offset;
         Decimal filled;
         OrderState state;
-        bool operator==(const OrderView&) const = default;
     };
 
     struct FillView
     {
+        bool operator==(const FillView&) const = default;
+
         Fill execution;
         InstrumentId instrument;
         Decimal fee;
-        bool operator==(const FillView&) const = default;
     };
+
+    bool operator==(const AccountSnapshot&) const = default;
 
     Decimal balance, equity, available, margin, frozen, fees, realized, unrealized;
     std::vector<Mark> marks;
     std::vector<PositionLot> positions;
     std::vector<OrderView> orders;
     std::vector<FillView> fills;
-    bool operator==(const AccountSnapshot&) const = default;
 };
 
 // Single-currency futures portfolio ledger over a fixed set of contracts.
@@ -148,8 +154,6 @@ struct AccountSnapshot
 class FuturesAccount
 {
 public:
-    FuturesAccount(Decimal deposit, std::vector<ContractTerms> contracts);
-
     // Roll back a group of mutations unless committed. Captures mutable positions,
     // marks, costs, price increments and working orders; immutable completed
     // history stays in place.
@@ -163,11 +167,15 @@ public:
         void commit() noexcept;
 
     private:
+        struct State;
+
         friend class FuturesAccount;
         explicit Transaction(FuturesAccount&);
-        struct State;
+
         std::unique_ptr<State> state_;
     };
+
+    FuturesAccount(Decimal deposit, std::vector<ContractTerms> contracts);
 
     Transaction transaction();
     void submit(LimitOrder request, Offset offset);
@@ -257,6 +265,7 @@ private:
     // Reservation for the rest of a working order at its limit price.
     Decimal reserved(const AccountOrder& item) const;
     std::size_t index_of(const std::string& id) const;
+
     std::vector<ContractTerms> contracts_;
     std::vector<Decimal> marks_;
     Decimal balance_, fees_, realized_;

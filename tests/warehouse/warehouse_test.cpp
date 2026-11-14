@@ -20,14 +20,14 @@ namespace wire = ::warehouse;
 class Warehouse : public ::testing::Test
 {
 protected:
-    fs::path root = fs::temp_directory_path() / ("asterion-warehouse-" + unique_process_id());
-
     void TearDown() override
     {
         fail_next_directory_syncs_for_testing(0);
         std::error_code ignored;
         fs::remove_all(root, ignored);
     }
+
+    fs::path root = fs::temp_directory_path() / ("asterion-warehouse-" + unique_process_id());
 };
 
 wh::Row row(std::string_view table)

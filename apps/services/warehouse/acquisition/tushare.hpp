@@ -37,19 +37,21 @@ public:
 
 private:
     struct Table;
+
     Table ask(
         const std::string& api,
         const nlohmann::json& parameters,
         const std::string& fields,
         std::size_t limit);
+    const CalendarDay& calendar_day(const std::string& exchange, const std::string& day);
+    std::string trading_day(const std::string& exchange, std::chrono::sys_seconds end);
+
     std::string token_;
     std::shared_ptr<Budget> budget_;
     std::stop_token stop_;
     Post post_;
     std::map<std::string, std::vector<Contract>> contracts_;
     std::map<std::pair<std::string, int>, std::map<std::string, CalendarDay>> calendars_;
-    const CalendarDay& calendar_day(const std::string& exchange, const std::string& day);
-    std::string trading_day(const std::string& exchange, std::chrono::sys_seconds end);
 
     struct Window
     {

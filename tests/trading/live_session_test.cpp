@@ -30,27 +30,6 @@ namespace {
 // futures without occupying their I/O thread.
 class LiveSession
 {
-    // The account the journal records: the manifest's, or a recovered journal's.
-    std::string account_;
-    asterion::trading::LiveSession session_;
-
-    template <class... Args>
-    static std::string account_of(const fs::path& journal, const Args&... args)
-    {
-        std::string account;
-        (
-            (void)[&] {
-                if constexpr (std::is_same_v<std::decay_t<Args>, Json>)
-                    account = args.at("account_id").template get<std::string>();
-            }(),
-            ...);
-        if (account.empty())
-            account =
-                asterion::read_journal_header(journal, asterion::trading::AccountJournal::sidecars)
-                    .at("account_id");
-        return account;
-    }
-
 public:
     template <class... Args>
     explicit LiveSession(const fs::path& journal, Args&&... args)
@@ -278,14 +257,34 @@ public:
             std::move(basis),
             std::get<asterion::trading::SubmitOrder>(request.operation));
     }
+
+private:
+    template <class... Args>
+    static std::string account_of(const fs::path& journal, const Args&... args)
+    {
+        std::string account;
+        (
+            (void)[&] {
+                if constexpr (std::is_same_v<std::decay_t<Args>, Json>)
+                    account = args.at("account_id").template get<std::string>();
+            }(),
+            ...);
+        if (account.empty())
+            account =
+                asterion::read_journal_header(journal, asterion::trading::AccountJournal::sidecars)
+                    .at("account_id");
+        return account;
+    }
+
+    // The account the journal records: the manifest's, or a recovered journal's.
+    std::string account_;
+    asterion::trading::LiveSession session_;
 };
 
 // Test control entry point exported by the CTP SDK double. The handle keeps
 // the library, and so its exchange state, loaded across sessions.
 struct FakeExchange
 {
-    ctp::SharedLibrary library{ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_reset"};
-
     void reset()
     {
         library.symbol<void (*)()>()();
@@ -297,12 +296,12 @@ struct FakeExchange
         ctp::SharedLibrary control(ASTERION_TEST_CTP_TRADER, name);
         return control.symbol<F>()(args...);
     }
+
+    ctp::SharedLibrary library{ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_reset"};
 };
 
 struct Directory
 {
-    fs::path path = fs::temp_directory_path() / ("asterion-live-" + unique_process_id());
-
     Directory()
     {
         fs::create_directory(path);
@@ -313,6 +312,8 @@ struct Directory
         std::error_code ignored;
         fs::remove_all(path, ignored);
     }
+
+    fs::path path = fs::temp_directory_path() / ("asterion-live-" + unique_process_id());
 };
 
 Json contract(const char* symbol, const char* product = "rb", const char* month = "2026-10")
@@ -471,14 +472,14 @@ struct HeldCommit
 class Live : public ::testing::Test
 {
 protected:
-    FakeExchange exchange;
-    Directory directory;
-    Directory owners;
-
     void SetUp() override
     {
         exchange.reset();
     }
+
+    FakeExchange exchange;
+    Directory directory;
+    Directory owners;
 };
 
 } // namespace
@@ -927,13 +928,13 @@ TEST_F(Live, SlowSdkReturnsKeepObservationAndRevocationResponsiveAndRetainLateRe
 
     struct Release
     {
-        FakeExchange& exchange;
-
         ~Release()
         {
             exchange.call<void (*)(int, int)>("asterion_fake_trader_hold_insert_return", 0, 0);
             exchange.call<void (*)(int)>("asterion_fake_trader_hold_cancel_return", 0);
         }
+
+        FakeExchange& exchange;
     } release{exchange};
 
     exchange.call<void (*)(int, int)>("asterion_fake_trader_hold_insert_return", 1, -7);
@@ -989,12 +990,12 @@ TEST_F(Live, ThrottledQuoteWaitAllowsControlAndDisconnectRetiresItWithoutAnOrder
 
     struct Release
     {
-        FakeExchange& exchange;
-
         ~Release()
         {
             exchange.call<void (*)(int, int)>("asterion_fake_trader_reject_quotes", 0, 0);
         }
+
+        FakeExchange& exchange;
     } release{exchange};
 
     exchange.call<void (*)(int, int)>("asterion_fake_trader_reject_quotes", -2, 100000);
@@ -1046,12 +1047,12 @@ TEST_F(Live, CancelOfARecordedOrderRunsWhileASubmissionWaitsForItsQuote)
 
     struct Release
     {
-        FakeExchange& exchange;
-
         ~Release()
         {
             exchange.call<void (*)(int, int)>("asterion_fake_trader_reject_quotes", 0, 0);
         }
+
+        FakeExchange& exchange;
     } release{exchange};
 
     exchange.call<void (*)(int, int)>("asterion_fake_trader_reject_quotes", -2, 100000);
@@ -1098,12 +1099,12 @@ TEST_F(Live, QuoteDeadlineAdvancesWithoutPollingWhileTheSdkCallIsBlocked)
 
     struct Release
     {
-        FakeExchange& exchange;
-
         ~Release()
         {
             exchange.call<void (*)(int)>("asterion_fake_trader_hold_quote_return", 0);
         }
+
+        FakeExchange& exchange;
     } release{exchange};
 
     exchange.call<void (*)(int)>("asterion_fake_trader_hold_quote_return", 1);
@@ -2045,12 +2046,12 @@ TEST_F(Live, ShutdownFencesPendingSendsDrainsRepliesAndWaitsForSdkRelease)
 
     struct Release
     {
-        FakeExchange& exchange;
-
         ~Release()
         {
             exchange.call<void (*)(int)>("asterion_fake_trader_hold_release", 0);
         }
+
+        FakeExchange& exchange;
     } release{exchange};
 
     exchange.call<void (*)(int)>("asterion_fake_trader_hold_release", 1);
@@ -2614,12 +2615,12 @@ TEST_F(StrategyTarget, PausingRevokesAnOpeningQueuedToTheBrokerButNotAReduction)
 
         struct Release
         {
-            FakeExchange& exchange;
-
             ~Release()
             {
                 exchange.call<void (*)(int)>("asterion_fake_trader_hold_quote_return", 0);
             }
+
+            FakeExchange& exchange;
         } release{exchange};
 
         // A manual order's broker quote occupies the SDK thread.
@@ -3127,12 +3128,12 @@ TEST_F(StrategyExecution, TargetExpiryDuringQuoteQueryProducesNoOrderIntent)
 
     struct Release
     {
-        FakeExchange& exchange;
-
         ~Release()
         {
             exchange.call<void (*)(int)>("asterion_fake_trader_hold_quote_return", 0);
         }
+
+        FakeExchange& exchange;
     } release{exchange};
 
     exchange.call<void (*)(int)>("asterion_fake_trader_hold_quote_return", 1);
@@ -3177,12 +3178,12 @@ TEST_F(StrategyExecution, ReleaseAfterDispatchPreservesTheBrokersOrderAndLateSdk
 
     struct Release
     {
-        FakeExchange& exchange;
-
         ~Release()
         {
             exchange.call<void (*)(int, int)>("asterion_fake_trader_hold_insert_return", 0, 0);
         }
+
+        FakeExchange& exchange;
     } release{exchange};
 
     exchange.call<void (*)(int, int)>("asterion_fake_trader_hold_insert_return", 1, -7);

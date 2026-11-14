@@ -72,14 +72,14 @@ std::uint64_t failures() noexcept;
 template <class... Args>
 struct Format
 {
-    fmt::format_string<Args...> text;
-    std::source_location location;
-
     template <class T>
     consteval Format(const T& value, std::source_location source = std::source_location::current())
         : text(value),
           location(source)
     {}
+
+    fmt::format_string<Args...> text;
+    std::source_location location;
 };
 
 template <class... Args>

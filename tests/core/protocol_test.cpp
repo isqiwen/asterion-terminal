@@ -15,9 +15,6 @@ namespace {
 
 struct Endpoint
 {
-    std::string path;
-    std::filesystem::path directory;
-
     Endpoint()
     {
         directory = std::filesystem::path("/tmp") / ("ast-test-" + unique_process_id());
@@ -33,6 +30,9 @@ struct Endpoint
             std::filesystem::remove(directory, ignored);
         }
     }
+
+    std::string path;
+    std::filesystem::path directory;
 };
 
 } // namespace

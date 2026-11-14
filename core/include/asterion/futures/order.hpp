@@ -24,22 +24,24 @@ enum class OrderState
 
 struct LimitOrder
 {
+    void validate(const Instrument& spec) const;
+    bool operator==(const LimitOrder&) const = default;
+
     std::string id;
     InstrumentId instrument;
     Side side;
     Decimal quantity;
     Decimal limit_price;
-    void validate(const Instrument& spec) const;
-    bool operator==(const LimitOrder&) const = default;
 };
 
 struct Fill
 {
+    auto operator<=>(const Fill&) const = default;
+
     std::string execution_id;
     std::string order_id;
     Decimal quantity;
     Decimal price;
-    auto operator<=>(const Fill&) const = default;
 };
 
 // Local normalized order state. A connector must normalize exchange-specific

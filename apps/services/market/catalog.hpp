@@ -20,12 +20,6 @@ class Catalog
 
     struct Operation
     {
-        std::filesystem::path file, library, flow;
-        ctp::CatalogConfiguration config;
-        std::stop_source stop;
-        std::unique_ptr<ctp::CatalogQuery> query;
-        std::optional<State> result;
-
         void advance()
         {
             try {
@@ -70,6 +64,12 @@ class Catalog
             if (result)
                 query.reset(); // API/SPI and library die on the SDK executor.
         }
+
+        std::filesystem::path file, library, flow;
+        ctp::CatalogConfiguration config;
+        std::stop_source stop;
+        std::unique_ptr<ctp::CatalogQuery> query;
+        std::optional<State> result;
     };
 
 public:

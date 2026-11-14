@@ -53,6 +53,8 @@ public:
         std::uint64_t sequence = 0, excluded_by = 0;
     };
 
+    static constexpr std::size_t page_size = 64;
+
     explicit SqliteJournal(
         std::filesystem::path directory,
         std::set<std::string> sidecar_directories = {},
@@ -67,7 +69,6 @@ public:
         std::stop_token = {});
     void start();
     void stop() noexcept;
-    static constexpr std::size_t page_size = 64;
     // Up to page_size consecutive records, starting at the given sequence.
     std::vector<Json> read(std::uint64_t first) const;
     void append(const Json& record);
@@ -91,13 +92,14 @@ public:
     static void verify_archive(const std::filesystem::path& directory, const Archive& archive);
 
 private:
+    void inspect_records(std::stop_token = {});
+    Archive seal() const;
+    std::vector<Json> read_records(std::uint64_t first, std::size_t count) const;
+
     std::filesystem::path directory_;
     std::set<std::string> sidecar_directories_;
     std::function<void(const Json&)> validate_header_;
     std::unique_ptr<sqlite::Database> database_;
-    void inspect_records(std::stop_token = {});
-    Archive seal() const;
-    std::vector<Json> read_records(std::uint64_t first, std::size_t count) const;
     bool poisoned_ = false;
     std::size_t count_ = 0;
     std::uintmax_t bytes_ = 0, header_bytes_ = 0;

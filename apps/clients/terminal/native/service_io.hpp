@@ -41,6 +41,7 @@ public:
         control,
         administration
     };
+
     PayloadBudget payload_budget(PayloadLane lane) const;
     // Where every client of this owner creates its transports.
     ipc::Reactor& reactor();
@@ -105,6 +106,8 @@ public:
     }
 
 private:
+    struct Impl;
+
     template <class T>
     static PolledTask<void> complete(
         std::function<PolledTask<T>(std::stop_token)> operation,
@@ -124,7 +127,7 @@ private:
         std::function<PolledTask<void>(std::stop_token)>,
         std::function<void(std::exception_ptr)>,
         Lane);
-    struct Impl;
+
     std::unique_ptr<Impl> impl_;
 };
 

@@ -10,15 +10,15 @@ namespace asterion::terminal {
 
 struct Application::Impl
 {
-    ServiceIo io;
-    PayloadBudget replies{1024 * 1024};
-    unsigned running = 0;
-
     ~Impl()
     {
         if (running != 0)
             std::terminate();
     }
+
+    ServiceIo io;
+    PayloadBudget replies{1024 * 1024};
+    unsigned running = 0;
 };
 
 Application::Application()

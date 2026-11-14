@@ -17,9 +17,6 @@ namespace {
 // for it in each test and back to standard error afterwards.
 struct Installation : testing::Test
 {
-    fs::path root = fs::temp_directory_path()
-        / ("asterion-log-test-" + std::to_string(SystemClock{}.monotonic_now()));
-
     void SetUp() override
     {
         fs::create_directories(root / "config");
@@ -53,6 +50,9 @@ struct Installation : testing::Test
         }
         return "accepted";
     }
+
+    fs::path root = fs::temp_directory_path()
+        / ("asterion-log-test-" + std::to_string(SystemClock{}.monotonic_now()));
 };
 
 std::string today()

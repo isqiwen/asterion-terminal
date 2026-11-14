@@ -15,10 +15,6 @@ namespace {
 // to the retained-reply budget. No complete, unbounded dump is built first.
 class ResponseBuffer final : public std::streambuf
 {
-public:
-    std::string bytes;
-
-private:
     static constexpr std::size_t limit = 128 * 1024 * 1024;
 
     std::streamsize xsputn(const char* text, std::streamsize size) override
@@ -39,6 +35,9 @@ private:
         xsputn(&character, 1);
         return value;
     }
+
+public:
+    std::string bytes;
 };
 
 Payload encode_response(const json& envelope, const PayloadBudget& budget)

@@ -22,16 +22,6 @@ public:
         read_only,
         cold_read_only // Caller holds the stopped domain ownership lock.
     };
-    // Existing-store validation runs before enabling writer pragmas or creating
-    // a journal. Callers also perform read-only preflight before taking ownership.
-    explicit Database(
-        const std::filesystem::path& file,
-        Access access = Access::writer,
-        std::function<void(Database&)> before_write = {});
-    ~Database();
-    Database(const Database&) = delete;
-    Database& operator=(const Database&) = delete;
-    void execute(std::string_view sql);
 
     class Statement
     {
@@ -67,9 +57,21 @@ public:
         bool open_ = true;
     };
 
+    // Existing-store validation runs before enabling writer pragmas or creating
+    // a journal. Callers also perform read-only preflight before taking ownership.
+    explicit Database(
+        const std::filesystem::path& file,
+        Access access = Access::writer,
+        std::function<void(Database&)> before_write = {});
+    ~Database();
+    Database(const Database&) = delete;
+    Database& operator=(const Database&) = delete;
+    void execute(std::string_view sql);
+
 private:
     friend class Statement;
     [[noreturn]] void fail(std::string_view operation) const;
+
     sqlite3* handle_ = nullptr;
 };
 

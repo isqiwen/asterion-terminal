@@ -21,17 +21,20 @@ struct StrategyOrderSource
 {
     struct WeightSizing
     {
-        Decimal equity, weight, price, quantity;
         bool operator==(const WeightSizing&) const = default;
+
+        Decimal equity, weight, price, quantity;
     };
 
     // Twenty contracts, each with long/short and today/yesterday close legs.
     static constexpr std::uint32_t max_legs = 80;
+
+    bool operator==(const StrategyOrderSource&) const = default;
+
     std::string instance;
     std::uint64_t target_sequence = 0;
     std::uint32_t leg = 0;
     std::optional<WeightSizing> weight_sizing = std::nullopt;
-    bool operator==(const StrategyOrderSource&) const = default;
 };
 
 struct SubmitOrder
@@ -69,10 +72,7 @@ struct AccountRequest
 {
     using Operation =
         std::variant<SubmitOrder, CancelOrder, Authorize, Revoke, ResolveOrder, ChangePolicy>;
-    std::string id;
-    Operation operation;
-    // Durable form. A request ID seen again must carry exactly this content.
-    Json command;
+
     static AccountRequest from_wire(const ::trading::Command& command);
     static AccountRequest from_record(const Json& command);
     static AccountRequest strategy_order(SubmitOrder order, StrategyOrderSource source);
@@ -86,14 +86,20 @@ struct AccountRequest
     std::string_view action() const noexcept;
     // The order a submission, cancellation or resolution names; otherwise empty.
     std::string_view order_id() const noexcept;
+
+    std::string id;
+    Operation operation;
+    // Durable form. A request ID seen again must carry exactly this content.
+    Json command;
 };
 
 // The owner's permission to send orders. It lasts until the owner revokes it,
 // the policy changes or the process ends; recorded, never restored.
 struct Authorization
 {
-    std::int64_t authorized_at_ms = 0;
     Json json() const;
+
+    std::int64_t authorized_at_ms = 0;
 };
 
 struct CommandRecord

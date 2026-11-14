@@ -25,8 +25,6 @@ public:
     std::vector<::strategy::Bars> observe(const MarketQuote&);
 
 private:
-    std::vector<::strategy::Bars> deliver();
-
     struct Current
     {
         ::strategy::Bar bar;
@@ -34,6 +32,8 @@ private:
         std::int64_t key = 0, source_ms = 0, volume = 0;
         bool initialized = false, complete = false;
     };
+
+    std::vector<::strategy::Bars> deliver();
 
     bool daily_;
     std::int64_t interval_, started_ms_;

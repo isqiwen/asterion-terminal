@@ -242,9 +242,6 @@ std::shared_ptr<asio::ssl::context> tls_context(const TlsIdentity& identity)
 
 struct TcpChannel::Impl
 {
-    asio::io_context io;
-    Tcp::socket socket{io};
-
     void cancel()
     {
         asio::error_code ignored;
@@ -265,6 +262,9 @@ struct TcpChannel::Impl
             asio::async_read(socket, asio::buffer(data, size), done);
         });
     }
+
+    asio::io_context io;
+    Tcp::socket socket{io};
 };
 
 TcpChannel::TcpChannel() = default;

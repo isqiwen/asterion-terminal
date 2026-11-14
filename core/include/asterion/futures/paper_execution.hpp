@@ -75,6 +75,35 @@ public:
         std::size_t contract, bar;
     };
 
+    // A strategy target decided from a preceding bar: the position wanted in
+    // lots, positive long and negative short. Apply after any new-day cost
+    // change and before matching the next bar of this contract.
+    struct Target
+    {
+        std::string order_id;
+        Decimal quantity, limit_price;
+    };
+
+    // One price per contract, ordered as account().contracts(); a contract
+    // that has no settlement price that day has none and must hold no position.
+    // Days are settled in order, each once: after every bar of the day and of
+    // the days before it, and before any bar of a later day. A day need have no
+    // bars at all: costs that change with it change all the same. No
+    // outstanding orders.
+    struct MarginRevaluation
+    {
+        Decimal previous_rate, rate, margin_before, available_before;
+    };
+
+    struct Snapshot
+    {
+        bool operator==(const Snapshot&) const = default;
+
+        AccountSnapshot account;
+        std::size_t cursor, total;
+        std::optional<std::int64_t> timestamp_ns;
+    };
+
     PaperExecution(Decimal deposit, std::vector<ContractBars> contracts, OrderLimitsConfig limits);
 
     void start()
@@ -90,29 +119,9 @@ public:
     void submit(LimitOrder order, Offset offset);
     void cancel(const std::string& id);
 
-    // A strategy target decided from a preceding bar: the position wanted in
-    // lots, positive long and negative short. Apply after any new-day cost
-    // change and before matching the next bar of this contract.
-    struct Target
-    {
-        std::string order_id;
-        Decimal quantity, limit_price;
-    };
-
     // Limit rejection submits no target but still observes this bar. Risk
     // dependency/invalid-context and account failures propagate and roll back.
     RiskDecision advance(const std::optional<Target>& target = {});
-
-    // One price per contract, ordered as account().contracts(); a contract
-    // that has no settlement price that day has none and must hold no position.
-    // Days are settled in order, each once: after every bar of the day and of
-    // the days before it, and before any bar of a later day. A day need have no
-    // bars at all: costs that change with it change all the same. No
-    // outstanding orders.
-    struct MarginRevaluation
-    {
-        Decimal previous_rate, rate, margin_before, available_before;
-    };
 
     // An explicit single-contract percentage model may revalue margin in the
     // same transaction, after settling P&L. The next day still uses its schedule.
@@ -134,14 +143,6 @@ public:
         const InstrumentId& instrument,
         Decimal target,
         Decimal price);
-
-    struct Snapshot
-    {
-        AccountSnapshot account;
-        std::size_t cursor, total;
-        std::optional<std::int64_t> timestamp_ns;
-        bool operator==(const Snapshot&) const = default;
-    };
 
     Snapshot snapshot() const;
 
@@ -200,6 +201,7 @@ private:
     void enter_day(const std::string& trading_day);
     // Whether a new day can bring other costs or price increments.
     bool changes_terms() const;
+
     FuturesAccount account_;
     OrderLimits risk_;
     Decimal max_order_quantity_;

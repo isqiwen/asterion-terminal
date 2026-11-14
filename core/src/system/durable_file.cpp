@@ -34,8 +34,6 @@ bool flush(int file)
 
 struct Descriptor
 {
-    int value;
-
     explicit Descriptor(int fd)
         : value(fd)
     {}
@@ -53,6 +51,8 @@ struct Descriptor
         if (::close(std::exchange(value, -1)) != 0)
             failed(path, "close");
     }
+
+    int value;
 };
 
 struct stat owned_regular(int file, const std::filesystem::path& path)
@@ -210,9 +210,6 @@ void replace_file_durably(
 
     struct Cleanup
     {
-        const std::filesystem::path& path;
-        bool active = true;
-
         ~Cleanup()
         {
             if (active) {
@@ -220,6 +217,9 @@ void replace_file_durably(
                 std::filesystem::remove(path, error);
             }
         }
+
+        const std::filesystem::path& path;
+        bool active = true;
     } cleanup{temporary};
 
     write_open_file(file, temporary, contents, owner_only);

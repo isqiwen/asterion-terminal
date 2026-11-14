@@ -126,12 +126,12 @@ void transfer(Handle fd, char* data, std::size_t size, bool writing, Deadline en
 
 struct Channel::Impl
 {
-    Handle handle = invalid;
-
     ~Impl()
     {
         release(handle);
     }
+
+    Handle handle = invalid;
 };
 
 Channel::Channel()

@@ -109,18 +109,6 @@ unsigned limit_for(Admission kind) noexcept
 
 struct Work
 {
-    Owner runtime;
-    std::string request, error;
-    asterion::Payload response;
-    asterion::ErrorCode error_code = asterion::ErrorCode::internal_error;
-    napi_deferred deferred{};
-    napi_threadsafe_function completion{};
-    std::future<void> finished;
-    std::mutex completion_mutex;
-    bool closing = false;
-    Admission kind = Admission::request;
-    bool admitted = false;
-
     void release_admission() noexcept
     {
         if (admitted) {
@@ -133,6 +121,18 @@ struct Work
     {
         release_admission();
     }
+
+    Owner runtime;
+    std::string request, error;
+    asterion::Payload response;
+    asterion::ErrorCode error_code = asterion::ErrorCode::internal_error;
+    napi_deferred deferred{};
+    napi_threadsafe_function completion{};
+    std::future<void> finished;
+    std::mutex completion_mutex;
+    bool closing = false;
+    Admission kind = Admission::request;
+    bool admitted = false;
 };
 
 void complete(napi_env env, napi_value, void*, void* data) noexcept

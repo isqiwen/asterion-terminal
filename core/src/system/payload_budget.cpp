@@ -7,19 +7,8 @@ namespace asterion {
 
 struct PayloadBudget::State
 {
-    const std::size_t limit;
-    std::atomic<std::size_t> used{0};
-
-    explicit State(std::size_t limit)
-        : limit(limit)
-    {}
-
     struct Buffer
     {
-        std::shared_ptr<State> owner;
-        std::size_t charge = 0;
-        std::string bytes;
-
         explicit Buffer(std::shared_ptr<State> owner)
             : owner(std::move(owner))
         {}
@@ -29,7 +18,15 @@ struct PayloadBudget::State
             std::string{}.swap(bytes);
             owner->used.fetch_sub(charge, std::memory_order_relaxed);
         }
+
+        std::shared_ptr<State> owner;
+        std::size_t charge = 0;
+        std::string bytes;
     };
+
+    explicit State(std::size_t limit)
+        : limit(limit)
+    {}
 
     void reserve(std::size_t bytes)
     {
@@ -39,6 +36,9 @@ struct PayloadBudget::State
                 throw Error(ErrorCode::resource_exhausted, "IPC payload capacity reached");
         } while (!used.compare_exchange_weak(current, current + bytes, std::memory_order_relaxed));
     }
+
+    const std::size_t limit;
+    std::atomic<std::size_t> used{0};
 };
 
 PayloadBudget::PayloadBudget(std::size_t limit)

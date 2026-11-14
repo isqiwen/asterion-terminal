@@ -19,12 +19,12 @@ TEST(PythonRuntime, InstallsResearchAndReplacesTheEnvironmentOnUpgrade)
 
     struct Temporary
     {
-        fs::path root = fs::temp_directory_path() / ("ast-runtime-" + unique_process_id());
-
         ~Temporary()
         {
             fs::remove_all(root);
         }
+
+        fs::path root = fs::temp_directory_path() / ("ast-runtime-" + unique_process_id());
     } temporary;
 
     const auto application = temporary.root / "application";

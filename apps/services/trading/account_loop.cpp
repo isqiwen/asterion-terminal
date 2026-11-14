@@ -43,26 +43,6 @@ struct LiveSession::Loop
         AccountCommand command;
     };
 
-    // One gate outlives the account, SDK and every accepted command.
-    BrokerSendGate send_gate;
-    std::mutex mutex;
-    std::condition_variable wake;
-    std::deque<Event> events;
-    // Admission covers queued and active requests, including deferred mutations.
-    std::size_t admitted = 0;
-    bool accepting = true, stopping = false, broker_pending = false;
-    std::deque<std::shared_ptr<Mutation>> mutations;
-    std::optional<Active> active;
-    // A cancel running in front of the active command while that command is
-    // parked on its broker quote. The account still advances one durable command
-    // at a time: the parked command has recorded nothing and resumes afterwards.
-    std::optional<Active> interposed;
-    std::atomic<bool> failed{false};
-    Progress state_progress, persistence_progress, command_progress;
-    std::atomic<bool> business_ready{false};
-    std::shared_future<void> initialized, stopped;
-    std::jthread thread;
-
     void
     enqueue(Event event, Admission admission = Admission::command, Mutation* mutation = nullptr)
     {
@@ -356,12 +336,13 @@ struct LiveSession::Loop
                 TraceScope context(trace);
                 struct PublishHealth
                 {
-                    Loop& loop;
-                    LiveAccountState& account;
                     ~PublishHealth()
                     {
                         loop.failed = account.recovery_required();
                     }
+
+                    Loop& loop;
+                    LiveAccountState& account;
                 } publish{*this, account};
                 return operation(account);
             });
@@ -409,6 +390,26 @@ struct LiveSession::Loop
             request.get());
         return result;
     }
+
+    // One gate outlives the account, SDK and every accepted command.
+    BrokerSendGate send_gate;
+    std::mutex mutex;
+    std::condition_variable wake;
+    std::deque<Event> events;
+    // Admission covers queued and active requests, including deferred mutations.
+    std::size_t admitted = 0;
+    bool accepting = true, stopping = false, broker_pending = false;
+    std::deque<std::shared_ptr<Mutation>> mutations;
+    std::optional<Active> active;
+    // A cancel running in front of the active command while that command is
+    // parked on its broker quote. The account still advances one durable command
+    // at a time: the parked command has recorded nothing and resumes afterwards.
+    std::optional<Active> interposed;
+    std::atomic<bool> failed{false};
+    Progress state_progress, persistence_progress, command_progress;
+    std::atomic<bool> business_ready{false};
+    std::shared_future<void> initialized, stopped;
+    std::jthread thread;
 };
 
 LiveSession::LiveSession(

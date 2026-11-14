@@ -7,10 +7,11 @@ namespace asterion {
 // delivery month. This is contract identity, not an exchange rule/calendar feed.
 struct FuturesContract
 {
+    void validate() const;
+
     Instrument instrument;
     std::string product;
     std::string delivery_month; // YYYY-MM; never infer the decade from a symbol.
-    void validate() const;
 };
 
 } // namespace asterion

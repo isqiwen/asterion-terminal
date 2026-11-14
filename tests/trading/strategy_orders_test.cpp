@@ -26,9 +26,6 @@ FuturesContract contract(const char* venue = "SHFE", const char* product = "rb")
 class StrategyOrders : public ::testing::Test
 {
 protected:
-    BrokerSnapshot account;
-    std::vector<FuturesContract> allowed{contract(), contract("SHFE", "cu")};
-
     void SetUp() override
     {
         account.phase = BrokerPhase::ready;
@@ -46,6 +43,9 @@ protected:
         account.positions.push_back(
             {allowed[index].instrument.id, side, lots(today), lots(yesterday)});
     }
+
+    BrokerSnapshot account;
+    std::vector<FuturesContract> allowed{contract(), contract("SHFE", "cu")};
 };
 
 } // namespace

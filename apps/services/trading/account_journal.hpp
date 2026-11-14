@@ -36,6 +36,22 @@ public:
         std::uint64_t order_cursor = 0;
     };
 
+    struct Write
+    {
+        bool await_ready() const noexcept
+        {
+            return false;
+        }
+
+        void await_suspend(std::coroutine_handle<> command);
+        Result await_resume();
+
+        AccountJournal& owner;
+        std::function<Result(SqliteJournal&)> operation;
+        Result result;
+        std::exception_ptr error;
+    };
+
     AccountJournal(
         std::filesystem::path directory,
         std::function<void(const Json&)> validate,
@@ -63,22 +79,6 @@ public:
     // Initial creation is not published to clients until its header is durable.
     SqliteJournal::Capacity initialize(Json header);
 
-    struct Write
-    {
-        AccountJournal& owner;
-        std::function<Result(SqliteJournal&)> operation;
-        Result result;
-        std::exception_ptr error;
-
-        bool await_ready() const noexcept
-        {
-            return false;
-        }
-
-        void await_suspend(std::coroutine_handle<> command);
-        Result await_resume();
-    };
-
     Write append(JournalEntry entry);
     Write find_command(std::string id);
     Write find_order(std::string id);
@@ -86,6 +86,7 @@ public:
 
 private:
     using Job = std::function<void(SqliteJournal&)>;
+
     std::filesystem::path directory_;
     Progress& progress_;
     Post post_;

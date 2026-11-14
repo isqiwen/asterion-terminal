@@ -10,8 +10,6 @@ namespace asterion {
 
 class FileLock
 {
-    int handle_ = -1;
-
 public:
     enum class Access
     {
@@ -59,6 +57,9 @@ public:
 
     FileLock(const FileLock&) = delete;
     FileLock& operator=(const FileLock&) = delete;
+
+private:
+    int handle_ = -1;
 };
 
 } // namespace asterion

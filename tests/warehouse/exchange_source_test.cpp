@@ -45,13 +45,13 @@ std::string reference_fixture()
 class ExchangeSources : public testing::Test
 {
 protected:
-    fs::path root = fs::temp_directory_path() / ("asterion-exchange-" + unique_process_id());
-
     void TearDown() override
     {
         std::error_code error;
         fs::remove_all(root, error);
     }
+
+    fs::path root = fs::temp_directory_path() / ("asterion-exchange-" + unique_process_id());
 };
 
 TEST_F(ExchangeSources, ExactDecimalsMissingPricesAndFeeBasesReachParquet)

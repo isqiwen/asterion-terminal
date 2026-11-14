@@ -52,13 +52,13 @@ std::string utf8(const std::string& raw)
 {
     struct Converter
     {
-        iconv_t value = iconv_open("UTF-8", "GB18030");
-
         ~Converter()
         {
             if (value != reinterpret_cast<iconv_t>(-1))
                 iconv_close(value);
         }
+
+        iconv_t value = iconv_open("UTF-8", "GB18030");
     } converter;
 
     if (converter.value == reinterpret_cast<iconv_t>(-1))

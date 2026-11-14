@@ -17,18 +17,21 @@ namespace asterion::terminal {
 class Application
 {
 public:
-    Application();
-    ~Application();
-    nlohmann::json dispatch(const nlohmann::json& request);
     // Encoded response or encoding failure, exactly once after successful admission.
     // Completion runs on the owner and must not throw or destroy Application.
     // The future completes after the callback returns; retain Application until then.
     using Completion = std::function<void(Payload, std::exception_ptr)>;
+
+    Application();
+    ~Application();
+    nlohmann::json dispatch(const nlohmann::json& request);
     std::future<void> request(std::string wire, Completion complete);
 
 private:
-    friend struct ApplicationTestAccess;
     struct Impl;
+
+    friend struct ApplicationTestAccess;
+
     std::unique_ptr<FileLock> installation_use_;
     std::unique_ptr<Impl> impl_;
 };

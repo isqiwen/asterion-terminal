@@ -15,19 +15,6 @@ public:
 
     struct promise_type
     {
-        std::exception_ptr error;
-        std::coroutine_handle<> caller = std::noop_coroutine();
-
-        AccountCommand get_return_object()
-        {
-            return AccountCommand(Handle::from_promise(*this));
-        }
-
-        std::suspend_always initial_suspend() noexcept
-        {
-            return {};
-        }
-
         struct Finish
         {
             bool await_ready() noexcept
@@ -43,6 +30,16 @@ public:
             void await_resume() noexcept {}
         };
 
+        AccountCommand get_return_object()
+        {
+            return AccountCommand(Handle::from_promise(*this));
+        }
+
+        std::suspend_always initial_suspend() noexcept
+        {
+            return {};
+        }
+
         Finish final_suspend() noexcept
         {
             return {};
@@ -54,6 +51,36 @@ public:
         {
             error = std::current_exception();
         }
+
+        std::exception_ptr error;
+        std::coroutine_handle<> caller = std::noop_coroutine();
+    };
+
+    struct Awaiter
+    {
+        ~Awaiter()
+        {
+            handle.destroy();
+        }
+
+        bool await_ready() const noexcept
+        {
+            return false;
+        }
+
+        std::coroutine_handle<> await_suspend(std::coroutine_handle<> caller) noexcept
+        {
+            handle.promise().caller = caller;
+            return handle;
+        }
+
+        void await_resume() const
+        {
+            if (handle.promise().error)
+                std::rethrow_exception(handle.promise().error);
+        }
+
+        Handle handle;
     };
 
     explicit AccountCommand(Handle handle)
@@ -87,33 +114,6 @@ public:
         if (handle_.promise().error)
             std::rethrow_exception(handle_.promise().error);
     }
-
-    struct Awaiter
-    {
-        Handle handle;
-
-        ~Awaiter()
-        {
-            handle.destroy();
-        }
-
-        bool await_ready() const noexcept
-        {
-            return false;
-        }
-
-        std::coroutine_handle<> await_suspend(std::coroutine_handle<> caller) noexcept
-        {
-            handle.promise().caller = caller;
-            return handle;
-        }
-
-        void await_resume() const
-        {
-            if (handle.promise().error)
-                std::rethrow_exception(handle.promise().error);
-        }
-    };
 
     Awaiter operator co_await() && noexcept
     {

@@ -52,10 +52,6 @@ OrderLimitsConfig limits(const char* order = "10", const char* gross = "10")
 // What a replay reported, in order.
 struct Seen final : Replay::Observer
 {
-    std::vector<std::string> events;
-    std::vector<RiskDecision> decisions;
-    std::vector<std::int64_t> settled_at;
-
     void advanced(
         std::size_t index,
         const std::optional<PaperExecution::Target>& intent,
@@ -80,6 +76,10 @@ struct Seen final : Replay::Observer
         events.push_back("settled " + day.trading_day);
         settled_at.push_back(at);
     }
+
+    std::vector<std::string> events;
+    std::vector<RiskDecision> decisions;
+    std::vector<std::int64_t> settled_at;
 };
 
 // Replays every day, wanting `lots` of unit 0 after each timestamp.

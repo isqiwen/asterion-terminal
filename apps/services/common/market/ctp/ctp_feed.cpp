@@ -169,9 +169,6 @@ static std::optional<Decimal> traded_price(double value)
 
 struct Feed::Impl final
 {
-    // Only SDK command handoff uses this mutex. Normalized state belongs to poll().
-    std::mutex mutex;
-
     struct Connected
     {};
 
@@ -218,81 +215,10 @@ struct Feed::Impl final
         Observation value;
     };
 
-    // Enough for the initial 20,000-contract acknowledgement/quote burst. Raw
-    // callback storage is bounded independently from normalized event retention.
-    BoundedQueue<Incoming> incoming{65536};
-    std::atomic<bool> ingress_failed{false};
-    std::uint64_t generation = 0;
-
-    template <class T>
-    void deliver(std::uint64_t entry, T value) noexcept
-    {
-        try {
-            if (!incoming.try_push({entry, now_ms(), std::move(value)}))
-                ingress_failed = true;
-        } catch (...) {
-            // No exception may escape into the vendor callback ABI.
-            ingress_failed = true;
-        }
-    }
-
-    const std::filesystem::path library_path, flow;
-    Configuration config;
     using Factory = CThostFtdcMdApi* (*)(const char*, bool, bool);
-    LiveMarketSnapshot state;
-    // What changed since the owner's last poll, in order.
-    std::vector<FeedEvent> events;
-
-    void record_status()
-    {
-        std::fill(subscription_revisions.begin(), subscription_revisions.end(), state.sequence);
-        events.emplace_back(FeedStatus{state.phase, state.error_code});
-    }
-
-    std::vector<InstrumentId> wanted;
-    std::unordered_map<std::string, std::size_t> subscription_index;
-    std::vector<std::uint64_t> subscription_revisions;
-    std::uint64_t membership_sequence = 0;
-
-    void select_subscriptions(const std::vector<InstrumentId>& ids, bool preserve_quotes)
-    {
-        auto next_wanted = ids;
-        std::vector<MarketSubscription> next;
-        std::unordered_map<std::string, std::size_t> index;
-        next.reserve(ids.size());
-        index.reserve(ids.size());
-        for (const auto& id : ids) {
-            MarketSubscription subscription{id, SubscriptionState::pending, 0, {}};
-            const auto old = subscription_index.find(id.symbol);
-            if (preserve_quotes && old != subscription_index.end()
-                && state.subscriptions[old->second].instrument == id)
-                subscription.quote = state.subscriptions[old->second].quote;
-            index.emplace(id.symbol, next.size());
-            next.push_back(std::move(subscription));
-        }
-        // The state owner publishes the vector and indices together.
-        std::vector<std::uint64_t> revisions(ids.size(), state.sequence + 1);
-        state.subscriptions = std::move(next);
-        subscription_revisions = std::move(revisions);
-        membership_sequence = state.sequence + 1;
-        subscription_index = std::move(index);
-        wanted = std::move(next_wanted);
-    }
-
-    std::vector<std::string> retrying;
-    std::map<InstrumentId, int> multipliers;
-    bool closing = true, logged_in = false;
-    // The session's trading day: the login's, moved on by any later one a quote
-    // reports. CZCE reports the civil date during night sessions.
-    std::string trading_day;
-    bool login_pending = false, subscription_pending = false;
 
     struct Bridge final : CThostFtdcMdSpi
     {
-        Impl& owner;
-        const std::uint64_t generation;
-        CThostFtdcMdApi* api = nullptr;
-
         Bridge(Impl& owner, std::uint64_t generation)
             : owner(owner),
               generation(generation)
@@ -351,16 +277,15 @@ struct Feed::Impl final
             if (tick)
                 owner.deliver(generation, Tick{*tick});
         }
+
+        Impl& owner;
+        const std::uint64_t generation;
+        CThostFtdcMdApi* api = nullptr;
     };
 
     // Every vendor call, its SPI and the loaded library live on the SDK owner.
     struct Sdk
     {
-        SharedLibrary library;
-        Bridge bridge;
-        CThostFtdcMdApi* api = nullptr;
-        std::string front;
-
         Sdk(Impl& owner, std::uint64_t generation, std::string address)
             : library(owner.library_path, "_ZN15CThostFtdcMdApi15CreateFtdcMdApiEPKcbb"),
               bridge(owner, generation),
@@ -393,6 +318,11 @@ struct Feed::Impl final
             api->RegisterFront(front.data());
             api->Init();
         }
+
+        SharedLibrary library;
+        Bridge bridge;
+        CThostFtdcMdApi* api = nullptr;
+        std::string front;
     };
 
     struct SdkState
@@ -402,9 +332,48 @@ struct Feed::Impl final
         std::vector<InstrumentId> sent;
     };
 
-    ThreadPool& sdk_owner;
-    std::unique_ptr<SdkState> sdk_state = std::make_unique<SdkState>();
-    std::future<void> pending;
+    template <class T>
+    void deliver(std::uint64_t entry, T value) noexcept
+    {
+        try {
+            if (!incoming.try_push({entry, now_ms(), std::move(value)}))
+                ingress_failed = true;
+        } catch (...) {
+            // No exception may escape into the vendor callback ABI.
+            ingress_failed = true;
+        }
+    }
+
+    void record_status()
+    {
+        std::fill(subscription_revisions.begin(), subscription_revisions.end(), state.sequence);
+        events.emplace_back(FeedStatus{state.phase, state.error_code});
+    }
+
+    void select_subscriptions(const std::vector<InstrumentId>& ids, bool preserve_quotes)
+    {
+        auto next_wanted = ids;
+        std::vector<MarketSubscription> next;
+        std::unordered_map<std::string, std::size_t> index;
+        next.reserve(ids.size());
+        index.reserve(ids.size());
+        for (const auto& id : ids) {
+            MarketSubscription subscription{id, SubscriptionState::pending, 0, {}};
+            const auto old = subscription_index.find(id.symbol);
+            if (preserve_quotes && old != subscription_index.end()
+                && state.subscriptions[old->second].instrument == id)
+                subscription.quote = state.subscriptions[old->second].quote;
+            index.emplace(id.symbol, next.size());
+            next.push_back(std::move(subscription));
+        }
+        // The state owner publishes the vector and indices together.
+        std::vector<std::uint64_t> revisions(ids.size(), state.sequence + 1);
+        state.subscriptions = std::move(next);
+        subscription_revisions = std::move(revisions);
+        membership_sequence = state.sequence + 1;
+        subscription_index = std::move(index);
+        wanted = std::move(next_wanted);
+    }
 
     Impl(
         ThreadPool& owner,
@@ -728,6 +697,38 @@ struct Feed::Impl final
         }
         return {std::exchange(events, {}), ingress_failed};
     }
+
+    // Only SDK command handoff uses this mutex. Normalized state belongs to poll().
+    std::mutex mutex;
+
+    // Enough for the initial 20,000-contract acknowledgement/quote burst. Raw
+    // callback storage is bounded independently from normalized event retention.
+    BoundedQueue<Incoming> incoming{65536};
+    std::atomic<bool> ingress_failed{false};
+    std::uint64_t generation = 0;
+
+    const std::filesystem::path library_path, flow;
+    Configuration config;
+    LiveMarketSnapshot state;
+    // What changed since the owner's last poll, in order.
+    std::vector<FeedEvent> events;
+
+    std::vector<InstrumentId> wanted;
+    std::unordered_map<std::string, std::size_t> subscription_index;
+    std::vector<std::uint64_t> subscription_revisions;
+    std::uint64_t membership_sequence = 0;
+
+    std::vector<std::string> retrying;
+    std::map<InstrumentId, int> multipliers;
+    bool closing = true, logged_in = false;
+    // The session's trading day: the login's, moved on by any later one a quote
+    // reports. CZCE reports the civil date during night sessions.
+    std::string trading_day;
+    bool login_pending = false, subscription_pending = false;
+
+    ThreadPool& sdk_owner;
+    std::unique_ptr<SdkState> sdk_state = std::make_unique<SdkState>();
+    std::future<void> pending;
 };
 
 Feed::Feed(

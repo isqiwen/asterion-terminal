@@ -17,11 +17,6 @@ namespace fs = std::filesystem;
 class SinaSource : public testing::Test
 {
 protected:
-    fs::path root = fs::temp_directory_path() / ("sina-source-" + unique_process_id());
-    std::vector<std::string> asked;
-    std::string body = "/*<script>location.href='//sina.com';</script>*/\nvar _x=([])";
-    int status = 200;
-
     void TearDown() override
     {
         std::error_code ignored;
@@ -57,6 +52,11 @@ protected:
                 return ac::HttpReply{status, body};
             });
     }
+
+    fs::path root = fs::temp_directory_path() / ("sina-source-" + unique_process_id());
+    std::vector<std::string> asked;
+    std::string body = "/*<script>location.href='//sina.com';</script>*/\nvar _x=([])";
+    int status = 200;
 };
 
 TEST_F(SinaSource, ADaysDailyBarsCoverTheContractsListedThatDayAndOtherwiseStayMissing)

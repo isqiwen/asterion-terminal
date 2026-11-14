@@ -15,10 +15,6 @@ namespace {
 class CtpCatalog : public ::testing::Test
 {
 protected:
-    std::filesystem::path flow =
-        std::filesystem::temp_directory_path() / ("asterion-catalog-" + unique_process_id());
-    ctp::CatalogConfiguration config{"tcp://127.0.0.1:1", "9999", "catalog", "secret", "", ""};
-
     void TearDown() override
     {
         std::error_code error;
@@ -34,6 +30,10 @@ protected:
             std::this_thread::sleep_for(1ms);
         }
     }
+
+    std::filesystem::path flow =
+        std::filesystem::temp_directory_path() / ("asterion-catalog-" + unique_process_id());
+    ctp::CatalogConfiguration config{"tcp://127.0.0.1:1", "9999", "catalog", "secret", "", ""};
 };
 
 } // namespace
@@ -146,13 +146,13 @@ TEST(CtpCatalogService, EmptyWatchlistLoadsMarketAndQueriesRemainResponsive)
 
     struct Cleanup
     {
-        std::filesystem::path path;
-
         ~Cleanup()
         {
             std::error_code e;
             std::filesystem::remove_all(path, e);
         }
+
+        std::filesystem::path path;
     } cleanup{directory};
 
     testing_support::MarketHost host(directory, "catalog-slow");

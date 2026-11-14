@@ -9,16 +9,14 @@ class WarehouseChannel
 {
     struct State
     {
-        std::deque<Payload> frames;
-        std::future<void> finished;
-        ipc::RpcClient client;
-
         State(std::uint16_t port, ipc::TlsIdentity tls)
             : client("127.0.0.1", port, std::move(tls), 1, PayloadBudget(64 * 1024 * 1024))
         {}
-    };
 
-    std::unique_ptr<State> state_;
+        std::deque<Payload> frames;
+        std::future<void> finished;
+        ipc::RpcClient client;
+    };
 
 public:
     WarehouseChannel(std::uint16_t port, ipc::TlsIdentity tls)
@@ -59,6 +57,9 @@ public:
     {
         state_->client.cancel();
     }
+
+private:
+    std::unique_ptr<State> state_;
 };
 
 } // namespace asterion::testing_support

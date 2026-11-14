@@ -31,8 +31,9 @@ public:
     TradingEndpoint endpoint(const std::string& id) const;
 
 private:
-    std::filesystem::path data_;
     std::filesystem::path path(const std::string& id) const;
+
+    std::filesystem::path data_;
 };
 
 } // namespace asterion::terminal

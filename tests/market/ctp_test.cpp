@@ -97,10 +97,6 @@ namespace {
 
 struct CtpDirectory
 {
-    asterion::ThreadPool sdk{1, 2};
-    std::filesystem::path path = std::filesystem::temp_directory_path()
-        / ("asterion-ctp-events-" + asterion::unique_process_id());
-
     CtpDirectory()
     {
         std::filesystem::create_directory(path);
@@ -111,6 +107,10 @@ struct CtpDirectory
         std::error_code error;
         std::filesystem::remove_all(path, error);
     }
+
+    asterion::ThreadPool sdk{1, 2};
+    std::filesystem::path path = std::filesystem::temp_directory_path()
+        / ("asterion-ctp-events-" + asterion::unique_process_id());
 };
 
 // Polls until `rejected` quotes arrived out of order; what each poll returned
@@ -151,14 +151,14 @@ TEST(CtpEvents, OwnerAppliesCallbacksAndReconnectWaitsOnlyOnTheSdkThread)
 
     struct Unblock
     {
-        std::filesystem::path release, init, publication;
-
         ~Unblock()
         {
             std::filesystem::remove(release);
             std::filesystem::remove(init);
             std::filesystem::remove(publication);
         }
+
+        std::filesystem::path release, init, publication;
     } unblock{release, init, publication};
 
     feed.connect({"tcp://localhost:12345", "test", "steady", "test-only"}, {{"SHFE", "rb2610"}});

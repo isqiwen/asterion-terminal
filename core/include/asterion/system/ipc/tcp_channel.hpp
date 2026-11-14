@@ -22,14 +22,14 @@ inline constexpr std::array<unsigned char, 4> connection_magic{'A', 'S', 'T', 'R
 
 struct TlsIdentity
 {
-    std::string certificate_file, private_key_file;
-    // Fingerprints of the peer certificates this side accepts.
-    std::vector<std::string> peers;
-
     bool empty() const noexcept
     {
         return certificate_file.empty() && private_key_file.empty() && peers.empty();
     }
+
+    std::string certificate_file, private_key_file;
+    // Fingerprints of the peer certificates this side accepts.
+    std::vector<std::string> peers;
 };
 
 // A fingerprint as 64 lowercase hex digits. Accepts upper case and the colon

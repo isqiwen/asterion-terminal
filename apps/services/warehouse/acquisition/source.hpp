@@ -17,12 +17,12 @@ using warehouse::Settlement;
 
 struct SourceError : std::runtime_error
 {
-    std::string code;
-
     SourceError(std::string code, std::string message)
         : std::runtime_error(std::move(message)),
           code(std::move(code))
     {}
+
+    std::string code;
 };
 
 void check_stop(std::stop_token);

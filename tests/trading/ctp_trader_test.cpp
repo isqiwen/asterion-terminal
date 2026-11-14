@@ -27,16 +27,6 @@ Decimal d(const char* text)
 // Test control entry points exported by the SDK double.
 struct FakeControl
 {
-    ctp::SharedLibrary reset_library{ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_reset"};
-    ctp::SharedLibrary reconnect_library{
-        ASTERION_TEST_CTP_TRADER,
-        "asterion_fake_trader_reconnect"
-    };
-    ctp::SharedLibrary rejections_library{
-        ASTERION_TEST_CTP_TRADER,
-        "asterion_fake_trader_query_rejections"
-    };
-
     void reset()
     {
         reset_library.symbol<void (*)()>()();
@@ -58,6 +48,16 @@ struct FakeControl
         ctp::SharedLibrary control(ASTERION_TEST_CTP_TRADER, name);
         return control.symbol<F>()(args...);
     }
+
+    ctp::SharedLibrary reset_library{ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_reset"};
+    ctp::SharedLibrary reconnect_library{
+        ASTERION_TEST_CTP_TRADER,
+        "asterion_fake_trader_reconnect"
+    };
+    ctp::SharedLibrary rejections_library{
+        ASTERION_TEST_CTP_TRADER,
+        "asterion_fake_trader_query_rejections"
+    };
 };
 
 ctp::TraderConfiguration
@@ -107,10 +107,6 @@ const BrokerOrder* find(const BrokerSnapshot& s, const std::string& id)
 class CtpTrader : public ::testing::Test
 {
 protected:
-    FakeControl fake;
-    BrokerSendGate gate;
-    fs::path flow = fs::temp_directory_path() / ("asterion-ctp-trader-" + unique_process_id());
-
     void SetUp() override
     {
         fake.reset();
@@ -121,6 +117,10 @@ protected:
         std::error_code e;
         fs::remove_all(flow, e);
     }
+
+    FakeControl fake;
+    BrokerSendGate gate;
+    fs::path flow = fs::temp_directory_path() / ("asterion-ctp-trader-" + unique_process_id());
 };
 
 auto dispatch_deadline()
@@ -181,8 +181,6 @@ BrokerOrder send(
 
 struct Socket
 {
-    int fd;
-
     explicit Socket(int value)
         : fd(value)
     {}
@@ -195,17 +193,19 @@ struct Socket
         if (fd >= 0)
             ::close(fd);
     }
+
+    int fd;
 };
 
 struct VendorFlow
 {
-    fs::path path = fs::temp_directory_path() / ("asterion-vendor-trader-" + unique_process_id());
-
     ~VendorFlow()
     {
         std::error_code ignored;
         fs::remove_all(path, ignored);
     }
+
+    fs::path path = fs::temp_directory_path() / ("asterion-vendor-trader-" + unique_process_id());
 };
 
 } // namespace
@@ -456,12 +456,12 @@ TEST_F(CtpTrader, SdkLifecycleHasOneOwnerAndBlockedReleaseDoesNotBlockControl)
         // Unblock Release before Trader destruction even if an assertion fails.
         struct ReleaseGuard
         {
-            FakeControl& fake;
-
             ~ReleaseGuard()
             {
                 fake.call<void (*)(int)>("asterion_fake_trader_hold_release", 0);
             }
+
+            FakeControl& fake;
         } release{fake};
 
         trader.connect(configuration());
@@ -578,12 +578,12 @@ TEST_F(CtpTrader, DispatchReturnsWithoutWaitingAndLateSdkResultCannotOverwriteBr
 
     struct ReturnGuard
     {
-        FakeControl& fake;
-
         ~ReturnGuard()
         {
             fake.call<void (*)(int, int)>("asterion_fake_trader_hold_insert_return", 0, 0);
         }
+
+        FakeControl& fake;
     } release{fake};
 
     trader.connect(configuration());

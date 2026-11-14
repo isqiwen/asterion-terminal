@@ -143,13 +143,13 @@ Tushare::Tushare(std::string token, std::shared_ptr<Budget> budget, std::stop_to
 
 struct Tushare::Table
 {
-    std::map<std::string, std::size_t> fields;
-    Json rows;
-
     const Json& at(const Json& row, const std::string& field) const
     {
         return row.at(fields.at(field));
     }
+
+    std::map<std::string, std::size_t> fields;
+    Json rows;
 };
 
 Tushare::Table Tushare::ask(

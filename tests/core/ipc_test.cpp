@@ -14,9 +14,6 @@ namespace {
 
 struct LocalIpc : testing::Test
 {
-    std::filesystem::path root;
-    std::string endpoint;
-
     void SetUp() override
     {
         root = std::filesystem::path("/tmp") / ("ast-ipc-" + unique_process_id().substr(0, 12));
@@ -42,6 +39,9 @@ struct LocalIpc : testing::Test
         }
         throw std::runtime_error("fixture did not saturate pending IPC connections");
     }
+
+    std::filesystem::path root;
+    std::string endpoint;
 };
 
 } // namespace

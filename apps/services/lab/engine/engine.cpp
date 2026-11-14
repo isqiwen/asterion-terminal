@@ -122,19 +122,6 @@ ContractBars contract_of(const py::dict& item, std::vector<DaySettlement>& days)
 // What the replay did, kept for the run's tables.
 struct Record final : Replay::Observer
 {
-    const Replay* replay = nullptr;
-    // (time_ns, equity, event)
-    std::vector<py::tuple> equity;
-    // (trading_day, time_ns, balance, equity, realized, fees, margin, available)
-    std::vector<py::tuple> settlements;
-    // (trading_day, contract, long, short, settlement_price, margin)
-    std::vector<py::tuple> positions;
-    // (time_ns, trading_day, contract, lots, reason)
-    std::vector<py::tuple> rejections;
-    // When each order was placed and each fill made, and on which trading day.
-    std::vector<std::int64_t> order_times, fill_times;
-    std::vector<std::string> order_days, fill_days;
-
     std::int64_t value() const
     {
         const auto& account = replay->execution().account();
@@ -214,6 +201,19 @@ struct Record final : Replay::Observer
                         margin.raw()));
         }
     }
+
+    const Replay* replay = nullptr;
+    // (time_ns, equity, event)
+    std::vector<py::tuple> equity;
+    // (trading_day, time_ns, balance, equity, realized, fees, margin, available)
+    std::vector<py::tuple> settlements;
+    // (trading_day, contract, long, short, settlement_price, margin)
+    std::vector<py::tuple> positions;
+    // (time_ns, trading_day, contract, lots, reason)
+    std::vector<py::tuple> rejections;
+    // When each order was placed and each fill made, and on which trading day.
+    std::vector<std::int64_t> order_times, fill_times;
+    std::vector<std::string> order_days, fill_days;
 };
 
 class Engine

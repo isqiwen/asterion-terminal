@@ -14,6 +14,8 @@ namespace asterion::ctp {
 class ReportReconciler final
 {
 public:
+    using RawOrderId = std::array<char, sizeof(TThostFtdcOrderSysIDType)>;
+
     explicit ReportReconciler(BrokerSnapshot& state)
         : state_(state)
     {}
@@ -40,13 +42,13 @@ public:
     // Borrowed references/pointers are valid only under the caller's mutex.
     const BrokerOrder* find(const std::string& broker_key) const;
     const BrokerOrder* find_order(const std::string& order_id) const;
-    using RawOrderId = std::array<char, sizeof(TThostFtdcOrderSysIDType)>;
     const RawOrderId& raw_exchange_id(const std::string& broker_key) const;
 
 private:
     BrokerOrder& order_for(const std::string& broker_key);
     bool fills_reported() const;
     Decimal open_fills() const;
+
     BrokerSnapshot& state_;
     bool positions_synchronized_ = false;
     Decimal reconciled_open_lots_;

@@ -26,12 +26,12 @@ std::string name_utf8(std::string input)
 
     struct Close
     {
-        iconv_t converter;
-
         ~Close()
         {
             iconv_close(converter);
         }
+
+        iconv_t converter;
     } close{converter};
 
     std::string result(input.size() * 4 + 4, '\0');
@@ -116,15 +116,6 @@ struct Reader final : CThostFtdcTraderSpi
     };
 
     using Event = std::variant<Connected, Disconnected, Failure, Auth, Login, Instrument, Product>;
-    BoundedQueue<Event> incoming{32768};
-    std::atomic<bool> failed{false};
-    std::atomic<unsigned> instrument_responses{0};
-    Step step = Step::connecting;
-    bool completed = false;
-    Catalog result;
-    std::map<std::string, CatalogContract> contracts;
-    // Futures products, each queried for its contracts in turn.
-    std::vector<std::pair<std::string, std::string>> products;
 
     template <class T>
     void deliver(T event) noexcept
@@ -336,6 +327,16 @@ struct Reader final : CThostFtdcTraderSpi
         step = next;
         completed = false;
     }
+
+    BoundedQueue<Event> incoming{32768};
+    std::atomic<bool> failed{false};
+    std::atomic<unsigned> instrument_responses{0};
+    Step step = Step::connecting;
+    bool completed = false;
+    Catalog result;
+    std::map<std::string, CatalogContract> contracts;
+    // Futures products, each queried for its contracts in turn.
+    std::vector<std::pair<std::string, std::string>> products;
 };
 
 } // namespace

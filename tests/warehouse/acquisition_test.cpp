@@ -73,15 +73,6 @@ Json contract(
 
 struct Vendor
 {
-    std::vector<std::string> calls, days;
-    std::string close = "1.5e3", amount = "1234567890123456.123456";
-    double settle_margin = 0.07;
-    std::set<std::string> empty;
-    Json minutes = Json::array();
-    bool full_calendar = false;
-    std::vector<std::size_t> minute_offsets;
-    std::function<void(const Json&, std::stop_token)> before;
-
     std::string operator()(const std::string& body, std::stop_token stop)
     {
         const auto request = Json::parse(body);
@@ -169,6 +160,15 @@ struct Vendor
         }
         throw std::runtime_error("unexpected fixture API");
     }
+
+    std::vector<std::string> calls, days;
+    std::string close = "1.5e3", amount = "1234567890123456.123456";
+    double settle_margin = 0.07;
+    std::set<std::string> empty;
+    Json minutes = Json::array();
+    bool full_calendar = false;
+    std::vector<std::size_t> minute_offsets;
+    std::function<void(const Json&, std::stop_token)> before;
 };
 
 ac::Factory factory(const std::shared_ptr<Vendor>& vendor)
@@ -213,14 +213,14 @@ ac::wire::AcquisitionTask finished(ac::Manager& manager, const std::string& id)
 class Acquisition : public testing::Test
 {
 protected:
-    fs::path root = fs::temp_directory_path() / ("asterion-acquisition-" + unique_process_id());
-
     void TearDown() override
     {
         fail_next_directory_syncs_for_testing(0);
         std::error_code error;
         fs::remove_all(root, error);
     }
+
+    fs::path root = fs::temp_directory_path() / ("asterion-acquisition-" + unique_process_id());
 };
 
 TEST_F(Acquisition, ExactProviderNumbersAndDeliveryIdentitiesReachParquet)
@@ -653,10 +653,6 @@ TEST_F(Acquisition, ALaterSourceFillsOnlyWhatTheOneBeforeItLacksAndAFailureKeeps
 {
     struct Daily final : ac::Source
     {
-        std::vector<std::string>& asked;
-        std::set<std::string> holds;
-        bool fails;
-
         Daily(std::vector<std::string>& asked, std::set<std::string> holds, bool fails = false)
             : asked(asked),
               holds(std::move(holds)),
@@ -680,6 +676,10 @@ TEST_F(Acquisition, ALaterSourceFillsOnlyWhatTheOneBeforeItLacksAndAFailureKeeps
                 {.exchange = exchange, .product = "rb", .contract = "SHFE/rb/2026-05", .day = day}
             };
         }
+
+        std::vector<std::string>& asked;
+        std::set<std::string> holds;
+        bool fails;
     };
 
     std::vector<std::string> first, second;

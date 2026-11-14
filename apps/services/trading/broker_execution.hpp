@@ -174,6 +174,12 @@ constexpr std::string_view broker_phase_name(BrokerPhase phase) noexcept
 
 struct BrokerSnapshot
 {
+    bool reconciled_for(const InstrumentId& id) const
+    {
+        return positions_reconciled
+            || (!unreconciled_instruments.empty() && !unreconciled_instruments.contains(id));
+    }
+
     // Orders are accepted only when ready.
     BrokerPhase phase = BrokerPhase::disconnected;
     int error_code = 0;
@@ -188,12 +194,6 @@ struct BrokerSnapshot
     bool positions_reconciled = false;
     std::set<InstrumentId> unreconciled_instruments;
     Decimal unreconciled_open_lots;
-
-    bool reconciled_for(const InstrumentId& id) const
-    {
-        return positions_reconciled
-            || (!unreconciled_instruments.empty() && !unreconciled_instruments.contains(id));
-    }
 
     // Wall-clock ms of the last completed funds/positions/orders/trades query.
     std::int64_t synchronized_ms = 0;

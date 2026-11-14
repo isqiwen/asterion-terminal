@@ -47,9 +47,6 @@ struct Application::Impl
     // query-specific values; full JSON exists only while a response worker uses it.
     struct Response
     {
-        std::shared_ptr<const Publication> publication;
-        json values;
-
         Response(json value)
             : values(std::move(value))
         {}
@@ -60,39 +57,55 @@ struct Application::Impl
         {}
 
         json render() &&;
-    };
 
-    ServiceIo service_io;
-    // Encoded replies retain their allowance through the final bridge consumer.
-    PayloadBudget snapshot_payloads{256 * 1024 * 1024};
-    PayloadBudget command_payloads{128 * 1024 * 1024};
-    std::uint64_t refresh_failures = 0;
-    bool refresh_failed = false, settings_failed = false;
-    void record_refresh_failure(ErrorCode code) noexcept;
-    TradingConnections trading_connections{program_directory("terminal") / "data"};
-    SavedEndpoint market_endpoint{program_directory("terminal") / "data" / "market.json"};
-    SavedEndpoint warehouse_endpoint{program_directory("terminal") / "data" / "warehouse.json"};
-    // A saved address for display, or a mark that it is unreadable.
-    json endpoint_settings(const SavedEndpoint&) const;
-    // The open quotes watch the market pages read.
-    std::shared_ptr<MarketWatch> watch;
-    PolledTask<ServiceEndpoint> address_of(const SavedEndpoint&, const char* name);
+        std::shared_ptr<const Publication> publication;
+        json values;
+    };
 
     struct ResetFlag
     {
-        bool& flag;
-
         ~ResetFlag()
         {
             flag = false;
         }
+
+        bool& flag;
     };
 
-    // The Python runtime lab runs on, installed at the first launch.
-    PythonRuntime python_runtime{
-        application_directory().parent_path() / "runtime",
-        program_directory("terminal") / "runtime"
+    // UI commands belong to this Native boundary; registration is constructor-only.
+    using Command = std::function<PolledTask<Response>(const json&)>;
+
+    // Settings files are used by one admitted management job.
+    // Only the returned display projection is applied to the I/O owner's state.
+    struct SettingsView
+    {
+        bool operator==(const SettingsView&) const = default;
+
+        json trading = json::array();
+        std::string client_fingerprint;
+        json market_endpoint = nullptr;
+        json warehouse_endpoint = nullptr;
     };
+
+    using Settings = std::shared_ptr<const SettingsView>;
+
+    // The owner fixes these references and their revision before any rendering.
+    struct Publication
+    {
+        bool same_state(const Publication&) const;
+        json render() const;
+
+        json metadata;
+        json lab;
+        Settings settings;
+        std::uint64_t revision = 0;
+        std::int64_t refreshed_at_ms = 0;
+    };
+
+    void record_refresh_failure(ErrorCode code) noexcept;
+    // A saved address for display, or a mark that it is unreadable.
+    json endpoint_settings(const SavedEndpoint&) const;
+    PolledTask<ServiceEndpoint> address_of(const SavedEndpoint&, const char* name);
 
     // The development entry names the runtime it prepared; an installed
     // application uses the one installed at its first launch.
@@ -103,16 +116,8 @@ struct Application::Impl
         return python_runtime.python();
     }
 
-    LabSupervisor lab{[this] {
-        return python();
-    }};
-    // UI commands belong to this Native boundary; registration is constructor-only.
-    using Command = std::function<PolledTask<Response>(const json&)>;
-    std::map<std::string, Command> commands;
     void command(std::string name, Command handler);
     PolledTask<Response> invoke(const std::string& method, const json& params);
-    IdSequence request_ids{"terminal." + unique_process_id()};
-    std::uint64_t succeeded = 0, failed = 0;
 
     // Coroutine factories retain their captures until their child operation finishes.
     template <class T, class F>
@@ -120,8 +125,6 @@ struct Application::Impl
     {
         co_return co_await work();
     }
-
-    bool connecting = false, market_busy = false;
 
     // One Market connection is opened at a time.
     template <class T, class F>
@@ -135,21 +138,6 @@ struct Application::Impl
         ResetFlag reset{connecting};
         co_return co_await work();
     }
-
-    // Settings files are used by one admitted management job.
-    // Only the returned display projection is applied to the I/O owner's state.
-    struct SettingsView
-    {
-        json trading = json::array();
-        std::string client_fingerprint;
-        json market_endpoint = nullptr;
-        json warehouse_endpoint = nullptr;
-        bool operator==(const SettingsView&) const = default;
-    };
-
-    using Settings = std::shared_ptr<const SettingsView>;
-    Settings settings_view = std::make_shared<const SettingsView>();
-    bool settings_busy = false;
 
     template <class T, class F>
     PolledTask<T> settings(F work)
@@ -177,20 +165,6 @@ struct Application::Impl
     }
 
     Settings inspect_settings(const Settings& previous) const;
-
-    // The owner fixes these references and their revision before any rendering.
-    struct Publication
-    {
-        json metadata;
-        json lab;
-        Settings settings;
-        std::uint64_t revision = 0;
-        std::int64_t refreshed_at_ms = 0;
-        bool same_state(const Publication&) const;
-        json render() const;
-    };
-
-    std::shared_ptr<const Publication> cache;
     Impl();
     ~Impl();
     Publication capture();
@@ -204,9 +178,40 @@ struct Application::Impl
     void register_connection_commands();
     void register_data_commands();
     void register_lab_commands();
+    PolledTask<void> initialized();
+
+    ServiceIo service_io;
+    // Encoded replies retain their allowance through the final bridge consumer.
+    PayloadBudget snapshot_payloads{256 * 1024 * 1024};
+    PayloadBudget command_payloads{128 * 1024 * 1024};
+    std::uint64_t refresh_failures = 0;
+    bool refresh_failed = false, settings_failed = false;
+    TradingConnections trading_connections{program_directory("terminal") / "data"};
+    SavedEndpoint market_endpoint{program_directory("terminal") / "data" / "market.json"};
+    SavedEndpoint warehouse_endpoint{program_directory("terminal") / "data" / "warehouse.json"};
+    // The open quotes watch the market pages read.
+    std::shared_ptr<MarketWatch> watch;
+
+    // The Python runtime lab runs on, installed at the first launch.
+    PythonRuntime python_runtime{
+        application_directory().parent_path() / "runtime",
+        program_directory("terminal") / "runtime"
+    };
+
+    LabSupervisor lab{[this] {
+        return python();
+    }};
+    std::map<std::string, Command> commands;
+    IdSequence request_ids{"terminal." + unique_process_id()};
+    std::uint64_t succeeded = 0, failed = 0;
+
+    bool connecting = false, market_busy = false;
+    Settings settings_view = std::make_shared<const SettingsView>();
+    bool settings_busy = false;
+
+    std::shared_ptr<const Publication> cache;
     std::stop_source lifetime;
     std::shared_future<void> initialization;
-    PolledTask<void> initialized();
     std::future<void> refresher, settings_refresher;
 };
 

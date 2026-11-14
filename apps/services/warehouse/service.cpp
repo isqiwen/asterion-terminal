@@ -248,19 +248,6 @@ void answer_reader(
 
 struct WarehouseService::Running
 {
-    const Settings settings;
-    const std::int64_t started_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch())
-                                        .count();
-    warehouse::Composer composer;
-    acquisition::Manager acquisitions;
-    ThreadPool readers{1, 8}, analysis{1, 8};
-    std::promise<void> completion;
-    std::shared_future<void> stopped = completion.get_future().share();
-    std::jthread closing;
-    // Last, so it stops before the acquisitions it submits to.
-    std::jthread daily;
-
     explicit Running(Settings settings)
         : settings(std::move(settings)),
           composer(this->settings.directory),
@@ -301,6 +288,19 @@ struct WarehouseService::Running
         });
         return waiting(std::move(result), id);
     }
+
+    const Settings settings;
+    const std::int64_t started_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch())
+                                        .count();
+    warehouse::Composer composer;
+    acquisition::Manager acquisitions;
+    ThreadPool readers{1, 8}, analysis{1, 8};
+    std::promise<void> completion;
+    std::shared_future<void> stopped = completion.get_future().share();
+    std::jthread closing;
+    // Last, so it stops before the acquisitions it submits to.
+    std::jthread daily;
 };
 
 WarehouseService::WarehouseService(Settings settings)

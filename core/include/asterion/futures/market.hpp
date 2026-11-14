@@ -10,20 +10,22 @@ namespace asterion {
 // Venue + symbol identifies an actual tradable instrument, never a continuous alias.
 struct InstrumentId
 {
-    std::string venue;
-    std::string symbol;
     auto operator<=>(const InstrumentId&) const = default;
     void validate() const;
+
+    std::string venue;
+    std::string symbol;
 };
 
 struct Instrument
 {
+    void validate() const;
+
     InstrumentId id;
     std::string quote_currency;
     Decimal price_increment;
     Decimal quantity_increment;
     Decimal multiplier;
-    void validate() const;
 };
 
 // One OHLCV period of a single contract from a historical data source.
@@ -31,10 +33,11 @@ struct Instrument
 // date; timestamp_ns is the source bar label. Neither implies an intrabar path.
 struct MarketBar
 {
+    void validate(const Instrument& spec) const;
+
     std::string trading_day;
     std::int64_t timestamp_ns = 0;
     Decimal open, high, low, close, volume;
-    void validate(const Instrument& spec) const;
 };
 
 // Provider settlement price of one trading day.

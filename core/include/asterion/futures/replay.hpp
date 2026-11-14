@@ -20,9 +20,9 @@ struct DominantRoll
 // day. The first roll stands for the days before the series begins.
 struct DominantSeries
 {
-    std::vector<DominantRoll> rolls;
-
     const DominantRoll& on(const std::string& trading_day) const;
+
+    std::vector<DominantRoll> rolls;
 };
 
 // A portfolio's bars replayed one timestamp at a time through a paper account,

@@ -30,15 +30,6 @@ std::future<Json> call_market(ServiceIo& io, ServiceEndpoint endpoint, Json payl
 
 struct MarketWatch::Impl
 {
-    ServiceIo& io;
-    const ServiceEndpoint endpoint;
-    std::unique_ptr<ipc::RpcClient> transport;
-    std::stop_source lifetime;
-    std::deque<Json> frames;
-    bool online = false, restarting = false;
-    std::string error;
-    std::chrono::steady_clock::time_point seen{};
-
     Impl(ServiceIo& owner, ServiceEndpoint value)
         : io(owner),
           endpoint(std::move(value)),
@@ -107,6 +98,15 @@ struct MarketWatch::Impl
             restarting = false;
         }
     }
+
+    ServiceIo& io;
+    const ServiceEndpoint endpoint;
+    std::unique_ptr<ipc::RpcClient> transport;
+    std::stop_source lifetime;
+    std::deque<Json> frames;
+    bool online = false, restarting = false;
+    std::string error;
+    std::chrono::steady_clock::time_point seen{};
 };
 
 MarketWatch::MarketWatch(std::shared_ptr<Impl> impl)

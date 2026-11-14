@@ -18,11 +18,6 @@ using Milliseconds = std::chrono::milliseconds;
 // the identity's peers otherwise; see tcp_channel.hpp.
 struct Transport
 {
-    std::string endpoint;
-    std::string bind;
-    std::uint16_t port = 0;
-    ipc::TlsIdentity tls;
-
     bool remote() const noexcept
     {
         return !bind.empty();
@@ -30,6 +25,11 @@ struct Transport
 
     // Throws std::invalid_argument unless exactly one complete transport is set.
     void validate() const;
+
+    std::string endpoint;
+    std::string bind;
+    std::uint16_t port = 0;
+    ipc::TlsIdentity tls;
 };
 
 // Process-wide cooperative stop request. install_stop_signals() routes
@@ -69,15 +69,15 @@ public:
     // Both functions must return promptly: the business state owner performs work.
     struct Message
     {
-        std::string payload;
-        // Keep polling this reply after the frame is sent. Only one frame is
-        // produced at a time; a slow reader cannot accumulate queued publications.
-        bool more = false;
-
         Message(std::string payload, bool more = false)
             : payload(std::move(payload)),
               more(more)
         {}
+
+        std::string payload;
+        // Keep polling this reply after the frame is sent. Only one frame is
+        // produced at a time; a slow reader cannot accumulate queued publications.
+        bool more = false;
     };
 
     using Reply = std::function<std::optional<Message>()>;

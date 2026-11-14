@@ -23,9 +23,11 @@ public:
     std::size_t limit() const;
 
 private:
+    struct State;
+
     friend class ipc::RpcClient;
     std::shared_ptr<std::string> allocate(std::size_t bytes) const;
-    struct State;
+
     std::shared_ptr<State> state_;
 };
 

@@ -15,11 +15,6 @@ namespace {
 // would decrypt.
 struct Installation
 {
-    fs::path root = fs::temp_directory_path() / ("ast-market-" + unique_process_id());
-    fs::path file = root / "config/warehouse.json";
-    fs::path credentials = root / "credentials";
-    // The settings file the installer writes for this installation.
-    std::string configuration;
     static constexpr const char* template_text = R"({"bind":"0.0.0.0","port":7450,
     "clients":[{"fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],
     "acquisition":{"exchanges":[],"tushare":null,"update_at":null}})";
@@ -49,6 +44,12 @@ struct Installation
         }
         return "accepted";
     }
+
+    fs::path root = fs::temp_directory_path() / ("ast-market-" + unique_process_id());
+    fs::path file = root / "config/warehouse.json";
+    fs::path credentials = root / "credentials";
+    // The settings file the installer writes for this installation.
+    std::string configuration;
 };
 
 bool names(const std::string& text, const std::string& part)

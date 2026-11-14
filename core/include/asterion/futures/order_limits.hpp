@@ -6,11 +6,12 @@ namespace asterion {
 
 struct OrderLimitsConfig
 {
+    void validate() const;
+
     Decimal max_order_quantity;
     Decimal max_gross_quantity;
     std::size_t max_working_orders;
     Decimal max_contract_quantity;
-    void validate() const;
 };
 
 // Explicit immutable session configuration; unknown/missing fields reject.

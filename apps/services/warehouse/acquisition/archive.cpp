@@ -64,14 +64,14 @@ std::string archive_member(std::string_view zip, std::string_view name)
             } else {
                 struct Inflater
                 {
-                    z_stream stream{};
-                    bool opened = false;
-
                     ~Inflater()
                     {
                         if (opened)
                             inflateEnd(&stream);
                     }
+
+                    z_stream stream{};
+                    bool opened = false;
                 } inflater;
 
                 if (inflateInit2(&inflater.stream, -MAX_WBITS) != Z_OK)

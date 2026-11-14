@@ -21,6 +21,12 @@ namespace asterion::trading {
 class LiveSession final
 {
 public:
+    struct Health
+    {
+        Progress::Observation state, persistence, command;
+        bool business_ready;
+    };
+
     LiveSession(
         std::filesystem::path directory,
         const std::filesystem::path& ctp_library,
@@ -69,16 +75,11 @@ public:
 
     bool recovery_required() const noexcept;
 
-    struct Health
-    {
-        Progress::Observation state, persistence, command;
-        bool business_ready;
-    };
-
     Health health() const noexcept;
 
 private:
     struct Loop;
+
     std::unique_ptr<Loop> loop_;
 };
 

@@ -41,9 +41,6 @@ using Tls = asio::ssl::stream<Tcp::socket>;
 
 struct LocalListener
 {
-    Local::acceptor acceptor;
-    std::string endpoint;
-
     LocalListener(asio::io_context& io, std::string path)
         : acceptor(io),
           endpoint(std::move(path))
@@ -94,16 +91,15 @@ struct LocalListener
             ::unlink(endpoint.c_str());
         endpoint.clear();
     }
+
+    Local::acceptor acceptor;
+    std::string endpoint;
 };
 
 // How any thread prompts a running host: one advance on its loop, however
 // many requests arrive before it runs.
 struct Waker
 {
-    asio::io_context& io;
-    const std::function<void()> advance;
-    std::atomic<bool> requested{false};
-
     void wake()
     {
         if (!requested.exchange(true))
@@ -112,6 +108,10 @@ struct Waker
                 advance();
             });
     }
+
+    asio::io_context& io;
+    const std::function<void()> advance;
+    std::atomic<bool> requested{false};
 };
 
 std::mutex running_mutex;
@@ -181,20 +181,10 @@ struct RpcHost::Impl
 
     struct Session
     {
-        Impl& host;
-        Peer peer;
-        const LocalEndpoint* lane;
-
         bool control() const
         {
             return lane && lane->during_drain;
         }
-
-        Phase phase;
-        Clock::time_point deadline;
-        Reply reply;
-        const std::shared_ptr<PayloadBudget> budget;
-        std::size_t retained_bytes = 0, input_bytes = 0;
 
         Session(Impl& host, Peer peer, Phase phase, const LocalEndpoint* lane)
             : host(host),
@@ -274,15 +264,21 @@ struct RpcHost::Impl
                 close();
             }
         }
+
+        Impl& host;
+        Peer peer;
+        const LocalEndpoint* lane;
+
+        Phase phase;
+        Clock::time_point deadline;
+        Reply reply;
+        const std::shared_ptr<PayloadBudget> budget;
+        std::size_t retained_bytes = 0, input_bytes = 0;
     };
 
     template <class Stream>
     struct StreamSession final : Session, std::enable_shared_from_this<StreamSession<Stream>>
     {
-        Stream stream;
-        std::array<unsigned char, 4> header{};
-        std::string payload;
-
         StreamSession(
             Impl& host,
             Peer peer,
@@ -448,30 +444,11 @@ struct RpcHost::Impl
                         self->read();
                 });
         }
-    };
 
-    Progress& progress;
-    Transport transport;
-    Handler handler;
-    Options options;
-    // Sessions can outlive the session list while cancelled Asio callbacks drain.
-    // Keep their reservations alive until their actual buffers are destroyed.
-    std::map<const LocalEndpoint*, std::shared_ptr<PayloadBudget>> payload_budgets;
-    asio::io_context io;
-    asio::steady_timer tick{io};
-    Waker waker{io, [this] {
-                    advance();
-                }};
-    std::unique_ptr<LocalListener> local;
-    std::vector<std::unique_ptr<LocalListener>> auxiliary;
-    std::unique_ptr<ProcessOwner> owner;
-    std::unique_ptr<Tcp::acceptor> tcp;
-    std::shared_ptr<asio::ssl::context> tls;
-    std::vector<std::shared_ptr<Session>> sessions;
-    std::size_t handshakes = 0;
-    std::uint64_t failures = 0;
-    bool stopping = false, drained = true, finished = false;
-    Clock::time_point drain_deadline;
+        Stream stream;
+        std::array<unsigned char, 4> header{};
+        std::string payload;
+    };
 
     Impl(Transport transport, Handler handler, Options options, Progress& progress)
         : progress(progress),
@@ -666,6 +643,29 @@ struct RpcHost::Impl
                 advance();
         });
     }
+
+    Progress& progress;
+    Transport transport;
+    Handler handler;
+    Options options;
+    // Sessions can outlive the session list while cancelled Asio callbacks drain.
+    // Keep their reservations alive until their actual buffers are destroyed.
+    std::map<const LocalEndpoint*, std::shared_ptr<PayloadBudget>> payload_budgets;
+    asio::io_context io;
+    asio::steady_timer tick{io};
+    Waker waker{io, [this] {
+                    advance();
+                }};
+    std::unique_ptr<LocalListener> local;
+    std::vector<std::unique_ptr<LocalListener>> auxiliary;
+    std::unique_ptr<ProcessOwner> owner;
+    std::unique_ptr<Tcp::acceptor> tcp;
+    std::shared_ptr<asio::ssl::context> tls;
+    std::vector<std::shared_ptr<Session>> sessions;
+    std::size_t handshakes = 0;
+    std::uint64_t failures = 0;
+    bool stopping = false, drained = true, finished = false;
+    Clock::time_point drain_deadline;
 };
 
 RpcHost::RpcHost(Transport transport, Handler handler, Options options, Progress& progress)
@@ -683,8 +683,6 @@ bool RpcHost::run()
 {
     struct Running
     {
-        Waker& host;
-
         explicit Running(Waker& host)
             : host(host)
         {
@@ -697,6 +695,8 @@ bool RpcHost::run()
             std::lock_guard lock(running_mutex);
             std::erase(running, &host);
         }
+
+        Waker& host;
     } registered{impl_->waker};
 
     impl_->advance();
