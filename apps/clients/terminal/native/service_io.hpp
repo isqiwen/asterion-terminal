@@ -22,7 +22,8 @@ namespace asterion::terminal {
 class ServiceIo final
 {
 public:
-    static constexpr std::size_t application_capacity = 24;
+    // The bridge admits 16 requests, 16 urgent trading commands and 8 snapshots at once.
+    static constexpr std::size_t application_capacity = 40;
     enum class Lane
     {
         request,

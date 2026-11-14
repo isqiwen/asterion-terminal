@@ -40,7 +40,7 @@ async function isolatedPoolCheck() {
     await bridge.request(JSON.stringify({ version: 1, method: "runtime.snapshot", params: null })),
   );
   assert.equal(invalid.error.code, "invalid_request");
-  assert.throws(() => bridge.request("a".repeat(65537)), /64 KiB/);
+  assert.throws(() => bridge.request("a".repeat(65537)), /too large/);
   assert.throws(() => bridge.request("bad\0request"), /invalid character/);
   assert.equal(JSON.parse(await bridge.request("{")).error.code, "invalid_request");
 
