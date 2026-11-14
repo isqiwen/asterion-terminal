@@ -279,6 +279,12 @@ void ReportReconciler::apply(const CThostFtdcInvestorPositionField& row)
 
 bool ReportReconciler::finish_positions(std::uint64_t query_revision)
 {
+    if (query_revision != state_.exposure_revision) {
+        abandon_positions();
+        state_.positions_reconciled = false;
+        ++state_.sequence;
+        return true;
+    }
     const auto lots = [](const std::vector<BrokerPosition>& positions) {
         std::vector<std::tuple<InstrumentId, Side, Decimal, Decimal>> result;
         for (const auto& p : positions)
@@ -292,24 +298,23 @@ bool ReportReconciler::finish_positions(std::uint64_t query_revision)
         if (position.today > Decimal{} || position.yesterday > Decimal{})
             state_.positions.push_back(std::move(position));
     positions_in_progress_.clear();
-    const bool changed = query_revision != state_.exposure_revision;
     // Lots that moved without a report still invalidate orders checked against the old ones.
     if (lots(state_.positions) != before)
         ++state_.exposure_revision;
-    state_.positions_reconciled = !changed && fills_reported();
+    state_.positions_reconciled = fills_reported();
     if (state_.positions_reconciled) {
         positions_synchronized_ = true;
         reconciled_open_lots_ = open_fills();
         state_.unreconciled_instruments.clear();
         state_.unreconciled_open_lots = Decimal{};
-    } else if (!fills_reported()) {
+    } else {
         positions_synchronized_ = false;
         reconciled_open_lots_ = Decimal{};
         state_.unreconciled_instruments.clear();
         state_.unreconciled_open_lots = Decimal{};
     }
     ++state_.sequence;
-    return changed;
+    return false;
 }
 
 void ReportReconciler::remember(OrderIdentity identity, KnownOrder order)

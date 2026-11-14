@@ -2886,8 +2886,18 @@ TEST_F(
         item->mutable_instrument()->set_symbol(id.symbol);
         item->set_lots(1);
     }
+    // Earlier callbacks can invalidate the next leg while its intent is being written.
+    exchange.call<void (*)(int)>("asterion_fake_trader_hold_positions", 1);
     const auto started = std::chrono::steady_clock::now();
     session.accept_target(owner, ten, quotes);
+    for (std::size_t count = 1; count <= selected.size(); ++count) {
+        session.advance_target(owner).get();
+        const auto filled = wait_for(session, [count](const Json& s) {
+            return s.at("trades").size() == count;
+        });
+        ASSERT_EQ(filled.at("trades").size(), count);
+    }
+    exchange.call<void (*)(int)>("asterion_fake_trader_hold_positions", 0);
     const auto state = progress(session, owner, [](const Json& s) {
         return s.at("orders").size() == 10 && s.at("positions_reconciled") == true
             && s.at("positions").size() == 10;

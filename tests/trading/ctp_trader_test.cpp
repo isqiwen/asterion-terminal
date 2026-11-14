@@ -1066,6 +1066,50 @@ TEST_F(CtpTrader, ReconnectAndRestartKeepOrdersAttributed)
     EXPECT_THROW(cancel(restarted, ""), Error);
 }
 
+TEST(ReportReconciliation, APositionQueryCrossingAFillCannotDoubleCountOpenLots)
+{
+    BrokerSnapshot state;
+    state.trading_day = "20260928";
+    ctp::ReportReconciler reports(state);
+    ASSERT_FALSE(reports.finish_positions(state.exposure_revision));
+
+    CThostFtdcTradeField trade{};
+    std::strcpy(trade.TradingDay, "20260928");
+    std::strcpy(trade.ExchangeID, "SHFE");
+    std::strcpy(trade.InstrumentID, "rb2610");
+    std::strcpy(trade.OrderSysID, "1");
+    std::strcpy(trade.TradeID, "1");
+    trade.Direction = THOST_FTDC_D_Buy;
+    trade.OffsetFlag = THOST_FTDC_OF_Open;
+    trade.Price = 3500;
+    trade.Volume = 1;
+    reports.apply(trade);
+    const auto revision = state.exposure_revision;
+
+    CThostFtdcInvestorPositionField position{};
+    std::strcpy(position.ExchangeID, "SHFE");
+    std::strcpy(position.InstrumentID, "rb2610");
+    position.PosiDirection = THOST_FTDC_PD_Long;
+    position.HedgeFlag = THOST_FTDC_HF_Speculation;
+    position.Position = position.TodayPosition = 1;
+    reports.apply(position);
+    std::strcpy(trade.TradeID, "2");
+    reports.apply(trade);
+
+    EXPECT_TRUE(reports.finish_positions(revision));
+    EXPECT_FALSE(state.positions_reconciled);
+    EXPECT_TRUE(state.positions.empty());
+    EXPECT_EQ(state.unreconciled_open_lots, d("2"));
+
+    position.Position = position.TodayPosition = 2;
+    reports.apply(position);
+    EXPECT_FALSE(reports.finish_positions(state.exposure_revision));
+    EXPECT_TRUE(state.positions_reconciled);
+    ASSERT_EQ(state.positions.size(), 1U);
+    EXPECT_EQ(state.positions.front().today, d("2"));
+    EXPECT_EQ(state.unreconciled_open_lots, d("0"));
+}
+
 TEST(ReportReconciliation, RestoredIdentityUsesCurrentDayAndLatestJournalSequence)
 {
     BrokerSnapshot state;
