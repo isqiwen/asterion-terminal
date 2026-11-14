@@ -222,23 +222,20 @@ export function useSource(repository: string, folder: "strategies" | "factors" =
   };
 }
 
-// The open module's code, or `children` while none is open.
 export function LabCentre({
   source,
   repository,
   changed,
   deleted,
-  children,
 }: {
   source: ReturnType<typeof useSource>;
   repository: string;
   changed: () => void;
   deleted: () => void;
-  children?: ReactNode;
 }) {
   return (
     <main className="lab-center">
-      {source.path ? (
+      {source.path && (
         <SourceEditor
           key={source.path}
           repository={repository}
@@ -253,8 +250,6 @@ export function LabCentre({
             deleted();
           }}
         />
-      ) : (
-        children
       )}
     </main>
   );

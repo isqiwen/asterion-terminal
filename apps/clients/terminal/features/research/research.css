@@ -527,7 +527,7 @@ label.lab-inline {
 .lab-research[data-folded] {
   grid-template-columns: 220px minmax(0, 1fr) 40px;
 }
-.lab-factors:not(:has(> .lab-config)) {
+.lab-research:not(:has(> .lab-config)) {
   grid-template-columns: 220px minmax(0, 1fr);
   grid-template-areas:
     "notice notice"

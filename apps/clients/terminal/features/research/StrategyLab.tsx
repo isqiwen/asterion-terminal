@@ -170,151 +170,143 @@ export function StrategyLab(context: TerminalContext) {
           setChosen("");
           void readStrategies();
         }}
-      >
-        <>
-          <p className="lab-placeholder">{t("选择策略")}</p>
-        </>
-      </LabCentre>
-      <aside className="lab-config">
-        <h4>
-          {!folded && t("运行配置")}
-          <ConfigFold folded={folded} fold={setFolded} />
-        </h4>
-        {!folded && (
-          <>
-            {!strategy ? (
-              <p className="subtle">{t("选择策略")}</p>
-            ) : (
-              <>
-                <Section
-                  title={t("品种与区间")}
-                  summary={`${form.symbols || "—"} · ${form.begin || "…"} – ${form.end || "…"} · ${
-                    form.minutes === "0" ? t("日线") : t("{count} 分钟", { count: form.minutes })
-                  }`}
-                  open
-                >
-                  <label className="wide">
-                    <span>{t("品种")}</span>
-                    <input
-                      value={form.symbols}
-                      placeholder="SHFE/rb, SHFE/au/2026-12"
-                      onChange={event => change({ symbols: event.target.value })}
-                    />
-                  </label>
-                  {dateField("开始日", "begin")}
-                  {dateField("结束日", "end")}
-                  <label>
-                    <span>{t("周期")}</span>
-                    <select
-                      value={form.minutes}
-                      onChange={event => change({ minutes: event.target.value })}
-                    >
-                      <option value="0">{t("日线")}</option>
-                      {[1, 5, 10, 15, 30, 60].map(value => (
-                        <option key={value} value={String(value)}>
-                          {t("{count} 分钟", { count: value })}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </Section>
-                <Section
-                  title={t("参数")}
-                  summary={strategy.parameters
-                    .map(parameter => `${parameter.name}=${form.params[parameter.name] ?? ""}`)
-                    .join(" ")}
-                  open
-                >
-                  <p className="wide subtle">{t("多个值用逗号分隔即为扫描")}</p>
-                  {strategy.parameters.map(parameter => (
-                    <label key={parameter.name}>
-                      <span>
-                        {parameter.name} <small>{parameterKind(parameter)}</small>
-                      </span>
-                      <input
-                        value={form.params[parameter.name] ?? ""}
-                        onChange={event =>
-                          change({
-                            params: { ...form.params, [parameter.name]: event.target.value },
-                          })
-                        }
-                      />
-                    </label>
-                  ))}
-                </Section>
-                <Section
-                  title={t("资金与风控")}
-                  summary={t("资金 {deposit} · 滑点 {slippage} 跳 · 单笔 {order} / 总 {gross} 手", {
-                    deposit: form.deposit,
-                    slippage: form.slippage,
-                    order: form.maxOrderLots,
-                    gross: form.maxGrossLots,
-                  })}
-                >
-                  {field("初始资金", "deposit")}
-                  {field("滑点（跳）", "slippage")}
-                  {field("单笔手数", "maxOrderLots")}
-                  {field("单合约持仓手数", "maxContractLots")}
-                  {field("账户总持仓手数", "maxGrossLots")}
-                  {field("在途委托数", "maxWorkingOrders")}
-                  {field("总权重上限", "maxGrossWeight")}
-                  {field("净权重上限", "maxNetWeight")}
-                  {field("每年期数", "annualPeriods")}
-                  <label className="lab-check wide">
-                    <input
-                      type="checkbox"
-                      checked={form.zeroRiskFree}
-                      onChange={event => change({ zeroRiskFree: event.target.checked })}
-                    />
-                    {t("无风险利率为零")}
-                  </label>
-                </Section>
-                <Section title={t("扫描与验证")} summary={t(validation[form.validation])}>
-                  <div className="wide lab-segmented" role="radiogroup">
-                    {(["none", "holdout", "rolling"] as const).map(kind => (
-                      <button
-                        key={kind}
-                        role="radio"
-                        aria-checked={form.validation === kind}
-                        onClick={() => change({ validation: kind })}
-                      >
-                        {t(validation[kind])}
-                      </button>
-                    ))}
-                  </div>
-                  {form.validation === "holdout" && dateField("留出日", "holdoutDay")}
-                  {form.validation === "rolling" && (
-                    <>
-                      {field("训练交易日数", "trainingDays")}
-                      {field("每轮验证交易日数", "validationDays")}
-                    </>
-                  )}
-                  {field("并行进程数", "processes", { placeholder: t("处理器数减一") })}
-                </Section>
-                <footer className="lab-submit">
-                  <button
-                    className="primary"
-                    disabled={busy || context.busy}
-                    onClick={() => void submit()}
-                  >
-                    {t("运行")}
-                  </button>
-                  {saved.length > 0 && (
-                    <p className="subtle">
-                      {t("已保存 {files}", { files: saved.join(listSeparator()) })}
-                    </p>
-                  )}
-                  <ActionError error={submitted.error} />
-                  <RecentRuns
-                    runs={runs.filter(run => run.strategy === strategy.id && !run.sweepId)}
-                    open={id => context.navigate("workspace.lab-runs", { params: { run: id } })}
+      />
+      {strategy && (
+        <aside className="lab-config">
+          <h4>
+            {!folded && t("运行配置")}
+            <ConfigFold folded={folded} fold={setFolded} />
+          </h4>
+          {!folded && (
+            <>
+              <Section
+                title={t("品种与区间")}
+                summary={`${form.symbols || "—"} · ${form.begin || "…"} – ${form.end || "…"} · ${
+                  form.minutes === "0" ? t("日线") : t("{count} 分钟", { count: form.minutes })
+                }`}
+                open
+              >
+                <label className="wide">
+                  <span>{t("品种")}</span>
+                  <input
+                    value={form.symbols}
+                    placeholder="SHFE/rb, SHFE/au/2026-12"
+                    onChange={event => change({ symbols: event.target.value })}
                   />
-                </footer>
-              </>
-            )}
-          </>
-        )}
-      </aside>
+                </label>
+                {dateField("开始日", "begin")}
+                {dateField("结束日", "end")}
+                <label>
+                  <span>{t("周期")}</span>
+                  <select
+                    value={form.minutes}
+                    onChange={event => change({ minutes: event.target.value })}
+                  >
+                    <option value="0">{t("日线")}</option>
+                    {[1, 5, 10, 15, 30, 60].map(value => (
+                      <option key={value} value={String(value)}>
+                        {t("{count} 分钟", { count: value })}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </Section>
+              <Section
+                title={t("参数")}
+                summary={strategy.parameters
+                  .map(parameter => `${parameter.name}=${form.params[parameter.name] ?? ""}`)
+                  .join(" ")}
+                open
+              >
+                <p className="wide subtle">{t("多个值用逗号分隔即为扫描")}</p>
+                {strategy.parameters.map(parameter => (
+                  <label key={parameter.name}>
+                    <span>
+                      {parameter.name} <small>{parameterKind(parameter)}</small>
+                    </span>
+                    <input
+                      value={form.params[parameter.name] ?? ""}
+                      onChange={event =>
+                        change({
+                          params: { ...form.params, [parameter.name]: event.target.value },
+                        })
+                      }
+                    />
+                  </label>
+                ))}
+              </Section>
+              <Section
+                title={t("资金与风控")}
+                summary={t("资金 {deposit} · 滑点 {slippage} 跳 · 单笔 {order} / 总 {gross} 手", {
+                  deposit: form.deposit,
+                  slippage: form.slippage,
+                  order: form.maxOrderLots,
+                  gross: form.maxGrossLots,
+                })}
+              >
+                {field("初始资金", "deposit")}
+                {field("滑点（跳）", "slippage")}
+                {field("单笔手数", "maxOrderLots")}
+                {field("单合约持仓手数", "maxContractLots")}
+                {field("账户总持仓手数", "maxGrossLots")}
+                {field("在途委托数", "maxWorkingOrders")}
+                {field("总权重上限", "maxGrossWeight")}
+                {field("净权重上限", "maxNetWeight")}
+                {field("每年期数", "annualPeriods")}
+                <label className="lab-check wide">
+                  <input
+                    type="checkbox"
+                    checked={form.zeroRiskFree}
+                    onChange={event => change({ zeroRiskFree: event.target.checked })}
+                  />
+                  {t("无风险利率为零")}
+                </label>
+              </Section>
+              <Section title={t("扫描与验证")} summary={t(validation[form.validation])}>
+                <div className="wide lab-segmented" role="radiogroup">
+                  {(["none", "holdout", "rolling"] as const).map(kind => (
+                    <button
+                      key={kind}
+                      role="radio"
+                      aria-checked={form.validation === kind}
+                      onClick={() => change({ validation: kind })}
+                    >
+                      {t(validation[kind])}
+                    </button>
+                  ))}
+                </div>
+                {form.validation === "holdout" && dateField("留出日", "holdoutDay")}
+                {form.validation === "rolling" && (
+                  <>
+                    {field("训练交易日数", "trainingDays")}
+                    {field("每轮验证交易日数", "validationDays")}
+                  </>
+                )}
+                {field("并行进程数", "processes", { placeholder: t("处理器数减一") })}
+              </Section>
+              <footer className="lab-submit">
+                <button
+                  className="primary"
+                  disabled={busy || context.busy}
+                  onClick={() => void submit()}
+                >
+                  {t("运行")}
+                </button>
+                {saved.length > 0 && (
+                  <p className="subtle">
+                    {t("已保存 {files}", { files: saved.join(listSeparator()) })}
+                  </p>
+                )}
+                <ActionError error={submitted.error} />
+                <RecentRuns
+                  runs={runs.filter(run => run.strategy === strategy.id && !run.sweepId)}
+                  open={id => context.navigate("workspace.lab-runs", { params: { run: id } })}
+                />
+              </footer>
+            </>
+          )}
+        </aside>
+      )}
     </section>
   );
 }

@@ -125,7 +125,7 @@ export function FactorLab(context: TerminalContext) {
 
   const [folded, setFolded] = useConfigFold();
   return (
-    <section className="lab-research lab-factors" data-folded={folded || undefined}>
+    <section className="lab-research" data-folded={folded || undefined}>
       <aside className="lab-modules">
         <h4>
           {t("因子")}

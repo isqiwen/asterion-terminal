@@ -68,25 +68,33 @@ test("an unsaved edit is saved before the run reads it, and the run opens its re
   expect(editor().state.doc.toString()).toBe("LOTS = 2\n");
 });
 
-test("the run configuration folds away to give the result the width", async () => {
-  vi.mocked(lab).mockImplementation(async operation =>
-    operation?.case === "listStrategies"
-      ? (create(StrategiesSchema, { strategies: [] }) as never)
-      : operation?.case === "listRuns"
-        ? (create(RunsSchema, {}) as never)
-        : (new Promise(() => {}) as never),
-  );
+test("the run configuration appears after choosing a strategy and can fold away", async () => {
+  vi.mocked(lab).mockImplementation(async operation => {
+    switch (operation?.case) {
+      case "listStrategies":
+        return create(StrategiesSchema, { strategies: [{ id: "once.Once" }] }) as never;
+      case "listRuns":
+        return create(RunsSchema, {}) as never;
+      case "readSource":
+        return create(SourceSchema, { content: "" }) as never;
+    }
+    return new Promise(() => {}) as never;
+  });
   const context = { snapshot: { research_directory: "/research" } } as unknown as TerminalContext;
-  const { container } = render(
+  render(
     <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.lab-strategies">
       <StrategyLab {...context} />
     </WorkspaceDraftScope>,
   );
+  const strategy = await screen.findByRole("button", { name: /Once/ });
+  expect(screen.getByRole("main").textContent).toBe("");
+  expect(screen.queryByRole("button", { name: "收起配置" })).toBeNull();
+  fireEvent.click(strategy);
+  expect(await screen.findByRole("button", { name: "运行" })).toBeTruthy();
   fireEvent.click(await screen.findByRole("button", { name: "收起配置" }));
-  expect(container.querySelector(".lab-research")?.hasAttribute("data-folded")).toBe(true);
-  expect(screen.getAllByText("选择策略")).toHaveLength(1);
+  expect(screen.queryByRole("button", { name: "运行" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "展开配置" }));
-  expect(screen.getAllByText("选择策略")).toHaveLength(2);
+  expect(screen.getByRole("button", { name: "运行" })).toBeTruthy();
 });
 
 test("a folded group says what is set, and a recent run opens its report", async () => {
