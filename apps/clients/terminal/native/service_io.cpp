@@ -5,26 +5,14 @@
 #include <array>
 #include <deque>
 #include <list>
-#include <map>
 #include <mutex>
 #include <numeric>
 #include <thread>
-#include <tuple>
-#include <vector>
 
 namespace asterion::terminal {
 
 struct ServiceIo::Impl
 {
-    using ClientKey = std::tuple<
-        std::string,
-        std::uint16_t,
-        std::string,
-        std::string,
-        std::vector<std::string>,
-        std::size_t,
-        std::size_t>;
-
     const std::array<PayloadBudget, 3> payloads{
         PayloadBudget{128 * 1024 * 1024},
         PayloadBudget{128 * 1024 * 1024},
@@ -49,7 +37,6 @@ struct ServiceIo::Impl
     bool closing = false;
     // The owner waits here; sockets, finished pool work and admissions end the wait.
     ipc::Reactor reactor;
-    std::map<ClientKey, std::vector<std::unique_ptr<ipc::RpcClient>>> clients;
     const std::function<void()> finished = [this] {
         reactor.wake();
     };
@@ -80,8 +67,6 @@ struct ServiceIo::Impl
         reactor.wake();
         if (owner.joinable())
             owner.join();
-        std::lock_guard lock(mutex);
-        clients.clear();
     }
 
     void run(std::stop_token stop)
@@ -163,58 +148,6 @@ PayloadBudget ServiceIo::payload_budget(PayloadLane lane) const
 ipc::Reactor& ServiceIo::reactor()
 {
     return impl_->reactor;
-}
-
-std::unique_ptr<ipc::RpcClient> ServiceIo::take_client(
-    const std::string& host,
-    std::uint16_t port,
-    const ipc::TlsIdentity& tls,
-    PayloadLane lane,
-    std::size_t frame_bytes)
-{
-    const Impl::ClientKey key{
-        host,
-        port,
-        tls.certificate_file,
-        tls.private_key_file,
-        tls.peers,
-        static_cast<std::size_t>(lane),
-        frame_bytes
-    };
-    std::lock_guard lock(impl_->mutex);
-    const auto found = impl_->clients.find(key);
-    if (found == impl_->clients.end() || found->second.empty())
-        return nullptr;
-    auto client = std::move(found->second.back());
-    found->second.pop_back();
-    return client;
-}
-
-void ServiceIo::return_client(
-    const std::string& host,
-    std::uint16_t port,
-    const ipc::TlsIdentity& tls,
-    PayloadLane lane,
-    std::size_t frame_bytes,
-    std::unique_ptr<ipc::RpcClient> client)
-{
-    if (!client)
-        return;
-    const Impl::ClientKey key{
-        host,
-        port,
-        tls.certificate_file,
-        tls.private_key_file,
-        tls.peers,
-        static_cast<std::size_t>(lane),
-        frame_bytes
-    };
-    std::lock_guard lock(impl_->mutex);
-    if (impl_->closing)
-        return;
-    auto& pool = impl_->clients[key];
-    if (pool.size() < 8)
-        pool.push_back(std::move(client));
 }
 
 std::future<void> ServiceIo::read_work(std::function<void()> process, ReadLane lane)

@@ -1161,6 +1161,18 @@ TEST(ReportReconciliation, ALateOrderReportAttributesTheTradeThatPrecededIt)
     reports.apply(unaccepted);
     EXPECT_EQ(state.orders.back().status, BrokerOrderStatus::rejected);
 
+    // A cancel that first failed and then succeeded leaves the order cancelled.
+    auto working = unaccepted;
+    std::strcpy(working.OrderRef, "3");
+    std::strcpy(working.OrderSysID, "43");
+    working.OrderSubmitStatus = THOST_FTDC_OSS_Accepted;
+    working.OrderStatus = THOST_FTDC_OST_NoTradeQueueing;
+    reports.apply(working);
+    reports.action_failed("1:1:3", 26);
+    working.OrderStatus = THOST_FTDC_OST_Canceled;
+    reports.apply(working);
+    EXPECT_EQ(state.orders.back().status, BrokerOrderStatus::cancelled);
+
     const auto revision = state.exposure_revision;
     CThostFtdcInvestorPositionField pos{};
     std::strcpy(pos.ExchangeID, "DCE");

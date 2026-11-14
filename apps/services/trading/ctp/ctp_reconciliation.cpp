@@ -3,6 +3,7 @@
 #include "ctp_feed.hpp"
 #include <algorithm>
 #include <chrono>
+#include <tuple>
 
 namespace asterion::ctp {
 namespace {
@@ -144,11 +145,11 @@ bool ReportReconciler::apply(const CThostFtdcOrderField& report)
         auto& raw = raw_order_ids_[order.broker_key];
         std::copy(std::begin(report.OrderSysID), std::end(report.OrderSysID), raw.begin());
     }
-    // A late report never moves a terminal order back to working.
-    const auto status = order.error_code && status_of(report) == BrokerOrderStatus::cancelled
-        ? BrokerOrderStatus::rejected
-        : status_of(report);
-    if (!terminal(order.status) || (terminal(status) && order.status != BrokerOrderStatus::filled))
+    // A late report never moves a terminal order back to working; filled and
+    // rejected are final, a cancellation may still be reported as either.
+    const auto status = status_of(report);
+    if (!terminal(order.status)
+        || (terminal(status) && order.status == BrokerOrderStatus::cancelled))
         order.status = status;
     ++state_.exposure_revision;
     if (additional_fill) {
@@ -278,12 +279,23 @@ void ReportReconciler::apply(const CThostFtdcInvestorPositionField& row)
 
 bool ReportReconciler::finish_positions(std::uint64_t query_revision)
 {
+    const auto lots = [](const std::vector<BrokerPosition>& positions) {
+        std::vector<std::tuple<InstrumentId, Side, Decimal, Decimal>> result;
+        for (const auto& p : positions)
+            result.emplace_back(p.instrument, p.side, p.today, p.yesterday);
+        std::ranges::sort(result);
+        return result;
+    };
+    const auto before = lots(state_.positions);
     state_.positions.clear();
     for (auto& [_, position] : positions_in_progress_)
         if (position.today > Decimal{} || position.yesterday > Decimal{})
             state_.positions.push_back(std::move(position));
     positions_in_progress_.clear();
     const bool changed = query_revision != state_.exposure_revision;
+    // Lots that moved without a report still invalidate orders checked against the old ones.
+    if (lots(state_.positions) != before)
+        ++state_.exposure_revision;
     state_.positions_reconciled = !changed && fills_reported();
     if (state_.positions_reconciled) {
         positions_synchronized_ = true;

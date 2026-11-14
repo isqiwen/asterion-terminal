@@ -379,3 +379,25 @@ TEST(Replay, AsymmetricMarginsAndLazyCloseTodayFeeValidation)
     replay.decide();
     EXPECT_THROW(replay.next(seen), std::invalid_argument);
 }
+
+TEST(Replay, APlainCloseCoveredByYesterdayLotsNeedsNoCloseTodayFee)
+{
+    // DCE closes yesterday's lots first: without close-today fees a close they cover still works.
+    const Instrument spec{{"DCE", "m2609"}, "CNY", d("1"), d("1"), d("10")};
+    const FuturesCosts
+        costs{d("0"), d("3"), d("0"), d("3"), d("0.1"), d("0"), d("0"), d("0"), d("0.1"), false};
+    FuturesAccount account(d("100000"), {{spec, costs}});
+    account.mark(spec.id, d("100"));
+    account.submit({"old", spec.id, Side::buy, d("2"), d("100")}, Offset::open);
+    account.fill({"fill.old", "old", d("2"), d("100")});
+    account.settle({d("100")});
+    account.submit({"new", spec.id, Side::buy, d("1"), d("100")}, Offset::open);
+    account.fill({"fill.new", "new", d("1"), d("100")});
+    EXPECT_NO_THROW(
+        account.submit({"close", spec.id, Side::sell, d("2"), d("100")}, Offset::close));
+    EXPECT_NO_THROW(account.fill({"fill.close", "close", d("2"), d("100")}));
+    // Only today's lot is left: closing it does need the missing fee.
+    EXPECT_THROW(
+        account.submit({"rest", spec.id, Side::sell, d("1"), d("100")}, Offset::close),
+        std::invalid_argument);
+}

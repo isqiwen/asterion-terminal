@@ -340,11 +340,20 @@ Decimal FuturesAccount::reserved(const AccountOrder& item) const
         case Offset::close_yesterday:
             return terms.costs.fee(item.offset, quantity, price, multiplier);
         case Offset::close: {
-            const bool has_today = std::ranges::any_of(lots_, [&](const auto& lot) {
-                return lot.instrument == item.order.request().instrument
-                    && lot.side != item.order.request().side && lot.today;
-            });
-            if (!has_today)
+            // A fill takes buckets in the venue's order; only a reachable today lot costs close-today.
+            Decimal today, yesterday;
+            for (const auto& lot : lots_) {
+                if (lot.instrument != item.order.request().instrument
+                    || lot.side == item.order.request().side)
+                    continue;
+                if (lot.today)
+                    today = today + lot.quantity;
+                else
+                    yesterday = yesterday + lot.quantity;
+            }
+            if (today == Decimal{}
+                || (asterion::close_policy(terms.instrument.id.venue) != ClosePolicy::today_first
+                    && yesterday >= quantity))
                 return terms.costs.fee(Offset::close_yesterday, quantity, price, multiplier);
             return std::max(
                 terms.costs.fee(Offset::close_today, quantity, price, multiplier),

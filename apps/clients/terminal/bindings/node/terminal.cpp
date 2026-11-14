@@ -64,7 +64,8 @@ Admission classify_admission(const std::string& request)
         const auto& method = value.at("method");
         if (method == "runtime.snapshot")
             return Admission::snapshot;
-        if (method == "trading.call" && value.contains("params") && value.at("params").is_object()) {
+        if (method == "trading.call" && value.contains("params")
+            && value.at("params").is_object()) {
             const auto& params = value.at("params");
             if (params.contains("request") && params.at("request").is_object()) {
                 const auto& call = params.at("request");
@@ -206,13 +207,14 @@ napi_value call(napi_env env, napi_callback_info info) noexcept
             throw std::invalid_argument("Expected one request string");
         check(napi_get_value_string_utf8(env, arg, nullptr, 0, &length));
         if (length > max_trading_request_bytes)
-            throw std::invalid_argument("Request exceeds 64 KiB");
+            throw std::invalid_argument("Request is too large");
         auto task = std::make_unique<Work>();
         task->request.resize(length + 1);
         check(napi_get_value_string_utf8(env, arg, task->request.data(), length + 1, &length));
         task->request.resize(length);
-        if (length > max_request_bytes && task->request.find("\"trading.call\"") == std::string::npos)
-            throw std::invalid_argument("Request exceeds 64 KiB");
+        if (length > max_request_bytes
+            && task->request.find("\"trading.call\"") == std::string::npos)
+            throw std::invalid_argument("Request is too large");
         if (task->request.find('\0') != std::string::npos)
             throw std::invalid_argument("Request contains an invalid character");
         void* state = nullptr;

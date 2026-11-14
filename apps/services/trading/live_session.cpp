@@ -900,15 +900,6 @@ std::vector<::trading::Trade> LiveAccountState::unrecorded() const
             recorded_list_ = list;
             recorded_through_ = 0;
         }
-        const bool awaiting_exchange_id = std::ranges::any_of(intents_, [&](const auto& entry) {
-            const auto& intent = entry.second;
-            if (intent.trading_day != state.trading_day)
-                return false;
-            const auto found = std::ranges::find_if(state.orders, [&](const BrokerOrder& order) {
-                return order.broker_key == intent.broker_key;
-            });
-            return found == state.orders.end() || found->exchange_order_id.empty();
-        });
         std::vector<::trading::Trade> result;
         for (auto i = recorded_through_; i < state.trades.size(); ++i) {
             const auto& trade = state.trades[i];
@@ -922,7 +913,11 @@ std::vector<::trading::Trade> LiveAccountState::unrecorded() const
                     continue;
                 }
             }
-            if (trade.order_id.empty() && awaiting_exchange_id)
+            // A trade reported before its order waits for that order to say whose it is.
+            if (trade.order_id.empty()
+                && std::ranges::none_of(state.orders, [&](const BrokerOrder& order) {
+                       return order.exchange_order_id == trade.exchange_order_id;
+                   }))
                 continue;
             result.push_back(wire_trade(trade));
             if (result.size() == TradesRecorded::batch)
