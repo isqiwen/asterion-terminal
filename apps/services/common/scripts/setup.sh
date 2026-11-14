@@ -9,7 +9,8 @@
 # SOURCE, which main calls with the unpacked release or, for the installed
 # copy, ROOT. A service with one instance also sets SETTINGS (its settings
 # file in ROOT) and TIMER (its pending restart, if it defers one), and defines
-# configure and apply for install_or_configure.
+# configure, current_settings PATH (the current values written in this
+# release's format) and apply for install_or_configure.
 
 # A failed question inside $(...) ends the script, not only that subshell.
 shopt -s inherit_errexit
@@ -264,6 +265,35 @@ with open(path, "w") as output:
     echo "Saved $2"
 }
 
+# refresh_settings FILE WRITER: on upgrade, FILE in this release's format.
+# WRITER PATH writes the current values to PATH, so keys new in this release
+# take their defaults and keys it no longer reads are dropped. Each change is
+# shown; FILE is replaced only when its content changes.
+refresh_settings() {
+    local next
+    [[ -f $1 ]] || return 0
+    stage next "$1"
+    "$2" "$next"
+    python -I -c '
+import json, sys
+def flat(value, prefix=""):
+    if not isinstance(value, dict):
+        return {prefix: value}
+    return {k: v for key, item in value.items() for k, v in flat(item, prefix + "." + key if prefix else key).items()}
+old, new = (flat(json.load(open(path))) for path in sys.argv[2:])
+show = lambda value: json.dumps(value, ensure_ascii=False)
+changes = [f"  {key}: removed" if key not in new else f"  {key}: added, {show(new[key])}" if key not in old
+           else f"  {key}: {show(old[key])} -> {show(new[key])}" for key in sorted(old.keys() | new.keys())
+           if old.get(key, ...) != new.get(key, ...)]
+if not changes:
+    raise SystemExit(1)
+print(f"Updated {sys.argv[1]} for this release:")
+print("\n".join(changes))' "$1" "$1" "$next" || return 0
+    private "$next"
+    mv -f "$next" "$1"
+    CHANGED=1
+}
+
 # status UNIT [TIMER]: whether UNIT runs and starts at boot, and when TIMER
 # restarts it.
 status() {
@@ -460,7 +490,8 @@ install_or_configure() {
     elif [[ -x $ROOT/${PROGRAMS[0]} ]]; then
         place_programs "$1"
         write_unit
-        echo "Upgraded the programs in $ROOT; the configuration files are unchanged."
+        echo "Upgraded the programs in $ROOT."
+        refresh_settings "$ROOT/$SETTINGS" current_settings
         CHANGED=1
         service_menu
     else

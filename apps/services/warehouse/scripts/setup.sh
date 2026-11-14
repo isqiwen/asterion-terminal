@@ -14,7 +14,9 @@
 # The installation is /opt/asterion/warehouse: bin/ config/ logs/, and
 # data/ unless the settings name another data directory.
 # A first install asks for the settings; an upgrade replaces only bin/,
-# leaves config/ (warehouse.json, logging.json) as it is and opens the menu.
+# writes warehouse.json in this release's format (current values kept, new
+# keys at their defaults, keys no longer read dropped, each change shown),
+# keeps logging.json and opens the menu.
 # Settings questions offer the current values; a change is shown and saved
 # only when confirmed. The Tushare token is encrypted with systemd-creds,
 # never written to a file in the clear. Warehouse runs as the system service
@@ -75,6 +77,31 @@ ask_exchanges() {
     done
 }
 
+# write_settings PATH: the settings file from bind, port, data, clients,
+# exchanges, budget and update_at ("-" for off) of the caller.
+write_settings() {
+    python -I -c '
+import json, sys
+path, bind, port, data, clients, exchanges, budget, update_at = sys.argv[1:]
+settings = {"bind": bind, "port": int(port), "data": data,
+    "clients": [{"fingerprint": pin} for pin in clients.split()],
+    "acquisition": {"exchanges": exchanges.split(), "tushare": {"requests_per_minute": int(budget)},
+        "update_at": None if update_at == "-" else update_at}}
+with open(path, "w") as output:
+    json.dump(settings, output, ensure_ascii=False, indent=2)
+    output.write("\n")' "$1" "$bind" "$port" "$data" "$clients" "$exchanges" "$budget" "$update_at"
+}
+
+# current_settings PATH: the settings file with the current values.
+current_settings() {
+    local bind port data clients exchanges budget update_at
+    bind=$(current bind) port=$(current port) data=$(current data) clients=$(current clients)
+    exchanges=$(current acquisition.exchanges) budget=$(current acquisition.tushare.requests_per_minute)
+    update_at=$(current acquisition.update_at)
+    update_at=${update_at:--}
+    write_settings "$1"
+}
+
 # configure: asks for the settings other than the Terminals (those too on
 # install) and saves what changed.
 configure() {
@@ -108,16 +135,7 @@ configure() {
 
     # Everything is asked; now the files, each staged and moved into place.
     stage settings "$ROOT/$SETTINGS"
-    python -I -c '
-import json, sys
-path, bind, port, data, clients, exchanges, budget, update_at = sys.argv[1:]
-settings = {"bind": bind, "port": int(port), "data": data,
-    "clients": [{"fingerprint": pin} for pin in clients.split()],
-    "acquisition": {"exchanges": exchanges.split(), "tushare": {"requests_per_minute": int(budget)},
-        "update_at": None if update_at == "-" else update_at}}
-with open(path, "w") as output:
-    json.dump(settings, output, ensure_ascii=False, indent=2)
-    output.write("\n")' "$settings" "$bind" "$port" "$data" "$clients" "$exchanges" "$budget" "$update_at"
+    write_settings "$settings"
     private "$settings"
     [[ -z $token ]] || seal encrypted_token "$CREDENTIALS/asterion.warehouse.tushare.token" asterion.warehouse.tushare.token "$token"
     token=''

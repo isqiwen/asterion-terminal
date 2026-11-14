@@ -128,10 +128,12 @@ with tempfile.TemporaryDirectory() as folder:
     assert 'fixture-token' not in result.stdout + result.stderr
     assert (host.root / 'config/tls/server.key').stat().st_mode & 0o777 == 0o600
 
-    # Upgrade: new programs, settings untouched when not asked to change them.
-    (host.root / 'config/warehouse.json').write_text(json.dumps({**host.settings(), 'port': 7999}))
+    # Upgrade: new programs, and settings of an earlier release in this one's
+    # format: values kept, a new key at its default, a dropped key removed.
+    earlier = {**host.settings(), 'port': 7999, 'clients': [dict(fingerprint=client_pin, role='manage')]}
+    earlier['acquisition'] = {k: v for k, v in earlier['acquisition'].items() if k != 'update_at'}
+    (host.root / 'config/warehouse.json').write_text(json.dumps(earlier))
     (host.root / 'config/logging.json').write_text('{"level": "debug", "retention_days": 7}')
-    before = (host.root / 'config/warehouse.json').read_text()
     # Service-owned records and TLS identities survive upgrades byte for byte.
     preserved = {
         'data/sources/sina/warehouse/current': b'published-version',
@@ -148,7 +150,10 @@ with tempfile.TemporaryDirectory() as folder:
     second = release(folder, '2')
     calls, result = host.run(second, [''])
     assert (host.root / 'bin/asterion_warehouse').read_text().endswith('2"\n')
-    assert (host.root / 'config/warehouse.json').read_text() == before
+    assert host.settings() == {**shipped, 'port': 7999, 'data': str(host.root / 'data')}, host.settings()
+    assert 'acquisition.update_at: added, "06:00"' in result.stdout, result.stdout
+    assert 'clients: [{"fingerprint"' in result.stdout, result.stdout
+    assert oct((host.root / 'config/warehouse.json').stat().st_mode & 0o777) == '0o600'
     assert json.loads((host.root / 'config/logging.json').read_text())['level'] == 'debug'
     assert not host.secrets.exists()
     assert calls[-1] == 'systemctl restart asterion-warehouse.service', calls
@@ -199,7 +204,11 @@ with tempfile.TemporaryDirectory() as folder:
                       for path in folder.rglob('.*') if path.is_file())
     assert staged_files() == [], staged_files()
     (host.units / 'asterion-warehouse.service').write_text('[Service]\n')
-    calls, _ = host.run(second, [''])
+    before = (host.root / 'config/warehouse.json').read_bytes()
+    calls, result = host.run(second, [''])
+    # Settings already in this release's format are left byte for byte.
+    assert (host.root / 'config/warehouse.json').read_bytes() == before
+    assert 'for this release' not in result.stdout, result.stdout
     assert 'ImportCredential=asterion.warehouse.*' in (host.units / 'asterion-warehouse.service').read_text()
     assert 'systemctl daemon-reload' in calls, calls
     # Input that ends early writes no settings.

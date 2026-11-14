@@ -15,7 +15,7 @@ sudo /opt/asterion/warehouse/bin/setup.sh     # 菜单：增删 Terminal、修�
 - 安装时写入并启用 `asterion-warehouse.service`：以执行 `sudo` 的账户运行，只能写 `logs/` 和数据目录，`Restart=always`。
 - 安装时依次询问监听地址、端口、数据目录（默认 `/opt/asterion/warehouse/data`，可以放到单独的磁盘）、交易所来源、Tushare 每分钟请求数（默认 500）和每日自动更新时间（北京时间，默认 06:00，`-` 关闭），再逐个粘贴 Terminal 证书指纹（Terminal 的“设置 → 关于”，直接回车结束），最后隐藏输入 Tushare token。
 - 已安装后运行脚本进入菜单：显示服务状态、监听地址、本机证书指纹和已登记的 Terminal，可以添加或按编号删除 Terminal（至少保留一个），或修改其他配置。修改时每项预先填好当前值，输错只重问该项；保存前列出改动并确认，没有改动不保存；已保存的 token 可以保留。菜单里保存的改动在选“Done”时一起生效，只重启一次。
-- 升级只替换程序，保留配置、TLS 身份、仓库和采集任务，然后进入菜单；随时可以重启，不影响行情和交易。
+- 升级替换程序，把 `warehouse.json` 改写为新版本的格式（保留现有值，新增项取默认值，不再使用的项删除，逐项列出改动），保留 TLS 身份、仓库和采集任务，然后进入菜单；随时可以重启，不影响行情和交易。
 - 安装时生成服务端证书 `config/tls/server.crt`，每次运行脚本都显示它的指纹，可直接粘贴到 Terminal。指纹是证书 DER 编码的 SHA-256，不是文件本身的哈希；不重启查看：`sudo /opt/asterion/warehouse/bin/setup.sh fingerprint`。
 
 ## 部署目录

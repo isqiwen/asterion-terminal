@@ -22,7 +22,9 @@
 # effect together when its menu ends.
 #
 # An upgrade requires every account to be stopped, then replaces bin/, lib/
-# and runtime/. It never stops or starts accounts. Configuration edits alone
+# and runtime/ and writes each account file in this release's format (current
+# values kept, new keys at their defaults, keys no longer read dropped, each
+# change shown). It never stops or starts accounts. Configuration edits alone
 # may schedule a restart after trading hours. A restart ends authorization.
 set -euo pipefail
 
@@ -96,6 +98,27 @@ free_port() {
     echo "$port"
 }
 
+# write_account PATH: an account file from bind, port, terminals, environment,
+# broker, user, app, front and market_front of the caller.
+write_account() {
+    python -I -c '
+import json, sys
+path, bind, port, terminals, environment, broker, user, app, front, market_front = sys.argv[1:]
+identity = {"environment": environment, "broker": {"broker_id": broker, "user_id": user, "app_id": app, "front": front}}
+with open(path, "w") as output:
+    json.dump({"bind": bind, "port": int(port), "terminals": terminals.split(), "market_front": market_front, **identity}, output, indent=2)
+    output.write("\n")' "$1" "$bind" "$port" "$terminals" "$environment" "$broker" "$user" "$app" "$front" "$market_front"
+}
+
+# current_account PATH: INSTANCE's account file with its current values.
+current_account() {
+    local bind port terminals environment broker user app front market_front
+    bind=$(current bind) port=$(current port) terminals=$(current terminals)
+    environment=$(current environment) broker=$(current broker.broker_id) user=$(current broker.user_id)
+    app=$(current broker.app_id) front=$(current broker.front) market_front=$(current market_front)
+    write_account "$1"
+}
+
 # configure_account: asks for INSTANCE's settings other than its Terminals
 # (those too for a new account) and saves what changed.
 configure_account() {
@@ -136,13 +159,7 @@ configure_account() {
 
     # Everything is asked; now the files, each staged and moved into place.
     stage config "$file"
-    python -I -c '
-import json, sys
-path, bind, port, terminals, environment, broker, user, app, front, market_front = sys.argv[1:]
-identity = {"environment": environment, "broker": {"broker_id": broker, "user_id": user, "app_id": app, "front": front}}
-with open(path, "w") as output:
-    json.dump({"bind": bind, "port": int(port), "terminals": terminals.split(), "market_front": market_front, **identity}, output, indent=2)
-    output.write("\n")' "$config" "$bind" "$port" "$terminals" "$environment" "$broker" "$user" "$app" "$front" "$market_front"
+    write_account "$config"
     private "$config"
     if [[ -n $password ]]; then
         install -d -m 0700 "$credentials"
@@ -368,7 +385,9 @@ setup() {
         if [[ -d $ROOT/data ]]; then
             for name in $(accounts); do cancel_restart "$RESTART-$name"; done
             place "$1"
-            echo "Upgraded programs and offline strategy runtime in $ROOT; configuration and data unchanged. Start accounts explicitly and authorize again."
+            for INSTANCE in $(accounts); do refresh_settings "$(account_file)" current_account; done
+            INSTANCE=
+            echo "Upgraded programs and offline strategy runtime in $ROOT; data unchanged. Start accounts explicitly and authorize again."
         else
             install_once "$1"
             place "$1"

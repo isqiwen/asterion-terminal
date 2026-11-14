@@ -215,10 +215,13 @@ with tempfile.TemporaryDirectory() as folder:
             assert (host.root / 'runtime/release').read_text() == '1'
             assert not any(call.startswith(('systemctl restart', 'systemctl stop', 'systemd-run')) for call in calls)
     # Offline upgrade replaces the entire program trees, removes obsolete code,
-    # preserves data/configuration and never starts an inactive account.
+    # writes account files in this release's format, preserves data and never
+    # starts an inactive account.
     (host.root / 'runtime/obsolete.py').touch()
     (host.root / '.program-incomplete').touch()
-    calls, _ = host.run(second, [])
+    (host.root / 'config/accounts/one.json').write_text(json.dumps({**json.loads(before), 'retired': 1}))
+    calls, result = host.run(second, [])
+    assert 'retired: removed' in result.stdout, result.stdout
     assert (host.root / 'bin/asterion_trading').read_text().endswith('2"\n')
     assert (host.root / 'runtime/release').read_text() == '2'
     assert not (host.root / 'runtime/obsolete.py').exists()

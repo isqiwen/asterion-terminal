@@ -14,7 +14,9 @@
 # The installation is /opt/asterion/market: bin/ lib/ config/ logs/, and
 # data/ unless the settings name another data directory.
 # A first install asks for the settings; an upgrade replaces only bin/ and
-# lib/, leaves config/ (market.json, logging.json) as it is and opens the menu.
+# lib/, writes market.json in this release's format (current values kept, new
+# keys at their defaults, keys no longer read dropped, each change shown),
+# keeps logging.json and opens the menu.
 # Settings questions offer the current values; a change is shown and saved
 # only when confirmed. The password and the authentication code are encrypted
 # with systemd-creds, never written to a file in the clear. Market runs as the
@@ -55,6 +57,30 @@ current() {
     setting "$ROOT/$SETTINGS" "$1" "$default"
 }
 
+# write_settings PATH: the settings file from bind, port, data, clients,
+# market_front, trade_front, broker, user and app_id of the caller.
+write_settings() {
+    python -I -c '
+import json, sys
+path, bind, port, data, market, trade, broker, user, app_id, clients = sys.argv[1:]
+settings = {"bind": bind, "port": int(port), "data": data,
+    "clients": [{"fingerprint": pin} for pin in clients.split()],
+    "counter": {"market_front": market, "trade_front": trade, "broker": broker, "user": user, "app_id": app_id}}
+with open(path, "w") as output:
+    json.dump(settings, output, ensure_ascii=False, indent=2)
+    output.write("\n")' "$1" "$bind" "$port" "$data" "$market_front" "$trade_front" \
+        "$broker" "$user" "$app_id" "$clients"
+}
+
+# current_settings PATH: the settings file with the current values.
+current_settings() {
+    local bind port data clients market_front trade_front broker user app_id
+    bind=$(current bind) port=$(current port) data=$(current data) clients=$(current clients)
+    market_front=$(current counter.market_front) trade_front=$(current counter.trade_front)
+    broker=$(current counter.broker) user=$(current counter.user) app_id=$(current counter.app_id)
+    write_settings "$1"
+}
+
 # configure: asks for the settings other than the Terminals (those too on
 # install) and saves what changed.
 configure() {
@@ -89,16 +115,7 @@ configure() {
 
     # Everything is asked; now the files, each staged and moved into place.
     stage settings "$ROOT/$SETTINGS"
-    python -I -c '
-import json, sys
-path, bind, port, data, market, trade, broker, user, app_id, clients = sys.argv[1:]
-settings = {"bind": bind, "port": int(port), "data": data,
-    "clients": [{"fingerprint": pin} for pin in clients.split()],
-    "counter": {"market_front": market, "trade_front": trade, "broker": broker, "user": user, "app_id": app_id}}
-with open(path, "w") as output:
-    json.dump(settings, output, ensure_ascii=False, indent=2)
-    output.write("\n")' "$settings" "$bind" "$port" "$data" "$market_front" "$trade_front" \
-        "$broker" "$user" "$app_id" "$clients"
+    write_settings "$settings"
     private "$settings"
     [[ -z $password ]] || seal encrypted_password "$CREDENTIALS/asterion.ctp.password" asterion.ctp.password "$password"
     [[ -z $auth_code ]] || seal encrypted_auth_code "$CREDENTIALS/asterion.ctp.auth_code" asterion.ctp.auth_code "$auth_code"
