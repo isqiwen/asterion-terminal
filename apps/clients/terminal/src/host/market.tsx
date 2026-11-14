@@ -7,6 +7,7 @@ import {
   type QuoteFrame,
   type QuoteRow,
 } from "../generated/asterion/market_pb";
+import { asDisplayError, type DisplayError } from "../i18n/errors";
 import { notify } from "./notifications";
 
 // One recent quote for the Tick chart. volume is the contracts traded since
@@ -37,6 +38,9 @@ export type MarketView = {
 
 const Market = createContext<MarketView | null>(null);
 export const useMarket = () => useContext(Market);
+// Why the saved Market could not be opened, while it still cannot.
+const OpenError = createContext<DisplayError>("");
+export const useMarketOpenError = () => useContext(OpenError);
 export const rowKey = (row: QuoteRow) => `${row.instrument?.exchange}.${row.instrument?.symbol}`;
 
 function tick(view: MarketView, row: QuoteRow) {
@@ -100,9 +104,34 @@ export function applyFrames(previous: MarketView | null, frames: QuoteFrame[], o
 }
 
 // The open watch's frames are read twice a second, hidden window or not.
-export function MarketProvider({ children }: { children: ReactNode }) {
+export function MarketProvider({
+  configured,
+  children,
+}: {
+  configured: boolean;
+  children: ReactNode;
+}) {
   const [view, setView] = useState<MarketView | null>(null);
+  const [openError, setOpenError] = useState<DisplayError>("");
   useEffect(() => {
+    // Until the saved Market has been reached once, opening it is tried again
+    // every ten seconds: its host may start, or the network come up, after
+    // Terminal. Once reached, the watch reconnects itself and a disconnect is the user's.
+    let reached = false;
+    let opening = false;
+    let tried = Date.now();
+    const open = async () => {
+      opening = true;
+      try {
+        await call("market.open", {});
+        if (!stopped) setOpenError("");
+      } catch (reason) {
+        if (!stopped) setOpenError(asDisplayError(reason));
+      } finally {
+        opening = false;
+        tried = Date.now();
+      }
+    };
     let reading = false;
     let stopped = false;
     // This page has no complete frame yet.
@@ -127,8 +156,12 @@ export function MarketProvider({ children }: { children: ReactNode }) {
         };
         if (stopped) return;
         restart = false;
-        if (!watch) current = null;
-        else {
+        if (!watch) {
+          current = null;
+          if (configured && !reached && !opening && Date.now() - tried >= 10000) void open();
+        } else {
+          if (!reached) setOpenError("");
+          reached = true;
           const frames = watch.frames.map(frame => fromJson(QuoteFrameSchema, frame));
           ({ view: current, restart } = applyFrames(current, frames, watch.online));
           if (current && current.error !== watch.error)
@@ -150,6 +183,10 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       stopped = true;
       window.clearInterval(timer);
     };
-  }, []);
-  return <Market.Provider value={view}>{children}</Market.Provider>;
+  }, [configured]);
+  return (
+    <Market.Provider value={view}>
+      <OpenError.Provider value={openError}>{children}</OpenError.Provider>
+    </Market.Provider>
+  );
 }

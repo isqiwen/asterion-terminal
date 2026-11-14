@@ -82,7 +82,23 @@
 }
 
 .error-notice {
+  color: var(--danger);
   overflow-wrap: anywhere;
+}
+/* An error with a diagnostic is a button that reads as its text. */
+button.error-notice,
+button.error-notice:enabled:not([aria-disabled="true"]):hover {
+  display: inline;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--danger);
+  font: inherit;
+  text-align: inherit;
+  white-space: normal;
+  cursor: copy;
 }
 .market-workspace,
 .live-market {

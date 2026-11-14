@@ -159,6 +159,7 @@
   "连接远程行情服务后可选择合约；柜台凭据在服务主机配置。": "Connect to Market to select contracts. Broker credentials are configured on the service host.",
   "行情服务证书指纹": "Market server certificate fingerprint",
   "复制诊断": "Copy diagnostic",
+  "点击复制诊断": "Click to copy the diagnostic",
   "已复制": "Copied",
   "通知": "Notifications",
   "关闭": "Close",

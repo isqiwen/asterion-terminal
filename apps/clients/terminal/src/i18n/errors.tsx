@@ -183,7 +183,7 @@ export function errorDiagnostic(error: DisplayError, namespace = "host") {
   return errorSummary(error, namespace) === text ? "" : text;
 }
 
-// Copies an error's diagnostic for a report; it is never shown on a page.
+// Copies an error's diagnostic for a report, in the notification centre.
 export function CopyDiagnostic({ diagnostic }: { diagnostic: string }) {
   const [state, setState] = useState<"" | "copied" | "failed">("");
   if (!diagnostic) return null;
@@ -213,13 +213,25 @@ export function ErrorNotice({
   namespace?: string;
 }) {
   useLocale();
+  const [state, setState] = useState<"" | "已复制" | "复制失败">("");
   if (!error) return null;
   const diagnostic = errorDiagnostic(error, namespace);
+  if (!diagnostic) return <span className="error-notice">{errorSummary(error, namespace)}</span>;
+  // The diagnostic shows on hover and a click copies it; no control of its own.
   return (
-    <span className="error-notice">
+    <button
+      type="button"
+      className="error-notice"
+      title={`${diagnostic}\n${translate("host", "点击复制诊断")}`}
+      onClick={() =>
+        void navigator.clipboard.writeText(diagnostic).then(
+          () => setState("已复制"),
+          () => setState("复制失败"),
+        )
+      }
+    >
       {errorSummary(error, namespace)}
-      {diagnostic && " "}
-      <CopyDiagnostic diagnostic={diagnostic} />
-    </span>
+      {state && ` · ${translate("host", state)}`}
+    </button>
   );
 }

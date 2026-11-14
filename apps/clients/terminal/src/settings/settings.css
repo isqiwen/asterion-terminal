@@ -193,7 +193,7 @@
     flex-wrap: wrap;
   }
 }
-.settings-content button:not(.primary, .danger, .copy-diagnostic) {
+.settings-content button:not(.primary, .danger, .error-notice) {
   white-space: normal;
   padding-inline: var(--space-4);
   background: var(--raised);
@@ -281,11 +281,6 @@
   margin: var(--space-2) 0 0;
   color: var(--danger);
   font-size: var(--font-size-body);
-}
-.settings-error .copy-diagnostic {
-  border: 0;
-  background: none;
-  color: var(--muted);
 }
 /* Facts about this Terminal: a label column and a value column. */
 .settings-facts {

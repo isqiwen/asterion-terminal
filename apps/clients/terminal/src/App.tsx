@@ -240,7 +240,9 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
             "error" in item ? [] : [item.id],
           )}
         >
-          <MarketProvider>
+          <MarketProvider
+            configured={!!snapshot?.market_endpoint && "host" in snapshot.market_endpoint}
+          >
             <Workbench
               title={t(route.module.title)}
               showToolbar={!current?.hideToolbar && !!WorkspaceToolbar}
