@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { type MessageValues, translate } from "../../src/i18n";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.futures-market", key, values);
@@ -21,11 +21,12 @@ export function QuoteColumns({
   const [draft, setDraft] = useState(value);
   const dialog = useRef<HTMLDialogElement>(null);
   const dragged = useRef<QuoteColumn | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = dialog.current;
     const previous = document.activeElement;
     element?.showModal();
     return () => {
+      // Close before React detaches the dialog so Chromium can restore focus.
       element?.close();
       if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
     };

@@ -51,6 +51,7 @@ test("quote columns apply atomically, preserve values and navigation, and reset 
   await dialog.getByRole("checkbox", { name: "1分钟涨速", exact: true }).uncheck();
   await dialog.getByRole("checkbox", { name: "成交量", exact: true }).check();
   await dialog.getByRole("button", { name: "应用列设置", exact: true }).click();
+  await expect(columnsButton).toBeFocused();
   await expect(heads).toHaveText(["名称", "现价", "涨跌幅(结)", "涨跌", "成交量"]);
   const row = board.locator("tbody tr").filter({ hasText: "rb2610" });
   await expect(row.locator("td").nth(1)).toHaveText("100");
