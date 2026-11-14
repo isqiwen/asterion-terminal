@@ -35,10 +35,7 @@ test(
     test.setTimeout(90000); // Includes the service's 60 s report budget.
     prepare();
     await page.goto("/");
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "研究", exact: true })
-      .click();
+    await openView(page, "research");
     await page.getByRole("button", { name: /MaCross/ }).click();
     const form = page.locator(".lab-research");
     await form.getByLabel("品种").fill("SHFE/rb");
