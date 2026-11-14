@@ -64,7 +64,7 @@ export function Activity({
   return (
     <section className="data-activity" aria-label={t("最近活动")}>
       <h3>{t("最近活动")}</h3>
-      <ActionError error={cancelled.error} />
+      <ActionError error={cancelled.error} namespace="asterion.terminal.data-workbench" />
       {items.length ? (
         <table className="data-table" aria-label={t("最近活动")}>
           <tbody>

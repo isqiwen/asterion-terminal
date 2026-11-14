@@ -3,12 +3,15 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 import { call } from "../bridge/client";
 import {
   QuoteFrameSchema,
+  CatalogState,
+  FeedState,
+  Subscription,
   type Board,
   type QuoteFrame,
   type QuoteRow,
 } from "../generated/asterion/market_pb";
-import { asDisplayError, type DisplayError } from "../i18n/errors";
-import { notify } from "./notifications";
+import { BackendError, asDisplayError, type DisplayError } from "../i18n/errors";
+import { useErrorNotification } from "./notifications";
 
 // One recent quote for the Tick chart. volume is the contracts traded since
 // the contract's previous point of the same trading day.
@@ -113,18 +116,46 @@ export function MarketProvider({
 }) {
   const [view, setView] = useState<MarketView | null>(null);
   const [openError, setOpenError] = useState<DisplayError>("");
+  const namespace = "asterion.terminal.futures-market";
+  useErrorNotification(openError, namespace);
+  const feed = view?.board.feed;
+  useErrorNotification(
+    feed?.error || feed?.ctpError
+      ? new BackendError("unavailable", feed.error || `CTP market rejected: ${feed.ctpError}`)
+      : feed?.state === FeedState.CONNECTED
+        ? ""
+        : undefined,
+    namespace,
+  );
+  const refused = view?.board.rows.filter(row => row.subscription === Subscription.FAILED).length;
+  useErrorNotification(
+    refused
+      ? new BackendError("operation_failed", `CTP subscriptions failed: ${refused}`)
+      : view?.online
+        ? ""
+        : undefined,
+    namespace,
+  );
+  const catalog = view?.board.catalog?.status;
+  useErrorNotification(
+    catalog?.state === CatalogState.FAILED
+      ? new BackendError("operation_failed", catalog.error)
+      : catalog?.state === CatalogState.READY
+        ? ""
+        : undefined,
+    namespace,
+  );
   useEffect(() => {
-    // Until the saved Market has been reached once, opening it is tried again
+    // Open the saved Market immediately; until reached once, try again
     // every ten seconds: its host may start, or the network come up, after
     // Terminal. Once reached, the watch reconnects itself and a disconnect is the user's.
     let reached = false;
     let opening = false;
-    let tried = Date.now();
+    let tried = Date.now() - 10000;
     const open = async () => {
       opening = true;
       try {
         await call("market.open", {});
-        if (!stopped) setOpenError("");
       } catch (reason) {
         if (!stopped) setOpenError(asDisplayError(reason));
       } finally {
@@ -137,16 +168,6 @@ export function MarketProvider({
     // This page has no complete frame yet.
     let restart = true;
     let current: MarketView | null = null;
-    // A connection that drops is reported once, when it drops.
-    let online = false;
-    const report = (view: MarketView | null) => {
-      if (online && !view?.online)
-        notify("行情连接中断，正在重连。", {
-          namespace: "asterion.terminal.futures-market",
-          severity: "warning",
-        });
-      online = !!view?.online;
-    };
     const read = async () => {
       if (reading) return;
       reading = true;
@@ -157,22 +178,25 @@ export function MarketProvider({
         if (stopped) return;
         restart = false;
         if (!watch) {
+          if (reached) setOpenError("");
           current = null;
           if (configured && !reached && !opening && Date.now() - tried >= 10000) void open();
         } else {
-          if (!reached) setOpenError("");
+          if (watch.error) setOpenError(new BackendError("unavailable", watch.error));
+          else if (watch.online) setOpenError("");
+          else if (current?.online) setOpenError("行情连接中断，正在重连。");
           reached = true;
           const frames = watch.frames.map(frame => fromJson(QuoteFrameSchema, frame));
           ({ view: current, restart } = applyFrames(current, frames, watch.online));
           if (current && current.error !== watch.error)
             current = { ...current, error: watch.error };
         }
-        report(current);
         setView(current);
-      } catch {
+      } catch (reason) {
+        if (stopped) return;
         if (current && current.online) current = { ...current, online: false };
-        report(current);
-        if (!stopped) setView(current);
+        setOpenError(asDisplayError(reason));
+        setView(current);
       } finally {
         reading = false;
       }

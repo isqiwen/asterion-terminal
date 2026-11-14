@@ -1,8 +1,9 @@
+import { RequestError } from "../../src/host/action-error";
 import { type ReactNode, useEffect, useState } from "react";
 import { warehouseData } from "../../src/bridge/warehouse-data";
 import type { DatasetChange } from "../../src/generated/asterion/warehouse_pb";
 import { ServiceUnset } from "../../src/host/components/ServiceUnset";
-import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/errors";
+import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { t } from "./dataset";
 
@@ -75,7 +76,7 @@ export function VersionBanner({
       {" · "}
       {t("最新数据与它相比：")}
       {change ? changeText(change) : !error && t("读取中")}
-      <ErrorNotice error={error} />{" "}
+      <RequestError error={error} namespace="asterion.terminal.data-workbench" />{" "}
       <button type="button" onClick={back}>
         {t("回到最新数据")}
       </button>

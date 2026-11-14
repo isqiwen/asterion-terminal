@@ -1,11 +1,10 @@
 import { useState } from "react";
-import { CatalogState, FeedState } from "../../src/generated/asterion/market_pb";
+import { FeedState } from "../../src/generated/asterion/market_pb";
 import { useMarket } from "../../src/host/market";
-import { ActionError, useActionError } from "../../src/host/action-error";
+import { notify } from "../../src/host/notifications";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { translate } from "../../src/i18n";
-import { BackendError, ErrorNotice, ctpErrorSummary } from "../../src/i18n/errors";
 import { defaultSort } from "./MarketBoard";
 import { MarketStatus } from "./MarketStatus";
 import { QuoteColumns, defaultQuoteColumns } from "./QuoteColumns";
@@ -42,7 +41,6 @@ const phases: Partial<Record<FeedState, string>> = {
 };
 
 // One row above the board: what is listed, how, and whether the feed is live.
-// Anything wrong with the feed shows in full under it.
 export function MarketBar({ context }: { context: TerminalContext }) {
   const market = useMarket();
   const [section, setSection] = useWorkspaceDraft("market-section", "期货全景");
@@ -52,7 +50,6 @@ export function MarketBar({ context }: { context: TerminalContext }) {
   const [columns, setColumns] = useWorkspaceDraft("market-columns", defaultQuoteColumns);
   const [sort, setSort] = useWorkspaceDraft("market-sort", defaultSort);
   const [editingColumns, setEditingColumns] = useState(false);
-  const { error, attempt } = useActionError();
   if (!market) return null;
   const saved = context.snapshot?.market_endpoint;
   const endpoint = saved && "host" in saved ? saved : null;
@@ -115,32 +112,14 @@ export function MarketBar({ context }: { context: TerminalContext }) {
         className="market-bar-button"
         disabled={context.busy}
         title={endpoint ? `${endpoint.host}:${endpoint.port}` : undefined}
-        onClick={() => void attempt(() => context.trade("market.close"))}
+        onClick={() =>
+          void context
+            .trade("market.close")
+            .catch(error => notify(error, { namespace: "asterion.terminal.futures-market" }))
+        }
       >
         {t("断开")}
       </button>
-      <div className="market-bar-alerts">
-        <ActionError error={error} namespace="asterion.terminal.futures-market" />
-        {!!market.error && (
-          <p role="alert">
-            {t("行情连接失败")}: {market.error}
-          </p>
-        )}
-        {(feed?.error || !!feed?.ctpError) && (
-          <ErrorNotice
-            error={
-              feed.error
-                ? new BackendError("unavailable", feed.error)
-                : ctpErrorSummary(feed.ctpError)
-            }
-          />
-        )}
-        {market.board.catalog?.status?.state === CatalogState.FAILED && (
-          <ErrorNotice
-            error={new BackendError("operation_failed", market.board.catalog.status.error)}
-          />
-        )}
-      </div>
       {editingColumns && (
         <QuoteColumns
           value={columns}

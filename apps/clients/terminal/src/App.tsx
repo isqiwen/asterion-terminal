@@ -2,9 +2,9 @@ import type { CommandCall } from "./bridge/commands";
 import { Icon } from "./ui/Icon";
 import { openSettings, closeSettings, settingsPage, type SettingsPage } from "./settings/window";
 import { StatusIndicators } from "./host/components/StatusIndicators";
-import { NotificationCenter, notify } from "./host/notifications";
+import { NotificationCenter, notify, useErrorNotification } from "./host/notifications";
 import { BackendError } from "./i18n/errors";
-import { ErrorNotice, asDisplayError, type DisplayError } from "./i18n/errors";
+import { asDisplayError, type DisplayError } from "./i18n/errors";
 import { translate, type MessageValues } from "./i18n";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 import { useLocale } from "./i18n";
@@ -62,14 +62,25 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   // Lab leaving the ready state, lost log lines and a failed background
   // refresh are reported when they begin.
   const reported = useRef({ lab: false, logs: 0, refresh: false });
+  useErrorNotification(
+    settingsWindow
+      ? undefined
+      : snapshot?.lab?.error
+        ? new BackendError("operation_failed", snapshot.lab.error)
+        : snapshot?.lab?.state === "ready"
+          ? ""
+          : undefined,
+    "asterion.terminal.research",
+  );
   useEffect(() => {
     // The main window reports them; the settings window reads the same snapshot.
     if (settingsWindow || !snapshot) return;
     const before = reported.current;
     const lab = snapshot.lab?.state === "ready";
-    if (before.lab && !lab)
+    if (before.lab && !lab && !snapshot.lab?.error)
       notify(new BackendError("service_restarted", `lab: ${snapshot.lab?.error}`), {
         severity: "warning",
+        namespace: "asterion.terminal.research",
       });
     const { log_failures: logs, refresh_failed: refresh } = snapshot.diagnostics;
     if (logs > before.logs)
@@ -98,6 +109,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<DisplayError>("");
+  useErrorNotification(error);
   const generation = useRef(0);
   // Commands in flight. A cancel, a strategy stop or a revoke may run beside
   // another command.
@@ -227,13 +239,18 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
       title={settingsWindow ? t("设置") + " — Asterion Terminal" : t("星枢 · Asterion Terminal")}
     >
       {settingsWindow ? (
-        <Settings
-          initialPage={settingsPage(new URLSearchParams(location.search).get("category"))}
-          trade={trade}
-          snapshot={snapshot}
-          error={error}
-          busy={busy}
-        />
+        <div className="terminal">
+          <Settings
+            initialPage={settingsPage(new URLSearchParams(location.search).get("category"))}
+            trade={trade}
+            snapshot={snapshot}
+            busy={busy}
+          />
+          <footer className="status-bar">
+            <span className="panel-spacer" />
+            <NotificationCenter />
+          </footer>
+        </div>
       ) : (
         <TradingAccountsProvider
           ids={(snapshot?.trading_connections ?? []).flatMap(item =>
@@ -265,15 +282,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
               }
               toolbar={WorkspaceToolbar && <WorkspaceToolbar {...panelContext} />}
               notices={
-                error ? (
-                  <div className="alert" role="alert">
-                    <ErrorNotice error={error} namespace="host" />
-                    <span className="panel-spacer" />
-                    <button disabled={busy} onClick={() => void refresh()}>
-                      {t("重试连接")}
-                    </button>
-                  </div>
-                ) : !snapshot ? (
+                !snapshot && !error ? (
                   <div className="notice" role="status">
                     {t("正在启动本机 C++ 核心…")}
                   </div>
@@ -318,7 +327,11 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                   />
                   <span className="panel-spacer" />
                   <NotificationCenter />
-                  {error && <span className="status-updated">{t("状态待确认")}</span>}
+                  {error && (
+                    <button disabled={busy} onClick={() => void refresh()}>
+                      {t("重试连接")}
+                    </button>
+                  )}
                 </>
               }
             />

@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { translate, useLocale } from "../i18n";
 import {
   BackendError,
@@ -74,6 +74,17 @@ export function notify(error: unknown, options: { namespace?: string; severity?:
     });
   entries.splice(0, Math.max(0, entries.length - KEPT));
   publish();
+}
+
+// undefined means a read or reconnect is pending; only a successful read clears the failure.
+export function useErrorNotification(error: DisplayError | undefined, namespace = "host") {
+  const reported = useRef("");
+  useEffect(() => {
+    if (error === undefined) return;
+    const key = error ? `${namespace}: ${identity(error)}` : "";
+    if (key && key !== reported.current) notify(error, { namespace });
+    reported.current = key;
+  }, [error, namespace]);
 }
 
 function useEntries() {

@@ -1,9 +1,10 @@
+import { RequestError } from "../../src/host/action-error";
 import { DateInput } from "../../src/ui/DateInput";
 import { useEffect, useState } from "react";
 import { Table, type TableRows } from "../../src/generated/asterion/warehouse_pb";
 import { warehouseData } from "../../src/bridge/warehouse-data";
 import { type MessageValues, translate } from "../../src/i18n";
-import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/errors";
+import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.data-workbench", key, values);
@@ -83,7 +84,7 @@ export function ReferenceTable({
           </>
         )}
       </div>
-      <ErrorNotice error={error} />
+      <RequestError error={error} namespace="asterion.terminal.data-workbench" />
       {rows?.rows.length ? (
         <>
           <div className="coverage-matrix">

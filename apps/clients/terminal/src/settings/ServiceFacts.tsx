@@ -3,12 +3,13 @@ import { marketData } from "../bridge/market-data";
 import { tradingCall } from "../bridge/trading";
 import { warehouseData } from "../bridge/warehouse-data";
 import { getLocale, translate } from "../i18n";
-import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
+import { asDisplayError, type DisplayError } from "../i18n/errors";
+import { useErrorNotification } from "../host/notifications";
 const t = (key: string) => translate("host", key);
 
 // A saved service's address, the build it runs and, for Warehouse, the disk
 // space its data can still use, in one label and value grid. A service of
-// another protocol is refused and shows as an error.
+// another protocol is refused and reported in notifications.
 export function ServiceFacts(
   props: { address: string } & ({ service: "market" | "warehouse" } | { account: string }),
 ) {
@@ -16,6 +17,10 @@ export function ServiceFacts(
   const [error, setError] = useState<DisplayError>("");
   const service = "service" in props ? props.service : null;
   const account = "account" in props ? props.account : null;
+  useErrorNotification(
+    error,
+    `asterion.terminal.${account ? "trading" : service === "market" ? "futures-market" : "data-workbench"}`,
+  );
   useEffect(() => {
     let active = true;
     const read = account
@@ -46,9 +51,7 @@ export function ServiceFacts(
       {error && (
         <>
           <dt>{t("状态")}</dt>
-          <dd>
-            <ErrorNotice error={error} namespace="host" />
-          </dd>
+          <dd>{t("中断")}</dd>
         </>
       )}
       {build && <Build build={build} />}

@@ -2,7 +2,8 @@ import { useState } from "react";
 import type { CommandHandler } from "../bridge/commands";
 import type { Snapshot, TradingConnection } from "../bridge/client";
 import { translate } from "../i18n";
-import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
+import { asDisplayError, type DisplayError } from "../i18n/errors";
+import { ActionError } from "../host/action-error";
 import { SettingsDialog } from "./SettingsDialog";
 import { SettingsSection } from "./Section";
 import { ServiceFacts } from "./ServiceFacts";
@@ -104,11 +105,7 @@ export function TradingConnections({
             </section>
           ))}
         </div>
-        {!adding && error && (
-          <p className="alert" role="alert">
-            <ErrorNotice error={error} />
-          </p>
-        )}
+        {!adding && <ActionError error={error} namespace="asterion.terminal.trading" />}
         {adding && (
           <SettingsDialog
             title={t(editing ? "编辑连接" : "添加交易连接")}
@@ -155,11 +152,7 @@ export function TradingConnections({
                 </label>
               ))}
             </fieldset>
-            {error && (
-              <p className="alert" role="alert">
-                <ErrorNotice error={error} />
-              </p>
-            )}
+            <ActionError error={error} namespace="asterion.terminal.trading" />
             <div className="source-actions">
               <button type="button" onClick={() => setAdding(false)} disabled={busy}>
                 {t("取消")}

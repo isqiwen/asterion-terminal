@@ -1,9 +1,9 @@
+import { RequestError } from "../../src/host/action-error";
 import { useState } from "react";
 import { warehouseData } from "../../src/bridge/warehouse-data";
 import { Table } from "../../src/generated/asterion/warehouse_pb";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
-import { ErrorNotice } from "../../src/i18n/errors";
 import { VersionBanner, WarehousePage } from "./Page";
 import { ReferenceTable } from "./ReferenceTable";
 import { StoredContracts } from "./StoredContracts";
@@ -56,7 +56,7 @@ function BrowseBody({ context }: { context: TerminalContext }) {
     <>
       <VersionBanner viewed={viewed} latest={latest} back={() => setViewed("")} />
       <div className="data-browse">
-        <ErrorNotice error={state.error} />
+        <RequestError error={state.error} namespace="asterion.terminal.data-workbench" />
         <div className="data-toolbar">
           <div className="tabs" role="group" aria-label={t("浏览")}>
             <button

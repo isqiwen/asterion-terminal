@@ -1,40 +1,36 @@
 import { BrandMark } from "../ui/BrandMark";
-import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
+import { asDisplayError, type DisplayError } from "../i18n/errors";
 import { translate } from "../i18n";
 const t = (key: string) => translate("host", key);
 import { useLocale } from "../i18n";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { WindowFrame } from "../host/components/WindowFrame";
-import { LocalLogsButton } from "../host/components/LocalLogsButton";
+import { NotificationCenter, notify, useErrorNotification } from "../host/notifications";
 import { request, type PythonRuntime } from "../bridge/client";
 import { StartupScreen } from "./StartupScreen";
 import "./setup.css";
 
 const megabytes = (bytes: number) => `${(bytes / 2 ** 20).toFixed(0)} MB`;
 
-// What starts behind the startup screen: Lab and the saved Market. Either may
-// fail; the status bar and its pages say so once the workbench is open.
-async function startUp() {
-  const status = await request("runtime.snapshot");
-  await Promise.allSettled([
-    request("lab.endpoint"),
-    status.market_endpoint && "host" in status.market_endpoint ? request("market.open") : null,
-  ]);
-}
-
-// Every launch shows the startup screen while Lab and Market start; the first
-// launch installs the Python runtime first, one row per module.
+// Lab starts behind the startup screen after its runtime is ready.
 export function SetupGate({ children }: { children: ReactNode }) {
   const { locale, setLocale } = useLocale();
   const language = locale === "zh-CN" ? "zh" : "en";
   const [runtime, setRuntime] = useState<PythonRuntime | null>(null);
   const [phase, setPhase] = useState<"starting" | "beneath" | "leaving" | "entered">("starting");
   const [error, setError] = useState<DisplayError>("");
+  const failed = runtime?.state === "failed";
+  useErrorNotification(
+    error || (failed ? runtime.error : runtime?.state === "ready" ? "" : undefined),
+  );
   const started = useRef(false);
   const enter = () => {
     if (started.current) return;
     started.current = true;
-    void startUp().then(() => setPhase("entered"));
+    // A failed Lab still leaves the other workspaces usable.
+    void request("lab.endpoint")
+      .catch(reason => notify(reason, { namespace: "asterion.terminal.research" }))
+      .then(() => setPhase("entered"));
   };
   const read = async (install: boolean) => {
     const reply = await request(install ? "runtime.python.install" : "runtime.python.status");
@@ -88,86 +84,87 @@ export function SetupGate({ children }: { children: ReactNode }) {
         )}
       </div>
     );
-  const failed = runtime?.state === "failed";
   return (
     <WindowFrame title={t("Asterion Terminal — 首次启动")}>
-      <main className="first-setup" aria-label={t("首次启动")}>
-        <div className="setup-language-control">
-          <select
-            className="setup-language"
-            aria-label={t("语言")}
-            value={language}
-            onChange={event => {
-              try {
-                setLocale(event.target.value === "zh" ? "zh-CN" : "en-US");
-              } catch {
-                setError(t("保存失败，请检查本机存储权限。"));
-              }
-            }}
-          >
-            <option value="zh">{t("简体中文")}</option>
-            <option value="en">English</option>
-          </select>
-        </div>
-        <section className="setup-content">
-          <header>
-            <div className="setup-mark">
-              <BrandMark size={48} />
-            </div>
-            <h1>ASTERION TERMINAL</h1>
-          </header>
-          <div className="setup-steps" aria-live="polite">
-            {(runtime?.modules ?? []).map(module => {
-              const percent = module.size ? Math.floor((module.done * 100) / module.size) : 0;
-              const done = module.state === "done";
-              const failedHere = module.state === "failed";
-              const installing = module.state === "installing";
-              return (
-                <div className="setup-step" key={module.id}>
-                  <b>{t(module.title)}</b>
-                  <small>{megabytes(module.size)}</small>
-                  <div
-                    className={`setup-track ${done ? "done" : failedHere ? "failed" : installing ? "indeterminate" : ""}`}
-                    role="progressbar"
-                    aria-label={t(module.title)}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={installing ? undefined : percent}
-                  >
-                    <i style={installing ? undefined : { width: `${percent}%` }} />
-                  </div>
-                  <span
-                    className={done ? "setup-status-done" : failedHere ? "setup-status-failed" : ""}
-                  >
-                    {t(
-                      {
-                        waiting: "等待",
-                        downloading: "下载中",
-                        downloaded: "已下载",
-                        installing: "安装中",
-                        done: "完成",
-                        failed: "失败",
-                      }[module.state] ?? module.state,
-                    )}
-                    {module.state === "downloading" ? ` ${percent}%` : ""}
-                  </span>
-                </div>
-              );
-            })}
+      <div className="terminal">
+        <main className="first-setup" aria-label={t("首次启动")}>
+          <div className="setup-language-control">
+            <select
+              className="setup-language"
+              aria-label={t("语言")}
+              value={language}
+              onChange={event => {
+                try {
+                  setLocale(event.target.value === "zh" ? "zh-CN" : "en-US");
+                } catch {
+                  setError(t("保存失败，请检查本机存储权限。"));
+                }
+              }}
+            >
+              <option value="zh">{t("简体中文")}</option>
+              <option value="en">English</option>
+            </select>
           </div>
-          {(error || failed) && (
-            <p className="setup-error" role="alert">
-              {failed ? runtime?.error : <ErrorNotice error={error} namespace="host" />}{" "}
-              <LocalLogsButton />
-            </p>
-          )}
-          {(error || failed) && (
-            <button className="setup-begin primary" onClick={() => void retry()}>
-              {t("重试")}
-            </button>
-          )}
-        </section>
-      </main>
+          <section className="setup-content">
+            <header>
+              <div className="setup-mark">
+                <BrandMark size={48} />
+              </div>
+              <h1>ASTERION TERMINAL</h1>
+            </header>
+            <div className="setup-steps" aria-live="polite">
+              {(runtime?.modules ?? []).map(module => {
+                const percent = module.size ? Math.floor((module.done * 100) / module.size) : 0;
+                const done = module.state === "done";
+                const failedHere = module.state === "failed";
+                const installing = module.state === "installing";
+                return (
+                  <div className="setup-step" key={module.id}>
+                    <b>{t(module.title)}</b>
+                    <small>{megabytes(module.size)}</small>
+                    <div
+                      className={`setup-track ${done ? "done" : failedHere ? "failed" : installing ? "indeterminate" : ""}`}
+                      role="progressbar"
+                      aria-label={t(module.title)}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={installing ? undefined : percent}
+                    >
+                      <i style={installing ? undefined : { width: `${percent}%` }} />
+                    </div>
+                    <span
+                      className={
+                        done ? "setup-status-done" : failedHere ? "setup-status-failed" : ""
+                      }
+                    >
+                      {t(
+                        {
+                          waiting: "等待",
+                          downloading: "下载中",
+                          downloaded: "已下载",
+                          installing: "安装中",
+                          done: "完成",
+                          failed: "失败",
+                        }[module.state] ?? module.state,
+                      )}
+                      {module.state === "downloading" ? ` ${percent}%` : ""}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            {(error || failed) && (
+              <button className="setup-begin primary" onClick={() => void retry()}>
+                {t("重试")}
+              </button>
+            )}
+          </section>
+        </main>
+        <footer className="status-bar">
+          <span className="panel-spacer" />
+          <NotificationCenter />
+        </footer>
+      </div>
     </WindowFrame>
   );
 }

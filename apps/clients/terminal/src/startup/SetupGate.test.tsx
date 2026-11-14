@@ -17,7 +17,7 @@ const modules = (state: PythonRuntime["modules"][number]["state"], done = 0) =>
     { id: "core", title: "核心", size: 300, done: done * 3, state },
   ] satisfies PythonRuntime["modules"];
 
-test("the startup screen starts Lab and Market, then opens the workbench", async () => {
+test("the startup screen starts Lab, then opens the workbench", async () => {
   const calls = serveCore(({ method }) => ({
     ...readySnapshot(),
     python_runtime: { state: "ready", error: "", modules: modules("done", 100) },
@@ -27,7 +27,7 @@ test("the startup screen starts Lab and Market, then opens the workbench", async
   expect(screen.getByRole("main", { name: "正在启动" })).toBeTruthy();
   await waitFor(() => expect(workbench()).not.toBeNull(), { timeout: 4000 });
   const methods = calls.map(call => call.method);
-  expect(methods).toEqual(expect.arrayContaining(["lab.endpoint", "market.open"]));
+  expect(methods).toContain("lab.endpoint");
   expect(methods).not.toContain("runtime.python.install");
 });
 
@@ -76,7 +76,12 @@ test("a failed install says why and retries", async () => {
     };
   });
   start();
-  expect((await screen.findByRole("alert")).textContent).toContain("cannot download core");
+  const message = await screen.findByRole("button", { name: /cannot download core/ });
+  expect(screen.queryByRole("alert")).toBeNull();
+  fireEvent.click(message);
+  expect(screen.getByRole("region", { name: "通知" }).textContent).toContain(
+    "cannot download core",
+  );
   expect(workbench()).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "重试" }));
   await waitFor(() => expect(workbench()).not.toBeNull(), { timeout: 4000 });

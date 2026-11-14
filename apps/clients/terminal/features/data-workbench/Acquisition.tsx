@@ -122,7 +122,7 @@ export function Acquisition({
         />
         {t("重新采集已有分区")}
       </label>
-      <ActionError error={failure.error} />
+      <ActionError error={failure.error} namespace="asterion.terminal.data-workbench" />
       <div className="data-actions">
         <button type="button" onClick={close}>
           {t("取消")}

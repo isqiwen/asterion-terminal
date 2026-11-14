@@ -2,9 +2,9 @@ import { DateInput } from "../../src/ui/DateInput";
 import { useCallback, useEffect, useState } from "react";
 import { lab } from "../../src/bridge/lab";
 import type { FactorResult } from "../../src/generated/asterion/lab_pb";
-import { ActionError, useActionError } from "../../src/host/action-error";
+import { ActionError, RequestError, useActionError } from "../../src/host/action-error";
 import { notify } from "../../src/host/notifications";
-import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/errors";
+import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { type MessageValues, translate, listSeparator } from "../../src/i18n";
@@ -312,7 +312,7 @@ export function FactorLab(context: TerminalContext) {
                     {t("已保存 {files}", { files: saved.join(listSeparator()) })}
                   </p>
                 )}
-                <ActionError error={error} />
+                <ActionError error={error} namespace="asterion.terminal.research" />
               </footer>
             </>
           )}
@@ -433,7 +433,7 @@ function Report({ id }: { id: string }) {
       active = false;
     };
   }, [id]);
-  if (error) return <ErrorNotice error={error} />;
+  if (error) return <RequestError error={error} namespace="asterion.terminal.research" />;
   if (!result) return <p className="subtle">{t("正在读取结果…")}</p>;
   return <FactorResultView result={result} />;
 }

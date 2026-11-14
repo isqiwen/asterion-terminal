@@ -1,4 +1,5 @@
 {
+  "CTP subscriptions failed": "Subscription failed for {count} contracts. Market retries every 5 minutes.",
   "unknown Protobuf field": "Terminal and the service use different communication protocols. Update both to the same release.",
   "market protocol differs from this Terminal": "Market and Terminal use different communication protocols. Update both to the same release.",
   "warehouse protocol differs from this Terminal": "Warehouse and Terminal use different communication protocols. Update both to the same release.",

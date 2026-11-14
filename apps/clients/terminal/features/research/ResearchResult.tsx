@@ -1,3 +1,4 @@
+import { RequestError } from "../../src/host/action-error";
 import { useEffect, useMemo, useState } from "react";
 import { PriceChart, type Candle, type TradeMark } from "@asterion/terminal/charts/PriceChart";
 import { groupedText } from "../../src/bridge/decimal";
@@ -9,7 +10,7 @@ import type {
   RunSummary,
 } from "../../src/generated/asterion/lab_pb";
 import { type MessageValues, translate, listSeparator } from "../../src/i18n";
-import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/errors";
+import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
 import { protocolPeriod } from "../../src/ui/periods";
 import type { Tone } from "../../src/ui/StatusBadge";
 import { Offset, Side } from "../../src/generated/asterion/common_pb";
@@ -153,7 +154,7 @@ export function RunResult({
       active = false;
     };
   }, [contract, record]);
-  if (error) return <ErrorNotice error={error} />;
+  if (error) return <RequestError error={error} namespace="asterion.terminal.research" />;
   if (!detail || !record) return <p className="subtle">{t("正在读取结果…")}</p>;
   const summary = detail.summary!;
   if (runState(summary.state) !== "succeeded")
@@ -470,7 +471,7 @@ function QuantStats({ id }: { id: string }) {
   return (
     <div>
       {error ? (
-        <ErrorNotice error={error} />
+        <RequestError error={error} namespace="asterion.terminal.research" />
       ) : !report ? (
         <p className="subtle">{t("正在计算…")}</p>
       ) : (
@@ -593,7 +594,7 @@ function Comparison({ joined }: { joined: string }) {
       active = false;
     };
   }, [joined]);
-  if (error) return <ErrorNotice error={error} />;
+  if (error) return <RequestError error={error} namespace="asterion.terminal.research" />;
   if (details.length !== ids.length) return <p className="subtle">{t("正在读取结果…")}</p>;
   const [first, ...others] = details;
   const name = (detail: RunDetail) => detail.summary!.label || recordName(detail.summary!.id);

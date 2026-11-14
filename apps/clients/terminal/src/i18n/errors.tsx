@@ -176,6 +176,13 @@ export function ctpErrorSummary(code: number, detail = "") {
 export function diagnosticSummary(message: string) {
   const known = localizeText("diagnostics", message);
   if (known) return known;
+  const feed = message.match(/^CTP market rejected: (-?\d+)$/);
+  if (feed) return ctpErrorSummary(Number(feed[1]));
+  const subscriptions = message.match(/^CTP subscriptions failed: (\d+)$/);
+  if (subscriptions)
+    return translate("diagnostics", "CTP subscriptions failed", {
+      count: Number(subscriptions[1]),
+    });
   const ctp = message.match(
     /^CTP catalog (authentication|login|product query|instrument query) rejected: (-?\d+)(?:: (.*))?$/,
   );
@@ -211,8 +218,7 @@ export function errorDiagnostic(error: DisplayError, namespace = "host") {
   return errorSummary(error, namespace) === text ? "" : text;
 }
 
-// An error kept beside what it concerns: an input, an action, or a state that
-// must stay in view. Events nobody asked for go to the notification area (notify).
+// Shared presentation for inline validation and notification details.
 export function ErrorNotice({
   error,
   namespace = "host",

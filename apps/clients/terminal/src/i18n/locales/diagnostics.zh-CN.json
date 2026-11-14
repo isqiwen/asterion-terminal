@@ -1,4 +1,5 @@
 {
+  "CTP subscriptions failed": "{count} 个合约订阅失败，行情服务每 5 分钟重试。",
   "unknown Protobuf field": "Terminal 与服务的通信协议不一致，请将两边更新到同一版本。",
   "market protocol differs from this Terminal": "行情服务与 Terminal 的通信协议不一致，请将两边更新到同一版本。",
   "warehouse protocol differs from this Terminal": "数据服务与 Terminal 的通信协议不一致，请将两边更新到同一版本。",

@@ -2,9 +2,8 @@ import { listSeparator } from "../../src/i18n";
 import { useEffect, useState } from "react";
 import type { Package } from "../../src/generated/asterion/strategy_pb";
 import { lab } from "../../src/bridge/lab";
-import { ActionError } from "../../src/host/action-error";
+import { ActionError, RequestError } from "../../src/host/action-error";
 import { notify } from "../../src/host/notifications";
-import { ErrorNotice } from "../../src/i18n/errors";
 import { t } from "./live-shared";
 import type { StrategyHost } from "./strategy-host";
 import "./strategy.css";
@@ -43,11 +42,7 @@ export function StrategyPackages({ host, repository }: { host: StrategyHost; rep
           )}
         </p>
       )}
-      {readError && (
-        <p className="alert" role="alert">
-          <ErrorNotice error={readError} namespace="asterion.terminal.trading" />
-        </p>
-      )}
+      {readError && <RequestError error={readError} namespace="asterion.terminal.trading" />}
       <ActionError error={error} namespace="asterion.terminal.trading" />
       {!repository ? (
         <p>{t("没有策略目录")}</p>

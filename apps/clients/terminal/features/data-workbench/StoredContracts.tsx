@@ -1,9 +1,10 @@
+import { RequestError } from "../../src/host/action-error";
 import { useEffect, useState } from "react";
 import { lab } from "../../src/bridge/lab";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { type MessageValues, translate } from "../../src/i18n";
-import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/errors";
+import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
 import { identityName } from "../../src/ui/contract-names";
 import { ContractHistory } from "../futures-market/ContractHistory";
 const t = (key: string, values?: MessageValues) =>
@@ -61,7 +62,7 @@ export function StoredContracts({
       {!stored ? (
         <p className="subtle">{t("读取中")}</p>
       ) : stored.error ? (
-        <ErrorNotice error={stored.error} />
+        <RequestError error={stored.error} namespace="asterion.terminal.data-workbench" />
       ) : !items.length ? (
         <p className="subtle">{t("还没有合约")}</p>
       ) : (

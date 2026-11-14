@@ -297,7 +297,7 @@ export function StrategyLab(context: TerminalContext) {
                     {t("已保存 {files}", { files: saved.join(listSeparator()) })}
                   </p>
                 )}
-                <ActionError error={submitted.error} />
+                <ActionError error={submitted.error} namespace="asterion.terminal.research" />
                 <RecentRuns
                   runs={runs.filter(run => run.strategy === strategy.id && !run.sweepId)}
                   open={id => context.navigate("workspace.lab-runs", { params: { run: id } })}

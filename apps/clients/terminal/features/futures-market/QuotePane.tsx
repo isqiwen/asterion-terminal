@@ -1,3 +1,4 @@
+import { RequestError } from "../../src/host/action-error";
 import { useEffect, useState, type ReactNode } from "react";
 import { IntradayChart } from "@asterion/terminal/charts/IntradayChart";
 import { PriceChart, type Candle } from "@asterion/terminal/charts/PriceChart";
@@ -8,7 +9,7 @@ import { marketData } from "../../src/bridge/market-data";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { getLocale, translate } from "../../src/i18n";
-import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/errors";
+import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
 import { ContractHistory } from "./ContractHistory";
 import { QuoteChart } from "./QuoteChart";
 import { quoteChange, quoteStatus } from "./QuoteTable";
@@ -82,7 +83,7 @@ function IntradayPanel({ market, row }: { market: MarketView; row: Row }) {
   if (error && !series)
     return (
       <div className="market-chart-empty" role="alert">
-        <ErrorNotice error={error} namespace="asterion.terminal.futures-market" />
+        <RequestError error={error} namespace="asterion.terminal.futures-market" />
       </div>
     );
   if (!series) return <div className="market-chart-empty">{t("读取中")}</div>;
@@ -173,7 +174,7 @@ function ObservedCandles({
   if (error && !series)
     return (
       <div className="market-chart-empty" role="alert">
-        <ErrorNotice error={error} namespace="asterion.terminal.futures-market" />
+        <RequestError error={error} namespace="asterion.terminal.futures-market" />
       </div>
     );
   if (!series) return <div className="market-chart-empty">{t("读取中")}</div>;

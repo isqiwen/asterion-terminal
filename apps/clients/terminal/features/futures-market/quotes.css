@@ -525,16 +525,6 @@
   margin: 0;
   color: var(--warning);
 }
-.market-bar-alerts {
-  flex-basis: 100%;
-}
-.market-bar-alerts:empty {
-  display: none;
-}
-.market-bar-alerts p {
-  margin: 0;
-  color: var(--danger);
-}
 
 /* Reference market palette is scoped to the quote board, not the whole host. */
 .futures-market-board {

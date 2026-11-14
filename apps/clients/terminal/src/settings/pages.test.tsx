@@ -17,7 +17,6 @@ test("every settings page has its title, and trading connections have their own 
   const props = {
     snapshot: readySnapshot(),
     refresh: () => {},
-    error: "",
     busy: false,
     trade: vi.fn().mockResolvedValue(undefined),
   };
@@ -31,7 +30,7 @@ test("the two data pages each configure their own service without counter creden
   const snapshot = readySnapshot();
   snapshot.market_endpoint = null;
   const trade = vi.fn().mockResolvedValue(undefined);
-  render(<Settings snapshot={snapshot} error="" busy={false} trade={trade} initialPage="market" />);
+  render(<Settings snapshot={snapshot} busy={false} trade={trade} initialPage="market" />);
   expect(screen.getByRole("heading", { name: "行情服务", level: 1 })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "历史数据供应商" })).toBeNull();
   expect(screen.queryByRole("button", { name: "CTP 行情账户" })).toBeNull();
@@ -54,9 +53,7 @@ test("the two data pages each configure their own service without counter creden
   await waitFor(() => expect(trade).toHaveBeenLastCalledWith("market.open", {}));
   cleanup();
   snapshot.warehouse_endpoint = null;
-  render(
-    <Settings snapshot={snapshot} error="" busy={false} trade={trade} initialPage="warehouse" />,
-  );
+  render(<Settings snapshot={snapshot} busy={false} trade={trade} initialPage="warehouse" />);
   expect(screen.getByRole("heading", { name: "数据服务", level: 1 })).toBeTruthy();
   const warehouse = screen.getByRole("region", { name: "连接" });
   fireEvent.click(within(warehouse).getByRole("button", { name: "添加数据连接" }));
@@ -77,8 +74,6 @@ test("the two data pages each configure their own service without counter creden
 test("about identifies the product version and native build commit", () => {
   const snapshot = readySnapshot();
   snapshot.diagnostics.commit = "abc123456789";
-  render(
-    <Settings snapshot={snapshot} error="" busy={false} trade={vi.fn()} initialPage="about" />,
-  );
+  render(<Settings snapshot={snapshot} busy={false} trade={vi.fn()} initialPage="about" />);
   expect(screen.getByText(`${version.trim()} (abc123456789)`)).toBeTruthy();
 });

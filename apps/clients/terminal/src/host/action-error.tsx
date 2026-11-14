@@ -1,8 +1,8 @@
 import { useCallback, useState } from "react";
-import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
+import { BackendError, ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
+import { useErrorNotification } from "./notifications";
 
-// Why an action the user just took failed, shown beside where they took it.
-// The notification centre is for what happens without them.
+// Input and operation errors stay beside the action; service failures go to notifications.
 export function useActionError() {
   const [error, setError] = useState<DisplayError>("");
   const attempt = useCallback(async (action: () => Promise<unknown>) => {
@@ -19,10 +19,27 @@ export function useActionError() {
 }
 
 export function ActionError({ error, namespace }: { error: DisplayError; namespace?: string }) {
-  if (!error) return null;
+  const inline = useRequestError(error, namespace);
+  if (!inline) return null;
   return (
     <p className="action-error" role="alert">
       <ErrorNotice error={error} namespace={namespace} />
     </p>
   );
+}
+
+function useRequestError(error: DisplayError, namespace?: string) {
+  const service =
+    error instanceof BackendError &&
+    (error.code === "unavailable" ||
+      error.code === "internal_error" ||
+      error.diagnostic === "unknown Protobuf field" ||
+      /^(market|warehouse|trading) protocol differs from this Terminal$/.test(error.diagnostic));
+  useErrorNotification(service ? error : "", namespace);
+  return !!error && !service;
+}
+
+export function RequestError({ error, namespace }: { error: DisplayError; namespace?: string }) {
+  const inline = useRequestError(error, namespace);
+  return inline ? <ErrorNotice error={error} namespace={namespace} /> : null;
 }

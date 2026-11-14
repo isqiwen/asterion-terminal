@@ -267,7 +267,7 @@ export function SourceEditor({
           </button>
         </form>
       )}
-      <ActionError error={error} />
+      <ActionError error={error} namespace="asterion.terminal.research" />
       <div className="lab-source-editor" ref={host} />
     </section>
   );

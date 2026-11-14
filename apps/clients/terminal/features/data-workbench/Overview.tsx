@@ -5,11 +5,11 @@ import type {
   DatasetChange,
   Table,
 } from "../../src/generated/asterion/warehouse_pb";
-import { ActionError, useActionError } from "../../src/host/action-error";
+import { ActionError, RequestError, useActionError } from "../../src/host/action-error";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useMarket } from "../../src/host/market";
 import { getLocale } from "../../src/i18n";
-import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/errors";
+import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
 import { StatusBadge } from "../../src/ui/StatusBadge";
 import { Acquisition } from "./Acquisition";
 import { Activity, activeTask } from "./Activity";
@@ -82,9 +82,7 @@ function OverviewBody({ context }: { context: TerminalContext }) {
   const error = state.error || options.error || versionError;
   if (!state.value || !options.value)
     return error ? (
-      <div className="workspace-empty" role="alert">
-        <ErrorNotice error={error} />
-      </div>
+      <RequestError error={error} namespace="asterion.terminal.data-workbench" />
     ) : (
       <p className="workspace-empty" role="status">
         {t("读取中")}
@@ -95,7 +93,7 @@ function OverviewBody({ context }: { context: TerminalContext }) {
   const offered = options.value.tables;
   return (
     <div className="data-overview">
-      <ErrorNotice error={error} />
+      <RequestError error={error} namespace="asterion.terminal.data-workbench" />
       <header className="data-overview-header">
         <div>
           <h3>{t("研究数据集")}</h3>
@@ -123,7 +121,7 @@ function OverviewBody({ context }: { context: TerminalContext }) {
         )}
       </header>
       {updated && <p className="subtle">{updated}</p>}
-      <ActionError error={update.error} />
+      <ActionError error={update.error} namespace="asterion.terminal.data-workbench" />
       <table className="data-table data-status" aria-label={t("数据状态")}>
         <thead>
           <tr>

@@ -4,7 +4,6 @@ import { Icon, type IconName } from "../ui/Icon";
 import { SettingsSection } from "./Section";
 import version from "../../../../../VERSION?raw";
 import { categoryKey, selectedPageKey, settingsPage, type SettingsPage } from "./window";
-import { ErrorNotice, type DisplayError } from "../i18n/errors";
 import { translate, useLocale, type MessageValues } from "../i18n";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 import { useState, useEffect } from "react";
@@ -22,14 +21,12 @@ const pages: [SettingsPage, string, IconName][] = [
 ];
 export function Settings({
   snapshot,
-  error,
   busy,
   trade,
   initialPage = "preferences",
 }: {
   initialPage?: SettingsPage;
   snapshot: Snapshot | null;
-  error: DisplayError;
   busy: boolean;
   trade: CommandHandler;
 }) {
@@ -76,11 +73,6 @@ export function Settings({
       </aside>
       <main className="settings-content">
         <h1>{t(pages.find(([item]) => item === page)?.[1] ?? "偏好设置")}</h1>
-        {error && (
-          <p className="alert" role="alert">
-            <ErrorNotice error={error} namespace="host" />
-          </p>
-        )}
         {busy && <p role="status">{t("正在处理…")}</p>}
         {page === "preferences" && (
           <SettingsSection title={t("显示")}>

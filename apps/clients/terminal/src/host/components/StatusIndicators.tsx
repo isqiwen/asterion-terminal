@@ -7,8 +7,10 @@ import {
   ctpErrorSummary,
   diagnosticSummary,
   errorSummary,
+  type DisplayError,
 } from "../../i18n/errors";
 import { useMarket, useMarketOpenError } from "../market";
+import { useErrorNotification } from "../notifications";
 import { stalled, useTradingAccounts } from "../trading-accounts";
 import { FeedState } from "../../generated/asterion/market_pb";
 import { BrokerState } from "../../generated/asterion/trading_pb";
@@ -18,7 +20,8 @@ const label = (name: string, state: string) =>
 
 // Warehouse has no stream to watch, so its light comes from reading its status.
 function WarehouseIndicator() {
-  const [error, setError] = useState<string>();
+  const [error, setError] = useState<DisplayError>();
+  useErrorNotification(error, "asterion.terminal.data-workbench");
   useEffect(() => {
     let active = true;
     let pending = false;
@@ -29,7 +32,7 @@ function WarehouseIndicator() {
         await warehouseData({ case: "getStatus", value: {} });
         if (active) setError("");
       } catch (failure) {
-        if (active) setError(errorSummary(asDisplayError(failure)));
+        if (active) setError(asDisplayError(failure));
       } finally {
         pending = false;
       }
@@ -44,7 +47,11 @@ function WarehouseIndicator() {
   const [tone, state] =
     error === undefined ? ["", "连接中"] : error ? ["danger", "中断"] : ["ok", ""];
   return (
-    <span className="status-item" data-tone={tone || undefined} title={error || undefined}>
+    <span
+      className="status-item"
+      data-tone={tone || undefined}
+      title={error ? errorSummary(error) : undefined}
+    >
       {label(translate("host", "数据"), state)}
     </span>
   );

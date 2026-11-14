@@ -76,11 +76,15 @@ test.describe("startup language", () => {
     await page.goto("/");
     await page.getByLabel("语言", { exact: true }).selectOption("en");
     await page.screenshot({ path: "apps/clients/terminal/test-results/english-setup.png" });
-    await expect(page.getByRole("alert")).toContainText("Permission denied");
-    await expect(page.getByRole("alert")).toContainText("原始诊断信息");
-    await expect(
-      page.getByRole("alert").getByRole("button", { name: "Permission denied" }),
-    ).toHaveAttribute("title", /原始诊断信息/);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await page.locator(".notification-latest").click();
+    const notifications = page.getByRole("region", { name: "Notifications" });
+    await expect(notifications).toContainText("Permission denied");
+    await expect(notifications).toContainText("原始诊断信息");
+    await expect(notifications.getByRole("button", { name: "Permission denied" })).toHaveAttribute(
+      "title",
+      /原始诊断信息/,
+    );
     await page.unroute("**/__asterion/api");
     // With every step passed and nothing to point out, the workbench opens.
     await page.getByRole("button", { name: "Retry", exact: true }).click();

@@ -169,7 +169,7 @@ export function Runs(context: TerminalContext) {
           cancel={run && (() => cancel(run))}
           remove={() => remove(shown.id)}
         />
-        <ActionError error={acted.error} />
+        <ActionError error={acted.error} namespace="asterion.terminal.research" />
         <RunResult
           key={shown.id}
           id={shown.id}
@@ -265,7 +265,7 @@ export function Runs(context: TerminalContext) {
           {t("比较所选（{count}）", { count: compared.length })}
         </button>
       </div>
-      <ActionError error={acted.error} />
+      <ActionError error={acted.error} namespace="asterion.terminal.research" />
       {!runs ? (
         <p className="subtle" role="status">
           {t("读取中")}
@@ -463,7 +463,7 @@ function RunHeader({
       ) : (
         <DeleteRecord name={run ? runName(run) : recordName(id)} remove={remove} />
       )}
-      <ActionError error={failure.error} />
+      <ActionError error={failure.error} namespace="asterion.terminal.research" />
     </header>
   );
 }

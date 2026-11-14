@@ -3,7 +3,8 @@ import { Subscription, type Status } from "../../src/generated/asterion/market_p
 import { useMarket } from "../../src/host/market";
 import { marketData } from "../../src/bridge/market-data";
 import { getLocale, translate } from "../../src/i18n";
-import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/errors";
+import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
+import { useErrorNotification } from "../../src/host/notifications";
 
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 // Beijing time; the bar shows the time of day and the date on hover.
@@ -18,10 +19,11 @@ export function MarketStatus() {
   const market = useMarket();
   const online = market?.online;
   const [status, setStatus] = useState<Status | null>(null);
-  const [error, setError] = useState<DisplayError>("");
+  const [error, setError] = useState<DisplayError>();
+  useErrorNotification(error, "asterion.terminal.futures-market");
   useEffect(() => {
     setStatus(null);
-    setError("");
+    setError(undefined);
     if (!online) return;
     let active = true;
     let pending = false;
@@ -50,7 +52,6 @@ export function MarketStatus() {
     };
   }, [online]);
 
-  if (error) return <ErrorNotice error={error} />;
   if (!status) return null;
   // Both counts from the same stream, so they always agree.
   const rows = market?.board.rows ?? [];
@@ -71,12 +72,6 @@ export function MarketStatus() {
           </dd>
         </div>
       </dl>
-      {status.failedSubscriptions > 0 && (
-        <p role="alert">
-          {t("合约订阅失败，每 5 分钟重试")}:{" "}
-          {status.failedSubscriptions.toLocaleString(getLocale())}
-        </p>
-      )}
     </>
   );
 }

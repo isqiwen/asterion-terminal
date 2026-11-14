@@ -90,10 +90,3 @@ test("a lost service stops showing its status", async () => {
   await act(async () => vi.advanceTimersByTime(9000));
   expect(replies).toHaveLength(1);
 });
-
-test("contracts the feed refused are counted", async () => {
-  vi.useFakeTimers();
-  mount(market());
-  await act(async () => replies[0]!(reply(3)));
-  expect(screen.getByRole("alert").textContent).toContain("合约订阅失败，每 5 分钟重试: 3");
-});

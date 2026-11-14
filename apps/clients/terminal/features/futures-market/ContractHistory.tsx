@@ -1,3 +1,4 @@
+import { RequestError } from "../../src/host/action-error";
 import { dailyChartDate } from "../../src/ui/charts/daily-chart";
 import { useMarket } from "../../src/host/market";
 import { chartTime } from "./chart-time";
@@ -11,7 +12,7 @@ import type { ChartBars, StoredContract } from "../../src/generated/asterion/lab
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { translate } from "../../src/i18n";
-import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/errors";
+import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
 import { type ChartPeriod, protocolPeriod } from "../../src/ui/periods";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 
@@ -162,7 +163,7 @@ export function ContractHistory({
       )}
       {error && (
         <div role="alert">
-          <ErrorNotice error={error} namespace="asterion.terminal.futures-market" />
+          <RequestError error={error} namespace="asterion.terminal.futures-market" />
           <button disabled={busy} onClick={() => setRetry(value => value + 1)}>
             {t("重试")}
           </button>

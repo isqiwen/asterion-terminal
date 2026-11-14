@@ -125,7 +125,9 @@ export function TradingAccountsProvider({
           if (beat.result.case !== "getHealth" || !stalled(beat.result.value)) stalling.delete(id);
           else if (!stalling.has(id)) {
             stalling.add(id);
-            notify(new BackendError("trading_stalled", id));
+            notify(new BackendError("trading_stalled", id), {
+              namespace: "asterion.terminal.trading",
+            });
           }
           const strategies = await tradingRequest(id, { case: "getStrategies", value: {} });
           if (strategies.result.case === "getStrategies")

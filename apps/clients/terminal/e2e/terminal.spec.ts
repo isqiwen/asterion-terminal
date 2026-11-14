@@ -34,7 +34,9 @@ test("core connection failure is visible and can be retried", async ({ page }) =
     route.fulfill({ status: 503, body: "unavailable" }),
   );
   await page.goto("/");
-  await expect(page.getByRole("alert")).toContainText("本机 C++ 服务不可用");
+  await page.locator(".notification-latest").click();
+  await expect(page.getByRole("region", { name: "通知" })).toContainText("本机 C++ 服务不可用");
+  await expect(page.getByRole("alert")).toHaveCount(0);
   await page.unroute("**/__asterion/api");
   await page.getByRole("button", { name: "重试", exact: true }).click();
   await expect(page.locator(".status-bar .status-item").first()).toBeVisible({

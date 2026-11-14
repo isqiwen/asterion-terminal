@@ -1,10 +1,10 @@
+import { RequestError } from "../../src/host/action-error";
 import { useMemo, useState } from "react";
 import { warehouseData } from "../../src/bridge/warehouse-data";
 import { Table, type DatasetCoverage } from "../../src/generated/asterion/warehouse_pb";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useMarket } from "../../src/host/market";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
-import { ErrorNotice } from "../../src/i18n/errors";
 import { Acquisition, type Preset } from "./Acquisition";
 import { VersionBanner, WarehousePage } from "./Page";
 import { exchanges, t, tableName, usePolled } from "./dataset";
@@ -140,7 +140,10 @@ function CoverageBody({ context }: { context: TerminalContext }) {
         back={() => setViewed("")}
       />
       <div className="data-coverage">
-        <ErrorNotice error={state.error || options.error} />
+        <RequestError
+          error={state.error || options.error}
+          namespace="asterion.terminal.data-workbench"
+        />
         <div className="data-toolbar">
           <div className="tabs" role="group" aria-label={t("数据")}>
             {(["daily", "minutes"] as const).map(item => (

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ActionError, useActionError } from "../../src/host/action-error";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
-import { type DisplayError, ErrorNotice } from "../../src/i18n/errors";
+import { type DisplayError } from "../../src/i18n/errors";
 import type { TradingConnection } from "../../src/bridge/client";
 import { BrokerState } from "../../src/generated/asterion/trading_pb";
 import { useTradingAccounts, type TradingView } from "../../src/host/trading-accounts";
@@ -158,13 +158,7 @@ function AccountColumn({
             <p>
               {account.instance} · {account.host}:{account.port}
             </p>
-            {view?.failed ? (
-              <p className="alert" role="alert">
-                <ErrorNotice error={view.failed} namespace="asterion.terminal.trading" />
-              </p>
-            ) : (
-              <p role="status">{t("正在读取交易服务…")}</p>
-            )}
+            {!view?.failed && <p role="status">{t("正在读取交易服务…")}</p>}
           </div>
         )}
       </div>

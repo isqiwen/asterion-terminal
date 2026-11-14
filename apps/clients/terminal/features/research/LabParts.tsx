@@ -151,7 +151,7 @@ export function NewModule({
       >
         {t("取消")}
       </button>
-      <ActionError error={error} />
+      <ActionError error={error} namespace="asterion.terminal.research" />
     </form>
   );
 }

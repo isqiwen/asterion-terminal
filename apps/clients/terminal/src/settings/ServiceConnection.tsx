@@ -5,7 +5,7 @@ import { translate } from "../i18n";
 import { SettingsSection } from "./Section";
 import { ServiceFacts } from "./ServiceFacts";
 import { ActionError, useActionError } from "../host/action-error";
-import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
+import { asDisplayError, type DisplayError } from "../i18n/errors";
 const t = (key: string) => translate("host", key);
 const words = {
   market: {
@@ -36,6 +36,7 @@ export function ServiceConnection({
   trade: CommandHandler;
 }) {
   const word = words[service];
+  const namespace = `asterion.terminal.${service === "market" ? "futures-market" : "data-workbench"}`;
   const saved = service === "market" ? snapshot?.market_endpoint : snapshot?.warehouse_endpoint;
   const endpoint = saved && "host" in saved ? saved : null;
   const [editing, setEditing] = useState(false);
@@ -91,7 +92,7 @@ export function ServiceConnection({
             address={`${endpoint.host}:${endpoint.port}`}
             service={service}
           />
-          <ActionError error={error} />
+          <ActionError error={error} namespace={namespace} />
         </>
       )}
       {editing && (
@@ -148,11 +149,7 @@ export function ServiceConnection({
                 />
               </label>
             </div>
-            {refused && (
-              <p className="settings-error" role="alert">
-                <ErrorNotice error={refused} />
-              </p>
-            )}
+            <ActionError error={refused} namespace={namespace} />
             <div className="settings-actions">
               <button type="button" onClick={() => setEditing(false)}>
                 {t("取消")}
