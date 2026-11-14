@@ -188,142 +188,138 @@ export function FactorLab(context: TerminalContext) {
           <p className="lab-placeholder">{t("选择因子")}</p>
         </LabCentre>
       )}
-      <aside className="lab-config">
-        <h4>
-          {!folded && t("评价")}
-          <ConfigFold folded={folded} fold={setFolded} />
-        </h4>
-        {!folded && (
-          <>
-            {!factor ? (
-              <p className="subtle">{t("选择因子")}</p>
-            ) : (
-              <>
+      {factor && (
+        <aside className="lab-config">
+          <h4>
+            {!folded && t("评价")}
+            <ConfigFold folded={folded} fold={setFolded} />
+          </h4>
+          {!folded && (
+            <>
+              <Section
+                title={t("品种与区间")}
+                summary={`${form.symbols || "—"} · ${form.begin || "…"} – ${form.end || "…"}`}
+                open
+              >
+                <label className="wide">
+                  <span>{t("品种")}</span>
+                  <input
+                    value={form.symbols}
+                    placeholder={t("SHFE（整个交易所）或 SHFE/rb, SHFE/au")}
+                    onChange={event => change({ symbols: event.target.value })}
+                  />
+                </label>
+                <label>
+                  <span>{t("开始日")}</span>
+                  <DateInput value={form.begin} onChange={begin => change({ begin })} />
+                </label>
+                <label>
+                  <span>{t("结束日")}</span>
+                  <DateInput value={form.end} onChange={end => change({ end })} />
+                </label>
+              </Section>
+              {factor.parameters.length > 0 && (
                 <Section
-                  title={t("品种与区间")}
-                  summary={`${form.symbols || "—"} · ${form.begin || "…"} – ${form.end || "…"}`}
+                  title={t("参数")}
+                  summary={factor.parameters
+                    .map(parameter => `${parameter.name}=${form.params[parameter.name] ?? ""}`)
+                    .join(" ")}
                   open
                 >
-                  <label className="wide">
-                    <span>{t("品种")}</span>
-                    <input
-                      value={form.symbols}
-                      placeholder={t("SHFE（整个交易所）或 SHFE/rb, SHFE/au")}
-                      onChange={event => change({ symbols: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    <span>{t("开始日")}</span>
-                    <DateInput value={form.begin} onChange={begin => change({ begin })} />
-                  </label>
-                  <label>
-                    <span>{t("结束日")}</span>
-                    <DateInput value={form.end} onChange={end => change({ end })} />
-                  </label>
+                  {factor.parameters.map(parameter => (
+                    <label key={parameter.name}>
+                      <span>
+                        {parameter.name} <small>{parameterKind(parameter)}</small>
+                      </span>
+                      <input
+                        value={form.params[parameter.name] ?? ""}
+                        onChange={event =>
+                          change({
+                            params: { ...form.params, [parameter.name]: event.target.value },
+                          })
+                        }
+                      />
+                    </label>
+                  ))}
                 </Section>
-                {factor.parameters.length > 0 && (
-                  <Section
-                    title={t("参数")}
-                    summary={factor.parameters
-                      .map(parameter => `${parameter.name}=${form.params[parameter.name] ?? ""}`)
-                      .join(" ")}
-                    open
-                  >
-                    {factor.parameters.map(parameter => (
-                      <label key={parameter.name}>
-                        <span>
-                          {parameter.name} <small>{parameterKind(parameter)}</small>
-                        </span>
-                        <input
-                          value={form.params[parameter.name] ?? ""}
-                          onChange={event =>
-                            change({
-                              params: { ...form.params, [parameter.name]: event.target.value },
-                            })
-                          }
-                        />
-                      </label>
+              )}
+              <Section
+                title={t("评价设置")}
+                summary={t("持有期 {horizons} · {groups} 组", {
+                  horizons: form.horizons,
+                  groups: form.groups,
+                })}
+                open
+              >
+                {field("持有期（K 线数）", "horizons")}
+                {field("分组数", "groups")}
+              </Section>
+              {users.length > 0 && (
+                <Section title={t("导入本模块的策略")} summary={String(users.length)} open>
+                  <ul className="lab-evaluations" aria-label={t("导入本模块的策略")}>
+                    {users.map(item => (
+                      <li key={item.id}>
+                        <button
+                          onClick={() => {
+                            setLibrary(false);
+                            setReport("");
+                            source.open(`strategies/${item.id.split(".")[0]}.py`);
+                          }}
+                        >
+                          {item.id.split(".")[1]}
+                        </button>
+                      </li>
                     ))}
-                  </Section>
-                )}
-                <Section
-                  title={t("评价设置")}
-                  summary={t("持有期 {horizons} · {groups} 组", {
-                    horizons: form.horizons,
-                    groups: form.groups,
-                  })}
-                  open
-                >
-                  {field("持有期（K 线数）", "horizons")}
-                  {field("分组数", "groups")}
+                  </ul>
                 </Section>
-                {users.length > 0 && (
-                  <Section title={t("导入本模块的策略")} summary={String(users.length)} open>
-                    <ul className="lab-evaluations" aria-label={t("导入本模块的策略")}>
-                      {users.map(item => (
+              )}
+              {evaluations.length > 0 && (
+                <Section title={t("评价记录")} summary={String(evaluations.length)} open>
+                  <ul className="lab-evaluations" aria-label={t("评价记录")}>
+                    {evaluations.map(item => {
+                      const ic = item.horizons[0]?.mean;
+                      return (
                         <li key={item.id}>
                           <button
-                            onClick={() => {
-                              setLibrary(false);
-                              setReport("");
-                              source.open(`strategies/${item.id.split(".")[0]}.py`);
-                            }}
+                            aria-pressed={item.id === report}
+                            title={item.id}
+                            onClick={() => setReport(item.id)}
                           >
-                            {item.id.split(".")[1]}
+                            <span>
+                              {Object.entries(item.evaluation?.params ?? {})
+                                .map(([name, value]) => `${name}=${String(value.value.value)}`)
+                                .join(" ") || recordName(item.id)}
+                            </span>
+                            <small>
+                              {item.evaluation?.firstDay} – {item.evaluation?.lastDay}
+                            </small>
+                            <span className={`numeric ${signed(ic)}`}>{metric(ic, false)}</span>
                           </button>
                         </li>
-                      ))}
-                    </ul>
-                  </Section>
+                      );
+                    })}
+                  </ul>
+                </Section>
+              )}
+              <footer className="lab-submit">
+                <button
+                  className="primary"
+                  disabled={busy || context.busy}
+                  onClick={() => void evaluate()}
+                >
+                  {busy ? t("正在评价…") : t("评价")}
+                </button>
+                {saved.length > 0 && (
+                  <p className="subtle">
+                    {t("已保存 {files}", { files: saved.join(listSeparator()) })}
+                  </p>
                 )}
-                {evaluations.length > 0 && (
-                  <Section title={t("评价记录")} summary={String(evaluations.length)} open>
-                    <ul className="lab-evaluations" aria-label={t("评价记录")}>
-                      {evaluations.map(item => {
-                        const ic = item.horizons[0]?.mean;
-                        return (
-                          <li key={item.id}>
-                            <button
-                              aria-pressed={item.id === report}
-                              title={item.id}
-                              onClick={() => setReport(item.id)}
-                            >
-                              <span>
-                                {Object.entries(item.evaluation?.params ?? {})
-                                  .map(([name, value]) => `${name}=${String(value.value.value)}`)
-                                  .join(" ") || recordName(item.id)}
-                              </span>
-                              <small>
-                                {item.evaluation?.firstDay} – {item.evaluation?.lastDay}
-                              </small>
-                              <span className={`numeric ${signed(ic)}`}>{metric(ic, false)}</span>
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </Section>
-                )}
-                <footer className="lab-submit">
-                  <button
-                    className="primary"
-                    disabled={busy || context.busy}
-                    onClick={() => void evaluate()}
-                  >
-                    {busy ? t("正在评价…") : t("评价")}
-                  </button>
-                  {saved.length > 0 && (
-                    <p className="subtle">
-                      {t("已保存 {files}", { files: saved.join(listSeparator()) })}
-                    </p>
-                  )}
-                  <ActionError error={error} />
-                </footer>
-              </>
-            )}
-          </>
-        )}
-      </aside>
+                <ActionError error={error} />
+              </footer>
+            </>
+          )}
+        </aside>
+      )}
     </section>
   );
 }

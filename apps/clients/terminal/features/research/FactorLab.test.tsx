@@ -56,6 +56,8 @@ test("the factor library ranks factors by their latest IC and opens one's code",
       <FactorLab {...context} />
     </WorkspaceDraftScope>,
   );
+  expect(screen.getAllByText("选择因子")).toHaveLength(1);
+  expect(screen.queryByRole("heading", { name: "评价" })).toBeNull();
   fireEvent.click(await screen.findByRole("button", { name: "因子库" }));
   const library = await screen.findByRole("table", { name: "因子库" });
   const order = () =>
@@ -69,6 +71,8 @@ test("the factor library ranks factors by their latest IC and opens one's code",
   fireEvent.click(within(library).getByRole("button", { name: "momentum" }));
   expect(screen.queryByRole("table", { name: "因子库" })).toBeNull();
   await screen.findByText("factors/price.py");
+  expect(screen.getByRole("button", { name: "评价" })).toBeTruthy();
+  expect(screen.queryByText("选择因子")).toBeNull();
 });
 
 test("a factor's kept evaluation reopens its report with the code it evaluated", async () => {
