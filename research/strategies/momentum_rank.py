@@ -1,10 +1,10 @@
 """A cross-sectional momentum ranking over several contracts or series."""
 from collections import deque
-import math
 
 from asterion_strategy import Strategy
 
-from strategies._rules import SIDES, units
+from factors.price import momentum, volatility
+from strategies._rules import SIDES
 
 
 class MomentumRank(Strategy):
@@ -44,10 +44,10 @@ class MomentumRank(Strategy):
         self.shared += 1
         if self.shared < self.need or (self.shared - self.need) % p["rebalance"]:
             return
-        closes = {symbol: units(ctx.history(symbol, "close", 1 << 30)[list(indices)])
+        closes = {symbol: ctx.history(symbol, "close", 1 << 30)[list(indices)]
                   for symbol, indices in self.indices.items()}
-        score = {symbol: returns(values[-p["lookback"] - 1:], p["lookback"])[0]
-                 for symbol, values in closes.items()}
+        # The factors the factor view evaluates, at this bar.
+        score = {symbol: momentum(values, p["lookback"])[-1] for symbol, values in closes.items()}
         # Equal scores keep the order the symbols were given in.
         order = sorted(ctx.symbols, key=lambda symbol: score[symbol], reverse=not p["reversed"])
         wanted = dict.fromkeys(ctx.symbols, 0.0)
@@ -60,8 +60,7 @@ class MomentumRank(Strategy):
             inverse = {}
             for symbol, side in wanted.items():
                 if side:
-                    changes = returns(closes[symbol][-p["volatility"] - 1:], 1)
-                    sigma = deviation(changes)
+                    sigma = volatility(closes[symbol], p["volatility"])[-1]
                     if sigma > 0:
                         inverse[symbol] = 1 / sigma
             total = sum(inverse.values())
@@ -69,14 +68,3 @@ class MomentumRank(Strategy):
                       for symbol, side in wanted.items()}
         ctx.weights({symbol: side * p["weight"] for symbol, side in wanted.items()})
 
-
-def returns(closes: list, lookback: int) -> list:
-    """Each close against the one `lookback` before it, less one."""
-    return [(closes[i] - closes[i - lookback]) / closes[i - lookback]
-            for i in range(lookback, len(closes))]
-
-
-def deviation(values: list) -> float:
-    """The sample standard deviation."""
-    mean = sum(values) / len(values)
-    return math.sqrt(sum((value - mean) ** 2 for value in values) / (len(values) - 1))

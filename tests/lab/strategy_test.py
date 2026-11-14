@@ -186,6 +186,10 @@ class Repository(unittest.TestCase):
         repository.snapshot(self.root, copy, "strategies/ma_cross.py")
         self.assertEqual(sorted(path.relative_to(copy).as_posix() for path in copy.rglob("*.py")),
                          ["strategies/_rules.py", "strategies/ma_cross.py"])
+        # A strategy that uses a factor is published with the factor's module.
+        ranked = build(Build(repository=str(self.root), strategy="momentum_rank.MomentumRank"))
+        self.assertEqual([file.path for file in ranked.files],
+                         ["factors/price.py", "strategies/_rules.py", "strategies/momentum_rank.py"])
         noisy = build(Build(repository=str(self.root), strategy="noisy.Noisy"))
         self.assertEqual([file.path for file in noisy.files], ["helpers.py", "strategies/noisy.py"])
         (self.root / "helpers.py").unlink()
