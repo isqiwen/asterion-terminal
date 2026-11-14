@@ -1,6 +1,6 @@
 async function openView(page, view) {
   const destinations = {
-    research: ["研究"],
+    research: ["研究", "策略"],
     coverage: ["数据"],
     market: ["行情"],
   };
