@@ -168,12 +168,14 @@ async function closeDesktop(application) {
     await openView(page, "market");
 
     const columnButton = page.getByRole("button", { name: "表头设置", exact: true });
+    // Dialog focus restoration is independent of the runner's foreground application.
+    const columnFocus = () => columnButton.evaluate(button => document.activeElement === button);
     await columnButton.click();
     const columnDialog = page.getByRole("dialog", { name: "行情表头设置" });
     await expect(columnDialog).toBeVisible();
     await columnDialog.getByRole("checkbox", { name: "持仓量", exact: true }).uncheck();
     await columnDialog.getByRole("button", { name: "应用列设置", exact: true }).click();
-    await expect(columnButton).toBeFocused();
+    await expect.poll(columnFocus).toBe(true);
     await openView(page, "research");
     await openView(page, "market");
     await columnButton.click();
@@ -183,7 +185,7 @@ async function closeDesktop(application) {
     await capture(page, "native-quote-columns");
     await page.keyboard.press("Escape");
     await expect(columnDialog).toHaveCount(0);
-    await expect(columnButton).toBeFocused();
+    await expect.poll(columnFocus).toBe(true);
 
     // The research page reaches the lab service the Terminal starts.
     await openView(page, "research");
