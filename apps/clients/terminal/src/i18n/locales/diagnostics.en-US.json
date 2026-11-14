@@ -1,5 +1,7 @@
 {
-  "the service protocol differs from this Terminal": "This service and Terminal use different protocols. Install the same release on both.",
+  "market protocol differs from this Terminal": "Market and Terminal are different releases. Update both to the same release.",
+  "warehouse protocol differs from this Terminal": "Warehouse and Terminal are different releases. Update both to the same release.",
+  "trading protocol differs from this Terminal": "Trading and Terminal are different releases. Update both to the same release.",
   "insufficient available funds": "Insufficient available funds.",
   "monthly contributions require a positive deposit and settlements": "Monthly contributions require a positive initial deposit and settlement records.",
   "settlement dates must ascend and cumulative fees must not decrease": "Settlement dates must be strictly increasing and cumulative fees must not decrease.",

@@ -3,6 +3,7 @@ import { ServiceUnset } from "../../src/host/components/ServiceUnset";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useMarketOpenError } from "../../src/host/market";
 import { type MessageValues, translate } from "../../src/i18n";
+import { ErrorNotice } from "../../src/i18n/errors";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.futures-market", key, values);
 
@@ -13,12 +14,16 @@ export function MarketUnavailable({ context }: { context: TerminalContext }) {
   const { error, attempt } = useActionError();
   const openError = useMarketOpenError();
   if (!endpoint) return <ServiceUnset openSettings={context.openSettings} />;
+  // Opening is being tried again by itself: the reason is all there is to say.
+  if (openError)
+    return (
+      <div className="workspace-empty" role="alert">
+        <ErrorNotice error={openError} namespace="asterion.terminal.futures-market" />
+      </div>
+    );
   return (
     <div className="workspace-empty">
       <strong>{t("尚未连接行情服务")}</strong>
-      <p>
-        {endpoint.host}:{endpoint.port}
-      </p>
       <button
         className="primary"
         disabled={context.busy}
@@ -26,7 +31,7 @@ export function MarketUnavailable({ context }: { context: TerminalContext }) {
       >
         {t("连接行情服务")}
       </button>
-      <ActionError error={error || openError} namespace="asterion.terminal.futures-market" />
+      <ActionError error={error} namespace="asterion.terminal.futures-market" />
     </div>
   );
 }

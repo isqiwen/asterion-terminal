@@ -69,7 +69,8 @@ int main(int argc, char** argv)
                 .get();
             return 12;
         } catch (const asterion::Error& error) {
-            if (std::string(error.what()) != asterion::terminal::service_protocol_differs)
+            if (error.what()
+                != std::string("market") + asterion::terminal::service_protocol_differs)
                 return 13;
         }
         watch.reset();

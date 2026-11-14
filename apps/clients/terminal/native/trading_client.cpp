@@ -61,7 +61,9 @@ std::future<Json> call_trading(ServiceIo& io, TradingEndpoint endpoint, Json pay
                     throw Error(ErrorCode::unavailable, "Trading response identity mismatch");
                 if (response.has_get_health()
                     && response.get_health().protocol() != build::trading_protocol)
-                    throw Error(ErrorCode::conflict, service_protocol_differs);
+                    throw Error(
+                        ErrorCode::conflict,
+                        std::string("trading") + service_protocol_differs);
                 if (response.has_error())
                     protocol::raise(response.error());
                 std::string encoded;

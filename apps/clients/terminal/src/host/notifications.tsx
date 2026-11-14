@@ -2,9 +2,8 @@ import { useState, useSyncExternalStore } from "react";
 import { translate, useLocale } from "../i18n";
 import {
   BackendError,
-  CopyDiagnostic,
+  ErrorNotice,
   asDisplayError,
-  errorDiagnostic,
   errorSummary,
   type DisplayError,
 } from "../i18n/errors";
@@ -130,10 +129,9 @@ export function NotificationCenter() {
                   <time>{entry.at.toLocaleTimeString("sv-SE", { hour12: false })}</time>
                   <span className="notification-source">{translate("host", entry.source)}</span>
                   <span className="notification-text">
-                    {errorSummary(entry.error, entry.namespace)}
+                    <ErrorNotice error={entry.error} namespace={entry.namespace} />
                     {entry.count > 1 && ` ×${entry.count}`}
                   </span>
-                  <CopyDiagnostic diagnostic={errorDiagnostic(entry.error, entry.namespace)} />
                 </li>
               ))}
             </ol>

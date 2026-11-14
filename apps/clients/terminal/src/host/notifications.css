@@ -97,8 +97,10 @@
   white-space: normal;
   overflow-wrap: anywhere;
 }
-.notification-panel button,
-.copy-diagnostic {
+.notification-panel .error-notice {
+  color: inherit;
+}
+.notification-panel button:not(.error-notice) {
   min-height: 0;
   padding: 0 2px;
   border: 0;
@@ -106,7 +108,6 @@
   color: var(--muted);
   font-size: var(--font-size-body);
 }
-.notification-panel button:hover,
-.copy-diagnostic:hover {
+.notification-panel button:not(.error-notice):hover {
   color: var(--text);
 }

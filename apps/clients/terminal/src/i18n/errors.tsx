@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { ErrorCode, type Error as Error_ } from "../generated/asterion/common_pb";
 import { getLocale, localizeText, translate, useLocale } from "./index";
 export type DisplayError = string | Error;
@@ -183,26 +182,6 @@ export function errorDiagnostic(error: DisplayError, namespace = "host") {
   return errorSummary(error, namespace) === text ? "" : text;
 }
 
-// Copies an error's diagnostic for a report, in the notification centre.
-export function CopyDiagnostic({ diagnostic }: { diagnostic: string }) {
-  const [state, setState] = useState<"" | "copied" | "failed">("");
-  if (!diagnostic) return null;
-  return (
-    <button
-      type="button"
-      className="copy-diagnostic"
-      onClick={() =>
-        void navigator.clipboard.writeText(diagnostic).then(
-          () => setState("copied"),
-          () => setState("failed"),
-        )
-      }
-    >
-      {translate("host", { copied: "已复制", failed: "复制失败", "": "复制诊断" }[state])}
-    </button>
-  );
-}
-
 // An error kept beside what it concerns: an input, an action, or a state that
 // must stay in view. Events nobody asked for go to the notification area (notify).
 export function ErrorNotice({
@@ -213,7 +192,6 @@ export function ErrorNotice({
   namespace?: string;
 }) {
   useLocale();
-  const [state, setState] = useState<"" | "已复制" | "复制失败">("");
   if (!error) return null;
   const diagnostic = errorDiagnostic(error, namespace);
   if (!diagnostic) return <span className="error-notice">{errorSummary(error, namespace)}</span>;
@@ -223,15 +201,9 @@ export function ErrorNotice({
       type="button"
       className="error-notice"
       title={`${diagnostic}\n${translate("host", "点击复制诊断")}`}
-      onClick={() =>
-        void navigator.clipboard.writeText(diagnostic).then(
-          () => setState("已复制"),
-          () => setState("复制失败"),
-        )
-      }
+      onClick={() => void navigator.clipboard.writeText(diagnostic)}
     >
       {errorSummary(error, namespace)}
-      {state && ` · ${translate("host", state)}`}
     </button>
   );
 }

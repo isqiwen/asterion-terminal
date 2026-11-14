@@ -83,7 +83,6 @@ function OverviewBody({ context }: { context: TerminalContext }) {
   if (!state.value || !options.value)
     return error ? (
       <div className="workspace-empty" role="alert">
-        <strong>{t("读取历史数据失败")}</strong>
         <ErrorNotice error={error} />
       </div>
     ) : (

@@ -14,8 +14,8 @@ namespace asterion::terminal {
 
 // What Market and Warehouse calls share: one generated Request as ProtoJSON, on its
 // own pinned TLS connection, and its Response back as ProtoJSON.
-inline constexpr char service_protocol_differs[] =
-    "the service protocol differs from this Terminal";
+// After the service's protocol package: market, warehouse or trading.
+inline constexpr char service_protocol_differs[] = " protocol differs from this Terminal";
 
 template <class Request>
 void relay_identify(Request& request)
@@ -92,7 +92,10 @@ relay_call(ServiceIo& io, ServiceEndpoint endpoint, Json payload, Check check, s
             co_return co_await io.read<Json>([raw = reply.get(), &request, &protocol] {
                 auto response = relay_decode<Response>(*raw, request);
                 if (response.has_get_status() && response.get_status().protocol() != protocol)
-                    throw Error(ErrorCode::conflict, service_protocol_differs);
+                    throw Error(
+                        ErrorCode::conflict,
+                        std::string(Response::descriptor()->file()->package())
+                            + service_protocol_differs);
                 return relay_json(response);
             });
         });
