@@ -2870,6 +2870,10 @@ TEST_F(
     const auto abandoned_events = session.strategy_events(owner);
     ASSERT_EQ(abandoned_events.size(), 1U);
     EXPECT_EQ(abandoned_events[0].kind(), ::trading::INSTANCE_EVENT_KIND_BATCH_ABANDONED);
+#ifdef ASTERION_SANITIZED
+    // Ten legs fit the product's 10 s batch only at full speed.
+    return;
+#endif
 
     // Next bar: quote returns to normal and all 10 contracts rebalance within 10s.
     ::strategy::Decision ten;

@@ -1,7 +1,7 @@
 #include "freshness.hpp"
 #include "parquet_engine.hpp"
+#include <asterion/futures/trading_days.hpp>
 #include <chrono>
-#include <format>
 #include <fstream>
 #include <set>
 
@@ -52,7 +52,7 @@ std::string yesterday()
 {
     const auto today = std::chrono::floor<std::chrono::days>(
         std::chrono::system_clock::now() + std::chrono::hours(8));
-    return std::format("{:%F}", today - std::chrono::days{1});
+    return format_trading_date(std::chrono::year_month_day{today - std::chrono::days{1}});
 }
 
 OpenDays open_days(const Store& store, const Version& version, const std::string& through)

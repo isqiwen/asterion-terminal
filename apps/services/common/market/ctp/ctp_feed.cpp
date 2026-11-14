@@ -4,6 +4,7 @@
 #include <atomic>
 #include <ThostFtdcMdApi.h>
 #include <asterion/base/error.hpp>
+#include <asterion/futures/trading_days.hpp>
 #include <asterion/system/process/child.hpp>
 #include <charconv>
 #include <chrono>
@@ -155,16 +156,9 @@ std::string next_weekday_trading_day(std::string_view day)
     const auto next = sys
         + (std::chrono::weekday{sys} == std::chrono::Friday ? std::chrono::days{3}
                                                             : std::chrono::days{1});
-    const std::chrono::year_month_day out{next};
-    char buffer[9];
-    std::snprintf(
-        buffer,
-        sizeof(buffer),
-        "%04d%02u%02u",
-        static_cast<int>(out.year()),
-        static_cast<unsigned>(out.month()),
-        static_cast<unsigned>(out.day()));
-    return buffer;
+    auto text = format_trading_date(std::chrono::year_month_day{next});
+    std::erase(text, '-');
+    return text;
 }
 
 // Some counters report 0 before the day's first trade; no future trades at 0.
