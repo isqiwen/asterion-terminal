@@ -29,3 +29,17 @@ test("an untranslated failure keeps its cause visible without hovering", () => {
     "操作与当前状态冲突: Requested feed is already in use",
   );
 });
+
+test("unknown wire fields explain protocol mismatch instead of asking the user to fix input", () => {
+  const error = new BackendError("invalid_request", "unknown Protobuf field");
+  const { rerender } = render(<ErrorNotice error={error} />);
+  expect(screen.getByRole("button").textContent).toBe(
+    "Terminal 与服务的通信协议不一致，请将两边更新到同一版本。",
+  );
+  expect(screen.getByRole("button").title).toContain("invalid_request: unknown Protobuf field");
+  setLocale("en-US");
+  rerender(<ErrorNotice error={error} />);
+  expect(screen.getByRole("button").textContent).toBe(
+    "Terminal and the service use different communication protocols. Update both to the same release.",
+  );
+});
