@@ -46,7 +46,7 @@ std::vector<DaySettlement> settled(const ContractBars& item)
 
 OrderLimitsConfig limits(const char* order = "10", const char* gross = "10")
 {
-    return {d(order), d(gross), 10};
+    return {d(order), d(gross), 10, d(gross)};
 }
 
 // What a replay reported, in order.

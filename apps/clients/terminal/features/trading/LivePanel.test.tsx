@@ -31,7 +31,11 @@ const account = { id: "record", broker, environment: Environment.SIMULATION };
 const session = create(SessionSchema, {
   policyRevision: "policy",
   policy: {
-    limits: { maxOrderLots: { text: "5" }, maxGrossLots: { text: "10" } },
+    limits: {
+      maxOrderLots: { text: "5" },
+      maxGrossLots: { text: "10" },
+      maxContractLots: { text: "10" },
+    },
     contracts: [
       {
         instrument: { exchange: "SHFE", symbol: "rb2610" },

@@ -134,8 +134,8 @@ export function CreateLive({
                 {(
                   [
                     ["max_order_quantity", "单笔数量上限"],
-                    ["max_gross_quantity", "总持仓量上限"],
                     ["max_contract_quantity", "单合约持仓上限"],
+                    ["max_gross_quantity", "账户总持仓上限"],
                     ["max_working_orders", "在途委托数上限"],
                     ["max_price_deviation", "价格偏离上限"],
                   ] as const
@@ -145,16 +145,10 @@ export function CreateLive({
                     <input
                       aria-label={t(label)}
                       inputMode="decimal"
-                      placeholder={
-                        field === "max_price_deviation"
-                          ? "0.02"
-                          : field === "max_contract_quantity"
-                            ? limits.max_gross_quantity || undefined
-                            : undefined
-                      }
-                      value={limits[field] ?? ""}
+                      placeholder={field === "max_price_deviation" ? "0.02" : undefined}
+                      value={limits[field]}
                       onChange={event => setLimits({ ...limits, [field]: event.target.value })}
-                      required={field !== "max_contract_quantity"}
+                      required
                     />
                   </label>
                 ))}
@@ -180,9 +174,10 @@ export function CreateLive({
                 <dd>{contracts.join(" + ")}</dd>
                 <dt>{t("委托与持仓限制")}</dt>
                 <dd>
-                  {t("单笔数量上限")} {limits.max_order_quantity} · {t("总持仓量上限")}{" "}
-                  {limits.max_gross_quantity} · {t("在途委托数上限")} {limits.max_working_orders} ·{" "}
-                  {t("价格偏离上限")} {limits.max_price_deviation}
+                  {t("单笔数量上限")} {limits.max_order_quantity} · {t("单合约持仓上限")}{" "}
+                  {limits.max_contract_quantity} · {t("账户总持仓上限")} {limits.max_gross_quantity}{" "}
+                  · {t("在途委托数上限")} {limits.max_working_orders} · {t("价格偏离上限")}{" "}
+                  {limits.max_price_deviation}
                 </dd>
               </dl>
             </section>

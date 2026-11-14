@@ -9,7 +9,7 @@ struct OrderLimitsConfig
     Decimal max_order_quantity;
     Decimal max_gross_quantity;
     std::size_t max_working_orders;
-    Decimal max_contract_quantity = max_gross_quantity;
+    Decimal max_contract_quantity;
     void validate() const;
 };
 
@@ -17,7 +17,7 @@ struct OrderLimitsConfig
 Json encode_order_limits(const OrderLimitsConfig& config);
 OrderLimitsConfig decode_order_limits(const Json& value);
 
-// Single-instrument quantity limits, with pending opening orders reserved at
+// Per-contract and account quantity limits, with pending opening orders reserved at
 // their full remaining size. No credit for cancellations or closes not filled.
 class OrderLimits final : public RiskPort
 {

@@ -16,27 +16,22 @@ void OrderLimitsConfig::validate() const
 Json encode_order_limits(const OrderLimitsConfig& config)
 {
     config.validate();
-    Json result{
+    return Json{
         {"max_order_quantity", config.max_order_quantity.str()},
         {"max_gross_quantity", config.max_gross_quantity.str()},
-        {"max_working_orders", config.max_working_orders}
+        {"max_working_orders", config.max_working_orders},
+        {"max_contract_quantity", config.max_contract_quantity.str()}
     };
-    if (config.max_contract_quantity != config.max_gross_quantity)
-        result["max_contract_quantity"] = config.max_contract_quantity.str();
-    return result;
 }
 
 OrderLimitsConfig decode_order_limits(const Json& value)
 {
-    if (value.is_object() && value.contains("max_contract_quantity"))
-        require_fields(
-            value,
-            {"max_order_quantity",
-                "max_gross_quantity",
-                "max_contract_quantity",
-                "max_working_orders"});
-    else
-        require_fields(value, {"max_order_quantity", "max_gross_quantity", "max_working_orders"});
+    require_fields(
+        value,
+        {"max_order_quantity",
+            "max_gross_quantity",
+            "max_contract_quantity",
+            "max_working_orders"});
     if (!value.at("max_working_orders").is_number_unsigned()
         || value.at("max_working_orders").get<std::uint64_t>()
             > std::numeric_limits<std::size_t>::max())
@@ -48,12 +43,11 @@ OrderLimitsConfig decode_order_limits(const Json& value)
             throw std::invalid_argument("risk quantity must use canonical decimal text");
         return result;
     };
-    const auto gross = decimal("max_gross_quantity");
     OrderLimitsConfig result{
         decimal("max_order_quantity"),
-        gross,
+        decimal("max_gross_quantity"),
         value.at("max_working_orders").get<std::size_t>(),
-        value.contains("max_contract_quantity") ? decimal("max_contract_quantity") : gross
+        decimal("max_contract_quantity")
     };
     result.validate();
     return result;

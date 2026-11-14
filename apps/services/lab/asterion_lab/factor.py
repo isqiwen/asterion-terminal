@@ -74,7 +74,7 @@ def config(data: Data, symbols) -> Config:
                   begin_day=data.begin, end_day=data.end, deposit=Decimal(1),
                   costs=costs,
                   slippage_ticks=0, max_order_lots=Decimal(0), max_gross_lots=Decimal(0),
-                  max_working_orders=0)
+                  max_contract_lots=Decimal(0), max_working_orders=0)
 
 
 def bars(data: Data, symbol: str) -> dict:
@@ -85,7 +85,7 @@ def bars(data: Data, symbol: str) -> dict:
 
     contracts, series, _ = prepare(data, config(data, (symbol,)))
     limit = raw(Decimal(1))
-    engine = asterion_engine.Replay(limit, contracts, series, (limit, limit, 1))
+    engine = asterion_engine.Replay(limit, contracts, series, (limit, limit, 1, limit))
     context, days, segments, start = Context([symbol], rolls(contracts)), [], [], 0
     for completed in observations(engine, {0: symbol}, contracts):
         if completed:

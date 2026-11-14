@@ -270,6 +270,7 @@ class RemoteResearch(unittest.TestCase):
         run.period = Period.PERIOD_DAY
         run.deposit.text = '1000000'
         run.limits.max_order_lots.text = run.limits.max_gross_lots.text = '10'
+        run.limits.max_contract_lots.text = '10'
         run.limits.max_working_orders = 10
         run.periods_per_year, run.zero_risk_free_rate = 252, True
         return request

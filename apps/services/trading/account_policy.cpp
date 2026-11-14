@@ -7,15 +7,11 @@ PolicyDefinition PolicyDefinition::from_wire(const ::trading::Policy& policy)
 {
     protocol::validate_policy(policy);
     PolicyDefinition result;
-    const auto gross = Decimal::parse(policy.limits().max_gross_lots().text());
     result.limits = {
         Decimal::parse(policy.limits().max_order_lots().text()),
-        gross,
+        Decimal::parse(policy.limits().max_gross_lots().text()),
         policy.limits().max_working_orders(),
-        policy.limits().has_max_contract_lots()
-                && !policy.limits().max_contract_lots().text().empty()
-            ? Decimal::parse(policy.limits().max_contract_lots().text())
-            : gross
+        Decimal::parse(policy.limits().max_contract_lots().text())
     };
     result.max_price_deviation = Decimal::parse(policy.max_price_deviation().text());
     for (const auto& contract : policy.contracts())

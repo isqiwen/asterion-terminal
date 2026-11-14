@@ -113,28 +113,22 @@ Json contract(const ::trading::ContractTerms& c)
 
 ::common::RiskLimits encode_risk(const Json& value)
 {
-    if (value.is_object() && value.contains("max_contract_quantity"))
-        require_fields(
-            value,
-            {"max_order_quantity",
-                "max_gross_quantity",
-                "max_contract_quantity",
-                "max_working_orders"});
-    else
-        require_fields(value, {"max_order_quantity", "max_gross_quantity", "max_working_orders"});
+    require_fields(
+        value,
+        {"max_order_quantity",
+            "max_gross_quantity",
+            "max_contract_quantity",
+            "max_working_orders"});
     if (!value.at("max_working_orders").is_number_unsigned() || value.at("max_working_orders") == 0)
         throw std::invalid_argument("invalid risk working order limit");
     ::common::RiskLimits result;
     set(result.mutable_max_order_lots(), value.at("max_order_quantity"));
     set(result.mutable_max_gross_lots(), value.at("max_gross_quantity"));
+    set(result.mutable_max_contract_lots(), value.at("max_contract_quantity"));
     if (get(result.max_order_lots()) != value.at("max_order_quantity").get<std::string>()
-        || get(result.max_gross_lots()) != value.at("max_gross_quantity").get<std::string>())
+        || get(result.max_gross_lots()) != value.at("max_gross_quantity").get<std::string>()
+        || get(result.max_contract_lots()) != value.at("max_contract_quantity").get<std::string>())
         throw std::invalid_argument("risk quantities require canonical decimal text");
-    if (value.contains("max_contract_quantity")) {
-        set(result.mutable_max_contract_lots(), value.at("max_contract_quantity"));
-        if (get(result.max_contract_lots()) != value.at("max_contract_quantity").get<std::string>())
-            throw std::invalid_argument("risk quantities require canonical decimal text");
-    }
     result.set_max_working_orders(value.at("max_working_orders").get<std::uint32_t>());
     return result;
 }
@@ -142,28 +136,23 @@ Json contract(const ::trading::ContractTerms& c)
 void validate_risk(const ::common::RiskLimits& limits)
 {
     if (!limits.has_max_order_lots() || !limits.has_max_gross_lots()
-        || value(limits.max_order_lots()) <= Decimal{}
-        || value(limits.max_gross_lots()) <= Decimal{} || !limits.max_working_orders())
+        || !limits.has_max_contract_lots() || value(limits.max_order_lots()) <= Decimal{}
+        || value(limits.max_gross_lots()) <= Decimal{}
+        || value(limits.max_contract_lots()) <= Decimal{} || !limits.max_working_orders())
         throw std::invalid_argument("missing explicit risk limits");
-    if (limits.has_max_contract_lots() && !limits.max_contract_lots().text().empty()) {
-        const auto contract_lots = value(limits.max_contract_lots());
-        if (contract_lots <= Decimal{} || contract_lots > value(limits.max_gross_lots()))
-            throw std::invalid_argument("invalid contract risk limit");
-    }
+    if (value(limits.max_contract_lots()) > value(limits.max_gross_lots()))
+        throw std::invalid_argument("contract risk limit cannot exceed account gross limit");
 }
 
 Json decode_risk(const ::common::RiskLimits& limits)
 {
     validate_risk(limits);
-    Json result{
+    return {
         {"max_order_quantity", get(limits.max_order_lots())},
         {"max_gross_quantity", get(limits.max_gross_lots())},
+        {"max_contract_quantity", get(limits.max_contract_lots())},
         {"max_working_orders", limits.max_working_orders()}
     };
-    if (limits.has_max_contract_lots() && !limits.max_contract_lots().text().empty()
-        && value(limits.max_contract_lots()) != value(limits.max_gross_lots()))
-        result["max_contract_quantity"] = get(limits.max_contract_lots());
-    return result;
 }
 
 // CTP identities: short printable text without spaces.

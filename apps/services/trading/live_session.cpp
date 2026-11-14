@@ -265,6 +265,7 @@ LiveAccountState::LiveAccountState(
                     command.broker_key,
                     command.trading_day,
                     submit->order.instrument,
+                    submit->order.side,
                     submit->offset,
                     submit->order.quantity,
                     std::nullopt,
@@ -675,7 +676,9 @@ AccountCommand LiveAccountState::submit(
                 continue;
             if (offset == Offset::close_today)
                 closable = closable + position.today;
-            else if (offset == Offset::close_yesterday)
+            else if (offset == Offset::close_yesterday
+                || close_policy(id.venue) == ClosePolicy::explicit_buckets)
+                // Where today's lots are kept apart, a plain close takes yesterday's.
                 closable = closable + position.yesterday;
             else
                 closable = closable + position.today + position.yesterday;
@@ -690,8 +693,8 @@ AccountCommand LiveAccountState::submit(
                 closable = closable - (o.quantity - o.filled);
         for (const auto& [unconfirmed_id, intent] : unconfirmed(state)) {
             static_cast<void>(unconfirmed_id);
-            if (intent->instrument == id && intent->offset != Offset::open
-                && reduces_pool(intent->offset))
+            if (intent->instrument == id && intent->side == order.side
+                && intent->offset != Offset::open && reduces_pool(intent->offset))
                 closable = closable - intent->quantity;
         }
         if (order.quantity > closable)
@@ -752,6 +755,7 @@ AccountCommand LiveAccountState::submit(
         prepared_order.broker_key,
         state.trading_day,
         id,
+        order.side,
         offset,
         order.quantity,
         std::nullopt,
@@ -1071,9 +1075,7 @@ bool LiveAccountState::authorized(const BrokerSnapshot& state) const
     auto* limits = policy->mutable_limits();
     put(limits->mutable_max_order_lots(), policy_->definition.limits.max_order_quantity);
     put(limits->mutable_max_gross_lots(), policy_->definition.limits.max_gross_quantity);
-    if (policy_->definition.limits.max_contract_quantity
-        != policy_->definition.limits.max_gross_quantity)
-        put(limits->mutable_max_contract_lots(), policy_->definition.limits.max_contract_quantity);
+    put(limits->mutable_max_contract_lots(), policy_->definition.limits.max_contract_quantity);
     limits->set_max_working_orders(policy_->definition.limits.max_working_orders);
     put(policy->mutable_max_price_deviation(), policy_->definition.max_price_deviation);
     for (const auto& contract : policy_->definition.contracts) {

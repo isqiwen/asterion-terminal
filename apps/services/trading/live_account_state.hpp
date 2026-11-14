@@ -176,6 +176,7 @@ private:
     {
         std::string broker_key, trading_day;
         InstrumentId instrument;
+        Side side = Side::buy;
         Offset offset = Offset::open;
         Decimal quantity;
         std::optional<BrokerOrder> terminal = std::nullopt;

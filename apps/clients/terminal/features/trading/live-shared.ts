@@ -91,7 +91,7 @@ export function policyContract(row: CatalogContract): MessageInitShape<typeof Co
 export type LimitsDraft = {
   max_order_quantity: string;
   max_gross_quantity: string;
-  max_contract_quantity?: string;
+  max_contract_quantity: string;
   max_working_orders: string;
   max_price_deviation: string;
 };
@@ -99,11 +99,10 @@ export function riskLimits(draft: LimitsDraft): MessageInitShape<typeof RiskLimi
   const orders = draft.max_working_orders.trim();
   if (!/^\d+$/.test(orders))
     throw new BackendError("invalid_request", `invalid working order limit: ${orders}`);
-  const contractLots = draft.max_contract_quantity?.trim();
   return {
     maxOrderLots: decimal(draft.max_order_quantity),
     maxGrossLots: decimal(draft.max_gross_quantity),
-    ...(contractLots ? { maxContractLots: decimal(contractLots) } : {}),
+    maxContractLots: decimal(draft.max_contract_quantity),
     maxWorkingOrders: Number(orders),
   };
 }

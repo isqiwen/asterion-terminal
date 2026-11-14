@@ -12,7 +12,7 @@ def account_policy(catalog, symbol="rb2610", working_orders=2):
     row = next(c for c in catalog["contracts"] if c["instrument"]["symbol"] == symbol)
     _, product, month = row["contract"].split("/")
     return {"openAccount": {
-        "limits": {"maxOrderLots": decimal(5), "maxGrossLots": decimal(10),
+        "limits": {"maxOrderLots": decimal(5), "maxGrossLots": decimal(10), "maxContractLots": decimal(10),
                    "maxWorkingOrders": working_orders},
         "maxPriceDeviation": decimal("0.02"),
         "contracts": [{"instrument": row["instrument"], "product": product, "deliveryMonth": month,

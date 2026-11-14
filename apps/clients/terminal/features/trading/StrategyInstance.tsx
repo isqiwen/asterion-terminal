@@ -44,6 +44,7 @@ export function StrategyInstance({
   const [gross, setGross] = useState("");
   const [net, setNet] = useState("");
   const [warmupBars, setWarmupBars] = useState("");
+  const [localBars, setLocalBars] = useState(false);
   const [review, setReview] = useState<{ configuration: Instance; policy: string }>();
   const live = account?.session;
   const allowed = live?.policy?.contracts.map(item => item.instrument!) ?? [];
@@ -79,6 +80,12 @@ export function StrategyInstance({
               <>
                 <dt>{t("恢复自")}</dt>
                 <dd>{t("实例 {id} 的记录", { id: review.configuration.resumeFrom })}</dd>
+              </>
+            )}
+            {review.configuration.localBars && (
+              <>
+                <dt>{t("恢复自")}</dt>
+                <dd>{t("本地录制的 K 线")}</dd>
               </>
             )}
             {review.configuration.warmup && (
@@ -168,6 +175,7 @@ export function StrategyInstance({
                   params: parameterValues(rows),
                   weightLimits: budget ? { gross: decimal(gross), net: decimal(net) } : undefined,
                   warmup,
+                  localBars,
                 }),
               });
             });
@@ -226,6 +234,14 @@ export function StrategyInstance({
                   onChange={event => setWarmupBars(event.target.value)}
                 />
               </label>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={localBars}
+                  onChange={event => setLocalBars(event.target.checked)}
+                />
+                {t("从本地录制的 K 线恢复")}
+              </label>
             </div>
             {ended && (
               <button
@@ -236,6 +252,9 @@ export function StrategyInstance({
                     const configuration = clone(InstanceSchema, ended);
                     configuration.id = id.trim();
                     configuration.resumeFrom = ended.id;
+                    // The record already holds the ended instance's warmup bars.
+                    configuration.localBars = false;
+                    configuration.warmup = undefined;
                     const installed = state.packages.find(
                       item =>
                         `${item.name}/${item.version}` === packageKey &&

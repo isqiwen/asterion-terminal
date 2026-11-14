@@ -132,7 +132,7 @@ def main():
             rpc(host, 'stop_strategy', dict(id=resumed_config.id))
             local_config = wire.Instance()
             local_config.CopyFrom(config)
-            local_config.id, local_config.resume_from = 'local-window', 'local'
+            local_config.id, local_config.local_bars = 'local-window', True
             local_config.params['lots'].integer = 4
             local_resumed = rpc(host, 'start_strategy', local_config).instance
             assert local_resumed.state == trading.INSTANCE_STATE_READY and local_resumed.completed_steps == len(rows)

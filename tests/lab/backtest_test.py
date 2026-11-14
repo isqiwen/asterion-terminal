@@ -82,7 +82,7 @@ class Readiness(unittest.TestCase):
         import asterion_engine
         r = backtest.R
         return asterion_engine.Replay(1_000_000 * r, contracts, list(series),
-                                     (order_lots * r, 10 * r, 10))
+                                     (order_lots * r, 10 * r, 10, 10 * r))
 
     def test_not_ready_cancels_another_contracts_pending_target(self):
         first, second = "SHFE/rb/2026-05", "SHFE/rb/2026-10"
@@ -228,7 +228,8 @@ class Backtests(unittest.TestCase):
                       params={"fast": 2, "slow": 4}, symbols=symbols,
                       begin_day=DAYS[0].isoformat(), end_day=DAYS[-1].isoformat(),
                       deposit=Decimal(1_000_000), costs=None, slippage_ticks=0,
-                      max_order_lots=Decimal(10), max_gross_lots=Decimal(10), max_working_orders=10)
+                      max_order_lots=Decimal(10), max_gross_lots=Decimal(10),
+                      max_contract_lots=Decimal(10), max_working_orders=10)
         values.update(changes)
         values.setdefault("dataset_version", Dataset(self.directory).current().identity)
         if "source" not in values:
@@ -267,7 +268,7 @@ class Backtests(unittest.TestCase):
             data.product("SHFE", "rb")[contract].days[day]["high"] = Decimal(final_high)
             item = backtest.contract_input(data, config, contract, day, day)
             engine = asterion_engine.Replay(backtest.raw(config.deposit), [item], [],
-                                            (10 * backtest.R, 10 * backtest.R, 10))
+                                            (10 * backtest.R, 10 * backtest.R, 10, 10 * backtest.R))
             while not engine.finished:
                 while not engine.day_done:
                     engine.next()
@@ -354,7 +355,7 @@ class Backtests(unittest.TestCase):
         self.assertEqual(contracts[0]["price_increment"], backtest.R)
         self.assertEqual(contracts[0]["increments"], [(second, 2 * backtest.R)])
         engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, [],
-                                        (10 * backtest.R, 10 * backtest.R, 10))
+                                        (10 * backtest.R, 10 * backtest.R, 10, 10 * backtest.R))
         while not engine.finished:
             while not engine.day_done:
                 bar, = engine.next()
@@ -453,7 +454,7 @@ class Backtests(unittest.TestCase):
             config = self.config(("SHFE/rb",), end_day=end_day)
             contracts, series, first = backtest.prepare(backtest.open_data(self.directory, config), config)
             engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
-                                            (10 * backtest.R, 10 * backtest.R, 10))
+                                            (10 * backtest.R, 10 * backtest.R, 10, 10 * backtest.R))
             strategy = Watch()
             backtest.replay(engine, strategy, {engine.unit(index): symbol for symbol, index in first.items()},
                             contracts, config)
@@ -641,7 +642,7 @@ class Backtests(unittest.TestCase):
         contracts, series, first = backtest.prepare(backtest.open_data(self.directory, config), config)
         contracts[0]["bars"][1] = (*contracts[0]["bars"][1][:6], 10 * backtest.R)
         engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
-                                        (backtest.R, 10 * backtest.R, 10))
+                                        (backtest.R, 10 * backtest.R, 10, 10 * backtest.R))
         backtest.replay(engine, Once(), {engine.unit(index): symbol for symbol, index in first.items()},
                         contracts, config)
         # One lot of the first leg; the rest of the target is never placed, and stays void once ready again.
@@ -665,7 +666,7 @@ class Backtests(unittest.TestCase):
         contracts, series, first = backtest.prepare(backtest.open_data(self.directory, config), config)
         contracts[0]["bars"][2] = (*contracts[0]["bars"][2][:6], 10 * backtest.R)
         engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
-                                        (backtest.R, 10 * backtest.R, 10))
+                                        (backtest.R, 10 * backtest.R, 10, 10 * backtest.R))
         backtest.replay(engine, Pause(), {engine.unit(index): symbol for symbol, index in first.items()},
                         contracts, config)
         held = [row for row in engine.positions
@@ -709,7 +710,7 @@ class Backtests(unittest.TestCase):
         config = self.config(("SHFE/rb",), minutes=1)
         contracts, series, first = backtest.prepare(backtest.open_data(self.directory, config), config)
         engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
-                                        (backtest.R, 10 * backtest.R, 10))
+                                        (backtest.R, 10 * backtest.R, 10, 10 * backtest.R))
         backtest.replay(engine, Pause(), {engine.unit(index): symbol for symbol, index in first.items()},
                         contracts, config)
         with self.assertRaisesRegex(ValueError, f"minutes of SHFE/rb/2026-05 are not stored on "
@@ -756,7 +757,7 @@ class Backtests(unittest.TestCase):
                                      minutes=minutes)
                 contracts, series, first = backtest.prepare(backtest.open_data(self.directory, config), config)
                 engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
-                                               (10 * backtest.R, 10 * backtest.R, 10))
+                                               (10 * backtest.R, 10 * backtest.R, 10, 10 * backtest.R))
                 context = backtest.warmup(engine, repository.load(
                     self.repository, config.strategy, config.params),
                     {engine.unit(index): symbol for symbol, index in first.items()}, contracts)
@@ -793,7 +794,7 @@ class Backtests(unittest.TestCase):
 
                 def engine():
                     return asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
-                                                 (10 * backtest.R, 10 * backtest.R, 10))
+                                                 (10 * backtest.R, 10 * backtest.R, 10, 10 * backtest.R))
 
                 trading, warming = engine(), engine()
                 units = {trading.unit(index): symbol for symbol, index in first.items()}
@@ -907,7 +908,8 @@ class Backtests(unittest.TestCase):
 
     def test_targets_the_limits_refuse_are_recorded_with_their_reason(self):
         backtest.run(self.directory, "refused", self.config(
-            ("SHFE/rb/2026-05",), params={"fast": 2, "slow": 4, "lots": 5}, max_gross_lots=Decimal(2)))
+            ("SHFE/rb/2026-05",), params={"fast": 2, "slow": 4, "lots": 5}, max_gross_lots=Decimal(2),
+            max_contract_lots=Decimal(2)))
         rows = Runs(self.directory).record("refused")["data"]["rejections"]
         # Long, then short: each target is refused at every bar it stands.
         self.assertEqual([(row["contract"], row["lots"], row["reason"]) for row in rows],
@@ -1126,6 +1128,7 @@ class Backtests(unittest.TestCase):
         run.period = Period.PERIOD_DAY
         run.deposit.text = "1000000"
         run.limits.max_order_lots.text = run.limits.max_gross_lots.text = "10"
+        run.limits.max_contract_lots.text = "10"
         run.limits.max_working_orders = 10
 
     def sweep_request(self, identity, fast, slow, processes):

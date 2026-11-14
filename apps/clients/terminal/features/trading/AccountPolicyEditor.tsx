@@ -72,8 +72,8 @@ export function AccountPolicyEditor({
             {(
               [
                 ["max_order_quantity", "单笔数量上限"],
-                ["max_gross_quantity", "总持仓量上限"],
                 ["max_contract_quantity", "单合约持仓上限"],
+                ["max_gross_quantity", "账户总持仓上限"],
                 ["max_working_orders", "在途委托数上限"],
                 ["max_price_deviation", "价格偏离上限"],
               ] as const
@@ -83,13 +83,8 @@ export function AccountPolicyEditor({
                 <input
                   aria-label={t(label)}
                   inputMode="decimal"
-                  placeholder={
-                    field === "max_contract_quantity"
-                      ? limits.max_gross_quantity || undefined
-                      : undefined
-                  }
-                  required={field !== "max_contract_quantity"}
-                  value={limits[field] ?? ""}
+                  required
+                  value={limits[field]}
                   onChange={event => setLimits({ ...limits, [field]: event.target.value })}
                 />
               </label>

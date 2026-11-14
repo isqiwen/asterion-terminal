@@ -185,7 +185,8 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", delete=False) as folder
                    if item["instrument"] == {"exchange": venue, "symbol": symbol})
         _, product, delivery_month = row["contract"].split("/")
         trading({"openAccount": {
-            "limits": {"maxOrderLots": decimal(1), "maxGrossLots": decimal(1), "maxWorkingOrders": 1},
+            "limits": {"maxOrderLots": decimal(1), "maxGrossLots": decimal(1), "maxContractLots": decimal(1),
+                       "maxWorkingOrders": 1},
             "maxPriceDeviation": decimal(args.deviation),
             "contracts": [{"instrument": row["instrument"], "product": product,
                            "deliveryMonth": delivery_month, "multiplier": decimal(row["multiplier"]),

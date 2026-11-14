@@ -23,7 +23,7 @@ TEST(OrderLimits, lifecycle_and_exact_bounds)
     auto spec = instrument();
     LimitOrder order{"test", spec.id, Side::buy, d("2"), d("100")};
     PreTradeRiskContext context{spec, order, Offset::open, d("4"), d("4"), 1};
-    OrderLimits risk({d("2"), d("10"), 2});
+    OrderLimits risk({d("2"), d("10"), 2, d("10")});
     EXPECT_EQ(risk.evaluate(context).reason, RiskReason::unavailable);
     risk.start();
     EXPECT_TRUE(risk.evaluate(context).allowed()); // Exactly 10 total and 2 working.
@@ -44,7 +44,7 @@ TEST(OrderLimits, gross_risk_does_not_net_sides_or_credit_pending_closes)
     auto spec = instrument();
     LimitOrder sell{"test", spec.id, Side::sell, d("1"), d("100")};
     PreTradeRiskContext context{spec, sell, Offset::open, d("10"), d("0"), 0};
-    OrderLimits risk({d("3"), d("10"), 5});
+    OrderLimits risk({d("3"), d("10"), 5, d("10")});
     risk.start();
     EXPECT_EQ(risk.evaluate(context).reason, RiskReason::gross_quantity);
     context.offset = Offset::close_today;
@@ -94,13 +94,14 @@ TEST(OrderLimits, orthogonal_contract_and_account_gross_limits_across_contracts)
 
 TEST(OrderLimits, rejects_bad_configuration_and_context)
 {
-    EXPECT_THROW((OrderLimits({d("0"), d("10"), 1})), std::invalid_argument);
-    EXPECT_THROW((OrderLimits({d("1"), d("-1"), 1})), std::invalid_argument);
-    EXPECT_THROW((OrderLimits({d("1"), d("10"), 0})), std::invalid_argument);
+    EXPECT_THROW((OrderLimits({d("0"), d("10"), 1, d("10")})), std::invalid_argument);
+    EXPECT_THROW((OrderLimits({d("1"), d("-1"), 1, d("-1")})), std::invalid_argument);
+    EXPECT_THROW((OrderLimits({d("1"), d("10"), 0, d("10")})), std::invalid_argument);
+    EXPECT_THROW((OrderLimits({d("1"), d("10"), 1, d("11")})), std::invalid_argument);
     auto spec = instrument();
     LimitOrder order{"test", spec.id, Side::buy, d("1"), d("100")};
     PreTradeRiskContext context{spec, order, Offset::open, d("-1"), d("0"), 0};
-    OrderLimits risk({d("1"), d("10"), 1});
+    OrderLimits risk({d("1"), d("10"), 1, d("10")});
     risk.start();
     EXPECT_EQ(risk.evaluate(context).reason, RiskReason::invalid_context);
     context.gross_position_quantity = d("0");
@@ -120,7 +121,7 @@ TEST(OrderLimits, exposure_check_does_not_overflow_before_rejecting)
     LimitOrder order{"test", spec.id, Side::buy, d("1"), d("100")};
     const auto huge = d("92233720368");
     PreTradeRiskContext context{spec, order, Offset::open, huge, huge, 0};
-    OrderLimits risk({d("1"), huge, 1});
+    OrderLimits risk({d("1"), huge, 1, huge});
     risk.start();
     EXPECT_EQ(risk.evaluate(context).reason, RiskReason::gross_quantity);
 }
@@ -130,7 +131,7 @@ TEST(OrderLimits, derives_exposure_from_real_ledger_through_partial_fill_and_can
     auto spec = instrument();
     FuturesAccount account(d("10000"), {{spec, {d("100"), d("0"), d("0"), d("0")}}});
     account.mark(spec.id, d("100"));
-    OrderLimits risk({d("5"), d("5"), 3});
+    OrderLimits risk({d("5"), d("5"), 3, d("5")});
     risk.start();
     LimitOrder first{"first", spec.id, Side::buy, d("4"), d("100")};
     ASSERT_TRUE(assess_order(risk, account, first, Offset::open).allowed());
@@ -158,14 +159,19 @@ TEST(OrderLimits, derives_exposure_from_real_ledger_through_partial_fill_and_can
 
 TEST(OrderLimits, configuration_roundtrips_without_defaults_or_rewriting)
 {
-    const OrderLimitsConfig original{d("3"), d("10"), 7};
+    const OrderLimitsConfig original{d("3"), d("10"), 7, d("4")};
     const auto encoded = encode_order_limits(original);
     const auto decoded = decode_order_limits(encoded);
     EXPECT_EQ(decoded.max_order_quantity, original.max_order_quantity);
     EXPECT_EQ(decoded.max_gross_quantity, original.max_gross_quantity);
     EXPECT_EQ(decoded.max_working_orders, original.max_working_orders);
+    EXPECT_EQ(decoded.max_contract_quantity, original.max_contract_quantity);
     EXPECT_EQ(encode_order_limits(decoded), encoded);
-    for (const auto* key : {"max_order_quantity", "max_gross_quantity", "max_working_orders"}) {
+    for (const auto* key :
+        {"max_order_quantity",
+            "max_gross_quantity",
+            "max_contract_quantity",
+            "max_working_orders"}) {
         auto missing = encoded;
         missing.erase(key);
         EXPECT_THROW(decode_order_limits(missing), std::exception);

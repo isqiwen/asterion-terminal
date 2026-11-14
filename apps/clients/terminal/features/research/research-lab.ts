@@ -45,6 +45,7 @@ export type RunForm = {
   deposit: string;
   slippage: string;
   maxOrderLots: string;
+  maxContractLots: string;
   maxGrossLots: string;
   maxWorkingOrders: string;
   maxGrossWeight: string;
@@ -68,6 +69,7 @@ export function defaultForm(): RunForm {
     deposit: "1000000",
     slippage: "1",
     maxOrderLots: "",
+    maxContractLots: "",
     maxGrossLots: "",
     maxWorkingOrders: "10",
     maxGrossWeight: "1",
@@ -164,6 +166,7 @@ export function runRequest(
     limits: {
       maxOrderLots: decimal(form.maxOrderLots),
       maxGrossLots: decimal(form.maxGrossLots),
+      maxContractLots: decimal(form.maxContractLots),
       maxWorkingOrders: Number(form.maxWorkingOrders),
     },
     maxGrossWeight: decimal(form.maxGrossWeight),

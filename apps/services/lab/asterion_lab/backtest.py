@@ -83,8 +83,8 @@ class Config:
     slippage_ticks: int
     max_order_lots: Decimal
     max_gross_lots: Decimal
+    max_contract_lots: Decimal
     max_working_orders: int
-    max_contract_lots: Decimal = Decimal(0)
     # What ctx.weights may ask for in all, gross and net, as shares of equity.
     max_gross_weight: Decimal = Decimal(0)
     max_net_weight: Decimal = Decimal(0)
@@ -610,12 +610,10 @@ def costs_record(config: Config) -> dict:
 
 
 def risk_record(config: Config) -> dict:
-    result = {"max_gross_weight": str(config.max_gross_weight), "max_net_weight": str(config.max_net_weight),
-              "max_order_lots": str(config.max_order_lots), "max_gross_lots": str(config.max_gross_lots),
-              "max_working_orders": config.max_working_orders}
-    if config.max_contract_lots and config.max_contract_lots != config.max_gross_lots:
-        result["max_contract_lots"] = str(config.max_contract_lots)
-    return result
+    return {"max_gross_weight": str(config.max_gross_weight), "max_net_weight": str(config.max_net_weight),
+            "max_order_lots": str(config.max_order_lots), "max_gross_lots": str(config.max_gross_lots),
+            "max_contract_lots": str(config.max_contract_lots),
+            "max_working_orders": config.max_working_orders}
 
 
 def statistics_record(config: Config) -> dict:
@@ -689,7 +687,7 @@ def run(directory: Path, identity: str, config: Config, started=lambda: None):
         engine = asterion_engine.Replay(
             raw(config.deposit), contracts, series,
             (raw(config.max_order_lots), raw(config.max_gross_lots), config.max_working_orders,
-             raw(config.max_contract_lots or config.max_gross_lots)))
+             raw(config.max_contract_lots)))
         symbols = {engine.unit(index): symbol for symbol, index in first.items()}
         replay(engine, strategy, symbols, contracts, config)
         held_without_minutes(engine, contracts)
@@ -738,9 +736,8 @@ def config_of(admitted) -> Config:
         costs=None, slippage_ticks=request.slippage_ticks,
         max_order_lots=number("max_order_lots", limits.max_order_lots.text),
         max_gross_lots=number("max_gross_lots", limits.max_gross_lots.text),
+        max_contract_lots=number("max_contract_lots", limits.max_contract_lots.text),
         max_working_orders=limits.max_working_orders,
-        max_contract_lots=number("max_contract_lots", limits.max_contract_lots.text)
-        if limits.max_contract_lots.text else Decimal(0),
         max_gross_weight=number("max_gross_weight", request.max_gross_weight.text or "0"),
         max_net_weight=number("max_net_weight", request.max_net_weight.text or "0"),
         annual_periods=request.periods_per_year or None,

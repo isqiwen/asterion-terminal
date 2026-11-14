@@ -88,7 +88,8 @@ def account_ready(host):
 def initialize_account(host):
     # Explicit test policy initialization is independent of code publication.
     policy = trading.Policy(
-        limits=dict(max_order_lots={'text': '5'}, max_gross_lots={'text': '10'}, max_working_orders=2),
+        limits=dict(max_order_lots={'text': '5'}, max_gross_lots={'text': '10'},
+                    max_contract_lots={'text': '10'}, max_working_orders=2),
         max_price_deviation={'text': '0.02'})
     policy.contracts.add(instrument=dict(exchange='SHFE', symbol='rb2610'), product='rb',
                          delivery_month='2026-10', multiplier={'text': '10'},

@@ -39,7 +39,12 @@ export async function livePolicy(request: APIRequestContext) {
   const [, product, deliveryMonth] = row.contract.split("/");
   return {
     openAccount: {
-      limits: { maxOrderLots: { text: "5" }, maxGrossLots: { text: "10" }, maxWorkingOrders: 2 },
+      limits: {
+        maxOrderLots: { text: "5" },
+        maxGrossLots: { text: "10" },
+        maxContractLots: { text: "10" },
+        maxWorkingOrders: 2,
+      },
       maxPriceDeviation: { text: "0.02" },
       contracts: [
         {

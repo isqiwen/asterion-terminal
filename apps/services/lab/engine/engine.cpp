@@ -239,14 +239,11 @@ public:
                 current.rolls.push_back(
                     {roll[py::int_(0)].cast<std::string>(), roll[py::int_(1)].cast<std::size_t>()});
         }
-        if (limits.size() != 3 && limits.size() != 4)
-            throw std::invalid_argument("limits are order lots, gross lots and working orders");
-        OrderLimitsConfig config{
-            raw(limits[0]),
-            raw(limits[1]),
-            limits[2].cast<std::size_t>(),
-            limits.size() == 4 ? raw(limits[3]) : raw(limits[1])
-        };
+        if (limits.size() != 4)
+            throw std::invalid_argument(
+                "limits are order lots, gross lots, working orders and contract lots");
+        OrderLimitsConfig
+            config{raw(limits[0]), raw(limits[1]), limits[2].cast<std::size_t>(), raw(limits[3])};
         std::map<std::string, Decimal> revalued;
         for (const auto& [day, rate] : margins)
             revalued.emplace(day.cast<std::string>(), raw(rate));

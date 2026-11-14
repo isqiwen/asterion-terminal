@@ -253,7 +253,8 @@ export function StrategyLab(context: TerminalContext) {
                   {field("初始资金", "deposit")}
                   {field("滑点（跳）", "slippage")}
                   {field("单笔手数", "maxOrderLots")}
-                  {field("总持仓手数", "maxGrossLots")}
+                  {field("单合约持仓手数", "maxContractLots")}
+                  {field("账户总持仓手数", "maxGrossLots")}
                   {field("在途委托数", "maxWorkingOrders")}
                   {field("总权重上限", "maxGrossWeight")}
                   {field("净权重上限", "maxNetWeight")}

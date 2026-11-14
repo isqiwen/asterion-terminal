@@ -20,14 +20,14 @@ test(
     await panel.getByRole("button", { name: "风控", exact: true }).click();
     const editor = panel.getByRole("region", { name: "账户政策", exact: true });
     await expect(editor).toContainText(original.session.policyRevision);
-    await editor.getByLabel("总持仓量上限", { exact: true }).fill("8");
+    await editor.getByLabel("单合约持仓上限", { exact: true }).fill("8");
     await editor.getByLabel("我确认应用上述政策并重新登录", { exact: true }).check();
     await editor.getByRole("button", { name: "应用新政策", exact: true }).click();
     await expect(panel.getByTestId("live-phase")).toHaveText("未连接");
     const revised = await liveAccount(page.request, account);
     expect(revised.id).toBe(original.id);
     expect(revised.session.policyRevision).not.toBe(original.session.policyRevision);
-    expect(revised.session.policy.limits.maxGrossLots.text).toBe("8");
+    expect(revised.session.policy.limits.maxContractLots.text).toBe("8");
     expect(revised.session.authorizedMs).toBeUndefined();
     const stale = await page.request.post("/__asterion/api", {
       data: {
@@ -50,7 +50,7 @@ test(
     await tradingHost.restart();
     const recovered = await liveAccount(page.request, account);
     expect(recovered.session.policyRevision).toBe(revised.session.policyRevision);
-    expect(recovered.session.policy.limits.maxGrossLots.text).toBe("8");
+    expect(recovered.session.policy.limits.maxContractLots.text).toBe("8");
     expect(recovered.session.authorizedMs).toBeUndefined();
   },
 );

@@ -130,6 +130,9 @@ void validate(const wire::Instance& instance)
         package_identity(instance.resume_from(), "instance");
         if (instance.resume_from() == instance.id())
             throw std::invalid_argument("a strategy instance cannot resume from itself");
+        if (instance.local_bars())
+            throw std::invalid_argument(
+                "a strategy instance resumes from a record or from local bars, not both");
     }
     if (instance.has_warmup()) {
         const auto& warmup = instance.warmup();
@@ -184,6 +187,7 @@ std::vector<wire::Bars> recorded_inputs(const fs::path& run, const wire::Instanc
     for (auto* item : {&recorded, &wanted}) {
         item->clear_id();
         item->clear_resume_from();
+        item->clear_local_bars();
         item->clear_package_version();
         item->mutable_params()->clear();
         item->clear_weight_limits();
@@ -620,8 +624,8 @@ struct StrategyHost::State
             for (const auto& batch : configuration.warmup().bars())
                 replay.push_back(batch);
         }
-        if (!configuration.resume_from().empty()) {
-            const auto resumed = configuration.resume_from() == "local"
+        if (configuration.local_bars() || !configuration.resume_from().empty()) {
+            const auto resumed = configuration.local_bars()
                 ? load_local_bars(*local_bars, configuration)
                 : recorded_inputs(
                       root / "runs" / (configuration.resume_from() + ".sqlite"),

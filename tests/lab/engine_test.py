@@ -40,7 +40,7 @@ def run(replay, decide):
 class Engine(unittest.TestCase):
     def test_a_target_fills_on_the_next_bar_at_its_open(self):
         replay = asterion_engine.Replay(1_000_000 * R, [contract("rb2605", DAYS, [100, 110, 120, 115])],
-                                        [], (10 * R, 10 * R, 10))
+                                        [], (10 * R, 10 * R, 10, 10 * R))
         self.assertEqual(replay.units, 1)
 
         def decide(replay, bars):
@@ -65,7 +65,7 @@ class Engine(unittest.TestCase):
         # The second bar has zero volume: the order is cancelled after it.
         item = contract("rb2605", DAYS[:3], [100, 130, 140])
         item["bars"][1] = (*item["bars"][1][:6], 0)
-        replay = asterion_engine.Replay(1_000_000 * R, [item], [], (10 * R, 10 * R, 10))
+        replay = asterion_engine.Replay(1_000_000 * R, [item], [], (10 * R, 10 * R, 10, 10 * R))
         decided = []
 
         def decide(replay, bars):
@@ -81,7 +81,7 @@ class Engine(unittest.TestCase):
     def test_risk_rejections_and_untouched_units(self):
         replay = asterion_engine.Replay(1_000_000 * R, [contract("rb2605", DAYS, [100, 110, 120, 115]),
                                                         contract("rb2610", DAYS, [100, 110, 120, 115])],
-                                        [], (5 * R, 2 * R, 10))
+                                        [], (5 * R, 2 * R, 10, 2 * R))
 
         def decide(replay, bars):
             replay.want(0, 5 * R)
@@ -97,9 +97,9 @@ class Engine(unittest.TestCase):
         item = contract("rb2605", DAYS, [100, 110, 120, 115])
         for broken in (dict(item, costs=[]), dict(item, bars=[("2026-01-05", 1)])):
             with self.assertRaises(ValueError):
-                asterion_engine.Replay(R, [broken], [], (R, R, 1))
+                asterion_engine.Replay(R, [broken], [], (R, R, 1, R))
         with self.assertRaises(ValueError):
-            asterion_engine.Replay(R, [item], [], (R, R))
+            asterion_engine.Replay(R, [item], [], (R, R, 1))
 
 
 if __name__ == "__main__":

@@ -46,7 +46,8 @@ test(
     await form.getByLabel("结束日").fill("2026-02-13");
     await form.getByText("资金与风控", { exact: true }).click();
     await form.getByLabel("单笔手数").fill("10");
-    await form.getByLabel("总持仓手数").fill("10");
+    await form.getByLabel("单合约持仓手数").fill("10");
+    await form.getByLabel("账户总持仓手数").fill("10");
 
     await backtest(page, "2", "4");
     await expect(page.getByText(/^成交（[1-9]\d* 笔）$/)).toBeVisible();

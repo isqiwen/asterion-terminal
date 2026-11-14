@@ -126,6 +126,7 @@ public:
         state["risk"] = {
             {"max_order_quantity", policy.at("limits").at("max_order_lots")},
             {"max_gross_quantity", policy.at("limits").at("max_gross_lots")},
+            {"max_contract_quantity", policy.at("limits").at("max_contract_lots")},
             {"max_working_orders", policy.at("limits").at("max_working_orders")}
         };
         state["max_price_deviation"] = policy.at("max_price_deviation");
@@ -345,6 +346,7 @@ Json manifest(std::uint64_t working_orders = 1, const char* deviation = "0.02")
             {{"risk",
                  {{"max_order_quantity", "5"},
                      {"max_gross_quantity", "10"},
+                     {"max_contract_quantity", "10"},
                      {"max_working_orders", working_orders}}},
                 {"max_price_deviation", deviation},
                 {"contracts", Json::array({contract("rb2610")})}}}
@@ -501,7 +503,7 @@ TEST_F(Live, PolicyRevisionsRetainExposureFenceStaleCommandsAndSurviveRecoveryAn
                 .at("positions")
                 .empty());
         auto next = manifest(2).at("policy");
-        next["risk"]["max_gross_quantity"] = "1";
+        next["risk"]["max_gross_quantity"] = next["risk"]["max_contract_quantity"] = "1";
         next["contracts"].push_back(contract("rb2611", "rb", "2026-11"));
         change = policy_command(session, next);
         act(session, change);
@@ -575,7 +577,7 @@ TEST_F(Live, PolicyJournalFailureKeepsOriginalRevisionAndRequiresRecovery)
         ASSERT_EQ(ready(session).at("phase"), "ready");
         act(session, authorize());
         auto next = manifest().at("policy");
-        next["risk"]["max_gross_quantity"] = "8";
+        next["risk"]["max_gross_quantity"] = next["risk"]["max_contract_quantity"] = "8";
         const auto command = policy_command(session, next);
         sqlite::fail_next_commits_for_testing(1);
         EXPECT_THROW(act(session, command), std::runtime_error);
@@ -735,7 +737,8 @@ TEST_F(Live, IncompleteFailedOrForeignDayQuotesNeverJournalAnOrder)
 TEST_F(Live, FilledOrdersDoNotCreateRiskHeadroomBeforePositionsAreReconciled)
 {
     auto input = manifest(3);
-    input["policy"]["risk"]["max_gross_quantity"] = "2";
+    input["policy"]["risk"]["max_gross_quantity"] =
+        input["policy"]["risk"]["max_contract_quantity"] = "2";
     LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, input);
     ASSERT_EQ(ready(session).at("phase"), "ready");
     act(session, authorize());
