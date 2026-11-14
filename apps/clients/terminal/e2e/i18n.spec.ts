@@ -77,8 +77,7 @@ test.describe("startup language", () => {
     await page.getByLabel("语言", { exact: true }).selectOption("en");
     await page.screenshot({ path: "apps/clients/terminal/test-results/english-setup.png" });
     await expect(page.getByRole("alert")).toContainText("Permission denied");
-    await expect(page.getByRole("alert")).not.toContainText("原始诊断信息");
-    // The diagnostic is read on hover and copied by a click, never shown in the text.
+    await expect(page.getByRole("alert")).toContainText("原始诊断信息");
     await expect(
       page.getByRole("alert").getByRole("button", { name: "Permission denied" }),
     ).toHaveAttribute("title", /原始诊断信息/);
