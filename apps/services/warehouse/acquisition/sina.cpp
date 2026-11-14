@@ -50,10 +50,15 @@ std::string text(const Json& row, const char* field)
 Cell price(const Json& row, const char* field)
 {
     auto value = text(row, field);
-    return !value.empty() && std::all_of(value.begin(), value.end(), [](char c) {
-        return c == '0' || c == '.';
-    }) ? Cell{}
-       : Cell{std::move(value)};
+    return !value.empty()
+            && std::all_of(
+                value.begin(),
+                value.end(),
+                [](char c) {
+                    return c == '0' || c == '.';
+                })
+        ? Cell{}
+        : Cell{std::move(value)};
 }
 
 // Night minutes belong to the next trading day. Exchanges hold no night session
@@ -134,9 +139,8 @@ std::vector<DailyBar> Sina::daily(const std::string& exchange, const std::string
             for (const auto& row : rows_of(get("getDailyKLine", contract))) {
                 const auto date = text(row, "d");
                 const auto open = price(row, "o"), high = price(row, "h"), low = price(row, "l");
-                const auto close = open == Cell{} && high == Cell{} && low == Cell{}
-                    ? Cell{}
-                    : price(row, "c");
+                const auto close =
+                    open == Cell{} && high == Cell{} && low == Cell{} ? Cell{} : price(row, "c");
                 days[date] = {
                     .exchange = exchange,
                     .product = product_of(contract),

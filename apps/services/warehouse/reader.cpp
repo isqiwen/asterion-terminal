@@ -356,9 +356,7 @@ wire::DatasetCoverage Reader::coverage(const wire::DatasetRef& query) const
     std::map<std::string, std::string> first, last;
     for (const auto& [group, files] : daily) {
         const auto rows = engine.run(
-            "SELECT exchange, product, strftime(day, '%Y-%m'), count(DISTINCT day),"
-            " strftime(min(day), '%Y-%m-%d'), strftime(max(day), '%Y-%m-%d')"
-            " FROM read_parquet(["
+            "SELECT exchange, product, strftime(day, '%Y-%m'), count(DISTINCT day)," " strftime(min(day), '%Y-%m-%d'), strftime(max(day), '%Y-%m-%d')" " FROM read_parquet(["
             + files + "]) GROUP BY exchange, product, strftime(day, '%Y-%m')");
         for (duckdb::idx_t row = 0; row < rows->RowCount(); ++row) {
             const auto key =

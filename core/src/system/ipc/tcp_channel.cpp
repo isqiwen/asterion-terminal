@@ -172,10 +172,7 @@ std::shared_ptr<asio::ssl::context> tls_context(const TlsIdentity& identity)
         if (!path.is_absolute() || !std::filesystem::is_regular_file(path)
             || std::filesystem::file_size(path) > 1024 * 1024)
             throw std::invalid_argument("TLS requires absolute paths to PEM files (maximum 1 MiB)");
-        return std::pair{
-            std::filesystem::last_write_time(path),
-            std::filesystem::file_size(path)
-        };
+        return std::pair{std::filesystem::last_write_time(path), std::filesystem::file_size(path)};
     };
     const auto cert_stamp = stamp(identity.certificate_file);
     const auto key_stamp = stamp(identity.private_key_file);

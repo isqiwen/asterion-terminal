@@ -13,8 +13,8 @@ long double change(Decimal from, Decimal to)
 {
     const auto a = static_cast<std::uint64_t>(from.raw());
     const auto b = static_cast<std::uint64_t>(to.raw());
-    const auto diff = to >= from ? static_cast<long double>(b - a)
-                                 : -static_cast<long double>(a - b);
+    const auto diff =
+        to >= from ? static_cast<long double>(b - a) : -static_cast<long double>(a - b);
     return diff / static_cast<long double>(from.raw());
 }
 
@@ -214,6 +214,7 @@ Trades trades(std::span<const TradedFill> fills, std::span<const Decimal> multip
         std::size_t contract;
         Decimal gross, fees, net;
     };
+
     struct Carry
     {
         bool active = false;
@@ -221,6 +222,7 @@ Trades trades(std::span<const TradedFill> fills, std::span<const Decimal> multip
         Decimal gross, fees, net;
         std::vector<Leg> legs;
     };
+
     // What each contract holds now, and what its open trade has paid and received.
     std::vector<Decimal> position(multipliers.size()), cash(multipliers.size()),
         fees(multipliers.size());
@@ -307,8 +309,7 @@ Trades trades(std::span<const TradedFill> fills, std::span<const Decimal> multip
     return result;
 }
 
-DailyDrawdown
-daily_drawdown(std::span<const EquityDay> days, std::stop_token stop, Decimal deposit)
+DailyDrawdown daily_drawdown(std::span<const EquityDay> days, std::stop_token stop, Decimal deposit)
 {
     if (days.empty())
         throw std::invalid_argument("daily drawdown requires an observed settlement");
@@ -349,8 +350,7 @@ daily_drawdown(std::span<const EquityDay> days, std::stop_token stop, Decimal de
         std::optional<double> fraction;
         if (peak_equity > Decimal{} && days[i].equity > Decimal{}) {
             fraction = static_cast<double>(
-                static_cast<long double>(loss.raw())
-                / static_cast<long double>(peak_equity.raw()));
+                static_cast<long double>(loss.raw()) / static_cast<long double>(peak_equity.raw()));
             if (*fraction > maximum) {
                 maximum = *fraction;
                 maximum_index = i;
@@ -374,8 +374,7 @@ daily_drawdown(std::span<const EquityDay> days, std::stop_token stop, Decimal de
     return result;
 }
 
-DailyDrawdown
-daily_drawdown(Decimal deposit, std::span<const EquityDay> days, std::stop_token stop)
+DailyDrawdown daily_drawdown(Decimal deposit, std::span<const EquityDay> days, std::stop_token stop)
 {
     if (deposit <= Decimal{})
         throw std::invalid_argument("daily drawdown deposit must be positive");
