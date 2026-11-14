@@ -241,9 +241,16 @@ def describe(root: Path) -> Strategies:
         if error:
             reply.errors.add(module=name, traceback=error)
             continue
+        try:
+            files = closure(root, f"strategies/{name}.py", lab_provides)
+        except ValueError:
+            # An import that only runs elsewhere, such as one tried and excepted.
+            files = []
+        used = [file[len("factors/"):-len(".py")] for file in files if file.startswith("factors/")]
         for cls in defined(module):
             entry = reply.strategies.add(id=f"{name}.{cls.__name__}",
-                                         description=inspect.getdoc(cls) or "")
+                                         description=inspect.getdoc(cls) or "",
+                                         factor_modules=used)
             for parameter, value in cls.params.items():
                 item = entry.parameters.add(name=parameter)
                 setattr(item.default, VALUE_FIELDS[type(value)], value)

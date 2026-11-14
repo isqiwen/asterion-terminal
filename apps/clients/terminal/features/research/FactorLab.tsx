@@ -51,6 +51,9 @@ export function FactorLab(context: TerminalContext) {
   const [saved, setSaved] = useState<string[]>([]);
 
   const factor = modules?.factors.find(item => item.id === chosen);
+  const users = (modules?.strategies ?? []).filter(item =>
+    item.factorModules.includes(chosen.split(".")[0]),
+  );
   const [library, setLibrary] = useWorkspaceDraft("factor-library", false);
   // Kept evaluations, newest first: each factor's latest beside it in the list
   // and in the library, and the chosen factor's under its settings.
@@ -254,6 +257,25 @@ export function FactorLab(context: TerminalContext) {
                   {field("持有期（K 线数）", "horizons")}
                   {field("分组数", "groups")}
                 </Section>
+                {users.length > 0 && (
+                  <Section title={t("导入本模块的策略")} summary={String(users.length)} open>
+                    <ul className="lab-evaluations" aria-label={t("导入本模块的策略")}>
+                      {users.map(item => (
+                        <li key={item.id}>
+                          <button
+                            onClick={() => {
+                              setLibrary(false);
+                              setReport("");
+                              source.open(`strategies/${item.id.split(".")[0]}.py`);
+                            }}
+                          >
+                            {item.id.split(".")[1]}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </Section>
+                )}
                 {evaluations.length > 0 && (
                   <Section title={t("评价记录")} summary={String(evaluations.length)} open>
                     <ul className="lab-evaluations" aria-label={t("评价记录")}>

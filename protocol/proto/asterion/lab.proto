@@ -186,6 +186,8 @@ message StrategyEntry {
   string id = 1;
   string description = 2;
   repeated Parameter parameters = 3;
+  // The modules of factors/ its module imports, directly or not.
+  repeated string factor_modules = 4;
 }
 
 // module.function; inputs are the bar fields it takes, in order.

@@ -209,5 +209,6 @@
   "还没有因子": "No factors yet",
   "没有匹配的模块": "No matching modules",
   "没有成交": "No fills",
-  "日收益 · 无风险利率 0 · 一年 252 期": "Daily returns · zero risk-free rate · 252 periods a year"
+  "日收益 · 无风险利率 0 · 一年 252 期": "Daily returns · zero risk-free rate · 252 periods a year",
+  "导入本模块的策略": "Strategies importing this module"
 }

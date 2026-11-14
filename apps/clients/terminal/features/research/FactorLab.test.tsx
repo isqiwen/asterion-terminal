@@ -114,3 +114,34 @@ test("a factor's kept evaluation reopens its report with the code it evaluated",
   fireEvent.click(screen.getByRole("button", { name: "← 源码" }));
   await screen.findByText("factors/price.py");
 });
+
+test("a factor lists the strategies that import its module and opens one's code", async () => {
+  vi.mocked(lab).mockImplementation(async operation => {
+    switch (operation?.case) {
+      case "listStrategies":
+        return create(StrategiesSchema, {
+          factors: [{ id: "price.momentum", inputs: ["close"] }],
+          strategies: [
+            { id: "momentum_rank.MomentumRank", factorModules: ["price"] },
+            { id: "ma_cross.MaCross" },
+          ],
+        }) as never;
+      case "listFactorResults":
+        return create(FactorResultsSchema, {}) as never;
+      case "readSource":
+        return create(SourceSchema, { content: "" }) as never;
+    }
+    return new Promise(() => {}) as never;
+  });
+  const context = { snapshot: { research_directory: "/research" } } as unknown as TerminalContext;
+  render(
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.lab-factors">
+      <FactorLab {...context} />
+    </WorkspaceDraftScope>,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: /^momentum/ }));
+  const users = await screen.findByRole("list", { name: "导入本模块的策略" });
+  expect(within(users).getAllByRole("button")).toHaveLength(1);
+  fireEvent.click(within(users).getByRole("button", { name: "MomentumRank" }));
+  await screen.findByText("strategies/momentum_rank.py");
+});

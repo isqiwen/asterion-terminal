@@ -235,6 +235,25 @@ class Repository(unittest.TestCase):
         git(self.root, "commit", "-qm", "more")
         self.assertEqual(repository.revision(self.root).changes, "")
 
+    def test_a_strategy_reads_a_factor_of_the_directory(self):
+        (self.root / "strategies/trend.py").write_text(
+            "from asterion_strategy import Strategy\nfrom factors.price import momentum\n\n\n"
+            "class Trend(Strategy):\n    params = {'lookback': 2}\n\n"
+            "    def ready(self, ctx):\n        return True\n\n"
+            "    def on_bar(self, ctx, bar):\n"
+            "        value = ctx.factor(momentum, bar.symbol, 3, lookback=self.params['lookback'])\n"
+            "        if value == value:\n"
+            "            ctx.target(bar.symbol, 1 if value > 0 else -1)\n")
+        strategy = repository.load(self.root, "trend.Trend", {})
+        context = Context(["SHFE/rb"])
+        wanted = [step(strategy, context, [bar("SHFE/rb", minute, close)])
+                  for minute, close in enumerate([10.0, 11, 12, 9])]
+        # No value until three bars are known, then the sign of the two-bar return.
+        self.assertEqual(wanted, [{}, {}, {"SHFE/rb": 1}, {"SHFE/rb": -1}])
+        listed = {entry.id: entry for entry in repository.list_strategies(str(self.root)).strategies}
+        self.assertEqual(list(listed["trend.Trend"].factor_modules), ["price"])
+        self.assertEqual(list(listed["ma_cross.MaCross"].factor_modules), [])
+
     def test_load_checks_parameters(self):
         strategy = repository.load(self.root, "ma_cross.MaCross", {"fast": 3, "slow": 6})
         self.assertEqual(strategy.params, {"fast": 3, "slow": 6, "lots": 1, "sides": "both"})

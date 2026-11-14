@@ -313,16 +313,23 @@ def ${name}(close, window: int = 20):
   const cls = name.replace(/(^|_)([a-z0-9])/g, (_, __, letter: string) => letter.toUpperCase());
   return `from asterion_strategy import Strategy
 
+from factors.price import momentum
+
 
 class ${cls}(Strategy):
-    """Holds \`lots\` long once \`window\` bars are known."""
-    params = {"window": 20, "lots": 1}
+    """Long while the return over \`lookback\` bars is positive, short while it is negative."""
+    params = {"lookback": 20, "lots": 1}
 
     def ready(self, ctx):
-        window = self.params["window"]
-        return all(len(ctx.history(s, "close", window)) == window for s in ctx.symbols)
+        need = self.params["lookback"] + 1
+        return all(len(ctx.history(s, "close", need)) == need for s in ctx.symbols)
 
     def on_bar(self, ctx, bar):
-        ctx.target(bar.symbol, self.params["lots"])
+        lookback = self.params["lookback"]
+        value = ctx.factor(momentum, bar.symbol, lookback + 1, lookback=lookback)
+        if value > 0:
+            ctx.target(bar.symbol, self.params["lots"])
+        elif value < 0:
+            ctx.target(bar.symbol, -self.params["lots"])
 `;
 }

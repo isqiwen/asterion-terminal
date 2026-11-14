@@ -20,6 +20,9 @@ risk rules and keeps every amount in fixed point.
             up = closes[-self.params["fast"]:].mean() > closes.mean()
             ctx.target(bar.symbol, self.params["lots"] if up else -self.params["lots"])
 
+A strategy uses a factor of the repository's factors/ by importing it:
+ctx.factor(momentum, bar.symbol, 21, lookback=20) is its value at this bar.
+
 A rule over several symbols overrides on_bars instead, which sees every bar
 of one time together, and may hold weights rather than lots.
 
@@ -31,6 +34,7 @@ ctx.history is not scaled; a change of bar.contract marks the roll.
 """
 from dataclasses import dataclass
 import datetime
+import inspect
 import math
 import numbers
 
@@ -161,6 +165,14 @@ class Context:
         if not isinstance(count, numbers.Integral) or isinstance(count, bool) or count < 1:
             raise ValueError("count is a positive whole number")
         return self.columns[symbol][field].last(int(count))
+
+    def factor(self, function, symbol: str, count: int, **settings) -> float:
+        """A factor's value at the bar being decided on, computed over the
+        symbol's last `count` bars: the function's parameters named after bar
+        fields get that history, `settings` the rest."""
+        inputs = {name: self.history(symbol, name, count)
+                  for name in inspect.signature(function).parameters if name in FIELDS}
+        return float(function(**inputs, **settings)[-1])
 
     def target(self, symbol: str, lots: int):
         """Hold `lots` of the symbol from the next bar on: positive long,
