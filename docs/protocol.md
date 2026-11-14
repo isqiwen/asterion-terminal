@@ -36,7 +36,7 @@ message Response {
 - **请求和结果同名同号**：请求的 `call` 是 `get_dataset_version = 21`，成功的结果就是 `get_dataset_version = 21`。调用方不需要另外的对照表。
 - 失败时 `result` 是 `error`，不会同时有结果。
 - 封套里没有版本号和服务名。理由：逐包携带是重复的，连接本身已经确定了对方是哪个服务。
-- **协议核对**：Terminal 和服务分开安装，可能版本不一致。Market、Warehouse 的 `get_status` 和 Trading 的 `get_health` 带 `protocol`，即构建时该服务 `.proto` 的哈希。Market 和 Warehouse 不一致时，这次读取报错并提示安装同一版本。Trading 不一致时只提醒，不阻止操作。理由：拒绝连接会让使用者无法撤单和平仓。三个服务都报告自己的版本，只用于显示，不参与核对。理由：改文档、界面或服务内部都会变版本，按它比对会误报。
+- **协议核对**：Terminal 和服务分开安装，可能版本不一致。Market、Warehouse 的 `get_status` 和 Trading 的 `get_health` 带 `protocol`，即构建时该服务 `.proto` 的哈希。任何一个不一致时，这次读取报错并提示安装同一版本；服务和 Terminal 都拒绝带未知字段的消息。不做跨版本兼容。理由：被丢掉的未知字段会让服务执行与使用者确认的内容不同的委托或政策；版本不一致时 Terminal 不能撤单和平仓，所以 Trading 和 Terminal 在收盘后或无持仓、无挂单时一起升级（见 [Trading 部署](trading/deployment.md#升级与备份)）。三个服务都报告自己的版本，只用于显示，不参与核对。理由：改文档、界面或服务内部都会变版本，按它比对会误报。
 
 ## 3. 命名
 

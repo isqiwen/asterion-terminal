@@ -41,10 +41,9 @@ test("saves a direct pinned trading destination", async () => {
   expect(trade.mock.calls.map(call => call[0])).not.toContain("node.deploy");
 });
 
-test("a trading connection shows its service's build and a protocol it does not share", async () => {
-  health.mockResolvedValue({ version: "0.4.0 (abc1234)", protocol: "theirs" });
+test("a trading connection shows its service's build", async () => {
+  health.mockResolvedValue({ version: "0.4.0 (abc1234)" });
   const snapshot = readySnapshot();
-  snapshot.trading_protocol = "ours";
   snapshot.trading_connections = [
     {
       id: "simnow",
@@ -57,6 +56,5 @@ test("a trading connection shows its service's build and a protocol it does not 
   ];
   render(<TradingConnections snapshot={snapshot} busy={false} trade={vi.fn()} />);
   await screen.findByText("0.4.0 (abc1234)");
-  expect(screen.getByText("不一致：请在服务主机安装同一版本")).toBeTruthy();
   expect(health).toHaveBeenCalledWith("simnow", { case: "getHealth", value: {} });
 });

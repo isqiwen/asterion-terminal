@@ -57,7 +57,6 @@ export function TradingConnections({
                       key={`${entry.host}:${entry.port}/${entry.fingerprint}`}
                       address={`${entry.host}:${entry.port}`}
                       account={entry.id}
-                      protocol={snapshot?.trading_protocol}
                     />
                   )}
                 </div>

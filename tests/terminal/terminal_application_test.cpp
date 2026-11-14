@@ -551,6 +551,19 @@ TEST(TerminalTrading, ARequestWaitingOnOneAccountDoesNotHoldBackAnother)
     EXPECT_NO_THROW((void)pending.get());
 }
 
+TEST(TerminalTrading, AServiceOfAnotherProtocolIsRefused)
+{
+    // The fixture reports no protocol, as a Trading build from other .proto files would differ.
+    LiveService service(false);
+    terminal::ServiceIo io;
+    try {
+        (void)terminal::call_trading(io, service.address(), {{"getHealth", Json::object()}}).get();
+        FAIL() << "a Trading service of another protocol was accepted";
+    } catch (const Error& error) {
+        EXPECT_EQ(error.code(), ErrorCode::conflict);
+    }
+}
+
 TEST(TerminalTrading, ClosingCancelsAnUnansweredRequest)
 {
     LiveService slow(true);

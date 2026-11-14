@@ -95,7 +95,7 @@ const button = (name: string) => screen.getByRole("button", { name }) as HTMLBut
 const show = (namespace: string) =>
   render(
     <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace={namespace}>
-      <TradingAccountsProvider ids={["account"]} protocol="">
+      <TradingAccountsProvider ids={["account"]}>
         <LivePanel
           snapshot={snapshot}
           busy={false}
@@ -400,7 +400,7 @@ test("the strategy view shares the selected account and marks real-money account
     });
   render(
     <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace={feature.id}>
-      <TradingAccountsProvider ids={["account"]} protocol="">
+      <TradingAccountsProvider ids={["account"]}>
         <LiveStrategies
           snapshot={snapshot}
           busy={false}

@@ -239,7 +239,6 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
           ids={(snapshot?.trading_connections ?? []).flatMap(item =>
             "error" in item ? [] : [item.id],
           )}
-          protocol={snapshot?.trading_protocol}
         >
           <MarketProvider>
             <Workbench

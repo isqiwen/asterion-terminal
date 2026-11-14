@@ -1,5 +1,5 @@
 import { create } from "@bufbuild/protobuf";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 import { tradingRequest } from "../bridge/trading";
 import {
@@ -32,7 +32,7 @@ test("a delayed command reply cannot undo the account's observed revocation", as
       return new Promise(resolve => replies.set(operation.value.requestId!, resolve));
     if (operation.case === "getAccount") return account("getAccount", authorized);
     if (operation.case === "getHealth")
-      return create(ResponseSchema, { result: { case: "getHealth", value: { protocol: "ours" } } });
+      return create(ResponseSchema, { result: { case: "getHealth", value: {} } });
     return create(ResponseSchema, { result: { case: "getStrategies", value: {} } });
   });
   function Status() {
@@ -61,7 +61,7 @@ test("a delayed command reply cannot undo the account's observed revocation", as
     );
   }
   render(
-    <TradingAccountsProvider ids={["sim"]} protocol="ours">
+    <TradingAccountsProvider ids={["sim"]}>
       <Status />
     </TradingAccountsProvider>,
   );
@@ -80,21 +80,6 @@ test("a delayed command reply cannot undo the account's observed revocation", as
   authorized = true;
   await act(() => vi.advanceTimersByTimeAsync(1000));
   expect(screen.getByRole("status").textContent).toBe("authorized");
-});
-
-test("a Trading service built from another protocol is reported and stays usable", async () => {
-  vi.mocked(tradingRequest).mockResolvedValue(
-    create(ResponseSchema, {
-      result: { case: "getHealth", value: create(HealthSchema, { protocol: "theirs" }) },
-    }),
-  );
-  render(
-    <TradingAccountsProvider ids={["sim"]} protocol="ours">
-      <span />
-    </TradingAccountsProvider>,
-  );
-  await waitFor(() => expect(notify).toHaveBeenCalledOnce());
-  expect(vi.mocked(notify).mock.calls[0]![0]).toMatchObject({ code: "trading_protocol" });
 });
 
 const instance = (id: string, state: InstanceState, events: [bigint, string][] = [], error = "") =>
@@ -141,11 +126,11 @@ test("instance alerts come from the account layer once each, whichever page is o
         ? strategies
         : create(ResponseSchema, { result: { case: "getStrategies", value: {} } })
       : create(ResponseSchema, {
-          result: { case: "getHealth", value: create(HealthSchema, { protocol: "ours" }) },
+          result: { case: "getHealth", value: create(HealthSchema, {}) },
         }),
   );
   const view = (ids: string[]) => (
-    <TradingAccountsProvider ids={ids} protocol="ours">
+    <TradingAccountsProvider ids={ids}>
       <span />
     </TradingAccountsProvider>
   );

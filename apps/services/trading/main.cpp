@@ -116,6 +116,7 @@ int main(int argc, char** argv)
             try {
                 if (!request.ParseFromString(frame))
                     throw std::invalid_argument("malformed Protobuf request");
+                asterion::protocol::validate_message(request);
                 response.set_id(request.id());
                 trace_id = std::to_string(request.id());
                 asterion::TraceScope trace(trace_id);

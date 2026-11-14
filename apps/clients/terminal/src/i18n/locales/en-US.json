@@ -34,7 +34,6 @@
   "异常": "Degraded",
   "当前使用": "In use",
   "技术详情": "Technical details",
-  "这个交易服务和 Terminal 的协议不一致，部分内容可能显示不对，请安装同一版本。撤单和平仓仍可操作。": "This Trading service and Terminal use different protocols, so some details may look wrong. Install the same release on both. Cancelling and closing still work.",
   "操作与当前状态冲突": "The operation conflicts with the current state.",
   "操作失败": "Operation failed.",
   "操作已取消": "Operation cancelled.",
@@ -195,9 +194,6 @@
   "在行情服务、数据服务和交易主机登记这个指纹": "Register this fingerprint with Market, Data and the trading host",
   "图表": "Charts",
   "服务版本": "Service version",
-  "协议": "Protocol",
-  "与本机一致": "Matches this Terminal",
-  "不一致：请在服务主机安装同一版本": "Differs: install the same version on the service host",
   "磁盘可用": "Free disk space",
   "选择日期": "Choose a date"
 }
