@@ -40,6 +40,10 @@ test("quote columns apply atomically, preserve values and navigation, and reset 
   const dialog = page.getByRole("dialog", { name: "行情表头设置" });
   const columnsButton = page.getByRole("button", { name: "表头设置", exact: true });
   const openColumns = () => columnsButton.click();
+  // Mouse activation need not focus the button before opening its dialog.
+  await columnsButton.evaluate(button =>
+    button.addEventListener("mousedown", event => event.preventDefault(), { once: true }),
+  );
   await openColumns();
   await dialog.getByRole("checkbox", { name: "持仓量", exact: true }).uncheck();
   await page.keyboard.press("Escape");

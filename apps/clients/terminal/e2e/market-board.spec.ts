@@ -162,8 +162,7 @@ test("market board groups exchanges and links contract selection without inventi
   await expect(expanded).toBeVisible();
   await expect(detail).toContainText("rb2610");
   await collapse();
-  await board.getByRole("button", { name: "i2701", exact: true }).focus();
-  await page.keyboard.press("Enter");
+  await board.getByRole("button", { name: "i2701", exact: true }).press("Enter");
   await expect(detail).toContainText("i2701");
   await collapse();
   await expect(expanded).toHaveCount(0);

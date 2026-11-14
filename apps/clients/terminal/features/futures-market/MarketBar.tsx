@@ -92,7 +92,13 @@ export function MarketBar({ context }: { context: TerminalContext }) {
           {t("全部月份")}
         </button>
       </div>
-      <button className="market-bar-button" onClick={() => setEditingColumns(true)}>
+      <button
+        className="market-bar-button"
+        onClick={event => {
+          event.currentTarget.focus();
+          setEditingColumns(true);
+        }}
+      >
         {t("表头设置")}
       </button>
       <input

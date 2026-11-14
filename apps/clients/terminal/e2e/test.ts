@@ -16,6 +16,11 @@ export const test = base.extend<{
   enterWorkbench: boolean;
   startupEntry: void;
 }>({
+  page: async ({ page }, runPage) => {
+    await runPage(page);
+    // Finish intercepted status reads before their response bodies are disposed.
+    await page.unrouteAll({ behavior: "wait" });
+  },
   // The startup screen waits for the user while it has something to point
   // out. Specs about the workbench pass through it; specs about startup
   // itself set this to false.
