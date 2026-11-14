@@ -166,7 +166,9 @@ export function errorSummary(error: DisplayError, namespace = "host") {
   if (error instanceof BackendError)
     return (
       diagnosticSummary(error.diagnostic) ??
-      translate("host", errors[error.code] ?? errors.operation_failed)
+      [translate("host", errors[error.code] ?? errors.operation_failed), error.diagnostic]
+        .filter(Boolean)
+        .join(": ")
     );
   const known = localizeText(namespace, text) ?? localizeText("host", text);
   if (known) return known;

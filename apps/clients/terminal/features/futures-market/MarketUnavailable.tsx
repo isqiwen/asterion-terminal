@@ -14,7 +14,6 @@ export function MarketUnavailable({ context }: { context: TerminalContext }) {
   const { error, attempt } = useActionError();
   const openError = useMarketOpenError();
   if (!endpoint) return <ServiceUnset openSettings={context.openSettings} />;
-  // Opening is being tried again by itself: the reason is all there is to say.
   if (openError)
     return (
       <div className="workspace-empty" role="alert">

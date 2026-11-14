@@ -12,14 +12,14 @@ test("the status bar shows the latest message; opened, all of them until cleared
     });
   });
   const latest = screen.getByRole("button", { expanded: false });
-  expect(latest.textContent).toBe("操作与当前状态冲突2");
+  expect(latest.textContent).toBe("操作与当前状态冲突: order refused2");
   // An unread trading error stays highlighted until the list is opened.
   expect(latest.className).toContain("urgent");
   fireEvent.click(latest);
   const items = screen.getByRole("region", { name: "通知" }).querySelectorAll("li");
   expect([...items].map(item => item.querySelector(".notification-text")!.textContent)).toEqual([
-    "操作与当前状态冲突",
-    "请求无效，请检查输入",
+    "操作与当前状态冲突: order refused",
+    "请求无效，请检查输入: bad input",
   ]);
   expect(screen.getByRole("button", { expanded: true }).className).not.toContain("urgent");
   fireEvent.click(screen.getByRole("button", { name: "清空" }));

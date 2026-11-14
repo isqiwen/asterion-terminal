@@ -7,7 +7,7 @@ export type Locale = "zh-CN" | "en-US";
 export type LanguageResources = Readonly<Record<Locale, Readonly<Record<string, string>>>>;
 export type MessageValues = Readonly<Record<string, string | number>>;
 const preference = "asterion.locale";
-// "diagnostics" localizes known English core diagnostics; unknown ones fall back to the error code.
+// "diagnostics" localizes known English core diagnostics; unknown ones remain visible beside the error code.
 const resources = new Map<string, LanguageResources>([
   ["host", { "zh-CN": zh, "en-US": en }],
   ["diagnostics", { "zh-CN": diagnosticsZh, "en-US": diagnosticsEn }],
