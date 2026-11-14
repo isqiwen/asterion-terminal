@@ -246,6 +246,17 @@ export function identity(code: string) {
   return `${code.split(".")[0].replace(/[^A-Za-z0-9_-]/g, "-")}-${stamp}`;
 }
 
+// An id as shown: its module and that time on the viewer's clock, to the second.
+export function recordName(id: string) {
+  const match = /^(.*)-(\d{4})(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)\d{3}(.*)$/.exec(id);
+  if (!match) return id;
+  const [, code, ...parts] = match;
+  const [year, month, day, hour, minute, second] = parts.slice(0, 6).map(Number);
+  const time = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  const two = (value: number) => String(value).padStart(2, "0");
+  return `${code} ${two(time.getMonth() + 1)}-${two(time.getDate())} ${two(time.getHours())}:${two(time.getMinutes())}:${two(time.getSeconds())}${parts[6]}`;
+}
+
 export function factorRequest(form: FactorForm, repository: string, factor: FactorEntry) {
   const symbols = symbolsOf(form.symbols);
   if (!symbols.length) throw new Error(t("请填写品种"));

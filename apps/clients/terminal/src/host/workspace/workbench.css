@@ -210,7 +210,7 @@ html[lang="en-US"] .activity-rail.expanded {
   flex: none;
   align-items: center;
   gap: var(--space-3);
-  min-height: 38px;
+  min-height: 30px;
   padding: 0 var(--space-page);
   border-bottom: 1px solid var(--line);
 }
@@ -223,7 +223,7 @@ html[lang="en-US"] .activity-rail.expanded {
 }
 .module-views button {
   flex-shrink: 0;
-  height: 38px;
+  height: 30px;
   padding: 0 var(--space-3);
   border: 0;
   border-bottom: 2px solid transparent;

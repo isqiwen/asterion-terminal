@@ -18,7 +18,7 @@ import {
   signed,
   states,
 } from "./ResearchResult";
-import { parameterText, runState } from "./research-lab";
+import { parameterText, recordName, runState } from "./research-lab";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
@@ -43,7 +43,7 @@ const paramsText = (run: RunSummary) =>
   Object.entries(run.params)
     .map(([name, value]) => `${name}=${parameterText(value)}`)
     .join(" ");
-export const runName = (run: RunSummary) => run.label || run.id;
+export const runName = (run: RunSummary) => run.label || recordName(run.id);
 
 // When a run started, as month-day and time of the viewer's clock.
 function started(ms: bigint) {
@@ -188,7 +188,7 @@ export function Runs(context: TerminalContext) {
           <button className="lab-link" onClick={back}>
             {t("← 回测记录")}
           </button>
-          <h3>{t("扫描 {id}", { id: shown.id })}</h3>
+          <h3>{t("扫描 {id}", { id: recordName(shown.id) })}</h3>
         </header>
         {sweep?.id === shown.id ? (
           <SweepResult
@@ -329,7 +329,10 @@ export function Runs(context: TerminalContext) {
                         }
                       >
                         {group
-                          ? t("扫描 {id}（{count} 组）", { id: group, count: members.length })
+                          ? t("扫描 {id}（{count} 组）", {
+                              id: recordName(group),
+                              count: members.length,
+                            })
                           : runName(run)}
                       </button>
                       <small className="lab-id">
@@ -417,7 +420,7 @@ function RunHeader({
       </button>
       {editing === null ? (
         <>
-          <h3>{run ? runName(run) : id}</h3>
+          <h3>{run ? runName(run) : recordName(id)}</h3>
           <button className="lab-link" onClick={() => setEditing(run?.label ?? "")}>
             {t("重命名")}
           </button>
@@ -434,7 +437,7 @@ function RunHeader({
             aria-label={t("名称")}
             autoFocus
             maxLength={64}
-            placeholder={id}
+            placeholder={recordName(id)}
             value={editing}
             onChange={event => setEditing(event.target.value)}
           />
@@ -458,7 +461,7 @@ function RunHeader({
           {t("取消")}
         </button>
       ) : (
-        <DeleteRecord name={run ? runName(run) : id} remove={remove} />
+        <DeleteRecord name={run ? runName(run) : recordName(id)} remove={remove} />
       )}
       <ActionError error={failure.error} />
     </header>

@@ -13,7 +13,7 @@ import { type DisplayError, ErrorNotice, asDisplayError } from "../../src/i18n/e
 import { protocolPeriod } from "../../src/ui/periods";
 import type { Tone } from "../../src/ui/StatusBadge";
 import { Offset, Side } from "../../src/generated/asterion/common_pb";
-import { heatmap, monthlyReturns, parameterText, runState } from "./research-lab";
+import { heatmap, monthlyReturns, parameterText, recordName, runState } from "./research-lab";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
@@ -596,7 +596,7 @@ function Comparison({ joined }: { joined: string }) {
   if (error) return <ErrorNotice error={error} />;
   if (details.length !== ids.length) return <p className="subtle">{t("正在读取结果…")}</p>;
   const [first, ...others] = details;
-  const name = (detail: RunDetail) => detail.summary!.label || detail.summary!.id;
+  const name = (detail: RunDetail) => detail.summary!.label || recordName(detail.summary!.id);
   const base = (detail: RunDetail) => Number(JSON.parse(detail.record).costs.deposit);
   const params = [...new Set(details.flatMap(detail => Object.keys(detail.summary!.params)))];
   const differing = params.filter(

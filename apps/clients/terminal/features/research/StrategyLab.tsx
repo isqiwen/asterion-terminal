@@ -11,6 +11,7 @@ import {
   defaultForm,
   defaultText,
   identity,
+  recordName,
   parameterKind,
   runRequest,
   type RunForm,
@@ -326,7 +327,7 @@ function RecentRuns({ runs, open }: { runs: RunSummary[]; open: (id: string) => 
       <h5>{t("最近运行")}</h5>
       {runs.slice(0, 3).map(run => (
         <button key={run.id} className="lab-link" onClick={() => open(run.id)}>
-          <span>{run.label || run.id}</span>
+          <span>{run.label || recordName(run.id)}</span>
           <span className={signed(run.metrics.total_return)}>
             {metric(run.metrics.total_return, true)}
           </span>

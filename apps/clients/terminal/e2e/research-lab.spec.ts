@@ -66,7 +66,9 @@ test(
     for (const box of await page.getByRole("checkbox", { name: /^比较 / }).all()) await box.check();
     await page.getByRole("button", { name: "比较所选（2）" }).click();
     const comparison = page.locator(".lab-runs-view table");
-    await expect(comparison.getByRole("columnheader", { name: /^ma_cross-\d+$/ })).toHaveCount(2);
+    await expect(
+      comparison.getByRole("columnheader", { name: /^ma_cross \d\d-\d\d \d\d:\d\d:\d\d$/ }),
+    ).toHaveCount(2);
     await expect(comparison.getByRole("row", { name: /^总收益 / })).toBeVisible();
     await page.screenshot({ path: join(__dirname, "../test-results/research-lab-comparison.png") });
   },

@@ -13,6 +13,7 @@ import {
   defaultText,
   factorRequest,
   identity,
+  recordName,
   parameterKind,
   type FactorForm,
 } from "./research-lab";
@@ -165,7 +166,7 @@ export function FactorLab(context: TerminalContext) {
             <button className="lab-link" onClick={() => setReport("")}>
               {t("← 源码")}
             </button>
-            <h3>{report}</h3>
+            <h3>{recordName(report)}</h3>
             <span className="lab-spacer" />
             <DeleteRecord name={report} remove={() => remove(report)} />
           </header>
@@ -268,7 +269,7 @@ export function FactorLab(context: TerminalContext) {
                               <span>
                                 {Object.entries(item.evaluation?.params ?? {})
                                   .map(([name, value]) => `${name}=${String(value.value.value)}`)
-                                  .join(" ") || item.id}
+                                  .join(" ") || recordName(item.id)}
                               </span>
                               <small>
                                 {item.evaluation?.firstDay} – {item.evaluation?.lastDay}
