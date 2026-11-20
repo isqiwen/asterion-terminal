@@ -17,7 +17,6 @@ import ast
 from dataclasses import dataclass
 import hashlib
 import importlib
-import importlib.util
 import inspect
 import os
 from pathlib import Path
@@ -33,8 +32,7 @@ from asterion_strategy import FIELDS, KINDS, Strategy
 from asterion_lab import worker
 
 LISTING_SECONDS = 30
-# What a strategy may import from outside its directory: what Trading's runtime
-# provides. A factor runs only in Lab, which may import what Lab has.
+# Strategies and factors use the same runtime in research and Trading.
 RUNTIME_MODULES = frozenset(sys.stdlib_module_names) | {"numpy", "scipy", "asterion_strategy"}
 SNAPSHOT_BYTES = 16 * 1024 * 1024
 
@@ -98,18 +96,10 @@ def local(root: Path, name: str):
     return "" if (root / path).is_dir() else None
 
 
-def trading_provides(name: str) -> bool:
-    return name in RUNTIME_MODULES
-
-
-def lab_provides(name: str) -> bool:
-    return importlib.util.find_spec(name) is not None
-
-
-def closure(root: Path, entry: str, provided=trading_provides) -> list:
+def closure(root: Path, entry: str) -> list:
     """`entry` and every module of the directory it imports, directly or not,
     with the packages holding them. Modules are read, never imported. An import
-    neither in the directory nor `provided` (by top-level name) fails by name."""
+    neither in the directory nor the shared runtime fails by name."""
     files, pending = set(), [entry]
     while pending:
         path = pending.pop()
@@ -134,7 +124,7 @@ def closure(root: Path, entry: str, provided=trading_provides) -> list:
                 continue
             for name in required:
                 found = local(root, name)
-                if found is None and not provided(name.split(".")[0]):
+                if found is None and name.split(".")[0] not in RUNTIME_MODULES:
                     raise ValueError(f"{path} imports {name}, which is neither in the strategy "
                                      "directory nor in the runtime")
                 if found:
@@ -143,12 +133,12 @@ def closure(root: Path, entry: str, provided=trading_provides) -> list:
     return sorted(files)
 
 
-def snapshot(root: Path, destination: Path, entry: str, provided=trading_provides) -> Revision:
+def snapshot(root: Path, destination: Path, entry: str) -> Revision:
     """Copies `entry` and the modules it needs (closure) to `destination` for
     an admitted run, which then never reads the repository itself."""
     root = checked(root)
     taken = revision(root)
-    files = closure(root, entry, provided)
+    files = closure(root, entry)
     if sum((root / name).stat().st_size for name in files) > SNAPSHOT_BYTES:
         raise ValueError(f"the strategy's Python files exceed {SNAPSHOT_BYTES >> 20} MiB")
     destination.mkdir(parents=True, exist_ok=True)
@@ -243,10 +233,10 @@ def describe(root: Path) -> Strategies:
             reply.errors.add(module=name, traceback=error)
             continue
         try:
-            files = closure(root, f"strategies/{name}.py", lab_provides)
-        except ValueError:
-            # An import that only runs elsewhere, such as one tried and excepted.
-            files = []
+            files = closure(root, f"strategies/{name}.py")
+        except ValueError as failure:
+            reply.errors.add(module=name, traceback=str(failure))
+            continue
         used = [file[len("factors/"):-len(".py")] for file in files if file.startswith("factors/")]
         for cls in defined(module):
             entry = reply.strategies.add(id=f"{name}.{cls.__name__}",
@@ -260,6 +250,7 @@ def describe(root: Path) -> Strategies:
         try:
             if error:
                 raise ValueError(error)
+            closure(root, f"factors/{name}.py")
             found = factors(module)
         except (TypeError, ValueError) as failure:
             reply.errors.add(module=f"factors/{name}", traceback=str(failure))

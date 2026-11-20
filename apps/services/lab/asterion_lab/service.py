@@ -519,13 +519,12 @@ class Service:
                 admitted.evaluation.last_day = last
         admitted.source, revision = self.copy_source(
             request.repository, f"factor-{request.id}",
-            f"factors/{request.factor.partition('.')[0]}.py", repository.lab_provides)
+            f"factors/{request.factor.partition('.')[0]}.py")
         for extra in request.extra_factors:
             repository.snapshot(
                 Path(request.repository),
                 Path(admitted.source),
                 f"factors/{extra.factor.partition('.')[0]}.py",
-                repository.lab_provides,
             )
         admitted.pinned.commit, admitted.pinned.changes = revision.commit, revision.changes
         return admitted
@@ -555,7 +554,7 @@ class Service:
             del (
                 result.days[:],
                 result.development_horizons[:],
-                result.correlation_matrix[:],
+                result.correlations[:],
             )
             results.append(result)
         return sorted(results, key=lambda item: item.evaluated_ms, reverse=True)
@@ -726,12 +725,12 @@ class Service:
             raise ValueError(f"strategy repository is not a directory: {root}")
         await asyncio.to_thread(lambda: repository.revision(repository.checked(root)))
 
-    def copy_source(self, root, name, entry, provided=repository.trading_provides):
+    def copy_source(self, root, name, entry):
         """A copy of the code `entry` needs for one admission alone, and the
         repository's revision."""
         (self.directory / "sources").mkdir(exist_ok=True)
         destination = Path(tempfile.mkdtemp(prefix=f"{name}-", dir=self.directory / "sources"))
-        return str(destination), repository.snapshot(Path(root), destination, entry, provided)
+        return str(destination), repository.snapshot(Path(root), destination, entry)
 
     def with_source(self, admitted, name):
         """The run with its strategy's code copied for it alone."""

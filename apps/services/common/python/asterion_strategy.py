@@ -52,6 +52,39 @@ def quantize_weight(value: float) -> Decimal:
     return Decimal(str(value)).quantize(WEIGHT_STEP, rounding=ROUND_HALF_EVEN)
 
 
+def check_factor(function, inputs: dict, count: int, **settings):
+    """Check every prefix of a test sample for causality and the chosen history window.
+
+    `inputs` maps bar field names to one-dimensional arrays of equal length.
+    `count` is the history length used by ctx.factor, including the current bar.
+    Run on short samples, including warmup, missing values and parameter changes.
+    """
+    if type(count) is not int or count < 1:
+        raise ValueError("factor history count must be a positive integer")
+    arrays = {name: np.asarray(values, dtype=float).view() for name, values in inputs.items()}
+    size = len(next(iter(arrays.values())))
+    for values in arrays.values():
+        if values.shape != (size,):
+            raise ValueError("factor inputs must be one-dimensional arrays of equal length")
+        values.flags.writeable = False
+
+    def compute(begin, end):
+        result = np.asarray(function(**{name: values[begin:end] for name, values in arrays.items()},
+                                     **settings), dtype=float)
+        if result.shape != (end - begin,):
+            raise ValueError(f"factor must return one value per bar, got {result.shape}")
+        return result
+
+    full = compute(0, size)
+    for end in range(1, size + 1):
+        prefix = compute(0, end)
+        if not np.allclose(prefix, full[:end], rtol=1e-10, atol=1e-12, equal_nan=True):
+            raise ValueError(f"factor changes historical values when truncated to {end} bars")
+        if end > count and not np.allclose(compute(end - count, end)[-1], prefix[-1],
+                                          rtol=1e-10, atol=1e-12, equal_nan=True):
+            raise ValueError(f"factor history window {count} differs from the full prefix at bar {end}")
+
+
 @dataclass(frozen=True)
 class Bar:
     """One completed bar. Prices are read as floats for research; the ledger

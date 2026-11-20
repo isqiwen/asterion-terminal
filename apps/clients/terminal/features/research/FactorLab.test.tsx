@@ -21,6 +21,28 @@ vi.mock("../../src/i18n", async original => ({
 }));
 vi.mock("@asterion/terminal/charts/PriceChart", () => ({ PriceChart: () => null }));
 
+test("correlations distinguish unavailable estimates from zero and show sample coverage", () => {
+  render(
+    <FactorResultView
+      result={create(FactorResultSchema, {
+        factorNames: ["a.signal", "b.signal"],
+        correlations: [
+          { value: 1, days: 5, samples: 20 },
+          { days: 0, samples: 0 },
+          { value: 0, days: 5, samples: 20 },
+          { value: 1, days: 5, samples: 20 },
+        ],
+      })}
+    />,
+  );
+  const matrix = screen.getByRole("table", { name: "因子相关性" });
+  const missing = within(matrix).getByText("—");
+  expect(missing.title).toContain("0 个有效交易日，0 个品种日样本");
+  expect(missing.style.background).toBe("");
+  const zero = within(matrix).getByText("0.000");
+  expect(zero.title).toContain("5 个有效交易日，20 个品种日样本");
+});
+
 test("opens the first factor by default, and the factor library ranks, filters, and opens a factor", async () => {
   vi.mocked(lab).mockImplementation(async operation => {
     switch (operation?.case) {
@@ -194,7 +216,7 @@ test("factor library runs batch evaluation and multi-factor composite evaluation
           symbols: ["SHFE/rb", "SHFE/cu", "SHFE/al"],
           horizons: [{ horizon: 1, days: 20, mean: 0.22, ir: 1.1 }],
           factorNames: ["price.momentum", "positions.interest_change"],
-          correlationMatrix: [1.0, -0.35, -0.35, 1.0],
+          correlations: [1.0, -0.35, -0.35, 1.0].map(value => ({ value, days: 4, samples: 24 })),
         }) as never;
       case "readSource":
         return create(SourceSchema, { content: "" }) as never;
@@ -346,7 +368,7 @@ test("factor result view shows in-sample vs holdout horizons, yearly IC stabilit
           { tradingDay: "2026-01-06", ic: -0.15 },
         ],
         factorNames: ["price.momentum", "positions.interest_change"],
-        correlationMatrix: [1.0, -0.25, -0.25, 1.0],
+        correlations: [1.0, -0.25, -0.25, 1.0].map(value => ({ value, days: 4, samples: 24 })),
       })}
     />,
   );

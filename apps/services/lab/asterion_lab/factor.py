@@ -178,10 +178,10 @@ def factor_correlations(frames: list) -> list:
             how="full",
             coalesce=True,
         )
-    matrix = [1.0 if r == c else 0.0 for r in range(k) for c in range(k)]
+    matrix = [None] * (k * k)
     for i in range(k):
-        for j in range(i + 1, k):
-            pair = joined.filter(pl.col(f"v{i}").is_not_null() & pl.col(f"v{j}").is_not_null())
+        for j in range(i, k):
+            pair = joined.filter(pl.col(f"v{i}").is_finite() & pl.col(f"v{j}").is_finite())
             daily = (
                 pair.group_by("day")
                 .agg(
@@ -190,7 +190,9 @@ def factor_correlations(frames: list) -> list:
                 )
                 .filter((pl.col("count") >= MINIMUM) & pl.col("corr").is_finite())
             )
-            corr = float(daily["corr"].mean()) if daily.height else 0.0
+            corr = {"days": daily.height, "samples": int(daily["count"].sum())}
+            if daily.height:
+                corr["value"] = float(daily["corr"].mean())
             matrix[i * k + j] = corr
             matrix[j * k + i] = corr
     return matrix
@@ -442,7 +444,8 @@ def run(directory: Path, admitted, reply):
     fill_horizons(reply.development_horizons, result["development_horizons"])
     fill_horizons(reply.holdout_horizons, result["holdout_horizons"])
     reply.factor_names.extend(factor_names)
-    reply.correlation_matrix.extend(corr_matrix)
+    for correlation in corr_matrix:
+        reply.correlations.add(**correlation)
     for item in result["days"]:
         entry = reply.days.add(trading_day=item["day"], symbols=item["symbols"],
                                groups=item["groups"])

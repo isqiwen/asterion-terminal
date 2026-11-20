@@ -16,6 +16,7 @@ import subprocess
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "apps/services/common/python"))
 import tempfile
+import tomllib
 import unittest
 from unittest.mock import patch
 
@@ -47,6 +48,19 @@ class Follow(Strategy):
 
 
 class Interface(unittest.TestCase):
+    def test_lab_and_trading_lock_the_same_strategy_dependencies(self):
+        services = EXAMPLES.parent / "apps/services"
+        lab = tomllib.loads((services / "lab/pyproject.toml").read_text())
+        trading = tomllib.loads((services / "trading/pyproject.toml").read_text())
+        dependencies = trading["dependency-groups"]["runtime"]
+        self.assertLessEqual(set(dependencies), set(lab["dependency-groups"]["runtime"]))
+        locks = [tomllib.loads((services / app / "uv.lock").read_text()) for app in ("lab", "trading")]
+        versions = [{package["name"]: package["version"] for package in lock["package"]}
+                    for lock in locks]
+        for dependency in dependencies:
+            name, version = dependency.split("==")
+            self.assertEqual([locked[name] for locked in versions], [version, version])
+
     def test_a_roll_scales_the_series_history_and_never_what_was_seen(self):
         class Watch(Strategy):
             seen = []
@@ -212,12 +226,9 @@ class Repository(unittest.TestCase):
         (self.root / "factors/stats_rank.py").write_text("import scipy.stats\n")
         self.assertEqual(repository.closure(self.root, "factors/stats_rank.py"),
                          ["factors/stats_rank.py"])
-        # A factor runs in Lab: it may import what Lab has and Trading does not.
         (self.root / "factors/frames.py").write_text("import polars\n")
         with self.assertRaisesRegex(ValueError, "imports polars"):
             repository.closure(self.root, "factors/frames.py")
-        self.assertEqual(repository.closure(self.root, "factors/frames.py", repository.lab_provides),
-                         ["factors/frames.py"])
 
     def test_deployment_uses_the_selected_runs_frozen_source_and_configuration(self):
         service = Service("lab", Path(self.temporary.name), None)

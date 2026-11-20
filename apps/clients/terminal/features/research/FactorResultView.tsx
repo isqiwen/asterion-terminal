@@ -265,7 +265,7 @@ export function FactorResultView({ result }: { result: FactorResult }) {
             </>
           )}
           {result.factorNames.length >= 2 &&
-            result.correlationMatrix.length === result.factorNames.length ** 2 && (
+            result.correlations.length === result.factorNames.length ** 2 && (
               <>
                 <h3>{t("因子相关性热力图")}</h3>
                 <div
@@ -292,14 +292,15 @@ export function FactorResultView({ result }: { result: FactorResult }) {
                             {shortFactor(rowName)}
                           </th>
                           {result.factorNames.map((colName, c) => {
-                            const value =
-                              result.correlationMatrix[r * result.factorNames.length + c];
+                            const correlation =
+                              result.correlations[r * result.factorNames.length + c];
+                            const value = correlation.value;
                             const background = correlationFill(value, r === c);
                             return (
                               <td
                                 key={colName}
                                 className={r === c ? "subtle" : undefined}
-                                title={`${rowName} × ${colName}: ${metric(value, false)}`}
+                                title={`${rowName} × ${colName}: ${metric(value, false)} · ${t("{days} 个有效交易日，{samples} 个品种日样本", { days: correlation.days, samples: correlation.samples })}`}
                                 style={background ? { background } : undefined}
                               >
                                 {metric(value, false)}

@@ -281,5 +281,6 @@
   "回测后部署": "Deploy after a backtest",
   "部署后仿真": "Simulate after deploying",
   "仿真后上线": "Go live after simulating",
-  "部署新版": "Deploy new"
+  "部署新版": "Deploy new",
+  "{days} 个有效交易日，{samples} 个品种日样本": "{days} valid trading days, {samples} symbol-day observations"
 }

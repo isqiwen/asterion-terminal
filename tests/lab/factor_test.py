@@ -18,6 +18,7 @@ import numpy as np  # noqa: E402
 import polars as pl  # noqa: E402
 from asterion.lab_pb2 import Request  # noqa: E402
 from asterion_lab import factor, repository  # noqa: E402
+from asterion_strategy import Bar, Context, check_factor, observe  # noqa: E402
 from service_fixture import Service  # noqa: E402
 from warehouse_writer import Warehouse  # noqa: E402
 from warehouse_fixture import DAYS, warehouse  # noqa: E402
@@ -41,6 +42,59 @@ def frame(values, rates, bars=5):
 
 
 class Evaluation(unittest.TestCase):
+    def test_builtin_factors_match_prefixes_and_strategy_history_windows(self):
+        import datetime
+        import importlib.util
+
+        rng = np.random.default_rng(42)
+        prices = 100 + rng.normal(size=65).cumsum()
+        for path in sorted((EXAMPLES / "factors").glob("*.py")):
+            spec = importlib.util.spec_from_file_location(path.stem, path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            for name, function, inputs, defaults in repository.factors(module):
+                for length in (3, 20):
+                    settings = {parameter: length for parameter in defaults}
+                    count = length if name == "roll_yield_carry" else length + 1
+                    data = {field: prices.copy() for field in inputs}
+                    data[inputs[0]][30] = np.nan
+                    with self.subTest(factor=name, length=length):
+                        check_factor(function, data, count, **settings)
+                        expected = function(**data, **settings)
+                        ctx = Context(["SHFE/rb"])
+                        actual = []
+                        for i in range(len(prices)):
+                            fields = dict(open=prices[i], high=prices[i], low=prices[i], close=prices[i],
+                                          volume=10., open_interest=100., roll_yield=0.1)
+                            fields.update({field: data[field][i] for field in inputs})
+                            row = Bar("SHFE/rb", "SHFE/rb/2026-05",
+                                      datetime.datetime(2026, 1, 1) + datetime.timedelta(days=i),
+                                      **fields)
+                            observe(ctx, [row])
+                            actual.append(ctx.factor(function, "SHFE/rb", count, **settings))
+                        np.testing.assert_allclose(actual, expected, equal_nan=True)
+
+    def test_factor_check_identifies_future_dependent_values(self):
+        with self.assertRaisesRegex(ValueError, "changes historical values"):
+            check_factor(lambda close: np.roll(close, -1), {"close": [100, 110, 120]}, 3)
+
+    def test_factor_check_identifies_an_insufficient_history_window(self):
+        with self.assertRaisesRegex(ValueError, "history window 2 differs"):
+            check_factor(lambda close: close / close[0] - 1, {"close": [100, 110, 120]}, 2)
+
+    def test_correlations_distinguish_missing_samples_from_zero_correlation(self):
+        few = frame([1, 2], [0.01, 0.02])
+        constant = frame([1, 1, 1, 1], [0.01] * 4)
+        for rows in (few, constant):
+            matrix = factor.factor_correlations([rows, rows])
+            self.assertEqual(matrix, [{"days": 0, "samples": 0}] * 4)
+        first = frame([1, 2, 3, 4], [0.01] * 4)
+        second = frame([2, 4, 1, 3], [0.01] * 4)
+        matrix = factor.factor_correlations([first, second])
+        self.assertAlmostEqual(matrix[1]["value"], 0.0)
+        self.assertEqual((matrix[1]["days"], matrix[1]["samples"]), (5, 20))
+        self.assertEqual(matrix[1], matrix[2])
+
     def test_development_ic_uses_only_closes_before_holdout(self):
         rows = frame([1, 2, 3], [0.01, 0.02, 0.03], bars=6)
         before = factor.evaluate(rows, [1, 2], 2, "2026-01-04")
@@ -158,6 +212,37 @@ class Repository(unittest.TestCase):
         (error,) = listed.errors
         self.assertEqual(error.module, "factors/broken")
         self.assertIn("parameter window is no bar field", error.traceback)
+
+    def test_research_rejects_factor_dependencies_unavailable_to_trading(self):
+        (self.repository / "factors/frames.py").write_text(
+            "import polars\n\ndef signal(close):\n    return close\n")
+        (self.repository / "strategies/frames.py").write_text(
+            "from asterion_strategy import Strategy\nfrom factors.frames import signal\n"
+            "class UsesFrames(Strategy):\n    def on_bar(self, ctx, bar):\n        pass\n")
+        listed = repository.list_strategies(str(self.repository))
+        self.assertNotIn("frames.signal", [entry.id for entry in listed.factors])
+        self.assertNotIn("frames.UsesFrames", [entry.id for entry in listed.strategies])
+        for module in ("frames", "factors/frames"):
+            self.assertIn("imports polars", next(error.traceback for error in listed.errors
+                                                 if error.module == module))
+
+        class Log:
+            def write(self, *args, **kwargs):
+                pass
+
+        async def scenario():
+            service = Service("lab", self.directory, Log())
+            request = Request(id=1)
+            run = request.evaluate_factor
+            run.id, run.repository, run.factor = "unsupported", str(self.repository), "frames.signal"
+            run.symbols.append("SHFE/rb")
+            run.first_day, run.last_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
+            run.horizons.append(1)
+            run.groups = 2
+            response = await service.reply(request)
+            self.assertIn("imports polars", response.error.message)
+
+        asyncio.run(scenario())
 
     def test_the_service_evaluates_a_factor_on_what_a_strategy_sees(self):
         class Log:
@@ -321,12 +406,12 @@ class Repository(unittest.TestCase):
             res = (await service.reply(req)).evaluate_factor
             self.assertEqual(list(res.factor_names),
                              ["price.momentum", "price.reversal", "positions.interest_change"])
-            self.assertEqual(len(res.correlation_matrix), 9)
-            self.assertAlmostEqual(res.correlation_matrix[0], 1.0)
-            self.assertAlmostEqual(res.correlation_matrix[4], 1.0)
-            self.assertAlmostEqual(res.correlation_matrix[8], 1.0)
+            self.assertEqual(len(res.correlations), 9)
+            self.assertAlmostEqual(res.correlations[0].value, 1.0)
+            self.assertAlmostEqual(res.correlations[4].value, 1.0)
+            self.assertAlmostEqual(res.correlations[8].value, 1.0)
             # momentum and reversal (-momentum) have -1 rank correlation
-            self.assertAlmostEqual(res.correlation_matrix[1], -1.0, places=5)
+            self.assertAlmostEqual(res.correlations[1].value, -1.0, places=5)
             self.assertEqual(len(res.development_horizons), 2)
             self.assertEqual(len(res.holdout_horizons), 2)
             self.assertGreater(res.development_horizons[0].days, 0)
@@ -335,7 +420,7 @@ class Repository(unittest.TestCase):
             listed = (await service.reply(Request(id=2, list_factor_results={}))).list_factor_results
             summary = next(item for item in listed.results if item.id == "multi-ic-holdout")
             self.assertFalse(summary.days)
-            self.assertFalse(summary.correlation_matrix)
+            self.assertFalse(summary.correlations)
             self.assertEqual(len(summary.groups), 3)
             self.assertEqual(len(summary.holdout_horizons), 2)
             self.assertEqual(list(summary.factor_names),

@@ -265,7 +265,14 @@ message FactorResult {
   repeated FactorHorizon development_horizons = 11;
   repeated FactorHorizon holdout_horizons = 12;
   repeated string factor_names = 13;
-  repeated double correlation_matrix = 14;
+  // Row-major matrix in factor_names order.
+  repeated FactorCorrelation correlations = 15;
+}
+
+message FactorCorrelation {
+  optional double value = 1;
+  uint32 days = 2;
+  uint32 samples = 3;
 }
 
 message FactorResults {
