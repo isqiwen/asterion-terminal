@@ -1,0 +1,49 @@
+#include <asterion/futures/trading_days.hpp>
+#include <asterion/futures/market.hpp>
+
+#include <algorithm>
+#include <stdexcept>
+
+namespace asterion {
+namespace {
+
+bool valid_identifier(const std::string& value)
+{
+    return !value.empty() && value.size() <= 128 && std::ranges::all_of(value, [](unsigned char c) {
+        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+            || c == '.' || c == '_' || c == '-' || c == '/';
+    });
+}
+
+} // namespace
+
+void InstrumentId::validate() const
+{
+    if (!valid_identifier(venue) || !valid_identifier(symbol)) {
+        throw std::invalid_argument("invalid instrument identity");
+    }
+}
+
+void Instrument::validate() const
+{
+    id.validate();
+    if (!valid_identifier(quote_currency) || price_increment <= Decimal{}
+        || quantity_increment <= Decimal{} || multiplier <= Decimal{}) {
+        throw std::invalid_argument("invalid instrument units");
+    }
+}
+
+void MarketBar::validate(const Instrument& spec) const
+{
+    spec.validate();
+    (void)parse_trading_date(trading_day);
+    if (timestamp_ns < 0 || low > high || open < low || open > high || close < low || close > high
+        || volume < Decimal{} || !volume.multiple_of(spec.quantity_increment))
+        throw std::invalid_argument("invalid market bar");
+    for (const auto price : {open, high, low, close})
+        if (!price.multiple_of(spec.price_increment))
+            throw std::invalid_argument("bar price does not match instrument price increment");
+    // Zero or negative prices can be valid in some derivative markets.
+}
+
+} // namespace asterion

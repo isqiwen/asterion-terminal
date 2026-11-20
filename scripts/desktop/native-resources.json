@@ -1,0 +1,5 @@
+{
+  "programs": ["asterion_terminal.node"],
+  "libraries": [],
+  "configuration": ["config/logging.json", "config/lab-logging.json"]
+}

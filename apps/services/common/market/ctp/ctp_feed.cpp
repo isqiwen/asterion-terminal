@@ -1,0 +1,870 @@
+#include "ctp_feed.hpp"
+#include "ctp_support.hpp"
+#include <asterion/base/bounded_queue.hpp>
+#include <atomic>
+#include <ThostFtdcMdApi.h>
+#include <asterion/base/error.hpp>
+#include <asterion/futures/trading_days.hpp>
+#include <asterion/system/process/child.hpp>
+#include <charconv>
+#include <chrono>
+#include <cmath>
+#include <cstring>
+#include <deque>
+#include <limits>
+#include <locale>
+#include <map>
+#include <mutex>
+#include <regex>
+#include <set>
+#include <sstream>
+#include <thread>
+#include <utility>
+#include <unordered_map>
+#include <stdexcept>
+
+namespace asterion::ctp {
+
+void validate_instruments(const std::vector<InstrumentId>& ids)
+{
+    if (ids.size() > 20050)
+        throw std::invalid_argument("market subscriptions exceed catalog capacity");
+    static const std::set<std::string> venues{"SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX"};
+    static const std::regex contract("[A-Za-z]{1,3}[0-9]{3,4}");
+    std::set<std::string> symbols;
+    for (const auto& id : ids) {
+        id.validate();
+        if (!venues.contains(id.venue) || !std::regex_match(id.symbol, contract)
+            || !symbols.insert(id.symbol).second)
+            throw std::invalid_argument("use unique dated futures contracts and a supported venue");
+    }
+}
+
+Decimal money(double value)
+{
+    const auto parsed = price(value);
+    if (!parsed)
+        throw std::runtime_error("invalid CTP money value");
+    return quantize(*parsed, Decimal::parse("0.01"), Rounding::half_up);
+}
+
+std::optional<Decimal> price(double value)
+{
+    if (!std::isfinite(value) || std::abs(value) > 1e10)
+        return {};
+    try {
+        // Floating-point to_chars requires macOS 13.3; the desktop supports 13.0.
+        // Keep the vendor boundary's eight decimal places independent of UI locale.
+        std::ostringstream text;
+        text.imbue(std::locale::classic());
+        text.setf(std::ios::fixed, std::ios::floatfield);
+        text.precision(8);
+        text << value;
+        if (!text)
+            return {};
+        return Decimal::parse(text.str());
+    } catch (...) {
+        return {};
+    }
+}
+
+std::optional<Decimal> open_interest_change(double current, double previous)
+{
+    const auto now = price(current), before = price(previous);
+    if (!now || !before || current < 0 || previous < 0)
+        return {};
+    return *now - *before;
+}
+
+std::optional<Decimal>
+average_price(double value, const std::string& venue, std::optional<int> multiplier)
+{
+    const auto raw = price(value);
+    // Zero means no trade yet in this trading day.
+    if (!raw || *raw <= Decimal{})
+        return {};
+    if (venue == "CZCE")
+        return raw;
+    if (!multiplier || *multiplier <= 0)
+        return {};
+    return divide(*raw, Decimal::parse(std::to_string(*multiplier)), Rounding::half_even);
+}
+
+MarketDepthLevel depth_level(double value, int quantity)
+{
+    const auto converted = price(value);
+    // SDK zero-initialized unused levels have neither a price nor a quantity.
+    if (!converted || (converted->raw() == 0 && quantity <= 0))
+        return {};
+    return {converted, quantity >= 0 ? std::optional<std::int64_t>(quantity) : std::nullopt};
+}
+
+std::int64_t source_time(const std::string& time, int millisecond, std::int64_t received_ms)
+{
+    if (time.size() != 8 || time[2] != ':' || time[5] != ':' || millisecond < 0
+        || millisecond > 999)
+        return 0;
+    auto number = [](const std::string& s, std::size_t pos, std::size_t count) {
+        int n = -1;
+        const auto [p, e] = std::from_chars(s.data() + pos, s.data() + pos + count, n);
+        return e == std::errc{} && p == s.data() + pos + count ? n : -1;
+    };
+    const auto h = number(time, 0, 2), min = number(time, 3, 2), sec = number(time, 6, 2);
+    if (h < 0 || h > 23 || min < 0 || min > 59 || sec < 0 || sec > 59)
+        return 0;
+    // The Beijing civil day nearest to receipt. ActionDay cannot be used: DCE
+    // reports the trading day there during night sessions.
+    constexpr std::int64_t day_ms = 86400000, beijing_ms = 8 * 3600000;
+    const auto clock = ((h * 3600LL + min * 60 + sec) * 1000 + millisecond) - beijing_ms;
+    const auto midnight = (received_ms + beijing_ms) / day_ms * day_ms;
+    auto result = midnight + clock;
+    // A cached night snapshot received during the day session belongs to the previous night.
+    if (result - received_ms > 3600000)
+        result -= day_ms;
+    else if (received_ms - result > day_ms / 2)
+        result += day_ms;
+    return result;
+}
+
+bool valid_trading_day(std::string_view day)
+{
+    return day.size() == 8
+        && std::ranges::all_of(
+            day,
+            [](unsigned char c) {
+                return std::isdigit(c);
+            })
+        && day >= "19900101" && day <= "21001231";
+}
+
+std::string next_weekday_trading_day(std::string_view day)
+{
+    if (!valid_trading_day(day))
+        return std::string(day);
+    int y = 0, m = 0, d = 0;
+    std::from_chars(day.data(), day.data() + 4, y);
+    std::from_chars(day.data() + 4, day.data() + 6, m);
+    std::from_chars(day.data() + 6, day.data() + 8, d);
+    const std::chrono::year_month_day ymd{
+        std::chrono::year{y},
+        std::chrono::month{static_cast<unsigned>(m)},
+        std::chrono::day{static_cast<unsigned>(d)}
+    };
+    if (!ymd.ok())
+        return std::string(day);
+    const auto sys = std::chrono::sys_days{ymd};
+    const auto next = sys
+        + (std::chrono::weekday{sys} == std::chrono::Friday ? std::chrono::days{3}
+                                                            : std::chrono::days{1});
+    auto text = format_trading_date(std::chrono::year_month_day{next});
+    std::erase(text, '-');
+    return text;
+}
+
+// Some counters report 0 before the day's first trade; no future trades at 0.
+std::optional<Decimal> traded_price(double value)
+{
+    return value == 0 ? std::nullopt : price(value);
+}
+
+struct Feed::Impl final
+{
+    struct Connected
+    {};
+
+    struct Disconnected
+    {
+        int reason;
+    };
+
+    struct Login
+    {
+        int code;
+        bool last;
+        std::string trading_day;
+    };
+
+    struct Subscription
+    {
+        CThostFtdcSpecificInstrumentField instrument;
+        int code;
+    };
+
+    struct Failure
+    {
+        int code;
+    };
+
+    struct SubscriptionFailure
+    {
+        int code;
+    };
+
+    struct Tick
+    {
+        CThostFtdcDepthMarketDataField value;
+    };
+
+    using Observation = std::
+        variant<Connected, Disconnected, Login, Subscription, Failure, SubscriptionFailure, Tick>;
+
+    struct Incoming
+    {
+        std::uint64_t generation;
+        std::int64_t received_ms;
+        Observation value;
+    };
+
+    using Factory = CThostFtdcMdApi* (*)(const char*, bool, bool);
+
+    struct Bridge final : CThostFtdcMdSpi
+    {
+        Bridge(Impl& owner, std::uint64_t generation)
+            : owner(owner),
+              generation(generation)
+        {}
+
+        void OnFrontConnected() override
+        {
+            owner.deliver(generation, Connected{});
+        }
+
+        void OnFrontDisconnected(int reason) override
+        {
+            owner.deliver(generation, Disconnected{reason});
+        }
+
+        void OnRspUserLogin(
+            CThostFtdcRspUserLoginField* login,
+            CThostFtdcRspInfoField* info,
+            int,
+            bool last) override
+        {
+            auto day = login ? field(login->TradingDay) : "";
+            if (!valid_trading_day(day) && login && api && api->GetTradingDay())
+                day = api->GetTradingDay();
+            owner.deliver(generation, Login{info ? info->ErrorID : 0, last, std::move(day)});
+        }
+
+        void OnRspSubMarketData(
+            CThostFtdcSpecificInstrumentField* instrument,
+            CThostFtdcRspInfoField* info,
+            int,
+            bool) override
+        {
+            if (instrument)
+                owner.deliver(generation, Subscription{*instrument, info ? info->ErrorID : 0});
+        }
+
+        void OnRspUnSubMarketData(
+            CThostFtdcSpecificInstrumentField*,
+            CThostFtdcRspInfoField* info,
+            int,
+            bool) override
+        {
+            if (info && info->ErrorID)
+                owner.deliver(generation, Failure{info->ErrorID});
+        }
+
+        void OnRspError(CThostFtdcRspInfoField* info, int, bool) override
+        {
+            if (info && info->ErrorID)
+                owner.deliver(generation, Failure{info->ErrorID});
+        }
+
+        void OnRtnDepthMarketData(CThostFtdcDepthMarketDataField* tick) override
+        {
+            if (tick)
+                owner.deliver(generation, Tick{*tick});
+        }
+
+        Impl& owner;
+        const std::uint64_t generation;
+        CThostFtdcMdApi* api = nullptr;
+    };
+
+    // Every vendor call, its SPI and the loaded library live on the SDK owner.
+    struct Sdk
+    {
+        Sdk(Impl& owner, std::uint64_t generation, std::string address)
+            : library(owner.library_path, "_ZN15CThostFtdcMdApi15CreateFtdcMdApiEPKcbb"),
+              bridge(owner, generation),
+              front(std::move(address))
+        {}
+
+        ~Sdk()
+        {
+            if (api) {
+                api->RegisterSpi(nullptr);
+                api->Release();
+            }
+        }
+
+        void start(const std::filesystem::path& flow)
+        {
+            const auto factory = library.symbol<Factory>();
+            if (!factory)
+                throw Error(
+                    ErrorCode::unavailable,
+                    "CTP 6.7.7 market SDK unavailable or incompatible");
+            std::filesystem::create_directories(flow);
+            const auto raw = flow.u8string();
+            const std::string path = std::string(raw.begin(), raw.end()) + "/";
+            api = factory(path.c_str(), false, false);
+            if (!api)
+                throw Error(ErrorCode::unavailable, "CTP market factory failed");
+            bridge.api = api;
+            api->RegisterSpi(&bridge);
+            api->RegisterFront(front.data());
+            api->Init();
+        }
+
+        SharedLibrary library;
+        Bridge bridge;
+        CThostFtdcMdApi* api = nullptr;
+        std::string front;
+    };
+
+    struct SdkState
+    {
+        std::unique_ptr<Sdk> sdk;
+        std::uint64_t generation = 0;
+        std::vector<InstrumentId> sent;
+    };
+
+    template <class T>
+    void deliver(std::uint64_t entry, T value) noexcept
+    {
+        try {
+            if (!incoming.try_push({entry, now_ms(), std::move(value)}))
+                ingress_failed = true;
+        } catch (...) {
+            // No exception may escape into the vendor callback ABI.
+            ingress_failed = true;
+        }
+    }
+
+    void record_status()
+    {
+        std::fill(subscription_revisions.begin(), subscription_revisions.end(), state.sequence);
+        events.emplace_back(FeedStatus{state.phase, state.error_code});
+    }
+
+    void select_subscriptions(const std::vector<InstrumentId>& ids, bool preserve_quotes)
+    {
+        auto next_wanted = ids;
+        std::vector<MarketSubscription> next;
+        std::unordered_map<std::string, std::size_t> index;
+        next.reserve(ids.size());
+        index.reserve(ids.size());
+        for (const auto& id : ids) {
+            MarketSubscription subscription{id, SubscriptionState::pending, 0, {}};
+            const auto old = subscription_index.find(id.symbol);
+            if (preserve_quotes && old != subscription_index.end()
+                && state.subscriptions[old->second].instrument == id)
+                subscription.quote = state.subscriptions[old->second].quote;
+            index.emplace(id.symbol, next.size());
+            next.push_back(std::move(subscription));
+        }
+        // The state owner publishes the vector and indices together.
+        std::vector<std::uint64_t> revisions(ids.size(), state.sequence + 1);
+        state.subscriptions = std::move(next);
+        subscription_revisions = std::move(revisions);
+        membership_sequence = state.sequence + 1;
+        subscription_index = std::move(index);
+        wanted = std::move(next_wanted);
+    }
+
+    Impl(
+        ThreadPool& owner,
+        const std::filesystem::path& path,
+        const std::filesystem::path& directory)
+        : library_path(path),
+          flow(directory),
+          sdk_owner(owner)
+    {}
+
+    ~Impl()
+    {
+        if (pending.valid())
+            pending.get();
+        sdk_owner
+            .submit([this](std::stop_token) {
+                sdk_state.reset();
+            })
+            .get();
+        erase(config.password);
+    }
+
+    void close()
+    {
+        std::lock_guard lock(mutex);
+        erase(config.password);
+        if (closing)
+            return;
+        closing = true;
+        logged_in = login_pending = subscription_pending = false;
+        state.phase = MarketPhase::disconnected;
+        ++state.sequence;
+        record_status();
+    }
+
+    bool current(std::uint64_t value)
+    {
+        std::lock_guard lock(mutex);
+        return !closing && !ingress_failed && generation == value;
+    }
+
+    void send_commands(
+        Sdk& sdk,
+        std::uint64_t sdk_generation,
+        std::vector<InstrumentId>& sent,
+        std::stop_token stop)
+    {
+        CThostFtdcReqUserLoginField request{};
+        bool login = false, subscribe = false;
+        std::vector<std::string> retry;
+        std::vector<InstrumentId> desired;
+        {
+            std::lock_guard lock(mutex);
+            if (closing || generation != sdk_generation)
+                return;
+            login = std::exchange(login_pending, false);
+            if (login) {
+                copy(request.BrokerID, config.broker);
+                copy(request.UserID, config.user);
+                copy(request.Password, config.password);
+                sent.clear();
+            }
+            subscribe = logged_in && std::exchange(subscription_pending, false);
+            if (subscribe)
+                desired = wanted;
+            if (logged_in)
+                retry = std::exchange(retrying, {});
+        }
+        if (login) {
+            const int code = sdk.api->ReqUserLogin(&request, 1);
+            volatile char* secret = request.Password;
+            for (std::size_t i = 0; i < sizeof(request.Password); ++i)
+                secret[i] = 0;
+            if (code)
+                deliver(sdk_generation, Failure{code});
+        }
+        if (subscribe) {
+            std::vector<std::string> removed;
+            const std::set<InstrumentId> desired_set(desired.begin(), desired.end());
+            for (const auto& id : sent)
+                if (!desired_set.contains(id))
+                    removed.push_back(id.symbol);
+            std::vector<char*> names;
+            for (auto& name : removed)
+                names.push_back(name.data());
+            int code = 0;
+            for (std::size_t offset = 0; !code && offset < names.size(); offset += 50) {
+                if (stop.stop_requested() || !current(sdk_generation))
+                    return;
+                code = sdk.api->UnSubscribeMarketData(
+                    names.data() + offset,
+                    static_cast<int>(std::min<std::size_t>(50, names.size() - offset)));
+            }
+            names.clear();
+            for (auto& id : desired)
+                names.push_back(id.symbol.data());
+            for (std::size_t offset = 0; !code && offset < names.size(); offset += 50) {
+                if (stop.stop_requested() || !current(sdk_generation))
+                    return;
+                code = sdk.api->SubscribeMarketData(
+                    names.data() + offset,
+                    static_cast<int>(std::min<std::size_t>(50, names.size() - offset)));
+            }
+            if (code)
+                deliver(sdk_generation, SubscriptionFailure{code});
+            sent = std::move(desired);
+        }
+        std::vector<char*> names;
+        for (auto& name : retry)
+            names.push_back(name.data());
+        int code = 0;
+        for (std::size_t offset = 0; !code && offset < names.size(); offset += 50)
+            code = sdk.api->SubscribeMarketData(
+                names.data() + offset,
+                static_cast<int>(std::min<std::size_t>(50, names.size() - offset)));
+        if (code)
+            deliver(sdk_generation, SubscriptionFailure{code});
+    }
+
+    void advance_sdk(std::stop_token stop)
+    {
+        auto& sdk = sdk_state->sdk;
+        auto& sdk_generation = sdk_state->generation;
+        auto& sent = sdk_state->sent;
+        std::uint64_t desired;
+        {
+            std::lock_guard lock(mutex);
+            desired = closing || ingress_failed ? 0 : generation;
+        }
+        try {
+            if (desired != sdk_generation) {
+                sdk.reset(); // Release completes before another API or SPI is created.
+                if (stop.stop_requested())
+                    return;
+                std::string front;
+                {
+                    std::lock_guard lock(mutex);
+                    sdk_generation = closing || ingress_failed ? 0 : generation;
+                    front = config.front;
+                }
+                sent.clear();
+                if (sdk_generation) {
+                    sdk = std::make_unique<Sdk>(*this, sdk_generation, std::move(front));
+                    sdk->start(flow);
+                }
+            }
+            if (sdk)
+                send_commands(*sdk, sdk_generation, sent, stop);
+        } catch (const std::exception&) {
+            // An explicit new connection is required after creation or SDK failure.
+            deliver(sdk_generation, Failure{-1000});
+            sdk.reset();
+        }
+    }
+
+    void quote(const CThostFtdcDepthMarketDataField* tick, std::int64_t received_ms)
+    {
+        if (!logged_in)
+            return;
+        const auto found = subscription_index.find(field(tick->InstrumentID));
+        if (found == subscription_index.end())
+            return;
+        auto& s = state.subscriptions[found->second];
+        const auto venue = field(tick->ExchangeID);
+        if (!venue.empty() && venue != s.instrument.venue)
+            return;
+        MarketQuote q;
+        q.instrument = s.instrument;
+        q.update_time = field(tick->UpdateTime);
+        auto tick_day = field(tick->TradingDay);
+        if (valid_trading_day(tick_day)) {
+            if (s.instrument.venue == "CZCE" && q.update_time >= "20:00:00"
+                && trading_day <= tick_day)
+                tick_day = next_weekday_trading_day(tick_day);
+            trading_day = std::max(trading_day, tick_day);
+        }
+        q.trading_day = trading_day;
+        q.source_ms = source_time(q.update_time, tick->UpdateMillisec, received_ms);
+        q.received_ms = received_ms;
+        q.last = traded_price(tick->LastPrice);
+        q.bid = depth_level(tick->BidPrice1, tick->BidVolume1).price;
+        q.ask = depth_level(tick->AskPrice1, tick->AskVolume1).price;
+        q.previous_settlement = price(tick->PreSettlementPrice);
+        q.open = traded_price(tick->OpenPrice);
+        q.upper_limit = price(tick->UpperLimitPrice);
+        q.lower_limit = price(tick->LowerLimitPrice);
+        q.high = traded_price(tick->HighestPrice);
+        q.low = traded_price(tick->LowestPrice);
+        q.open_interest = tick->OpenInterest >= 0 ? price(tick->OpenInterest) : std::nullopt;
+        q.open_interest_change = open_interest_change(tick->OpenInterest, tick->PreOpenInterest);
+        q.previous_close = price(tick->PreClosePrice);
+        const auto multiplier = multipliers.find(s.instrument);
+        q.average_price = average_price(
+            tick->AveragePrice,
+            s.instrument.venue,
+            multiplier == multipliers.end() ? std::nullopt
+                                            : std::optional<int>(multiplier->second));
+        q.bid_quantity = std::max(0, tick->BidVolume1);
+        q.ask_quantity = std::max(0, tick->AskVolume1);
+        q.volume = std::max(0, tick->Volume);
+        q.bid_levels = {
+            depth_level(tick->BidPrice2, tick->BidVolume2),
+            depth_level(tick->BidPrice3, tick->BidVolume3),
+            depth_level(tick->BidPrice4, tick->BidVolume4),
+            depth_level(tick->BidPrice5, tick->BidVolume5)
+        };
+        q.ask_levels = {
+            depth_level(tick->AskPrice2, tick->AskVolume2),
+            depth_level(tick->AskPrice3, tick->AskVolume3),
+            depth_level(tick->AskPrice4, tick->AskVolume4),
+            depth_level(tick->AskPrice5, tick->AskVolume5)
+        };
+        const bool out_of_order = s.quote && q.source_ms && s.quote->source_ms > q.source_ms;
+        events.emplace_back(MarketQuoteObservation{q, out_of_order});
+        if (out_of_order) {
+            ++state.out_of_order;
+            ++state.sequence;
+            return;
+        }
+        s.quote = std::move(q);
+        ++state.sequence;
+        subscription_revisions[found->second] = state.sequence;
+    }
+
+    void apply(const Incoming& event)
+    {
+        std::visit(
+            [&](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, Tick>) {
+                    quote(&value.value, event.received_ms);
+                } else {
+                    std::lock_guard lock(mutex);
+                    const auto before = state.sequence;
+                    if constexpr (std::is_same_v<T, Connected>) {
+                        logged_in = false;
+                        state.phase =
+                            config.password.empty() ? MarketPhase::error : MarketPhase::logging_in;
+                        state.error_code = 0;
+                        login_pending = !config.password.empty();
+                        ++state.sequence;
+                    } else if constexpr (std::is_same_v<T, Disconnected>) {
+                        logged_in = false;
+                        state.phase = MarketPhase::reconnecting;
+                        state.error_code = value.reason;
+                        for (auto& sub : state.subscriptions)
+                            sub.state = SubscriptionState::pending;
+                        ++state.sequence;
+                    } else if constexpr (std::is_same_v<T, Login>) {
+                        if (value.code) {
+                            state.phase = MarketPhase::error;
+                            state.error_code = value.code;
+                            logged_in = false;
+                            erase(config.password);
+                            ++state.sequence;
+                        } else if (value.last) {
+                            logged_in = true;
+                            trading_day =
+                                valid_trading_day(value.trading_day) ? value.trading_day : "";
+                            state.phase = MarketPhase::connected;
+                            state.error_code = 0;
+                            subscription_pending = true;
+                            ++state.sequence;
+                        }
+                    } else if constexpr (std::is_same_v<T, Subscription>) {
+                        const auto found =
+                            subscription_index.find(field(value.instrument.InstrumentID));
+                        if (found == subscription_index.end())
+                            return;
+                        auto& sub = state.subscriptions[found->second];
+                        sub.error_code = value.code;
+                        sub.state =
+                            value.code ? SubscriptionState::error : SubscriptionState::subscribed;
+                        ++state.sequence;
+                        subscription_revisions[found->second] = state.sequence;
+                        events.emplace_back(
+                            MarketSubscription{sub.instrument, sub.state, sub.error_code, {}});
+                        return;
+                    } else if constexpr (std::is_same_v<T, Failure>) {
+                        if (value.code) {
+                            state.phase = MarketPhase::error;
+                            state.error_code = value.code;
+                            ++state.sequence;
+                        }
+                    } else if constexpr (std::is_same_v<T, SubscriptionFailure>) {
+                        for (auto& sub : state.subscriptions) {
+                            sub.state = SubscriptionState::error;
+                            sub.error_code = value.code;
+                        }
+                        ++state.sequence;
+                    }
+                    if (state.sequence != before)
+                        record_status();
+                }
+            },
+            event.value);
+    }
+
+    FeedEvents poll()
+    {
+        if (!closing && ingress_failed
+            && (state.phase != MarketPhase::error || state.error_code != -1000)) {
+            state.phase = MarketPhase::error;
+            state.error_code = -1000;
+            ++state.sequence;
+        }
+        for (unsigned i = 0; i < 1024; ++i) {
+            auto event = incoming.try_pop();
+            if (!event)
+                break;
+            if (!closing && !ingress_failed && event->generation == generation)
+                apply(*event);
+        }
+        if (!pending.valid()
+            || pending.wait_for(std::chrono::milliseconds{0}) == std::future_status::ready) {
+            if (pending.valid())
+                pending.get();
+            pending = sdk_owner.submit([this](std::stop_token stop) {
+                advance_sdk(stop);
+            });
+        }
+        return {std::exchange(events, {}), ingress_failed};
+    }
+
+    // Only SDK command handoff uses this mutex. Normalized state belongs to poll().
+    std::mutex mutex;
+
+    // Enough for the initial 20,000-contract acknowledgement/quote burst. Raw
+    // callback storage is bounded independently from normalized event retention.
+    BoundedQueue<Incoming> incoming{65536};
+    std::atomic<bool> ingress_failed{false};
+    std::uint64_t generation = 0;
+
+    const std::filesystem::path library_path, flow;
+    Configuration config;
+    LiveMarketSnapshot state;
+    // What changed since the owner's last poll, in order.
+    std::vector<FeedEvent> events;
+
+    std::vector<InstrumentId> wanted;
+    std::unordered_map<std::string, std::size_t> subscription_index;
+    std::vector<std::uint64_t> subscription_revisions;
+    std::uint64_t membership_sequence = 0;
+
+    std::vector<std::string> retrying;
+    std::map<InstrumentId, int> multipliers;
+    bool closing = true, logged_in = false;
+    // The session's trading day: the login's, moved on by any later one a quote
+    // reports. CZCE reports the civil date during night sessions.
+    std::string trading_day;
+    bool login_pending = false, subscription_pending = false;
+
+    ThreadPool& sdk_owner;
+    std::unique_ptr<SdkState> sdk_state = std::make_unique<SdkState>();
+    std::future<void> pending;
+};
+
+Feed::Feed(
+    ThreadPool& sdk_owner,
+    const std::filesystem::path& library,
+    const std::filesystem::path& flow)
+    : impl_(std::make_unique<Impl>(sdk_owner, library, flow))
+{}
+
+Feed::~Feed() = default;
+
+void Feed::start()
+{
+    if (impl_->library_path.empty())
+        throw Error(ErrorCode::unavailable, "CTP SDK unavailable");
+}
+
+void Feed::stop() noexcept
+{
+    try {
+        disconnect();
+    } catch (...) {
+    }
+}
+
+void Feed::connect(Configuration config, const std::vector<InstrumentId>& ids)
+{
+    validate_instruments(ids);
+    if (!std::regex_match(config.front, std::regex("tcp://[A-Za-z0-9.-]+:[0-9]{1,5}")))
+        throw std::invalid_argument("invalid CTP front address");
+    const auto port = std::stoi(config.front.substr(config.front.rfind(':') + 1));
+    if (port < 1 || port > 65535)
+        throw std::invalid_argument("invalid CTP front port");
+    CThostFtdcReqUserLoginField check{};
+    copy(check.BrokerID, config.broker);
+    copy(check.UserID, config.user);
+    copy(check.Password, config.password);
+    std::memset(check.Password, 0, sizeof(check.Password));
+    start();
+    if (impl_->ingress_failed)
+        throw Error(ErrorCode::unavailable, "market event stream failed; restart market service");
+    if (!impl_->closing && impl_->state.phase != MarketPhase::error)
+        throw Error(ErrorCode::conflict, "disconnect current market session first");
+    impl_->close();
+    std::lock_guard lock(impl_->mutex);
+    impl_->config = std::move(config);
+    impl_->select_subscriptions(ids, false);
+    ++impl_->generation;
+    impl_->closing = false;
+    impl_->state.phase = MarketPhase::connecting;
+    impl_->state.error_code = 0;
+    ++impl_->state.sequence;
+    impl_->record_status();
+}
+
+void Feed::subscribe(const std::vector<InstrumentId>& ids)
+{
+    validate_instruments(ids);
+    std::lock_guard lock(impl_->mutex);
+    if (impl_->closing)
+        throw Error(ErrorCode::conflict, "connect market data first");
+    impl_->select_subscriptions(ids, true);
+    impl_->subscription_pending = true;
+    ++impl_->state.sequence;
+    impl_->record_status();
+}
+
+void Feed::retry_failed_subscriptions()
+{
+    std::lock_guard lock(impl_->mutex);
+    for (auto& subscription : impl_->state.subscriptions)
+        if (subscription.state == SubscriptionState::error) {
+            subscription.state = SubscriptionState::pending;
+            impl_->retrying.push_back(subscription.instrument.symbol);
+        }
+}
+
+std::uint32_t Feed::failed_subscriptions() const
+{
+    std::uint32_t failed = 0;
+    for (const auto& subscription : impl_->state.subscriptions)
+        failed += subscription.state == SubscriptionState::error;
+    return failed;
+}
+
+void Feed::set_multipliers(std::map<InstrumentId, int> values)
+{
+    impl_->multipliers = std::move(values);
+}
+
+LiveMarketSnapshot
+Feed::snapshot(std::optional<std::uint64_t> after, std::span<const InstrumentId> forced) const
+{
+    const auto& state = impl_->state;
+    if (after && *after > state.sequence)
+        throw std::invalid_argument("invalid market snapshot cursor");
+    if (!after || *after < impl_->membership_sequence)
+        return state;
+    LiveMarketSnapshot out;
+    out.phase = state.phase;
+    out.error_code = state.error_code;
+    out.sequence = state.sequence;
+    out.out_of_order = state.out_of_order;
+    out.subscriptions_delta = true;
+    // Scanning compact revision counters does not copy unchanged quote trees.
+    std::vector<std::size_t> selected;
+    for (std::size_t i = 0; i < impl_->subscription_revisions.size(); ++i)
+        if (impl_->subscription_revisions[i] > *after)
+            selected.push_back(i);
+    for (const auto& id : forced) {
+        const auto found = impl_->subscription_index.find(id.symbol);
+        if (found != impl_->subscription_index.end()
+            && state.subscriptions[found->second].instrument == id)
+            selected.push_back(found->second);
+    }
+    std::sort(selected.begin(), selected.end());
+    selected.erase(std::unique(selected.begin(), selected.end()), selected.end());
+    out.subscriptions.reserve(selected.size());
+    for (const auto i : selected)
+        out.subscriptions.push_back(state.subscriptions[i]);
+    return out;
+}
+
+MarketPhase Feed::phase() const
+{
+    return impl_->state.phase;
+}
+
+FeedEvents Feed::poll()
+{
+    return impl_->poll();
+}
+
+void Feed::disconnect()
+{
+    impl_->close();
+}
+
+} // namespace asterion::ctp

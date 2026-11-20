@@ -1,0 +1,23 @@
+import { useMarket } from "../../src/host/market";
+import type { TerminalContext } from "../../src/host/feature-registry";
+import { translate } from "../../src/i18n";
+import { MarketBar } from "./MarketBar";
+import { MarketBoard } from "./MarketBoard";
+import { MarketUnavailable } from "./MarketUnavailable";
+const t = (key: string) => translate("asterion.terminal.futures-market", key);
+
+export function Workspace(context: TerminalContext) {
+  const market = useMarket();
+  return (
+    <div className="market-workspace">
+      <MarketBar />
+      <section className="live-market" aria-label={t("实时期货行情")}>
+        {market ? (
+          <MarketBoard market={market} context={context} />
+        ) : (
+          <MarketUnavailable context={context} />
+        )}
+      </section>
+    </div>
+  );
+}

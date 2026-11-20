@@ -1,0 +1,192 @@
+#include <asterion/system/crash.hpp>
+#include <asterion/system/crash_report.hpp>
+#include <asterion/system/log.hpp>
+#include <cpptrace/basic.hpp>
+#include <limits.h>
+#include <asterion/system/durable_file.hpp>
+#include <asterion/system/process/child.hpp>
+#include <asterion/version.hpp>
+#define UNW_LOCAL_ONLY
+#include <libunwind.h>
+#include <cerrno>
+#include <chrono>
+#include <cstdint>
+#include <ctime>
+#include <fmt/chrono.h>
+#include <csignal>
+#include <cstring>
+#include <cstdlib>
+#include <exception>
+#include <fcntl.h>
+#include <stdexcept>
+#include <string>
+#include <sys/resource.h>
+#include <unistd.h>
+
+namespace asterion {
+namespace {
+
+int output = -1;
+char reporter[PATH_MAX];
+char frames_path[PATH_MAX];
+char partial_frames_path[PATH_MAX];
+
+void write_bytes(int descriptor, const char* text, std::size_t length)
+{
+    while (length) {
+        const auto written = ::write(descriptor, text, length);
+        if (written < 0 && errno == EINTR)
+            continue;
+        if (written <= 0)
+            return;
+        text += written;
+        length -= written;
+    }
+}
+
+void write_text(const char* text, std::size_t length)
+{
+    write_bytes(output, text, length);
+}
+
+void write_text(const char* text)
+{
+    write_text(text, std::strlen(text));
+}
+
+void fatal_signal(int signal, siginfo_t*, void* context)
+{
+    timespec now{};
+    ::clock_gettime(CLOCK_REALTIME, &now);
+    const std::int64_t crashed_at =
+        static_cast<std::int64_t>(now.tv_sec) * 1000 + now.tv_nsec / 1000000;
+    const char* name = "unknown";
+    switch (signal) {
+        case SIGSEGV:
+            name = "SIGSEGV";
+            break;
+        case SIGABRT:
+            name = "SIGABRT";
+            break;
+        case SIGBUS:
+            name = "SIGBUS";
+            break;
+        case SIGILL:
+            name = "SIGILL";
+            break;
+        case SIGFPE:
+            name = "SIGFPE";
+            break;
+    }
+    write_text("fatal signal: ");
+    write_text(name);
+    write_text("\n");
+    // Separate diagnostic text from the crash timestamp and binary frames.
+    write_text("\0", 1);
+    write_bytes(output, reinterpret_cast<const char*>(&crashed_at), sizeof(crashed_at));
+    unw_cursor_t cursor;
+    if (unw_init_local2(&cursor, static_cast<unw_context_t*>(context), UNW_INIT_SIGNAL_FRAME)
+        >= 0) {
+        // Bound output when a corrupted stack cannot be unwound to its end.
+        for (int frame = 0; frame < 128; ++frame) {
+            unw_word_t address = 0;
+            if (unw_get_reg(&cursor, UNW_REG_IP, &address) < 0 || !address)
+                break;
+            cpptrace::safe_object_frame object{};
+            cpptrace::get_safe_object_frame(frame == 0 ? address : address - 1, &object);
+            write_bytes(output, reinterpret_cast<const char*>(&object), sizeof(object));
+            if (unw_step(&cursor) <= 0)
+                break;
+        }
+    }
+    ::fsync(output);
+    if (::rename(partial_frames_path, frames_path) == 0 && ::_Fork() == 0) {
+        ::execl(reporter, reporter, frames_path, static_cast<char*>(nullptr));
+        ::_exit(127);
+    }
+    // SA_RESETHAND restores the signal's fatal default; never resume trading.
+    ::raise(signal);
+}
+
+void terminate()
+{
+    write_text("std::terminate");
+    if (const auto exception = std::current_exception()) {
+        try {
+            std::rethrow_exception(exception);
+        } catch (const std::exception& error) {
+            write_text(": ");
+            write_text(error.what());
+        } catch (...) {
+            write_text(": non-standard exception");
+        }
+    }
+    write_text("\n");
+    std::abort();
+}
+
+} // namespace
+
+void install_crash_logging(const std::filesystem::path& directory, std::string_view program)
+{
+    create_directories_durably(directory);
+    for (const auto& entry : std::filesystem::directory_iterator(directory)) {
+        if (entry.path().extension() != ".frames")
+            continue;
+        try {
+            write_crash_report(entry.path());
+        } catch (const std::exception& error) {
+            log::warn("crash report pending: {}", error.what());
+        }
+    }
+    cpptrace::safe_object_frame warmup{};
+    cpptrace::get_safe_object_frame(
+        reinterpret_cast<cpptrace::frame_ptr>(&install_crash_logging),
+        &warmup);
+    if (!cpptrace::can_get_safe_object_frame())
+        throw std::runtime_error("signal-safe object lookup is unavailable");
+    const auto started_at =
+        std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now());
+    const auto file =
+        directory / fmt::format("{}-{:%Y%m%dT%H%M%S}Z-{}-crash", program, started_at, ::getpid());
+    const auto helper = current_executable().parent_path() / "asterion_crash_reporter";
+    if (!std::filesystem::is_regular_file(helper))
+        throw std::runtime_error("crash reporter is missing: " + helper.string());
+    const auto copy_path = [](const std::filesystem::path& path, char (&destination)[PATH_MAX]) {
+        const auto text = path.string();
+        if (text.size() >= PATH_MAX)
+            throw std::runtime_error("crash diagnostic path is too long");
+        std::memcpy(destination, text.c_str(), text.size() + 1);
+    };
+    copy_path(helper, reporter);
+    copy_path(file.string() + ".frames", frames_path);
+    copy_path(file.string() + ".frames.tmp", partial_frames_path);
+    write_file_durably(
+        partial_frames_path,
+        "Asterion " + std::string(build::description) + "\nprogram: " + std::string(program)
+            + "\nexecutable: " + current_executable().string()
+            + fmt::format("\nstarted_at: {:%Y-%m-%dT%H:%M:%S}Z\n", started_at));
+    output = ::open(partial_frames_path, O_WRONLY | O_APPEND | O_CLOEXEC | O_NOFOLLOW);
+    if (output < 0)
+        throw std::runtime_error("cannot open crash record: " + file.string());
+    std::atexit([] {
+        ::unlink(partial_frames_path);
+    });
+    struct sigaction action{};
+    action.sa_sigaction = fatal_signal;
+    action.sa_flags = SA_SIGINFO | SA_RESETHAND;
+    ::sigemptyset(&action.sa_mask);
+    for (const auto signal : {SIGSEGV, SIGABRT, SIGBUS, SIGILL, SIGFPE}) {
+        if (::sigaction(signal, &action, nullptr) != 0)
+            throw std::runtime_error("cannot install crash signal handler");
+    }
+    // Disable OS core dumps so systemd-coredump does not stall process exit after frames are saved.
+    rlimit core{};
+    if (::getrlimit(RLIMIT_CORE, &core) == 0) {
+        core.rlim_cur = 0;
+        ::setrlimit(RLIMIT_CORE, &core);
+    }
+    std::set_terminate(terminate);
+}
+
+} // namespace asterion

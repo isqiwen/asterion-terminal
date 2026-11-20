@@ -1,0 +1,420 @@
+.flow-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  list-style: none;
+  padding: 0;
+  margin: var(--space-5) 0;
+}
+.flow-steps li {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  color: var(--muted);
+  font-size: var(--font-size-body);
+}
+.flow-steps li span {
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+}
+.flow-steps li[aria-current] {
+  color: var(--accent);
+}
+.flow-steps li[aria-current] span {
+  border-color: var(--accent);
+}
+.workflow-heading {
+  display: flex;
+  gap: var(--space-4);
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-4);
+}
+.workflow-heading h2 {
+  margin: 0;
+  font-size: var(--font-size-lg);
+}
+.workflow-heading p {
+  margin: var(--space-2) 0 0;
+}
+.workflow-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}
+.workflow-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: 32px 0;
+  color: var(--muted);
+}
+.account-setup {
+  padding: var(--space-5);
+  max-width: 1040px;
+  margin: auto;
+}
+.account-setup details {
+  margin-block: var(--space-4);
+}
+/* Trading: the accounts on the left; the chosen account is one panel whose
+   sections share a gutter and are separated by hairlines. */
+.paper-trading {
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+.terminal-business > .paper-trading > .panel-heading {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--canvas);
+}
+.ctp-accounts {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  flex: 1;
+  gap: var(--space-4);
+  padding: var(--space-4);
+}
+.ctp-account-list {
+  display: grid;
+  gap: var(--space-2);
+}
+.ctp-accounts[data-single] {
+  grid-template-columns: minmax(0, 1fr);
+}
+.ctp-account-list[hidden] {
+  display: none;
+}
+.ctp-account-list button {
+  display: grid;
+  gap: 2px;
+  justify-content: stretch;
+  justify-items: start;
+  text-align: left;
+  padding: var(--space-3) var(--space-3);
+  border-color: var(--line);
+  border-radius: var(--panel-radius);
+  background: var(--panel);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ctp-account-list button[aria-current="true"] {
+  border-color: var(--accent-line);
+  background: var(--accent-surface);
+  box-shadow: inset 2px 0 0 var(--accent);
+  color: var(--accent);
+}
+/* The account fills the page; its records take the height left. */
+.ctp-account-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.ctp-account-column > .ctp-account-panel {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+}
+.ctp-account-column > .ctp-account-panel > * {
+  flex-shrink: 0;
+}
+.ctp-account-column .ctp-trade-body {
+  flex: 1 0 auto;
+}
+.ctp-strategies {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-page);
+}
+.ctp-strategies > * {
+  margin: 0;
+}
+.ctp-strategies .workflow-heading {
+  margin: 0;
+}
+.ctp-strategies ul {
+  padding-left: var(--space-4);
+}
+.ctp-account-panel {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+  background: var(--panel);
+  box-shadow: var(--surface-highlight);
+}
+.ctp-account-panel > * {
+  margin: 0;
+  padding: var(--space-3) var(--space-page);
+  border-bottom: 1px solid var(--line);
+}
+.ctp-account-panel > :last-child {
+  border-bottom: 0;
+}
+.ctp-account-panel > form {
+  padding-block: 0;
+}
+/* The step indicator belongs to the step below it. */
+.ctp-account-panel > .flow-steps {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.ctp-account-panel > div form {
+  padding: 0;
+}
+.ctp-account-panel .dataset-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.ctp-account-panel :is(h2, h3) {
+  margin: var(--space-3) 0 var(--space-2);
+  color: var(--text-strong);
+  font-size: var(--font-size-md);
+  font-weight: 500;
+}
+.ctp-account-panel > .workflow-empty,
+.paper-trading > .workflow-empty {
+  padding: 32px var(--space-page);
+}
+.ctp-account-panel .source-actions {
+  padding: 0 0 var(--space-4);
+}
+.ctp-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  min-height: 44px;
+  font-size: var(--font-size-body);
+  /* The account being traded stays visible while the page scrolls. */
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--panel);
+}
+/* A real-money account is marked across its whole line. */
+.ctp-identity[data-real] {
+  padding-left: var(--space-3);
+  border-left: 3px solid var(--danger);
+  background: linear-gradient(90deg, var(--danger-surface), var(--panel) 60%);
+}
+.ctp-identity-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+.ctp-identity strong {
+  color: var(--text-strong);
+  font-weight: 500;
+}
+.ctp-identity span {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.environment-check {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3) var(--space-5);
+}
+.environment-check > label:not(.checkbox) {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-3);
+}
+.environment-check select {
+  width: 180px;
+}
+.environment-check > p {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  margin: 0;
+}
+.ctp-account-panel > form .environment-check {
+  margin-top: var(--space-4);
+}
+.trading-permission .checkbox {
+  margin-bottom: var(--space-3);
+}
+.trading-permission .source-actions {
+  padding: 0;
+}
+.paper-metrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+.paper-metrics dt {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+.paper-metrics dd {
+  margin: var(--space-1) 0 0;
+  color: var(--text-strong);
+  font-size: var(--font-size-xl);
+}
+.ctp-account-panel > form .futures-fields {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.ctp-account-panel > form[aria-label] .source-actions .primary {
+  min-width: 96px;
+}
+.ctp-account-panel > form[aria-label] .source-actions .primary small {
+  color: inherit;
+  opacity: 0.75;
+  font-size: var(--font-size-body);
+}
+.activity-tabs {
+  padding-block: var(--space-3);
+}
+.activity-tabs ~ div:not([hidden]) {
+  padding-top: 0;
+}
+.paper-table {
+  overflow-x: auto;
+}
+.paper-table table {
+  min-width: 560px;
+}
+.paper-table > p {
+  margin: var(--space-2) var(--space-3);
+}
+.paper-table:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+@media (max-width: 1100px) {
+  .ctp-accounts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ctp-account-list {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  }
+  .paper-metrics,
+  .ctp-account-panel > form .futures-fields {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.account-setup .account-field-group {
+  margin: var(--space-4) 0;
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+}
+.account-setup label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  color: var(--muted);
+  font-size: var(--font-size-body);
+}
+.account-setup .futures-file {
+  margin: var(--space-3) 0 0;
+}
+.account-setup input {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+.account-setup form {
+  margin: 0;
+  padding: 0;
+}
+.account-setup .futures-fields {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.creation-review dl {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  margin: 0 0 var(--space-3);
+  border-top: 1px solid var(--line);
+  font-size: var(--font-size-body);
+}
+.creation-review dt,
+.creation-review dd {
+  margin: 0;
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--line);
+  line-height: 1.6;
+}
+.creation-review dt {
+  color: var(--muted);
+}
+.creation-review dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-4);
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+[hidden] {
+  display: none !important;
+}
+@media (max-width: 900px) {
+  .account-setup .futures-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .workflow-heading {
+    flex-wrap: wrap;
+  }
+}
+/* Buying and selling read apart at a glance, in the owner's rise and fall colours. */
+.source-actions button:is(.order-buy, .order-sell) {
+  min-width: 112px;
+  min-height: 36px;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: #05080c;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 22%),
+    0 1px 2px rgb(0 0 0 / 28%);
+}
+.source-actions button:is(.order-buy, .order-sell) small {
+  color: inherit;
+  font-weight: 500;
+  opacity: 0.82;
+}
+.source-actions button.order-buy,
+.source-actions button.order-buy:enabled:hover {
+  background: var(--quote-up);
+  border-color: var(--quote-up);
+  color: #05080c;
+}
+.source-actions button.order-sell,
+.source-actions button.order-sell:enabled:hover {
+  background: var(--quote-down);
+  border-color: var(--quote-down);
+  color: #05080c;
+}
+.source-actions button:is(.order-buy, .order-sell):enabled:hover {
+  filter: brightness(1.06);
+}
+.order-confirm[open] {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-3);
+  width: min(460px, calc(100vw - 32px));
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--danger);
+}
+.order-confirm p {
+  flex: 1 1 100%;
+  margin: 0;
+  color: var(--text-strong);
+  line-height: 1.6;
+}

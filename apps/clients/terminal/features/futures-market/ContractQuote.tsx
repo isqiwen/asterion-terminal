@@ -1,0 +1,131 @@
+import { useState, type CSSProperties } from "react";
+import { TermStructureChart } from "@asterion/terminal/charts/TermStructureChart";
+import { priceTone } from "../../src/bridge/decimal";
+import type { QuoteRow } from "../../src/generated/asterion/market_pb";
+import { rowKey, type MarketView } from "../../src/host/market";
+import { translate } from "../../src/i18n";
+import { contractName } from "../../src/ui/contract-names";
+import { priceTickOf } from "./price-tick";
+import { quoteChange } from "./QuoteTable";
+import { selectQuote } from "./selected-quote";
+const t = (key: string) => translate("asterion.terminal.futures-market", key);
+
+// Months of one product share the exchange and the letters of the symbol.
+export const sameProduct = (a: QuoteRow, b: QuoteRow) =>
+  a.instrument!.exchange === b.instrument!.exchange &&
+  a.instrument!.symbol.replace(/\d/g, "").toUpperCase() ===
+    b.instrument!.symbol.replace(/\d/g, "").toUpperCase();
+const tone = (row: QuoteRow) => {
+  const amount = quoteChange(row)?.amount;
+  return !amount ? undefined : amount > 0 ? "up" : "down";
+};
+
+// Under the chart: the day's figures, five levels of depth and the product's other months.
+export function ContractQuote({ market, row }: { market: MarketView; row: QuoteRow }) {
+  const [monthsOpen, setMonthsOpen] = useState(false);
+  const q = row.quote;
+  const months = market.board.rows
+    .filter(other => sameProduct(other, row))
+    .sort((a, b) => a.instrument!.symbol.localeCompare(b.instrument!.symbol));
+  const levels = [4, 3, 2, 1, 0];
+  // Each level's lots as a bar against the largest of the ten.
+  const most = Math.max(
+    1,
+    ...[...(q?.asks ?? []), ...(q?.bids ?? [])].map(l => Number(l.lots ?? 0)),
+  );
+  const bar = (lots: bigint | undefined) =>
+    ({ "--depth": `${(Number(lots ?? 0) / most) * 100}%` }) as CSSProperties;
+  return (
+    <section className="contract-quote" aria-label={t("盘口")}>
+      <table className="contract-depth" aria-label={t("买卖盘")}>
+        <tbody>
+          {levels.map(level => (
+            <tr key={`ask${level}`}>
+              <th>
+                {t("卖")}
+                {level + 1}
+              </th>
+              <td data-tone={priceTone(q?.asks[level]?.price, q?.previousSettlement)}>
+                {q?.asks[level]?.price?.text ?? "—"}
+              </td>
+              <td className="depth-lots" data-side="ask" style={bar(q?.asks[level]?.lots)}>
+                {q?.asks[level]?.lots?.toString() ?? "—"}
+              </td>
+            </tr>
+          ))}
+          {[0, 1, 2, 3, 4].map(level => (
+            <tr key={`bid${level}`} data-first-bid={level === 0 || undefined}>
+              <th>
+                {t("买")}
+                {level + 1}
+              </th>
+              <td data-tone={priceTone(q?.bids[level]?.price, q?.previousSettlement)}>
+                {q?.bids[level]?.price?.text ?? "—"}
+              </td>
+              <td className="depth-lots" data-side="bid" style={bar(q?.bids[level]?.lots)}>
+                {q?.bids[level]?.lots?.toString() ?? "—"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <dl className="contract-figures">
+        {[
+          ["开盘", q?.open?.text],
+          ["最高", q?.high?.text],
+          ["最低", q?.low?.text],
+          ["昨结算", q?.previousSettlement?.text],
+          ["涨停", q?.upperLimit?.text],
+          ["跌停", q?.lowerLimit?.text],
+          ["持仓量", q?.openInterest?.text],
+          ["日增仓", q?.openInterestChange?.text],
+          ["成交量", q?.volume.toString()],
+          ["交易日", q?.tradingDay],
+        ].map(([label, value]) => (
+          <div key={label}>
+            <dt>{t(label!)}</dt>
+            <dd>{value || "—"}</dd>
+          </div>
+        ))}
+      </dl>
+      {months.length > 1 && (
+        <details
+          className="contract-months"
+          onToggle={event => setMonthsOpen(event.currentTarget.open)}
+        >
+          <summary>{t("同品种其他月份")}</summary>
+          {monthsOpen && (
+            <TermStructureChart
+              points={months.map(month => ({
+                key: rowKey(month),
+                symbol: month.instrument!.symbol,
+                price: month.quote?.last?.text ?? "",
+              }))}
+              selectedKey={rowKey(row)}
+              label={t("期限结构")}
+              priceTick={priceTickOf(market, row.instrument!.exchange, row.instrument!.symbol)}
+              referenceYear={q?.tradingDay ? Number(q.tradingDay.slice(0, 4)) : undefined}
+              onSelect={selectQuote}
+            />
+          )}
+          {months.map(month => {
+            const change = quoteChange(month);
+            return (
+              <button
+                key={rowKey(month)}
+                aria-pressed={rowKey(month) === rowKey(row)}
+                onClick={() => selectQuote(rowKey(month))}
+              >
+                <span>{contractName(month.instrument!, market.board.catalog)}</span>
+                <span data-tone={tone(month)}>{month.quote?.last?.text ?? "—"}</span>
+                <span data-tone={tone(month)}>
+                  {change ? `${change.percent > 0 ? "+" : ""}${change.percent.toFixed(2)}%` : "—"}
+                </span>
+              </button>
+            );
+          })}
+        </details>
+      )}
+    </section>
+  );
+}

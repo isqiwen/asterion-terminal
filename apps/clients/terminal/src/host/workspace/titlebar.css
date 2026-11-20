@@ -1,0 +1,62 @@
+/* Host-owned title bar, independent of platform account services. */
+.terminal-shell {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.terminal-shell-content {
+  flex: 1;
+  min-height: 0;
+}
+.terminal-titlebar {
+  position: relative;
+  flex: 0 0 30px;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-4);
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+:root[data-integrated-titlebar="macos"] .terminal-titlebar {
+  flex-basis: 34px;
+  padding-left: 90px;
+  -webkit-app-region: drag;
+}
+/* The window buttons cover the bar's right end; its content stops before them. */
+:root[data-integrated-titlebar="overlay"] .terminal-titlebar {
+  flex-basis: 34px;
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 16px);
+  -webkit-app-region: drag;
+}
+.terminal-titlebar::before {
+  content: "ASTERION TERMINAL";
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: var(--font-size-aux);
+  letter-spacing: 2px;
+  color: var(--muted);
+  pointer-events: none;
+}
+@media (max-width: 700px) {
+  .terminal-titlebar::before {
+    display: none;
+  }
+}
+
+/* A single accent hairline fades out from the centre of the title bar. */
+.terminal-titlebar::after {
+  content: "";
+  position: absolute;
+  left: 30%;
+  right: 30%;
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-line), transparent);
+  pointer-events: none;
+}
+.terminal-titlebar::before {
+  letter-spacing: 0.42em;
+  color: var(--subtle);
+  font-weight: 500;
+}

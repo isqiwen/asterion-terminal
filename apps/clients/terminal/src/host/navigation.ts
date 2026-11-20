@@ -1,0 +1,78 @@
+import type { IconName } from "../ui/Icon";
+
+// Product organization is independent of plugin ownership. In-session modules
+// come first (market, trading), then after-hours ones (research, data). Each
+// module lists its views in tab order; IDs name the current contributed views.
+export const modules = [
+  {
+    id: "market",
+    title: "行情",
+    icon: "market",
+    views: ["workspace.market"],
+  },
+  {
+    id: "live",
+    title: "交易",
+    icon: "trading",
+    views: ["workspace.trading", "workspace.trading-strategies"],
+  },
+  {
+    id: "research",
+    title: "研究",
+    icon: "backtest",
+    views: ["workspace.lab-strategies", "workspace.lab-runs", "workspace.lab-factors"],
+  },
+  {
+    id: "data",
+    title: "数据",
+    icon: "data",
+    views: ["workspace.data-dataset", "workspace.data-browse"],
+  },
+] satisfies { id: string; title: string; icon: IconName; views: string[] }[];
+export type NavigationOptions = {
+  page?: string;
+  params?: Record<string, string>;
+};
+export type NavigationState = {
+  module: string;
+  // The view last shown in each module.
+  routes: Record<string, string>;
+  locations: Record<string, NavigationOptions>;
+};
+export function initialNavigation(saved?: unknown): NavigationState {
+  // A first launch opens the first module; its page offers to add the connection.
+  const initial: NavigationState = { module: modules[0]!.id, routes: {}, locations: {} };
+  if (!saved || typeof saved !== "object") return initial;
+  const location = saved as Record<string, unknown>;
+  const module = modules.find(item => item.id === location.module);
+  const view = location.view;
+  if (!module || typeof view !== "string" || !module.views.includes(view)) return initial;
+  return { ...initial, module: module.id, routes: { [module.id]: view } };
+}
+export function currentRoute(state: NavigationState) {
+  const module = modules.find(item => item.id === state.module)!;
+  const view = state.routes[module.id] ?? module.views[0];
+  return { module, view, options: state.locations[view] ?? {} };
+}
+// Persist only the destination, never object parameters or in-memory drafts.
+export function navigationLocation(state: NavigationState) {
+  const { module, view } = currentRoute(state);
+  return { module: module.id, view };
+}
+export function selectModule(state: NavigationState, id: string): NavigationState {
+  if (!modules.some(item => item.id === id)) throw new Error(`Unknown module: ${id}`);
+  return { ...state, module: id };
+}
+export function selectView(
+  state: NavigationState,
+  id: string,
+  options?: NavigationOptions,
+): NavigationState {
+  const module = modules.find(item => (item.views as string[]).includes(id));
+  if (!module) throw new Error(`Unknown view: ${id}`);
+  return {
+    module: module.id,
+    routes: { ...state.routes, [module.id]: id },
+    locations: options ? { ...state.locations, [id]: options } : state.locations,
+  };
+}

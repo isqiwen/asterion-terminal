@@ -1,0 +1,181 @@
+import { openView } from "./navigation-helper";
+import { test, expect } from "./test";
+import { board as frame, serveWatch, watchRow } from "./market-fixture";
+
+test("market board groups exchanges and links contract selection without inventing candles", async ({
+  page,
+}) => {
+  // The board without a contract catalog: rb2610 never quotes, i2701 sends
+  // the test's quoteCount quotes. A new stream starts when the page asks for
+  // one or the test sets interrupted.
+  let quoteCount = 0;
+  let interrupted = false;
+  let available = true;
+  let started = false;
+  let resumed = false;
+  let sent = 0;
+  const rb = { exchange: "SHFE", symbol: "rb2610" };
+  const iron = { exchange: "DCE", symbol: "i2701" };
+  const quote = (index: number) =>
+    watchRow(iron, {
+      last: index % 2 ? "100.00000001" : "102",
+      exchangeMs: String(1790582400000 + index * 1000),
+    });
+  await serveWatch(
+    page,
+    restart => {
+      const frames: object[] = [];
+      if (restart || !started || (interrupted && !resumed)) {
+        if (interrupted) resumed = true;
+        started = true;
+        sent = quoteCount ? 1 : 0;
+        frames.push({ full: frame([watchRow(rb), sent ? quote(0) : watchRow(iron)]) });
+      }
+      for (; sent < quoteCount; ++sent) frames.push({ changed: frame([quote(sent)], false) });
+      return { frames, online: available };
+    },
+    [rb, iron],
+  );
+  await page.goto("/");
+  await openView(page, "market");
+  const board = page.locator(".futures-market-board");
+  const detail = page.getByRole("complementary", { name: "合约详情" });
+  // Without a catalog the board lists subscribed months even in product overview.
+  await expect(board.getByRole("button", { name: /rb2610$/ })).toBeVisible();
+  await page.getByRole("button", { name: "全部月份", exact: true }).click();
+  await expect(detail).toContainText("rb2610");
+  const more = detail.locator(".quote-pane-more > button").first();
+  const periods = detail.getByRole("group", { name: "图表周期" });
+  await more.click();
+  await expect(periods).toBeVisible();
+  await more.press("Tab");
+  await expect(periods.getByRole("button").first()).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(periods).toBeHidden();
+  await expect(more).toBeFocused();
+  await board.getByRole("button", { name: /i2701$/ }).click();
+  await expect(detail).toContainText("i2701");
+  await expect(board.getByRole("button", { name: /i2701$/ })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  // Commodity groups follow the reference board: Shanghai left, Dalian below.
+  await expect(board.getByRole("region", { name: "上海商品期货" })).toContainText("rb2610");
+  await expect(board.getByRole("region", { name: "大连商品期货" })).toContainText("i2701");
+  await expect(board.getByRole("region", { name: /境外商品期货|境外金融期货/ })).toHaveCount(0);
+  const categories = page.getByRole("navigation", { name: "期货分类" });
+  await categories.getByRole("button", { name: "上期所", exact: true }).click();
+  await expect(board.getByRole("button", { name: /i2701$/ })).toHaveCount(0);
+  await expect(detail).toContainText("rb2610");
+  await expect(detail.locator(".quote-pane-status").first()).toHaveText("等待首笔");
+  await openView(page, "dataset");
+  await openView(page, "market");
+  await expect(categories.getByRole("button", { name: "上期所", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(board.getByRole("button", { name: /i2701$/ })).toHaveCount(0);
+  await categories.getByRole("button", { name: "期货全景", exact: true }).click();
+  await page.getByRole("button", { name: "全部月份", exact: true }).click();
+  const listBox = await page.locator(".futures-market-board-list").boundingBox();
+  const detailBox = await detail.boundingBox();
+  expect(detailBox!.x).toBeGreaterThanOrEqual(listBox!.x + listBox!.width - 1);
+  await board.getByRole("button", { name: /i2701$/ }).focus();
+  await page.keyboard.press("ArrowUp");
+  await expect(detail).toContainText("rb2610");
+  await expect(board.getByRole("button", { name: /rb2610$/ })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(detail).toContainText("i2701");
+  const search = page.getByRole("searchbox", { name: "搜索市场合约" });
+  // Moving to an already selected row must still move keyboard focus.
+  await board.getByRole("button", { name: /rb2610$/ }).focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(board.getByRole("button", { name: /i2701$/ })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(board.getByRole("button", { name: /i2701$/ })).toBeFocused();
+  await search.fill("RB");
+  await expect(board.getByRole("button", { name: /i2701$/ })).toHaveCount(0);
+  await expect(detail).toContainText("rb2610");
+  await search.fill("unknown");
+  await expect(board.locator(".market-search-empty")).toHaveText("没有匹配的市场合约");
+  await expect(detail).toHaveCount(0);
+  await search.fill("");
+  await expect(detail).toContainText("i2701");
+  await page.screenshot({ path: "build/market-board-desktop.png" });
+  await page.setViewportSize({ width: 2048, height: 1152 });
+  // A wide window lays the groups side by side instead of stretching them.
+  const left = async (name: string) => (await board.getByRole("region", { name }).boundingBox())!.x;
+  await expect.poll(() => left("大连商品期货")).toBeGreaterThan(await left("上海商品期货"));
+  await page.screenshot({ path: "build/market-board-wide.png" });
+  await page.setViewportSize({ width: 800, height: 900 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await expect(detail).toBeVisible();
+  await page.screenshot({ path: "build/market-board-compact.png" });
+  await detail.getByRole("button", { name: "Tick", exact: true }).first().click();
+  quoteCount = 24;
+  const chart = detail.getByRole("img", { name: "最近报价走势" });
+  await expect(chart).toBeVisible();
+  await expect(chart).toHaveAttribute("data-visible-count", "24");
+  await expect(detail.locator(".price-chart-cursor")).toContainText("100.00000001");
+  await expect(chart.locator("canvas").first()).toBeVisible();
+  await detail.getByRole("button", { name: "放大", exact: true }).click();
+  await expect(chart).toHaveAttribute("data-visible-count", "19");
+  quoteCount = 30;
+  await expect(chart).toHaveAttribute("data-window-start", "11");
+  await detail.getByRole("button", { name: "向前", exact: true }).click();
+  await expect(chart).toHaveAttribute("data-window-start", "7");
+  quoteCount = 32;
+  await expect(chart).toHaveAttribute("data-window-start", "7");
+  await detail.getByRole("button", { name: "最新数据", exact: true }).click();
+  await expect(chart).toHaveAttribute("data-window-start", "13");
+  available = false;
+  await expect(chart).toHaveCount(0);
+  await expect(detail.getByText("报价序列暂不可用", { exact: true })).toBeVisible();
+  interrupted = true;
+  available = true;
+  quoteCount = 3;
+  await expect(chart).toHaveAttribute("data-visible-count", "3");
+  await expect(detail.getByText("序列曾中断，只显示恢复后的报价", { exact: true })).toBeVisible();
+  await board.getByRole("button", { name: /rb2610$/ }).click();
+  await expect(chart).toHaveCount(0);
+  await expect(detail.getByText("等待报价事件", { exact: true })).toBeVisible();
+  await board.getByRole("button", { name: /i2701$/ }).click();
+  await expect(chart).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  // The chart resizes its canvas on the next frame.
+  await expect
+    .poll(() =>
+      chart.evaluate(element => {
+        const right = element.getBoundingClientRect().right;
+        return [...element.querySelectorAll("canvas")].every(
+          canvas => canvas.getBoundingClientRect().right <= right + 1,
+        );
+      }),
+    )
+    .toBe(true);
+  await page.screenshot({ path: "build/market-quote-trend.png" });
+  // The whole quote row selects/opens its own contract, including numeric cells.
+  const rbRow = board.locator("tbody tr").filter({ hasText: "rb2610" });
+  await rbRow.locator("td").nth(1).click();
+  await expect(detail).toContainText("rb2610");
+  await expect(board.getByRole("button", { name: /rb2610$/ })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(board.getByRole("button", { name: /i2701$/ })).toBeFocused();
+  await expect(detail).toContainText("i2701");
+  await rbRow.locator("td").nth(1).click();
+  await page.screenshot({ path: "build/market-mouse-keyboard-selection.png" });
+  // Opening a row widens its contract beside the board.
+  const expanded = page.locator(".futures-market-board[data-expanded]");
+  const collapse = () => page.getByRole("button", { name: "收起", exact: true }).click();
+  await page.keyboard.press("Enter");
+  await expect(expanded).toBeVisible();
+  await expect(detail).toContainText("rb2610");
+  await collapse();
+  await board.getByRole("button", { name: /i2701$/ }).press("Enter");
+  await expect(detail).toContainText("i2701");
+  await collapse();
+  await expect(expanded).toHaveCount(0);
+  await rbRow.locator("td").nth(1).dblclick();
+  await expect(expanded).toBeVisible();
+  await expect(detail).toContainText("rb2610");
+});

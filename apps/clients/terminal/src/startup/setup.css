@@ -1,0 +1,120 @@
+.first-setup {
+  position: relative;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(
+      ellipse 56% 42% at 50% 24%,
+      color-mix(in oklab, var(--accent) 7%, transparent),
+      transparent
+    ),
+    var(--canvas);
+  color: var(--muted);
+  font-family: var(--font-ui);
+}
+.setup-language-control {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+}
+.first-setup .setup-language {
+  width: 112px;
+}
+.setup-content {
+  width: min(480px, calc(100% - 48px));
+  padding: 48px 0;
+}
+.setup-content header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+.setup-mark {
+  margin-bottom: var(--space-5);
+  color: var(--accent);
+}
+.setup-content h1 {
+  color: var(--text-strong);
+  font-size: var(--font-size-2xl);
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  line-height: 1.2;
+  margin: 0;
+}
+/* One hairline row per module: name, size, progress, state. */
+.setup-steps {
+  border-top: 1px solid var(--line);
+}
+.setup-step {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 56px 160px 72px;
+  gap: var(--space-4);
+  align-items: center;
+  height: 40px;
+  border-bottom: 1px solid var(--line);
+}
+.setup-step b {
+  color: var(--text);
+  font-size: var(--font-size-body);
+  font-weight: 500;
+}
+.setup-step > span {
+  text-align: right;
+  font-size: var(--font-size-body);
+}
+.setup-step > .setup-status-done {
+  color: var(--success);
+}
+.setup-step > .setup-status-failed {
+  color: var(--danger);
+}
+.setup-track {
+  height: 2px;
+  overflow: hidden;
+  background: var(--raised);
+}
+.setup-track i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+}
+.setup-track.failed i {
+  background: var(--danger);
+}
+.setup-track.indeterminate i {
+  width: 30%;
+  animation: setup-scan 1.5s ease-in-out infinite alternate;
+}
+@keyframes setup-scan {
+  to {
+    transform: translateX(230%);
+  }
+}
+.setup-begin {
+  width: 100%;
+  height: 36px;
+  margin-top: var(--space-5);
+  font-size: var(--font-size-md);
+  letter-spacing: 0.12em;
+}
+.setup-begin:disabled {
+  cursor: wait;
+}
+@media (prefers-reduced-motion: reduce) {
+  .setup-track.indeterminate i {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+}
+
+.setup-step > small {
+  text-align: right;
+  font-size: var(--font-size-xs);
+  font-family: var(--font-terminal);
+}

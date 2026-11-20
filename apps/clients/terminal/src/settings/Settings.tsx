@@ -1,0 +1,221 @@
+import type { CommandHandler } from "../bridge/commands";
+import { BrandMark } from "../ui/BrandMark";
+import { Icon, type IconName } from "../ui/Icon";
+import { SettingsSection } from "./Section";
+import version from "../../../../../VERSION?raw";
+import { categoryKey, selectedPageKey, settingsPage, type SettingsPage } from "./window";
+import { translate, useLocale, type MessageValues } from "../i18n";
+const t = (key: string, values?: MessageValues) => translate("host", key, values);
+import { useState, useEffect, useRef } from "react";
+import { savePreferences, usePreferences } from "../ui/preferences";
+import { TradingConnections } from "./TradingConnections";
+import { ServiceConnection } from "./ServiceConnection";
+import type { Snapshot } from "@asterion/desktop-bridge/client";
+// The pages in sidebar order, with the title each shows.
+const pages: [SettingsPage, string, IconName][] = [
+  ["preferences", "偏好设置", "sliders"],
+  ["market", "行情服务", "market"],
+  ["warehouse", "数据服务", "data"],
+  ["trading", "交易服务", "trading"],
+  ["about", "关于", "info"],
+];
+export function Settings({
+  snapshot,
+  busy,
+  trade,
+  initialPage = "preferences",
+}: {
+  initialPage?: SettingsPage;
+  snapshot: Snapshot | null;
+  busy: boolean;
+  trade: CommandHandler;
+}) {
+  const [page, setPage] = useState<SettingsPage>(initialPage);
+  const [unsaved, setUnsaved] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"" | "copied" | "failed">("");
+  const seenNonce = useRef<number | null>(null);
+  useEffect(() => {
+    const applyCategory = (raw: string | null) => {
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw) as { page?: string; nonce?: number };
+        if (typeof parsed.nonce === "number") {
+          if (seenNonce.current === parsed.nonce) return;
+          seenNonce.current = parsed.nonce;
+        }
+        setPage(settingsPage(parsed.page ?? null));
+      } catch {
+        /* Invalid UI selection does not change the current page. */
+      }
+    };
+    try {
+      const current = localStorage.getItem(categoryKey);
+      if (current) seenNonce.current = (JSON.parse(current) as { nonce?: number }).nonce ?? null;
+    } catch {
+      /* Storage may be unavailable. */
+    }
+    const select = (event: StorageEvent) => {
+      if (event.key === categoryKey) applyCategory(event.newValue);
+    };
+    const syncOnFocus = () => {
+      try {
+        applyCategory(localStorage.getItem(categoryKey));
+      } catch {
+        /* Storage may be unavailable. */
+      }
+    };
+    window.addEventListener("storage", select);
+    window.addEventListener("focus", syncOnFocus);
+    return () => {
+      window.removeEventListener("storage", select);
+      window.removeEventListener("focus", syncOnFocus);
+    };
+  }, []);
+  useEffect(() => {
+    localStorage.setItem(selectedPageKey, page);
+  }, [page]);
+  const preferences = usePreferences();
+  const { locale, setLocale } = useLocale();
+  return (
+    <div className="settings-window">
+      <aside className="settings-sidebar">
+        <div className="settings-brand">
+          <BrandMark size={24} />
+          <span>ASTERION</span>
+        </div>
+        <nav aria-label={t("设置")}>
+          {pages.map(([item, label, icon]) => (
+            <button
+              key={item}
+              type="button"
+              className={page === item ? "active" : ""}
+              aria-current={page === item ? "page" : undefined}
+              onClick={() => setPage(item)}
+            >
+              <Icon name={icon} size={16} />
+              <span>{t(label)}</span>
+            </button>
+          ))}
+        </nav>
+      </aside>
+      <main className="settings-content">
+        <h1>{t(pages.find(([item]) => item === page)?.[1] ?? "偏好设置")}</h1>
+        {busy && <p role="status">{t("正在处理…")}</p>}
+        {page === "preferences" && (
+          <SettingsSection title={t("显示")}>
+            <div className="settings-fields">
+              <label className="settings-field">
+                {t("语言")}
+                <select
+                  aria-label={t("语言")}
+                  value={locale}
+                  onChange={e => {
+                    try {
+                      setLocale(e.target.value as "zh-CN" | "en-US");
+                      setUnsaved(false);
+                    } catch {
+                      setUnsaved(true);
+                    }
+                  }}
+                >
+                  <option value="zh-CN">简体中文</option>
+                  <option value="en-US">English</option>
+                </select>
+                {unsaved && (
+                  <span className="action-error" role="alert">
+                    {t("保存失败，请检查本机存储权限。")}
+                  </span>
+                )}
+              </label>
+              <label className="settings-field">
+                {t("显示密度")}
+                <select
+                  aria-label={t("显示密度")}
+                  value={preferences.density}
+                  onChange={e =>
+                    savePreferences({
+                      ...preferences,
+                      density: e.target.value as "compact" | "comfortable",
+                    })
+                  }
+                >
+                  <option value="compact">{t("紧凑")}</option>
+                  <option value="comfortable">{t("舒适")}</option>
+                </select>
+              </label>
+              <label className="settings-field">
+                {t("涨跌配色")}
+                <select
+                  aria-label={t("涨跌配色")}
+                  value={preferences.colors}
+                  onChange={e =>
+                    savePreferences({
+                      ...preferences,
+                      colors: e.target.value as "china" | "international",
+                    })
+                  }
+                >
+                  <option value="china">{t("红涨绿跌")}</option>
+                  <option value="international">{t("绿涨红跌")}</option>
+                </select>
+              </label>
+            </div>
+          </SettingsSection>
+        )}
+        {page === "trading" && <TradingConnections snapshot={snapshot} busy={busy} trade={trade} />}
+        {page === "market" && (
+          <ServiceConnection service="market" snapshot={snapshot} busy={busy} trade={trade} />
+        )}
+        {page === "warehouse" && (
+          <ServiceConnection service="warehouse" snapshot={snapshot} busy={busy} trade={trade} />
+        )}
+        {page === "about" && (
+          <SettingsSection title="Asterion Terminal">
+            <dl className="settings-facts">
+              <dt>{t("版本")}</dt>
+              <dd>
+                {version.trim()}
+                {snapshot && ` (${snapshot.diagnostics.commit})`}
+              </dd>
+              <dt title={t("在行情服务、数据服务和交易主机登记这个指纹")}>{t("本机证书指纹")}</dt>
+              <dd className="client-fingerprint-row">
+                <code className="client-fingerprint">{snapshot?.client_fingerprint}</code>
+                {snapshot?.client_fingerprint && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const text = snapshot.client_fingerprint;
+                      if (!text) return;
+                      try {
+                        await navigator.clipboard.writeText(text);
+                        setCopyStatus("copied");
+                      } catch {
+                        setCopyStatus("failed");
+                      }
+                    }}
+                  >
+                    {t("复制")}
+                  </button>
+                )}
+                <span className="subtle" role="status">
+                  {copyStatus === "copied"
+                    ? t("已复制")
+                    : copyStatus === "failed"
+                      ? t("复制失败")
+                      : ""}
+                </span>
+              </dd>
+              {/* The chart library's licence asks for this credit; here instead of under every chart. */}
+              <dt>{t("图表")}</dt>
+              <dd>
+                <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">
+                  TradingView Lightweight Charts™ · © 2025 TradingView, Inc.
+                </a>
+              </dd>
+            </dl>
+          </SettingsSection>
+        )}
+      </main>
+    </div>
+  );
+}

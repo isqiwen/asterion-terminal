@@ -1,0 +1,174 @@
+import { useState } from "react";
+import type { CommandHandler } from "../bridge/commands";
+import type { Snapshot, TradingConnection } from "../bridge/client";
+import { translate } from "../i18n";
+import { asDisplayError, type DisplayError } from "../i18n/errors";
+import { ActionError } from "../host/action-error";
+import { SettingsDialog } from "./SettingsDialog";
+import { SettingsSection } from "./Section";
+import { ServiceFacts } from "./ServiceFacts";
+const t = (key: string) => translate("host", key);
+const blank = { host: "", port: "7460", instance: "", fingerprint: "" };
+
+export function TradingConnections({
+  snapshot,
+  busy,
+  trade,
+}: {
+  snapshot: Snapshot | null;
+  busy: boolean;
+  trade: CommandHandler;
+}) {
+  const [editing, setEditing] = useState<TradingConnection | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState(blank);
+  const [error, setError] = useState<DisplayError>("");
+  const [removing, setRemoving] = useState("");
+  const entries = snapshot?.trading_connections ?? [];
+  const edit = (entry: TradingConnection | null) => {
+    setEditing(entry);
+    setDraft(entry ? { ...entry, port: String(entry.port) } : blank);
+    setAdding(true);
+    setError("");
+  };
+  return (
+    <>
+      <SettingsSection
+        title={t("连接")}
+        actions={
+          <button type="button" className="primary" disabled={busy} onClick={() => edit(null)}>
+            {t("添加交易连接")}
+          </button>
+        }
+      >
+        <div className="settings-list">
+          {entries.map(entry => (
+            <section
+              className="settings-item"
+              key={entry.id}
+              aria-label={"error" in entry ? entry.id : entry.instance}
+            >
+              <div className="settings-item-row">
+                <div>
+                  <h3>{"error" in entry ? entry.id : entry.instance}</h3>
+                  {"error" in entry ? (
+                    <p role="alert">{t("连接文件无法读取，已保留原文件供检查")}</p>
+                  ) : (
+                    <ServiceFacts
+                      key={`${entry.host}:${entry.port}/${entry.fingerprint}`}
+                      address={`${entry.host}:${entry.port}`}
+                      account={entry.id}
+                    />
+                  )}
+                </div>
+                {!("error" in entry) && (
+                  <div className="settings-actions">
+                    <button type="button" disabled={busy} onClick={() => edit(entry)}>
+                      {t("编辑连接")}
+                    </button>
+                    <button
+                      type="button"
+                      className={removing === entry.id ? "danger" : "danger-quiet"}
+                      disabled={busy}
+                      onBlur={() => setRemoving("")}
+                      onClick={async () => {
+                        if (removing !== entry.id) {
+                          setRemoving(entry.id);
+                          return;
+                        }
+                        try {
+                          await trade("trading.connections.remove", {
+                            id: entry.id,
+                            revision: entry.revision,
+                          });
+                          setRemoving("");
+                          setError("");
+                        } catch (failure) {
+                          setError(asDisplayError(failure));
+                        }
+                      }}
+                    >
+                      {t(removing === entry.id ? "确认删除连接" : "删除连接")}
+                    </button>
+                  </div>
+                )}
+              </div>
+              {!("error" in entry) && (
+                <details>
+                  <summary>{t("技术详情")}</summary>
+                  <dl>
+                    <dt>{t("交易服务证书指纹")}</dt>
+                    <dd>
+                      <code>{entry.fingerprint}</code>
+                    </dd>
+                  </dl>
+                </details>
+              )}
+            </section>
+          ))}
+        </div>
+        {!adding && <ActionError error={error} namespace="asterion.terminal.trading" />}
+        {adding && (
+          <SettingsDialog
+            title={t(editing ? "编辑连接" : "添加交易连接")}
+            busy={busy}
+            onCancel={() => setAdding(false)}
+            onSubmit={async event => {
+              event.preventDefault();
+              try {
+                await trade("trading.connections.save", {
+                  id: editing?.id ?? `trading-${crypto.randomUUID()}`,
+                  revision: editing?.revision ?? "",
+                  host: draft.host.trim(),
+                  port: Number(draft.port),
+                  instance: draft.instance.trim(),
+                  fingerprint: draft.fingerprint.trim(),
+                });
+                setAdding(false);
+                setError("");
+              } catch (failure) {
+                setError(asDisplayError(failure));
+              }
+            }}
+          >
+            <fieldset disabled={busy} className="futures-fields">
+              {(
+                [
+                  ["host", "主机地址", "192.168.1.30"],
+                  ["port", "端口", ""],
+                  ["instance", "账户", "simnow"],
+                  ["fingerprint", "交易服务证书指纹", ""],
+                ] as const
+              ).map(([key, label, example]) => (
+                <label key={key}>
+                  {t(label)}
+                  <input
+                    required
+                    placeholder={example || undefined}
+                    type={key === "port" ? "number" : "text"}
+                    min={key === "port" ? 1 : undefined}
+                    max={key === "port" ? 65535 : undefined}
+                    spellCheck={key === "port" ? undefined : false}
+                    autoCorrect={key === "port" ? undefined : "off"}
+                    autoCapitalize={key === "port" ? undefined : "none"}
+                    value={draft[key]}
+                    onChange={event => setDraft({ ...draft, [key]: event.target.value })}
+                  />
+                </label>
+              ))}
+            </fieldset>
+            <ActionError error={error} namespace="asterion.terminal.trading" />
+            <div className="source-actions">
+              <button type="button" onClick={() => setAdding(false)} disabled={busy}>
+                {t("取消")}
+              </button>
+              <button type="submit" className="primary" disabled={busy}>
+                {t("保存连接")}
+              </button>
+            </div>
+          </SettingsDialog>
+        )}
+      </SettingsSection>
+    </>
+  );
+}

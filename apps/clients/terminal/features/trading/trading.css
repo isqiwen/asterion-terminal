@@ -1,0 +1,419 @@
+.strategy-instance,
+.strategy-monitor {
+  border-top: 1px solid var(--line);
+  margin-top: var(--space-5);
+  padding-top: var(--space-3);
+}
+.strategy-instance fieldset {
+  border: 1px solid var(--line);
+  margin: var(--space-3) 0;
+  padding: var(--space-3);
+  min-width: 0;
+}
+.strategy-instance select {
+  min-width: 0;
+  width: 100%;
+}
+.account-setup .strategy-instance .checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+}
+.account-setup .strategy-instance input[type="checkbox"] {
+  width: auto;
+}
+.strategy-contracts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.strategy-parameter {
+  display: grid;
+  grid-template-columns: 1fr 100px 1fr auto;
+  align-items: end;
+  gap: var(--space-3);
+  margin: var(--space-3) 0;
+}
+.strategy-monitor table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.strategy-monitor dl {
+  display: grid;
+  grid-template-columns: minmax(140px, max-content) 1fr;
+  gap: var(--space-2) var(--space-5);
+}
+.strategy-monitor dt {
+  color: var(--muted);
+}
+.strategy-monitor dd {
+  margin: 0;
+}
+.strategy-monitor th,
+.strategy-monitor td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+.strategy-instance dd,
+.strategy-monitor dd {
+  overflow-wrap: anywhere;
+}
+.ctp-strategies td {
+  overflow-wrap: anywhere;
+}
+.ctp-strategies td button {
+  max-width: 100%;
+  white-space: normal;
+}
+@media (max-width: 900px) {
+  .strategy-parameter {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.strategy-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+.strategy-events {
+  margin: 0;
+  padding-left: var(--space-4);
+  font-variant-numeric: tabular-nums;
+}
+
+/* An account: its records beside the order ticket, as trading terminals lay them out. */
+.ctp-account-panel > .ctp-trade-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  padding: 0;
+}
+.ctp-trade-records {
+  min-width: 0;
+  padding: var(--space-3) var(--space-page);
+}
+.ctp-trade-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  border-left: 1px solid var(--line);
+}
+.ctp-trade-side .futures-fields {
+  grid-template-columns: 1fr 1fr;
+}
+.ctp-trade-side .source-actions:has(.order-buy) {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+@media (max-width: 1100px) {
+  .ctp-account-panel > .ctp-trade-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ctp-trade-side {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+}
+.activity-tabs button small {
+  margin-left: var(--space-1);
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+.ctp-up {
+  color: var(--quote-up);
+}
+.ctp-down {
+  color: var(--quote-down);
+}
+/* Five levels: asks above, bids below; a level fills the limit price. */
+.order-book {
+  display: grid;
+  gap: 1px;
+  margin: var(--space-2) 0;
+  padding: var(--space-1);
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+  background: color-mix(in oklab, var(--canvas) 68%, var(--panel));
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-xs);
+}
+.order-book button {
+  display: grid;
+  grid-template-columns: 3em 1fr 4.5em;
+  min-height: 21px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: 2px;
+  background: linear-gradient(
+    to left,
+    var(--depth-color, transparent) calc(var(--depth, 0%) * 0.42),
+    transparent calc(var(--depth, 0%) * 0.42)
+  );
+  text-align: right;
+}
+.order-book button.order-ask {
+  --depth-color: color-mix(in oklab, var(--quote-up) 20%, transparent);
+}
+.order-book button.order-bid {
+  --depth-color: color-mix(in oklab, var(--quote-down) 20%, transparent);
+}
+.order-book button span:first-child {
+  text-align: left;
+  color: var(--muted);
+}
+.order-book button[data-first-bid] {
+  border-top: 1px dashed var(--line-strong);
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.order-book button[data-tone="up"] {
+  color: var(--quote-up);
+}
+.order-book button[data-tone="down"] {
+  color: var(--quote-down);
+}
+.order-book button[data-tone="missing"] {
+  color: var(--muted);
+}
+.order-book button span:last-child {
+  color: var(--text);
+}
+.order-book .order-last {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: var(--space-1);
+  padding: 2px var(--space-2);
+  background: var(--panel);
+  color: var(--text-strong);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+}
+.order-book button:hover:enabled {
+  background-color: var(--hover);
+}
+.source-actions button[data-suggested] {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* An account's strategies: its instance beside the packages that can run. */
+.ctp-strategy-body {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: var(--space-4);
+  align-items: start;
+  padding: var(--space-4);
+}
+.ctp-strategy-body > .ctp-account-panel > * {
+  padding: var(--space-3) var(--space-4);
+}
+@media (max-width: 1100px) {
+  .ctp-strategy-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* The running strategy above its account: state, latest bars, targets, events. */
+.strategy-card {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--panel-radius);
+  background: var(--accent-surface);
+}
+.strategy-card header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+.strategy-card header > span {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+.strategy-card header > button {
+  margin-left: auto;
+}
+.strategy-card table {
+  width: auto;
+  min-width: 320px;
+}
+.strategy-card tr[data-off] td:last-child {
+  color: var(--warning);
+}
+
+/* Whether this account may send orders: the first thing an operator reads. */
+.trading-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: var(--font-size-md);
+}
+.trading-switch::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.trading-switch[data-state="on"] {
+  border-color: color-mix(in oklab, var(--success) 55%, transparent);
+  background: color-mix(in oklab, var(--success) 12%, transparent);
+  color: var(--success);
+}
+.trading-switch[data-state="waiting"] {
+  border-color: color-mix(in oklab, var(--warning) 55%, transparent);
+  color: var(--warning);
+}
+
+/* The account at a glance: four figures, the broker's details, the risk in use. */
+.account-summary {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-page);
+  border-bottom: 1px solid var(--line);
+}
+.account-headline {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+}
+.account-headline dt,
+.account-details dt,
+.risk-usage li {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+.account-headline dd {
+  margin: var(--space-1) 0 0;
+  color: var(--text-strong);
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-2xl);
+  font-variant-numeric: tabular-nums;
+}
+.account-details summary {
+  width: fit-content;
+  padding: 0;
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+  cursor: pointer;
+}
+.account-details > dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: var(--space-1) 0 0;
+}
+.account-details > dl > div {
+  display: flex;
+  gap: var(--space-1);
+}
+.account-details dd,
+.risk-value {
+  margin: 0;
+  color: var(--text);
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+.risk-usage {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.risk-usage li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px var(--space-2);
+}
+.risk-bar {
+  grid-column: 1 / -1;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--grid);
+}
+.risk-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--success);
+}
+.risk-usage li[data-tone="attention"] .risk-bar > span {
+  background: var(--warning);
+}
+.risk-usage li[data-tone="danger"] .risk-bar > span {
+  background: var(--danger);
+}
+.risk-usage li[data-tone="danger"] .risk-value {
+  color: var(--danger);
+}
+@media (max-width: 1100px) {
+  .account-headline {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* A limit's unit sits inside its field. */
+.unit-input {
+  position: relative;
+  display: block;
+}
+.unit-input input {
+  width: 100%;
+  padding-right: 4.5em;
+}
+.unit-input > span {
+  position: absolute;
+  top: 50%;
+  right: var(--space-2);
+  transform: translateY(-50%);
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+  pointer-events: none;
+}
+.account-field-group h3 small {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+  font-weight: normal;
+}
+.ctp-account-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-5);
+  margin: 0;
+}
+.ctp-account-facts div {
+  display: flex;
+  gap: var(--space-2);
+}
+.ctp-account-facts dt {
+  color: var(--muted);
+}
+.ctp-account-facts dd {
+  margin: 0;
+  color: var(--text-strong);
+}
+
+.ticket-capacity {
+  margin: 0;
+  color: var(--muted);
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-aux);
+}
+
+.limit-source {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: fit-content;
+  color: var(--muted);
+}

@@ -1,0 +1,100 @@
+/* Asterion: deep-space surfaces, hairline structure, one cyan signal. */
+:root {
+  --font-ui:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "PingFang SC", "Noto Sans CJK SC",
+    "Source Han Sans SC", "WenQuanYi Micro Hei", "Helvetica Neue", sans-serif;
+  --font-terminal:
+    "SF Mono", "SFMono-Regular", "JetBrains Mono", "Fira Code", Menlo, "Noto Sans Mono CJK SC",
+    "DejaVu Sans Mono", monospace;
+
+  /* Surfaces, darkest to brightest. */
+  --canvas: #06080c;
+  --panel: #0b0f15;
+  --raised: #111720;
+  --hover: #171f2b;
+  --pressed: #1e2836;
+
+  /* Structure: 1px hairlines and layered elevation. */
+  --line: #1a222e;
+  --line-strong: #293545;
+  --field: #080b10;
+  --grid: #121923;
+  --row-alt: rgb(255 255 255 / 1.8%);
+  --overlay: rgb(2 4 8 / 74%);
+  --surface-highlight: inset 0 1px 0 rgb(255 255 255 / 5%);
+  --shadow-popover: 0 10px 28px -6px rgb(0 0 0 / 56%), 0 2px 8px -2px rgb(0 0 0 / 38%);
+  --shadow-dialog: 0 20px 48px -12px rgb(0 0 0 / 68%), 0 4px 16px -4px rgb(0 0 0 / 44%);
+
+  /* Text. The dimmest level still meets 4.5:1 against the canvas. */
+  --text: #c6ced9;
+  --text-strong: #f0f5fc;
+  --muted: #7e8a9a;
+  --subtle: #6e7a8a;
+
+  /* The single interactive signal. */
+  --accent: #38d6f2;
+  --accent-fill: #25bedb;
+  --accent-surface: color-mix(in oklab, var(--accent) 9%, transparent);
+  --accent-hover: color-mix(in oklab, var(--accent) 15%, transparent);
+  --accent-pressed: color-mix(in oklab, var(--accent) 22%, transparent);
+  --accent-line: color-mix(in oklab, var(--accent) 46%, transparent);
+  --accent-glow: 0 0 0 1px rgb(56 214 242 / 35%), 0 0 14px rgb(56 214 242 / 18%);
+
+  /* States. */
+  --success: #34d399;
+  --warning: #e5b45a;
+  --danger: #ff5c7a;
+  --danger-surface: color-mix(in oklab, var(--danger) 10%, transparent);
+
+  /* Market values and analytical series. */
+  --quote-red: #ff3358;
+  --quote-green: #14c49c;
+  --quote-up: var(--quote-red);
+  --quote-down: var(--quote-green);
+  --quote-activity: #2fc6d6;
+  --series-1: #e5b45a;
+  --series-2: #58a6ff;
+  --series-3: #b48ead;
+  --series-4: #2fc6d6;
+  --series-5: #e07a9a;
+  --chart-average: var(--series-1);
+  --intraday-line: var(--accent);
+  --intraday-average: var(--chart-average);
+  --price-line: var(--accent);
+  --chart-area: rgb(56 214 242 / 13%);
+
+  /* Type: six sizes in three tiers: key figures xl–2xl, body text by density,
+     auxiliary text (notes, labels, units, times) aux and muted. */
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 13px;
+  --font-size-lg: 15px;
+  --font-size-xl: 18px;
+  --font-size-2xl: 22px;
+  --font-size-body: var(--font-size-sm);
+  --font-size-aux: var(--font-size-xs);
+
+  /* Spacing: five steps. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+
+  --row-height: 26px;
+  --control-height: 28px;
+  --control-radius: 3px;
+  --panel-radius: 4px;
+  --space-page: 20px;
+  --background-grid: none;
+}
+:root[data-density="comfortable"] {
+  --font-size-body: var(--font-size-md);
+  --font-size-aux: var(--font-size-sm);
+  --row-height: 36px;
+  --control-height: 34px;
+}
+:root[data-quote-colors="international"] {
+  --quote-up: var(--quote-green);
+  --quote-down: var(--quote-red);
+}

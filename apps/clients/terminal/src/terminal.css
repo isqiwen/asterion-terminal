@@ -1,0 +1,176 @@
+/* Business layouts share the Terminal design tokens and controls. */
+.terminal-business {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas);
+}
+.futures-data,
+.futures-market {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.futures-data {
+  overflow: auto;
+}
+.futures-data form {
+  padding: var(--space-5) var(--space-page);
+}
+.futures-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4) var(--space-5);
+  margin-block: var(--space-4);
+}
+.futures-fields > label {
+  min-width: 0;
+}
+.futures-fields input,
+.futures-fields select {
+  width: 100%;
+}
+.futures-data label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  color: var(--muted);
+  font-size: var(--font-size-body);
+}
+.futures-file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.futures-file label {
+  flex: 1;
+  min-width: 240px;
+}
+@media (max-width: 950px) {
+  .futures-fields {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
+}
+
+.error-notice {
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+.market-workspace,
+.live-market {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.terminal-business > section > .panel-heading {
+  min-height: 64px;
+  background: transparent;
+  padding: var(--space-4) var(--space-page);
+}
+.terminal-business > section > .panel-heading h2 {
+  font-size: var(--font-size-xl);
+  font-weight: 500;
+  color: var(--text-strong);
+}
+.futures-data > form {
+  width: 100%;
+  max-width: 1160px;
+}
+.futures-data > *,
+.live-market > * {
+  flex-shrink: 0;
+}
+.futures-data label.checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text);
+}
+.account-field-group h3 {
+  color: var(--text-strong);
+  font-size: var(--font-size-md);
+}
+@media (max-width: 800px) {
+  :root {
+    --space-page: 18px;
+  }
+  .futures-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .panel-heading {
+    flex-wrap: wrap;
+  }
+}
+
+.account-field-group .futures-fields {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 900px) {
+  .account-field-group .futures-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.dataset-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.dataset-list:empty {
+  display: none;
+}
+.dataset-list li {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+}
+
+/* Why the user's last action failed, under the control they used. */
+.action-error {
+  margin: var(--space-2) 0 0;
+  color: var(--danger);
+  font-size: var(--font-size-body);
+}
+.workspace-empty {
+  flex: 1;
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  text-align: center;
+  color: var(--muted);
+  background: radial-gradient(
+    circle at 50% 48%,
+    color-mix(in oklab, var(--accent) 5%, transparent),
+    transparent 220px
+  );
+}
+.workspace-empty > svg {
+  color: var(--accent);
+  opacity: 0.42;
+}
+.workspace-empty p {
+  margin: 0;
+  max-width: 420px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.workspace-empty-actions {
+  display: flex;
+  gap: var(--space-2);
+}

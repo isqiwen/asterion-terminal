@@ -1,0 +1,30 @@
+#!/bin/bash
+# Runs inside the container started by scripts/services/build_linux_services.sh.
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y --no-install-recommends build-essential cmake ninja-build python3 python3-venv ca-certificates git curl unzip pkg-config
+python3 -m venv /opt/build-tools
+export PATH=/opt/build-tools/bin:$PATH
+pip install conan==2.32.0 uv==0.12.9
+rm -rf /work/source && mkdir -p /work/source
+cd /work/source
+tar xf /input/service-source.tar
+conan profile detect --force
+prepare_args=(--profile "${ASTERION_CTP_PROFILE:-prod}")
+if [[ -n "${ASTERION_CTP_LOCAL_DIR:-}" ]]; then
+  prepare_args+=(--local-dir "$ASTERION_CTP_LOCAL_DIR")
+fi
+if [[ "${ASTERION_CTP_REQUIRE_OFFICIAL:-0}" == "1" ]]; then
+  prepare_args+=(--require-official)
+fi
+python3 scripts/prepare_ctp.py "${prepare_args[@]}"
+# Build against this glibc so cpptrace enables signal-safe _dl_find_object.
+conan install . -s build_type=Release -s compiler.cppstd=20 -o with_tests=False -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing '--build=cpptrace/*'
+cmake --preset conan-release
+# The service hosts' own releases, one self-extracting script each.
+CMAKE_BUILD_PARALLEL_LEVEL=4 cmake --build build/Release --target asterion_market_setup asterion_warehouse_setup asterion_trading_setup
+mkdir -p /output
+version=$(cat VERSION)
+cp "build/ctp-sdk/linux-x86_64/provenance.json" /output/ctp-provenance.json
+cp "build/Release/Asterion-Market-${version}-linux-x86_64.sh" "build/Release/Asterion-Warehouse-${version}-linux-x86_64.sh" "build/Release/Asterion-Trading-${version}-linux-x86_64.sh" /output/

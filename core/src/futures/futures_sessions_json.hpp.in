@@ -1,0 +1,7 @@
+#pragma once
+#include <string_view>
+
+namespace asterion::detail {
+inline constexpr std::string_view futures_sessions_json =
+    R"SESSIONS(@ASTERION_FUTURES_SESSIONS_JSON@)SESSIONS";
+} // namespace asterion::detail

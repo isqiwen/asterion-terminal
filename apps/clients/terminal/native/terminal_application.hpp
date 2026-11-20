@@ -1,0 +1,40 @@
+#pragma once
+#include <memory>
+#include <asterion/system/process/file_lock.hpp>
+#include <future>
+#include <functional>
+#include <exception>
+#include <string>
+#include <asterion/system/payload_budget.hpp>
+#include <nlohmann/json.hpp>
+
+namespace asterion::terminal {
+
+// Native request boundary over one I/O state owner. Commands suspend for service
+// work; other requests and background publications keep advancing. Each account
+// and the Market connection have explicit admission gates.
+// Callers retain Application until their requests finish.
+class Application
+{
+public:
+    // Encoded response or encoding failure, exactly once after successful admission.
+    // Completion runs on the owner and must not throw or destroy Application.
+    // The future completes after the callback returns; retain Application until then.
+    using Completion = std::function<void(Payload, std::exception_ptr)>;
+
+    Application();
+    ~Application();
+    void stop() noexcept;
+    nlohmann::json dispatch(const nlohmann::json& request);
+    std::future<void> request(std::string wire, Completion complete);
+
+private:
+    struct Impl;
+
+    friend struct ApplicationTestAccess;
+
+    std::unique_ptr<FileLock> installation_use_;
+    std::unique_ptr<Impl> impl_;
+};
+
+} // namespace asterion::terminal

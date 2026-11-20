@@ -1,0 +1,154 @@
+syntax = "proto3";
+package strategy;
+import "asterion/common.proto";
+
+// What Lab, Trading and a strategy's Python process share, and the pipe
+// between Trading and that process.
+
+message Request {
+  oneof call {
+    Load load = 1;
+    Bars bars = 2;
+    common.Empty stop = 3;
+  }
+}
+
+// The strategy sees each contract as a backtest names it, EXCHANGE/product/YYYY-MM,
+// in the instance's order; bars and targets keep the counter's instrument.
+message Load {
+  Instance instance = 1;
+  repeated string symbols = 2;
+}
+
+message Response {
+  oneof result {
+    common.Error error = 1;
+    common.Empty load = 2;
+    Decision bars = 3;
+    common.Empty stop = 4;
+  }
+}
+
+// ---- Packages
+
+message ParameterValue {
+  oneof value {
+    bool flag = 1;
+    int64 integer = 2;
+    double number = 3;
+    string text = 4;
+  }
+}
+
+message Package {
+  Manifest manifest = 1;
+  repeated File files = 2;
+}
+
+message Manifest {
+  string name = 1;
+  string version = 2;
+  // module:Class
+  string entry = 3;
+  // Such as python3.12-numpy2.3.5.
+  string runtime = 4;
+  repeated string files = 5;
+  ResearchRun research = 6;
+}
+
+message ResearchRun {
+  string run_id = 1;
+  map<string, ParameterValue> params = 2;
+  common.Period period = 3;
+  repeated string symbols = 4;
+  string dataset_version = 5;
+  WeightLimits weight_limits = 6;
+}
+
+message File {
+  string path = 1;
+  bytes content = 2;
+}
+
+// ---- Instances
+
+message SeriesContract {
+  common.Instrument instrument = 1;
+  string delivery_month = 2;
+}
+
+message DominantSeries {
+  string exchange = 1;
+  string product = 2;
+  repeated SeriesContract contracts = 3;
+}
+
+message Instance {
+  string id = 1;
+  string package_name = 2;
+  string package_version = 3;
+  repeated common.Instrument instruments = 4;
+  common.Period period = 5;
+  map<string, ParameterValue> params = 6;
+  // Required when the strategy returns weights.
+  WeightLimits weight_limits = 7;
+  // An ended instance whose recorded bars are replayed before live ones.
+  string resume_from = 8;
+  // Pinned historical bars replayed for warmup before live bars.
+  Warmup warmup = 9;
+  // Replay the bars Trading recorded locally for these contracts and period.
+  bool local_bars = 10;
+  repeated DominantSeries series = 11;
+}
+
+message Warmup {
+  string dataset_version = 1;
+  string sha256 = 2;
+  repeated Bars bars = 3;
+}
+
+// Shares of equity.
+message WeightLimits {
+  common.Decimal gross = 1;
+  common.Decimal net = 2;
+  common.Decimal max_margin_ratio = 3;
+  common.Decimal min_rebalance_weight = 4;
+}
+
+// ---- Bars and decisions
+
+message Bars {
+  uint64 sequence = 1;
+  // The bars ending together, in the instance's order; a contract closed or
+  // halted in that period is absent.
+  repeated Bar bars = 2;
+}
+
+message Bar {
+  common.Instrument instrument = 1;
+  string trading_day = 2;
+  int64 end_ms = 3;
+  common.Decimal open = 4;
+  common.Decimal high = 5;
+  common.Decimal low = 6;
+  common.Decimal close = 7;
+  int64 volume = 8;
+  common.Decimal open_interest = 9;
+  common.Decimal roll_ratio = 10;
+  common.Decimal roll_yield = 11;
+}
+
+// Targets are acted on only once the strategy is ready.
+message Decision {
+  uint64 sequence = 1;
+  bool ready = 2;
+  repeated Target targets = 3;
+}
+
+message Target {
+  common.Instrument instrument = 1;
+  oneof size {
+    int64 lots = 2;
+    common.Decimal weight = 3;
+  }
+}

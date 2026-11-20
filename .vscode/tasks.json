@@ -1,0 +1,140 @@
+{
+  // Development and packaging on macOS and Linux: docs/development.md.
+  "version": "2.0.0",
+  "tasks": [
+    // Build & code generation
+    {
+      "label": "C++: build (Debug)",
+      "detail": "Incremental Debug C++ build (build/Debug) for clangd and CTest",
+      "type": "shell",
+      "command": "cmake --build --preset conan-debug",
+      "problemMatcher": ["$gcc"],
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "Desktop: check",
+      "detail": "Build Release and verify the desktop bridge and Python runtime without opening a window",
+      "type": "shell",
+      "command": "pnpm desktop:check",
+      "problemMatcher": ["$gcc"],
+      "group": "build"
+    },
+    {
+      "label": "Protocol: generate",
+      "detail": "Regenerate TypeScript Protobuf bindings from protocol/proto/",
+      "type": "shell",
+      "command": "pnpm generate:protocol",
+      "problemMatcher": []
+    },
+    {
+      "label": "C++: refresh code index",
+      "detail": "Refresh build/Debug/compile_commands.json after changing CMake targets or source files",
+      "type": "shell",
+      "command": "cmake --preset conan-debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+      "problemMatcher": ["$gcc"]
+    },
+
+    // Run
+    {
+      "label": "Desktop: run",
+      "detail": "Build Release and launch Terminal",
+      "type": "shell",
+      "command": "pnpm desktop",
+      "problemMatcher": ["$gcc"],
+      "presentation": { "panel": "dedicated" }
+    },
+    {
+      "label": "Desktop: run (Debug)",
+      "detail": "Build Debug and launch Terminal for C++ debugging (pair with 'C++: attach to Electron')",
+      "type": "shell",
+      "command": "pnpm desktop --debug",
+      "problemMatcher": ["$gcc"],
+      "presentation": { "panel": "dedicated" }
+    },
+    {
+      "label": "UI: dev",
+      "detail": "Run Vite dev server on 127.0.0.1:1423 (pair with 'UI: debug in Chrome')",
+      "type": "shell",
+      "command": "pnpm dev",
+      "problemMatcher": [],
+      "presentation": { "panel": "dedicated" }
+    },
+
+    // Test
+    {
+      "label": "C++: test (unit)",
+      "detail": "Run fast in-memory C++ unit tests (~20 s)",
+      "type": "shell",
+      "command": "ctest --preset conan-debug -L unit --output-on-failure -j 6",
+      "problemMatcher": [],
+      "group": { "kind": "test", "isDefault": true }
+    },
+    {
+      "label": "C++: test (all)",
+      "detail": "Run full C++ unit and process test suite",
+      "type": "shell",
+      "command": "ctest --preset conan-debug --output-on-failure -j 6",
+      "problemMatcher": [],
+      "group": "test"
+    },
+    {
+      "label": "UI: unit tests",
+      "detail": "Run Terminal Vitest unit and component tests (no C++ build needed)",
+      "type": "shell",
+      "command": "pnpm test:unit",
+      "problemMatcher": [],
+      "group": "test"
+    },
+    {
+      "label": "E2E: journeys",
+      "detail": "Run key isolated @journey end-to-end tests",
+      "type": "shell",
+      "command": "pnpm run test:e2e:journeys",
+      "problemMatcher": [],
+      "group": "test",
+      "presentation": { "panel": "dedicated" }
+    },
+
+    // Quality
+    {
+      "label": "Check: types, lint, format",
+      "detail": "Run TypeScript type check, ESLint/Ruff lint, and format check",
+      "type": "shell",
+      "command": "pnpm exec tsc --noEmit -p apps/clients/terminal/tsconfig.json && pnpm run lint && pnpm run format:check",
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "Format",
+      "detail": "Format frontend and C++/Protobuf sources with Prettier and clang-format",
+      "type": "shell",
+      "command": "pnpm run format",
+      "problemMatcher": []
+    },
+
+    // Setup & packaging
+    {
+      "label": "Sync workspace",
+      "detail": "First setup or after pulling: CTP SDK, pnpm/Conan deps, Debug build, and Python runtime",
+      "type": "shell",
+      "command": "pnpm sync",
+      "problemMatcher": ["$gcc"],
+      "presentation": { "panel": "dedicated", "reveal": "always" }
+    },
+    {
+      "label": "Package: Terminal release",
+      "detail": "Build and verify release Terminal installer in build/desktop (macOS .dmg, Linux .deb)",
+      "type": "shell",
+      "command": "pnpm desktop:build",
+      "problemMatcher": ["$gcc"],
+      "presentation": { "panel": "dedicated", "reveal": "always" }
+    },
+    {
+      "label": "Package: Linux services",
+      "detail": "Build Market, Warehouse, and Trading Linux installers into build/linux-bundles via Docker",
+      "type": "shell",
+      "command": "scripts/services/build_linux_services.sh",
+      "problemMatcher": [],
+      "presentation": { "panel": "dedicated", "reveal": "always" }
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+target-version = "py312"
+line-length = 110
+src = ["apps/services/common/python", "apps/services/lab"]
+
+[lint]
+select = ["E4", "E7", "E9", "F"]
+
+[lint.per-file-ignores]
+# Process limits and single-thread BLAS variables must be set before NumPy/SciPy import.
+"apps/services/trading/python/strategy_runner.py" = ["E402"]
+# Test scripts prepend generated-python and support paths to sys.path before importing.
+"tests/**/*.py" = ["E402", "E701", "E702"]

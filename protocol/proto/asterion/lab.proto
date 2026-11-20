@@ -1,0 +1,499 @@
+syntax = "proto3";
+package lab;
+import "asterion/common.proto";
+import "asterion/warehouse.proto";
+import "asterion/strategy.proto";
+
+// Lab: research over the research dataset, started by the Terminal.
+
+message Request {
+  uint64 id = 1;
+  oneof call {
+    common.Empty get_health = 10;
+
+    common.Empty get_dataset_summary = 20;
+    ListStoredContracts list_stored_contracts = 21;
+    GetChartBars get_chart_bars = 22;
+
+    Repository list_strategies = 30;
+    SourcePath read_source = 31;
+    SaveSource save_source = 32;
+    SourcePath delete_source = 33;
+    BuildPackage build_package = 34;
+    BuildWarmup build_warmup = 35;
+
+    EvaluateFactor evaluate_factor = 40;
+    Backtest start_backtest = 41;
+    ListRuns list_runs = 42;
+    RunId get_run = 43;
+    RunId get_run_report = 44;
+    RunId cancel_run = 45;
+    Sweep start_sweep = 46;
+    RunId get_sweep = 47;
+    RunId cancel_sweep = 48;
+    common.Empty list_factor_results = 49;
+    RunId get_factor_result = 50;
+    // With its results and code copy; a run of a sweep takes the whole sweep.
+    RunId delete_run = 51;
+    RunId delete_factor_result = 52;
+    RenameRun rename_run = 53;
+    RunId get_run_summary = 54;
+    common.Empty list_recent_runs = 55;
+  }
+}
+
+message Response {
+  uint64 id = 1;
+  oneof result {
+    common.Error error = 2;
+    Health get_health = 10;
+
+    warehouse.DatasetSummary get_dataset_summary = 20;
+    StoredContracts list_stored_contracts = 21;
+    ChartBars get_chart_bars = 22;
+
+    Strategies list_strategies = 30;
+    Source read_source = 31;
+    common.Empty save_source = 32;
+    common.Empty delete_source = 33;
+    strategy.Package build_package = 34;
+    strategy.Warmup build_warmup = 35;
+
+    FactorResult evaluate_factor = 40;
+    common.Empty start_backtest = 41;
+    Runs list_runs = 42;
+    RunDetail get_run = 43;
+    RunReport get_run_report = 44;
+    common.Empty cancel_run = 45;
+    common.Empty start_sweep = 46;
+    SweepRuns get_sweep = 47;
+    common.Empty cancel_sweep = 48;
+    FactorResults list_factor_results = 49;
+    FactorResult get_factor_result = 50;
+    common.Empty delete_run = 51;
+    common.Empty delete_factor_result = 52;
+    common.Empty rename_run = 53;
+    RunSummary get_run_summary = 54;
+    Runs list_recent_runs = 55;
+  }
+}
+
+message Health {
+  bool ready = 1;
+}
+
+// ---- Data
+
+// No contract lists them all.
+message ListStoredContracts {
+  string contract = 1;
+  // Empty: the current version.
+  string dataset_version = 2;
+}
+
+message StoredContracts {
+  string dataset_version = 1;
+  repeated StoredContract contracts = 2;
+}
+
+message StoredContract {
+  string contract = 1;
+  string name = 2;
+  DayRange daily = 3;
+  DayRange minutes = 4;
+}
+
+message DayRange {
+  string first_day = 1;
+  string last_day = 2;
+  uint32 days = 3;
+}
+
+// An empty dataset version reads the current one.
+message GetChartBars {
+  string contract = 1;
+  common.Period period = 2;
+  string dataset_version = 3;
+}
+
+message ChartBars {
+  string dataset_version = 1;
+  repeated ChartBar bars = 2;
+}
+
+message ChartBar {
+  // When the bar ends; a day bar ends at 15:00 Beijing time.
+  int64 end_ms = 1;
+  string trading_day = 2;
+  bool partial = 3;
+  common.Decimal open = 4;
+  common.Decimal high = 5;
+  common.Decimal low = 6;
+  common.Decimal close = 7;
+  common.Decimal volume = 8;
+  // Absent for the first 33 bars.
+  optional double macd_diff = 9;
+  optional double macd_signal = 10;
+  optional double macd_histogram = 11;
+}
+
+// ---- Strategy directory
+
+message Repository {
+  string path = 1;
+}
+
+// strategies/<name>.py or factors/<name>.py of a repository.
+message SourcePath {
+  string repository = 1;
+  string path = 2;
+}
+
+message SaveSource {
+  SourcePath source = 1;
+  string content = 2;
+  // Fails when the module exists.
+  bool create = 3;
+}
+
+message Source {
+  string path = 1;
+  string content = 2;
+  bool read_only = 3;
+}
+
+message BuildPackage {
+  string repository = 1;
+  // module.Class
+  string strategy = 2;
+  // A successful backtest's frozen source; excludes repository and strategy.
+  string run_id = 3;
+}
+
+message WarmupInstrument {
+  common.Instrument instrument = 1;
+  string contract = 2;
+  repeated strategy.SeriesContract candidates = 3;
+}
+
+message BuildWarmup {
+  repeated WarmupInstrument instruments = 1;
+  common.Period period = 2;
+  uint32 max_bars = 3;
+  string dataset_version = 4;
+}
+
+message Strategies {
+  string repository = 1;
+  string commit = 2;
+  // Digest of uncommitted changes; empty when the work tree is clean.
+  string changes = 3;
+  repeated StrategyEntry strategies = 4;
+  repeated FactorEntry factors = 5;
+  repeated ModuleError errors = 6;
+}
+
+message StrategyEntry {
+  // module.Class
+  string id = 1;
+  string description = 2;
+  repeated Parameter parameters = 3;
+  // The modules of factors/ its module imports, directly or not.
+  repeated string factor_modules = 4;
+  // Overrides on_bars to trade multiple symbols in one account.
+  bool portfolio = 5;
+}
+
+// module.function; inputs are the bar fields it takes, in order.
+message FactorEntry {
+  string id = 1;
+  string description = 2;
+  repeated string inputs = 3;
+  repeated Parameter parameters = 4;
+}
+
+// The default's type is the parameter's type.
+message Parameter {
+  string name = 1;
+  strategy.ParameterValue default = 2;
+}
+
+message ModuleError {
+  string module = 1;
+  string traceback = 2;
+}
+
+// ---- Factors
+
+message ExtraFactor {
+  string factor = 1;
+  map<string, strategy.ParameterValue> params = 2;
+}
+
+// Symbols are contracts, products (their dominant series) or exchanges.
+message EvaluateFactor {
+  // Names the result, as a run's id does.
+  string id = 9;
+  string repository = 1;
+  string factor = 2;
+  map<string, strategy.ParameterValue> params = 3;
+  repeated string symbols = 4;
+  string first_day = 5;
+  string last_day = 6;
+  // Bars ahead; groups use the first.
+  repeated uint32 horizons = 7;
+  uint32 groups = 8;
+  string standardize = 10;
+  repeated ExtraFactor extra_factors = 11;
+  string combination = 12;
+  string holdout_day = 13;
+}
+
+// An evaluation as it was asked for and evaluated; kept by Lab.
+message FactorResult {
+  string id = 7;
+  EvaluateFactor evaluation = 8;
+  // The factor's module as it was evaluated, from the copy taken at admission.
+  string code = 9;
+  int64 evaluated_ms = 10;
+  Pinned pinned = 1;
+  repeated string symbols = 2;
+  repeated Skipped skipped = 3;
+  repeated FactorHorizon horizons = 4;
+  repeated FactorDay days = 5;
+  repeated FactorGroup groups = 6;
+  repeated FactorHorizon development_horizons = 11;
+  repeated FactorHorizon holdout_horizons = 12;
+  repeated string factor_names = 13;
+  repeated double correlation_matrix = 14;
+}
+
+message FactorResults {
+  // Newest first, each without its days and groups.
+  repeated FactorResult results = 1;
+}
+
+message Skipped {
+  string symbol = 1;
+  string reason = 2;
+}
+
+// Rank correlation with returns `horizon` bars ahead.
+message FactorHorizon {
+  uint32 horizon = 1;
+  uint32 days = 2;
+  optional double mean = 3;
+  optional double deviation = 4;
+  optional double ir = 5;
+  optional double t = 6;
+  optional double positive_share = 7;
+}
+
+message FactorDay {
+  string trading_day = 1;
+  uint32 symbols = 2;
+  optional double ic = 3;
+  // Cumulative returns, lowest group first.
+  repeated double groups = 4;
+  optional double long_short = 5;
+}
+
+message FactorGroup {
+  // 1 holds the lowest values.
+  uint32 group = 1;
+  optional double mean_return = 2;
+  optional double turnover = 3;
+}
+
+// ---- Backtests
+
+// What a run reads, fixed when Lab admits it.
+message Pinned {
+  string dataset_version = 1;
+  string commit = 2;
+  string changes = 3;
+}
+
+// Symbols are contracts or products (their traded dominant series).
+message Backtest {
+  string id = 1;
+  string repository = 2;
+  // module.Class
+  string strategy = 3;
+  map<string, strategy.ParameterValue> params = 4;
+  repeated string symbols = 5;
+  string first_day = 6;
+  string last_day = 7;
+  common.Period period = 8;
+  common.Decimal deposit = 9;
+  uint32 slippage_ticks = 11;
+  common.RiskLimits limits = 12;
+  // Shares of equity.
+  common.Decimal max_gross_weight = 13;
+  common.Decimal max_net_weight = 14;
+  // Without both, the Sharpe ratio is absent.
+  double periods_per_year = 15;
+  bool zero_risk_free_rate = 16;
+  // Days from here on are also measured apart.
+  string holdout_day = 17;
+  common.Decimal max_margin_ratio = 18;
+  common.Decimal min_rebalance_weight = 19;
+}
+
+message RunId {
+  string id = 1;
+}
+
+// A name the user gives a run; empty gives it back its id.
+message RenameRun {
+  string id = 1;
+  string label = 2;
+}
+
+// A sweep's run that has not started has no state.
+enum RunState {
+  RUN_STATE_UNSPECIFIED = 0;
+  RUN_STATE_RUNNING = 1;
+  RUN_STATE_SUCCEEDED = 2;
+  RUN_STATE_FAILED = 3;
+  RUN_STATE_STOPPED = 4;
+  RUN_STATE_INTERRUPTED = 5;
+}
+
+message ListRuns {
+  uint32 offset = 1;
+  uint32 limit = 2;
+  string strategy = 3;
+  string search = 4;
+  string order_by = 5;
+  bool ascending = 6;
+}
+
+message Runs {
+  repeated RunSummary runs = 1;
+  bool has_more = 2;
+  repeated string strategies = 3;
+}
+
+message RunSummary {
+  string id = 1;
+  string strategy = 2;
+  Pinned pinned = 3;
+  RunState state = 4;
+  string error = 5;
+  int64 started_ms = 6;
+  optional int64 finished_ms = 7;
+  // A metric without a value is absent.
+  map<string, double> metrics = 8;
+  map<string, strategy.ParameterValue> params = 9;
+  string sweep_id = 10;
+  // What it ran, from its record.
+  repeated string symbols = 11;
+  string first_day = 12;
+  string last_day = 13;
+  common.Period period = 14;
+  string label = 15;
+  uint32 sweep_size = 16;
+  uint32 sweep_succeeded = 17;
+  bool sweep_running = 18;
+}
+
+message RunDetail {
+  RunSummary summary = 1;
+  // run.json as written when the run started.
+  string record = 2;
+  repeated EquityPoint equity = 3;
+  repeated RunDay days = 4;
+  repeated Fill fills = 5;
+}
+
+message EquityPoint {
+  int64 time_ms = 1;
+  common.Decimal equity = 2;
+  bool settlement = 3;
+}
+
+message RunDay {
+  string trading_day = 1;
+  common.Decimal equity = 2;
+  common.Decimal balance = 3;
+  common.Decimal fees = 4;
+  common.Decimal margin = 5;
+  int64 settled_ms = 6;
+}
+
+message Fill {
+  string id = 1;
+  string order_id = 2;
+  // When it filled; trading_day is the day it belongs to, a Monday for a Friday night.
+  int64 time_ms = 3;
+  string trading_day = 10;
+  string contract = 4;
+  common.Side side = 5;
+  common.Offset offset = 6;
+  common.Decimal lots = 7;
+  common.Decimal price = 8;
+  common.Decimal fee = 9;
+}
+
+// QuantStats figures; a figure without a value is absent.
+message RunReport {
+  string quantstats_version = 1;
+  map<string, double> figures = 2;
+}
+
+// ---- Sweeps
+
+// The base run once per symbol in `symbols` (when non-empty) and combination of `values`, each run <sweep id>-<n>.
+message Sweep {
+  string id = 1;
+  Backtest base = 2;
+  repeated ParameterValues values = 3;
+  // At once; 0 uses the processors less one.
+  uint32 processes = 4;
+  // Rolling validation once every run succeeded, as <sweep id>-rolling.
+  WalkForward walk_forward = 5;
+  repeated string symbols = 6;
+}
+
+message ParameterValues {
+  string name = 1;
+  repeated strategy.ParameterValue values = 2;
+}
+
+// Each round picks by the Sharpe ratio of training_days, then follows it.
+message WalkForward {
+  uint32 training_days = 1;
+  uint32 validation_days = 2;
+}
+
+message SweepRuns {
+  repeated RunSummary runs = 1;
+  // With a holdout day: the run with the best Sharpe ratio before it.
+  string selected_id = 2;
+  RunSummary rolling = 3;
+  bool active = 4;
+}
+
+// ---- Lab to its run processes
+
+message AdmittedRun {
+  Backtest backtest = 1;
+  Pinned pinned = 2;
+  // The copy of the repository's Python files the strategy is imported from.
+  string source = 3;
+}
+
+message RollingRun {
+  string id = 1;
+  string sweep_id = 2;
+  AdmittedRun base = 3;
+  WalkForward walk_forward = 4;
+}
+
+message AdmittedFactor {
+  EvaluateFactor evaluation = 1;
+  Pinned pinned = 2;
+  // The copy of the repository's Python files the factor is imported from.
+  string source = 3;
+}

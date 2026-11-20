@@ -1,0 +1,448 @@
+syntax = "proto3";
+package trading;
+import "asterion/common.proto";
+import "asterion/emergency.proto";
+import "asterion/strategy.proto";
+
+// Trading: one CTP account, its orders and its strategy instance.
+
+message Request {
+  uint64 id = 1;
+  oneof call {
+    common.Empty get_health = 10;
+    common.Empty get_account = 11;
+    Policy open_account = 12;
+    common.Empty connect_broker = 13;
+    common.Empty disconnect_broker = 14;
+    common.Empty query_costs = 15;
+    Command send_command = 16;
+    GetDay get_day = 17;
+    GetOrders get_orders = 18;
+    GetCatalog get_catalog = 19;
+
+    common.Empty get_strategies = 20;
+    strategy.Package publish_strategy = 21;
+    strategy.Instance start_strategy = 22;
+    InstanceId stop_strategy = 23;
+    PauseStrategy pause_strategy = 24;
+    InstanceId flatten_strategy = 25;
+    GetRecordedBars get_recorded_bars = 26;
+    GetStrategyRun get_strategy_run = 27;
+
+    common.Empty get_emergency = 90;
+    emergency.Control emergency_control = 91;
+  }
+}
+
+message Response {
+  uint64 id = 1;
+  oneof result {
+    common.Error error = 2;
+    Health get_health = 10;
+    Account get_account = 11;
+    Account open_account = 12;
+    Account connect_broker = 13;
+    Account disconnect_broker = 14;
+    Account query_costs = 15;
+    Account send_command = 16;
+    Day get_day = 17;
+    Orders get_orders = 18;
+    ContractCatalog get_catalog = 19;
+
+    Strategies get_strategies = 20;
+    Strategies publish_strategy = 21;
+    Strategies start_strategy = 22;
+    Strategies stop_strategy = 23;
+    Strategies pause_strategy = 24;
+    Strategies flatten_strategy = 25;
+    RecordedBars get_recorded_bars = 26;
+    StrategyRun get_strategy_run = 27;
+
+    emergency.State get_emergency = 90;
+    emergency.State emergency_control = 91;
+  }
+}
+
+// ---- Health
+
+message Health {
+  bool account_open = 1;
+  bool recovery_required = 2;
+  bool ready = 3;
+  Progress io = 4;
+  Progress initialization = 5;
+  Progress state = 6;
+  Progress persistence = 7;
+  Progress command = 8;
+  // Hash of this service's schemas; Terminal compares it with its own.
+  string protocol = 9;
+  // The build this service runs, as Market and Warehouse report in their status.
+  string version = 10;
+  // Hash of emergency.proto; emergency braking remains available when protocol differs.
+  string emergency_protocol = 11;
+}
+
+// How long one loop of the service has gone without progress.
+message Progress {
+  bool observed = 1;
+  bool pending = 2;
+  uint64 idle_ms = 3;
+}
+
+// ---- Account
+
+enum Environment {
+  ENVIRONMENT_UNSPECIFIED = 0;
+  ENVIRONMENT_REAL = 1;
+  ENVIRONMENT_SIMULATION = 2;
+}
+
+// Without the password and authentication code: those stay on the host.
+message Broker {
+  string front = 1;
+  string broker_id = 2;
+  string user_id = 3;
+  string app_id = 4;
+}
+
+message Account {
+  string id = 1;
+  Environment environment = 2;
+  Broker broker = 3;
+  // Absent until open_account.
+  Session session = 4;
+}
+
+enum BrokerState {
+  BROKER_STATE_UNSPECIFIED = 0;
+  BROKER_STATE_DISCONNECTED = 1;
+  BROKER_STATE_CONNECTING = 2;
+  BROKER_STATE_AUTHENTICATING = 3;
+  BROKER_STATE_LOGGING_IN = 4;
+  BROKER_STATE_CONFIRMING = 5;
+  BROKER_STATE_SYNCHRONIZING = 6;
+  BROKER_STATE_READY = 7;
+  BROKER_STATE_FAILED = 8;
+}
+
+message Session {
+  Policy policy = 1;
+  string policy_revision = 2;
+  BrokerState broker_state = 3;
+  int32 ctp_error = 4;
+  string trading_day = 5;
+  // Lasts until revoked, the policy changes or Trading restarts.
+  optional int64 authorized_ms = 6;
+  bool positions_reconciled = 7;
+  bool recovery_required = 8;
+  Funds funds = 9;
+  repeated Position positions = 10;
+  repeated Order working_orders = 11;
+  // Recorded as sent but not reported by the broker; never resent.
+  repeated UnconfirmedOrder unconfirmed = 13;
+  repeated ContractCosts costs = 14;
+  Journal journal = 15;
+  uint32 order_count = 16;
+  uint32 trade_count = 17;
+  repeated string risk_breaches = 18;
+  // Today's cancels per contract, as the daily cancel limit counts them.
+  repeated ContractCancels cancels = 19;
+}
+
+// The account journal's use of its limits; a full journal refuses commands.
+message Journal {
+  uint64 records = 1;
+  uint64 records_limit = 2;
+  uint64 bytes = 3;
+  uint64 bytes_limit = 4;
+  uint64 segments = 5;
+}
+
+message Policy {
+  common.RiskLimits limits = 1;
+  common.Decimal max_price_deviation = 2;
+  repeated ContractTerms contracts = 3;
+  common.Decimal max_daily_loss = 4;
+  common.Decimal max_drawdown = 5;
+  common.Decimal max_margin_ratio = 6;
+  uint32 max_daily_cancels_per_contract = 7;
+}
+
+message ContractTerms {
+  common.Instrument instrument = 1;
+  string product = 2;
+  string delivery_month = 3;
+  common.Decimal multiplier = 4;
+  common.Decimal price_tick = 5;
+  common.Decimal lot_size = 6;
+}
+
+message Funds {
+  common.Decimal balance = 1;
+  common.Decimal available = 2;
+  common.Decimal margin = 3;
+  common.Decimal commission = 4;
+  common.Decimal close_profit = 5;
+  common.Decimal position_profit = 6;
+  common.Decimal pre_balance = 7;
+  common.Decimal deposit = 8;
+  common.Decimal withdraw = 9;
+  common.Decimal dynamic_equity = 10;
+  common.Decimal peak_equity = 11;
+}
+
+message Position {
+  common.Instrument instrument = 1;
+  common.Side side = 2;
+  common.Decimal today_lots = 3;
+  common.Decimal yesterday_lots = 4;
+  // The broker's figures in yuan: cost at opening (today's lots) or last
+  // settlement (earlier lots) prices, profit since then, and margin taken.
+  common.Decimal cost = 5;
+  common.Decimal profit = 6;
+  common.Decimal margin = 7;
+}
+
+enum OrderState {
+  ORDER_STATE_UNSPECIFIED = 0;
+  ORDER_STATE_SUBMITTED = 1;
+  ORDER_STATE_ACCEPTED = 2;
+  ORDER_STATE_PARTIALLY_FILLED = 3;
+  ORDER_STATE_FILLED = 4;
+  ORDER_STATE_CANCELLED = 5;
+  ORDER_STATE_REJECTED = 6;
+}
+
+message Order {
+  string id = 1;
+  string broker_key = 2;
+  common.Instrument instrument = 3;
+  common.Side side = 4;
+  common.Offset offset = 5;
+  common.Decimal lots = 6;
+  common.Decimal filled_lots = 7;
+  common.Decimal price = 8;
+  OrderState state = 9;
+  int32 ctp_error = 10;
+}
+
+message Trade {
+  string id = 1;
+  string order_id = 2;
+  common.Instrument instrument = 3;
+  common.Side side = 4;
+  common.Offset offset = 5;
+  common.Decimal lots = 6;
+  common.Decimal price = 7;
+  string trading_day = 8;
+  // The counter's TradeDate and TradeTime, "YYYYMMDD HH:MM:SS" Beijing time.
+  string trade_time = 9;
+  // When Trading received the report; the counter's dates are unreliable at night.
+  int64 received_ms = 10;
+}
+
+message GetOrders {
+  uint32 offset = 1;
+  uint32 limit = 2;
+}
+
+message Orders {
+  repeated Order orders = 1;
+  uint32 total = 2;
+}
+
+message GetCatalog {
+  bool refresh = 1;
+}
+
+message ListedContract {
+  common.Instrument instrument = 1;
+  string contract = 2;
+  string product = 3;
+  string name = 4;
+  string expiry_day = 5;
+  int32 multiplier = 6;
+  common.Decimal price_tick = 7;
+}
+
+message ContractCatalog {
+  string trading_day = 1;
+  repeated ListedContract contracts = 2;
+}
+
+// A page of fills and the last available account snapshot.
+message GetDay {
+  // YYYY-MM-DD; empty selects the counter's current trading day.
+  string trading_day = 1;
+  uint32 offset = 2;
+  uint32 limit = 3;
+  // Page the named day's recorded fills in append order for a stable export.
+  bool oldest_first = 4;
+}
+
+message Day {
+  // Every trading day with a record, ascending.
+  repeated string trading_days = 1;
+  repeated Trade trades = 2;
+  DayClose close = 3;
+  uint32 total = 4;
+}
+
+message ContractCancels {
+  common.Instrument instrument = 1;
+  uint32 cancels = 2;
+  uint32 rejected_cancels = 3;
+}
+
+// Funds, positions and cancel counts as last synchronized for the trading day.
+message DayClose {
+  string trading_day = 1;
+  Funds funds = 2;
+  repeated Position positions = 3;
+  repeated ContractCancels cancels = 4;
+}
+
+message UnconfirmedOrder {
+  string id = 1;
+  string broker_key = 2;
+  string trading_day = 3;
+}
+
+enum CostsState {
+  COSTS_STATE_UNSPECIFIED = 0;
+  COSTS_STATE_QUERYING = 1;
+  COSTS_STATE_READY = 2;
+  COSTS_STATE_UNAVAILABLE = 3;
+}
+
+// The account's own rates, as the broker reports them.
+message ContractCosts {
+  common.Instrument instrument = 1;
+  CostsState state = 2;
+  int32 ctp_error = 3;
+  common.Costs costs = 4;
+}
+
+// ---- Commands
+
+// Executed only for the account and policy revision the caller reviewed.
+message Command {
+  string request_id = 1;
+  string account_id = 2;
+  string policy_revision = 3;
+  oneof action {
+    SubmitOrder submit_order = 10;
+    OrderId cancel_order = 11;
+    Authorize authorize = 12;
+    common.Empty revoke = 13;
+    // The owner checked at the broker that this unconfirmed order does not exist.
+    OrderId resolve_order = 14;
+    Policy change_policy = 15;
+  }
+}
+
+message SubmitOrder {
+  string order_id = 1;
+  common.Instrument instrument = 2;
+  common.Side side = 3;
+  common.Offset offset = 4;
+  common.Decimal lots = 5;
+  common.Decimal price = 6;
+}
+
+message OrderId {
+  string id = 1;
+}
+
+// The owner confirms the account by its CTP user ID.
+message Authorize {
+  string user_id = 1;
+}
+
+// ---- Strategy instance
+
+message InstanceId {
+  string id = 1;
+}
+
+// A paused instance's targets only reduce positions.
+message PauseStrategy {
+  string id = 1;
+  bool paused = 2;
+}
+
+message Strategies {
+  repeated strategy.Manifest packages = 1;
+  InstanceStatus instance = 2;
+}
+
+enum InstanceState {
+  INSTANCE_STATE_UNSPECIFIED = 0;
+  INSTANCE_STATE_STARTING = 1;
+  INSTANCE_STATE_WARMING = 2;
+  INSTANCE_STATE_READY = 3;
+  INSTANCE_STATE_STOPPED = 4;
+  INSTANCE_STATE_FAILED = 5;
+  INSTANCE_STATE_INTERRUPTED = 6;
+}
+
+message InstanceStatus {
+  strategy.Instance instance = 1;
+  InstanceState state = 2;
+  string error = 3;
+  bool paused = 4;
+  uint64 process_id = 5;
+  uint64 completed_steps = 6;
+  strategy.Decision last_decision = 7;
+  // The latest, oldest first.
+  repeated InstanceEvent events = 8;
+  // When the latest bars the strategy decided on ended; zero before the first.
+  int64 last_bar_ms = 9;
+}
+
+message InstanceEvent {
+  int64 time_ms = 1;
+  string text = 2;
+  InstanceEventKind kind = 3;
+}
+
+enum InstanceEventKind {
+  INSTANCE_EVENT_KIND_UNSPECIFIED = 0;
+  INSTANCE_EVENT_KIND_ORDER_SENT = 1;
+  INSTANCE_EVENT_KIND_BATCH_ABANDONED = 2;
+  INSTANCE_EVENT_KIND_FLATTENING = 3;
+  INSTANCE_EVENT_KIND_PAUSED = 4;
+  INSTANCE_EVENT_KIND_RESUMED = 5;
+  INSTANCE_EVENT_KIND_FLATTEN_REQUESTED = 6;
+  INSTANCE_EVENT_KIND_MARKET_DISCONNECTED = 7;
+  INSTANCE_EVENT_KIND_MARKET_RECONNECTED = 8;
+}
+
+message GetRecordedBars {
+  common.Period period = 1;
+  common.Instrument instrument = 2;
+  int64 after_end_ms = 3;
+  uint32 limit = 4;
+}
+
+message RecordedBars {
+  repeated strategy.Bar bars = 1;
+}
+
+message GetStrategyRun {
+  // Empty selects the current or last recorded instance.
+  string id = 1;
+  uint64 after_sequence = 2;
+  uint32 limit = 3;
+}
+
+message StrategyStep {
+  strategy.Bars input = 1;
+  strategy.Decision decision = 2;
+}
+
+message StrategyRun {
+  strategy.Instance configuration = 1;
+  repeated StrategyStep steps = 2;
+  repeated InstanceEvent events = 3;
+}

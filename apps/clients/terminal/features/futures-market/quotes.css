@@ -1,0 +1,728 @@
+.market-quote-table {
+  overflow: auto;
+  max-height: min(560px, 65vh);
+  font-variant-numeric: tabular-nums;
+  margin: 0 var(--space-5) var(--space-5);
+  border: 1px solid var(--grid);
+  background: var(--panel);
+}
+.market-quote-table table {
+  width: 100%;
+}
+.market-quote-table th,
+.market-quote-table td {
+  white-space: nowrap;
+  padding: var(--space-2) var(--space-3);
+}
+.market-quote-table th {
+  text-align: left;
+  background: var(--panel);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  font-size: var(--font-size-body);
+  font-weight: 400;
+  color: var(--muted);
+}
+.market-quote-table td {
+  font-size: var(--font-size-body);
+  height: var(--row-height);
+}
+.market-quote-table .numeric {
+  text-align: right;
+}
+.market-quote-table .quote-status {
+  width: 8em;
+  text-align: center;
+}
+.market-quote-table .quote-venue {
+  display: block;
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+.market-quote-table:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.market-quote-table [data-tone="up"] {
+  color: var(--quote-up);
+}
+.market-quote-table [data-tone="down"] {
+  color: var(--quote-down);
+}
+.market-quote-table .quote-activity {
+  color: var(--quote-activity);
+}
+.market-search-empty {
+  grid-column: 1/-1;
+  padding: var(--space-5) var(--space-3);
+  color: var(--muted);
+  font-size: var(--font-size-body);
+}
+.futures-market-board .market-quote-table {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  max-height: none;
+  background: transparent;
+}
+.futures-market-board .quote-venue {
+  display: none;
+}
+.futures-market-board .quote-select,
+.futures-market-board .quote-sort {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  min-height: 0;
+  padding: 0;
+  line-height: 18px;
+  font: inherit;
+  color: inherit;
+}
+.futures-market-board .quote-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+.futures-market-board th.numeric .quote-sort {
+  flex-direction: row-reverse;
+}
+.futures-market-board .quote-sort-direction {
+  width: 1ch;
+  flex: 0 0 1ch;
+}
+.market-history-chart {
+  padding: var(--space-1) var(--space-2);
+  border-top: 1px solid var(--grid);
+  min-width: 0;
+}
+.market-history-chart .subtle {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+  line-height: 1.5;
+}
+.market-contract .price-chart {
+  margin: var(--space-1) 0;
+  padding: var(--space-1) 0;
+  border: 0;
+}
+.market-contract .price-chart-cursor {
+  min-height: 16px;
+  font-size: var(--font-size-body);
+  line-height: 16px;
+  margin: 0 0 var(--space-1);
+}
+.market-contract .price-chart .price-chart-canvas {
+  height: auto;
+  min-height: 0;
+  max-height: none;
+}
+.market-contract .price-chart-controls {
+  gap: var(--space-1);
+  margin-bottom: 2px;
+}
+.market-contract .price-chart-controls button {
+  min-height: 20px;
+  padding: 1px var(--space-1);
+  font-size: var(--font-size-body);
+}
+.market-chart-title,
+.market-chart-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  font-size: var(--font-size-body);
+}
+.market-chart-title {
+  padding-bottom: var(--space-2);
+}
+.market-chart-title span {
+  color: var(--muted);
+  margin-left: auto;
+}
+.market-chart-toolbar button {
+  min-height: 18px;
+  padding: 0 var(--space-1);
+  font-size: var(--font-size-body);
+}
+.market-chart-source {
+  margin-top: var(--space-1);
+  font-size: var(--font-size-aux);
+  color: var(--muted);
+}
+.market-chart-empty {
+  min-height: 170px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--font-size-body);
+  color: var(--muted);
+}
+.market-chart-empty button {
+  font-size: var(--font-size-body);
+}
+.futures-market-board .market-quote-table td {
+  border-bottom-color: transparent;
+}
+:root[data-density="comfortable"] .futures-market-board .market-quote-table td {
+  height: 34px;
+  padding-block: var(--space-2);
+  font-size: var(--font-size-body);
+}
+/* Watchlist membership, next to the contract title. */
+.watchlist-toggle {
+  min-height: 20px;
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-body);
+}
+.watchlist-toggle[aria-pressed="true"] {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+.market-chart-toolbar > button[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+@media (min-width: 901px) {
+  .market-history-chart {
+    display: flex;
+    flex-direction: column;
+    flex: 1 0 300px;
+    min-height: 0;
+  }
+  .market-contract .price-chart[data-fit-height] {
+    display: flex;
+    flex-direction: column;
+    flex: 1 0 auto;
+    min-height: min-content;
+  }
+  .market-contract .price-chart[data-fit-height] > :not(.price-chart-canvas) {
+    flex-shrink: 0;
+  }
+  .market-contract .price-chart[data-fit-height] .price-chart-canvas {
+    flex: 1 0 190px;
+    height: 190px;
+    min-height: 190px;
+  }
+}
+
+.market-periods {
+  flex-wrap: wrap;
+}
+.market-chart-toolbar {
+  flex-wrap: wrap;
+}
+.market-quote-table .quote-inline-status {
+  display: inline-block;
+  margin-left: var(--space-2);
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+
+.quote-columns-dialog {
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: var(--space-5);
+}
+.quote-columns-dialog h2 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-lg);
+}
+.quote-columns-dialog ul {
+  list-style: none;
+  margin: 0 0 var(--space-4);
+  padding: 0;
+}
+.quote-columns-dialog li {
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--line);
+}
+.quote-columns-dialog li button {
+  min-height: 24px;
+  padding: 0 var(--space-1);
+  border-color: transparent;
+  color: var(--muted);
+}
+.quote-columns-dialog label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  cursor: pointer;
+}
+.quote-columns-dialog input {
+  width: auto;
+}
+.quote-columns-dialog footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+.futures-market-board .market-quote-table td,
+.futures-market-board .market-quote-table th {
+  height: 26px;
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-body);
+  font-family: var(--font-ui);
+  font-variant-numeric: tabular-nums;
+}
+.futures-market-board .market-quote-table td.numeric {
+  font-family: var(--font-terminal);
+}
+.futures-market-board .market-quote-table th {
+  height: 24px;
+  font-size: var(--font-size-aux);
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--panel);
+  border-bottom: 0;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+.futures-market-board .market-quote-table tbody tr:nth-child(even) {
+  background: var(--row-alt);
+}
+.futures-market-board .market-quote-table td[data-tone="flat"] {
+  color: var(--muted);
+}
+.futures-market-board .market-quote-table tbody tr[data-selected="true"] {
+  background: var(--accent-surface);
+  outline: 1px solid var(--accent-line);
+  outline-offset: -1px;
+}
+.futures-market-board tr[data-selected="true"] .quote-select {
+  color: var(--accent);
+  font-weight: 500;
+}
+.futures-market-board .market-quote-table tbody tr:hover:not([data-selected="true"]) {
+  background: var(--hover);
+}
+.quote-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--canvas);
+  overflow: clip;
+}
+.quote-pane-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: safe center;
+  gap: var(--space-1) var(--space-2);
+  min-inline-size: 0;
+  padding: var(--space-2) var(--space-3) var(--space-1);
+  background: var(--panel);
+  font-size: var(--font-size-body);
+  font-variant-numeric: tabular-nums;
+}
+.quote-pane-summary,
+.quote-pane-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  min-inline-size: 0;
+}
+.quote-pane-actions {
+  align-items: safe center;
+  margin-inline-start: auto;
+}
+.quote-pane-header strong {
+  color: var(--accent);
+}
+.quote-pane-header b {
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-xl);
+}
+.quote-pane-header [data-tone="up"] {
+  color: var(--quote-up);
+}
+.quote-pane-header [data-tone="down"] {
+  color: var(--quote-down);
+}
+.quote-pane-header small {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+/* Button text lines up with the 8-pixel edge the rest of the side keeps. */
+.quote-pane-periods {
+  padding: 2px var(--space-3) 0 var(--space-1);
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.quote-pane-menu {
+  position: fixed;
+  inset: auto;
+  position-area: block-end span-inline-end;
+  position-try-fallbacks: flip-block, flip-inline;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-1);
+  flex-direction: column;
+  min-width: 84px;
+  background: var(--raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--panel-radius);
+  box-shadow: var(--surface-highlight), var(--shadow-popover);
+}
+.quote-pane-menu:popover-open {
+  display: flex;
+}
+.quote-pane-menu button {
+  justify-content: flex-start;
+  text-align: left;
+  border: 0;
+}
+.quote-pane-menu button[aria-pressed="true"] {
+  color: var(--accent);
+}
+.quote-pane-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 var(--space-2) var(--space-1);
+}
+.quote-pane-body .market-history-chart,
+.quote-pane-body .contract-live-chart {
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+  min-height: min-content;
+}
+.quote-pane-body .market-chart-empty {
+  margin: auto;
+  color: var(--muted);
+  font-size: var(--font-size-body);
+  text-align: center;
+}
+.intraday-legend {
+  display: flex;
+  gap: var(--space-3);
+  color: var(--muted);
+}
+.intraday-legend b {
+  color: var(--text);
+  font-weight: 500;
+}
+.intraday-average-label b {
+  color: var(--chart-average);
+}
+.intraday-note {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+.market-periods[hidden] {
+  display: none;
+}
+.market-service-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-5);
+  margin: 0;
+  font-size: var(--font-size-body);
+}
+.market-service-status div {
+  display: flex;
+  gap: var(--space-2);
+}
+.market-service-status dt {
+  color: var(--muted);
+}
+.market-service-status dd {
+  margin: 0;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The market page: one bar, then the board beside the chosen contract. */
+.market-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  font-size: var(--font-size-body);
+}
+.market-sections {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.market-scope {
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--line);
+}
+.market-bar-button {
+  flex: 0 0 auto;
+  min-height: 26px;
+  padding: var(--space-1) var(--space-3);
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--font-size-body);
+  white-space: nowrap;
+}
+.market-bar-button:hover:not(:disabled) {
+  color: var(--text);
+}
+.market-bar-gap {
+  flex: 1;
+}
+.market-search {
+  width: 180px;
+  min-width: 0;
+  height: 26px;
+  padding: 2px var(--space-2);
+  font-size: var(--font-size-body);
+}
+.market-phase {
+  color: var(--warning);
+  white-space: nowrap;
+}
+.market-phase[data-live] {
+  color: var(--success);
+}
+
+.futures-market-board {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(360px, 30%, 560px);
+  flex: 1;
+  min-height: 0;
+  background: var(--canvas);
+}
+.live-market > .futures-market-board {
+  flex-shrink: 1;
+}
+.futures-market-board-list {
+  min-width: 0;
+  overflow: auto;
+}
+/* As many columns as fit, each holding whole groups (MarketBoard). */
+.market-exchange-groups {
+  display: flex;
+}
+.market-exchange-column {
+  flex: 1;
+  min-width: 0;
+}
+.market-exchange-column + .market-exchange-column {
+  border-left: 1px solid var(--grid);
+}
+.market-exchange-column > section {
+  padding-bottom: var(--space-3);
+}
+.market-exchange-groups h2 {
+  margin: 0;
+  padding: var(--space-2) var(--space-2) 2px;
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.market-contract {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  border-left: 1px solid var(--line);
+}
+.market-contract > .quote-pane {
+  flex: 1;
+}
+.watchlist-editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: color-mix(in oklab, var(--panel) 60%, var(--canvas));
+  border-bottom: 1px solid var(--line);
+  font-size: var(--font-size-body);
+}
+.watchlist-editor form {
+  display: flex;
+  gap: var(--space-2);
+}
+.watchlist-editor span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-1) 2px var(--space-2);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  color: var(--text);
+}
+.watchlist-editor span button {
+  min-height: 18px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+@media (max-width: 900px) {
+  .futures-market-board {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .market-contract {
+    min-height: 420px;
+    border-left: 0;
+    border-top: 1px solid var(--grid);
+  }
+}
+
+/* The Tick chart and its notes. */
+.contract-live-chart {
+  --price-line: var(--accent);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.quote-empty {
+  margin: 0;
+  padding: var(--space-3);
+  color: var(--subtle);
+  font-size: var(--font-size-body);
+}
+.quote-data-note {
+  padding: 2px var(--space-2);
+  color: var(--subtle);
+  font-size: var(--font-size-aux);
+}
+
+/* Under the chart: depth beside the day's figures, then the other months. */
+.futures-market-board[data-expanded] {
+  grid-template-columns: clamp(320px, 30%, 520px) minmax(0, 1fr);
+}
+.market-contract > .quote-pane {
+  min-height: 320px;
+}
+.contract-quote {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0 var(--space-3);
+  flex-shrink: 0;
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--line);
+  background: color-mix(in oklab, var(--panel) 52%, var(--canvas));
+  font-size: var(--font-size-body);
+  font-variant-numeric: tabular-nums;
+}
+.contract-depth {
+  border-collapse: collapse;
+}
+.contract-depth :is(th, td) {
+  height: 20px;
+  padding: 0 var(--space-1);
+  border-bottom: 0;
+  font-weight: 400;
+  text-align: right;
+}
+.contract-depth td {
+  font-family: var(--font-terminal);
+}
+.contract-depth th {
+  color: var(--muted);
+  text-align: left;
+}
+.contract-depth tr[data-first-bid] > * {
+  border-top: 1px dashed var(--line-strong);
+}
+.contract-figures {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  margin: 0;
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--line);
+}
+.contract-figures > div {
+  display: flex;
+  justify-content: space-between;
+  height: 18px;
+  align-items: center;
+}
+.contract-figures dt {
+  color: var(--muted);
+}
+.contract-figures dd {
+  margin: 0;
+  font-family: var(--font-terminal);
+}
+.contract-months {
+  grid-column: 1 / -1;
+  margin-top: var(--space-2);
+}
+.contract-months summary {
+  padding: var(--space-1) 0;
+  color: var(--muted);
+}
+.contract-months button {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr);
+  width: 100%;
+  min-height: 22px;
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: var(--font-size-body);
+  text-align: right;
+}
+.contract-months button > :first-child {
+  text-align: left;
+}
+.contract-months button[aria-pressed="true"] {
+  background: var(--accent-surface);
+}
+.contract-quote [data-tone="up"] {
+  color: var(--quote-up);
+}
+.contract-quote [data-tone="down"] {
+  color: var(--quote-down);
+}
+.contract-quote [data-tone="missing"] {
+  color: var(--muted);
+}
+.market-expand {
+  min-height: 20px;
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-body);
+}
+
+.quote-pane-body .market-history-chart {
+  padding-inline: 0;
+}
+.contract-depth :is(th, td):first-child,
+.contract-months button {
+  padding-left: 0;
+}
+.contract-depth :is(th, td):last-child,
+.contract-months button {
+  padding-right: 0;
+}
+/* Resting lots of each depth level, as a bar from the right. */
+.contract-depth td.depth-lots {
+  background: linear-gradient(to left, var(--depth-color) var(--depth), transparent var(--depth));
+}
+.contract-depth td.depth-lots[data-side="ask"] {
+  --depth-color: color-mix(in oklab, var(--quote-up) 20%, transparent);
+}
+.contract-depth td.depth-lots[data-side="bid"] {
+  --depth-color: color-mix(in oklab, var(--quote-down) 20%, transparent);
+}

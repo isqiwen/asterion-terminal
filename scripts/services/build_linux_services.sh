@@ -1,0 +1,54 @@
+#!/bin/bash
+# Builds the trading and Market setup scripts (into ASTERION_LINUX_BUNDLES or
+# build/linux-bundles) from the current checkout in an Ubuntu 24.04 x86_64
+# container (Docker/OrbStack).
+set -euo pipefail
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+WORK="$ROOT/build/linux-service-work"
+IMAGE=${ASTERION_LINUX_IMAGE:-ubuntu:24.04}
+BUNDLES=${ASTERION_LINUX_BUNDLES:-$ROOT/build/linux-bundles}
+CTP_PROFILE=${ASTERION_CTP_PROFILE:-prod}
+CTP_LOCAL_DIR=${ASTERION_CTP_LOCAL_DIR:-}
+CTP_REQUIRE_OFFICIAL=${ASTERION_CTP_REQUIRE_OFFICIAL:-0}
+if [[ "$BUNDLES" != /* ]]; then BUNDLES="$ROOT/$BUNDLES"; fi
+if [[ "$CTP_PROFILE" != "prod" && "$CTP_PROFILE" != "eval" ]]; then
+  echo "ASTERION_CTP_PROFILE must be 'prod' or 'eval' (got: $CTP_PROFILE)" >&2
+  exit 1
+fi
+DOCKER_CTP_ARGS=(-e "ASTERION_CTP_PROFILE=$CTP_PROFILE" -e "ASTERION_CTP_REQUIRE_OFFICIAL=$CTP_REQUIRE_OFFICIAL")
+if [[ -n "$CTP_LOCAL_DIR" ]]; then
+  if [[ "$CTP_LOCAL_DIR" != /* ]]; then CTP_LOCAL_DIR="$ROOT/$CTP_LOCAL_DIR"; fi
+  if [[ ! -e "$CTP_LOCAL_DIR" ]]; then
+    echo "ASTERION_CTP_LOCAL_DIR does not exist: $CTP_LOCAL_DIR" >&2
+    exit 1
+  fi
+  DOCKER_CTP_ARGS+=(-v "$CTP_LOCAL_DIR:/ctp-sdk:ro" -e "ASTERION_CTP_LOCAL_DIR=/ctp-sdk")
+fi
+if ! command -v docker >/dev/null 2>&1; then
+  echo "The Linux setup build requires Docker (or OrbStack on macOS). Install and start it, then rerun." >&2
+  exit 1
+fi
+if ! docker info >/dev/null; then
+  echo "Docker is unavailable to the current user. Start Docker/OrbStack and check access, then rerun." >&2
+  exit 1
+fi
+rm -rf "$WORK/input" "$WORK/output"
+mkdir -p "$WORK/input" "$WORK/output" "$BUNDLES"
+cd "$ROOT"
+# macOS tar metadata would become ._* files on Linux and change the fingerprint.
+# GNU tar on a Linux host has no such metadata and no flag for it.
+METADATA=(--no-xattrs)
+if [ "$(uname -s)" = Darwin ]; then METADATA+=(--no-mac-metadata); fi
+git ls-files -co --exclude-standard -z | grep -zv '^build/\|node_modules\|/dist/\|test-results' |
+  while IFS= read -r -d '' file; do
+    if [ -e "$file" ]; then printf '%s\0' "$file"; fi
+  done |
+  COPYFILE_DISABLE=1 xargs -0 tar "${METADATA[@]}" -cf "$WORK/input/service-source.tar"
+docker run --rm --platform linux/amd64 -e ASTERION_COMMIT="$(git -C "$ROOT" rev-parse --short=12 HEAD)" \
+  "${DOCKER_CTP_ARGS[@]}" \
+  -v "$WORK/input:/input:ro" -v "$WORK/output:/output" \
+  -v "$ROOT/scripts/services/linux-services-container.sh:/build.sh:ro" "$IMAGE" bash /build.sh
+version=$(cat "$ROOT/VERSION")
+cp "$WORK/output/ctp-provenance.json" "$BUNDLES/"
+cp "$WORK/output/Asterion-Market-${version}-linux-x86_64.sh" "$WORK/output/Asterion-Warehouse-${version}-linux-x86_64.sh" "$WORK/output/Asterion-Trading-${version}-linux-x86_64.sh" "$BUNDLES/"
+echo "Linux setup scripts updated in $BUNDLES (CTP profile: $CTP_PROFILE)"

@@ -1,0 +1,1211 @@
+/* A research view: modules left, result centre, configuration right and, for
+   strategies, every run below. Columns are divided by lines, not boxed. */
+.lab-research {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr) 320px;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-areas:
+    "notice notice notice"
+    "modules steps steps"
+    "modules center config";
+  height: 100%;
+  min-height: 0;
+}
+.lab-spacer {
+  flex: 1;
+}
+/* Actions that read as text: in headers, tables and toolbars. */
+button.lab-link {
+  min-height: 22px;
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--accent);
+  font-size: var(--font-size-body);
+}
+button.lab-link:enabled:not([aria-disabled="true"]):is(:hover, :active) {
+  background: none;
+  border-color: transparent;
+  color: var(--accent);
+  text-decoration: underline;
+}
+button.lab-link.strong {
+  color: var(--text-strong);
+  font-size: inherit;
+}
+button.lab-link.strong:enabled:not([aria-disabled="true"]):is(:hover, :active) {
+  color: var(--accent);
+}
+.lab-research > [role="alert"] {
+  grid-area: notice;
+  margin: var(--space-2) var(--space-page) 0;
+}
+.lab-modules,
+.lab-config,
+.lab-center {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-4);
+}
+.lab-modules h2,
+.lab-config > h2 {
+  margin: 0 0 var(--space-3);
+  color: var(--muted);
+  font-size: var(--font-size-body);
+  font-weight: 400;
+}
+.lab-modules {
+  grid-area: modules;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in oklab, var(--panel) 55%, var(--canvas));
+  border-right: 1px solid var(--line);
+}
+.lab-modules > * {
+  flex-shrink: 0;
+}
+.lab-modules > .lab-link {
+  align-self: flex-start;
+}
+button.lab-add-module {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  width: 100%;
+  margin-bottom: var(--space-3);
+  color: var(--muted);
+  font-size: var(--font-size-body);
+}
+button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
+  color: var(--text-strong);
+}
+.lab-divider {
+  width: 100%;
+  height: 1px;
+  margin: var(--space-2) 0 var(--space-3);
+  border: 0;
+  background: var(--line);
+}
+.lab-library-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.lab-library-view > .lab-toolbar {
+  justify-content: flex-start;
+}
+.lab-library-scroll {
+  flex: 1;
+  min-height: 0;
+}
+.lab-library-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.lab-library-table thead {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 2;
+}
+.lab-library-table thead th {
+  background: var(--canvas);
+  border-bottom: 0;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+.lab-library-table thead th:nth-child(2) {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 3;
+}
+.lab-library-table tbody tr {
+  cursor: pointer;
+}
+.lab-library-table tbody th {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 1;
+  background: var(--canvas);
+}
+.lab-library-table tbody tr:hover :is(td, th) {
+  background: var(--row-alt);
+}
+.lab-library-table tbody tr.current :is(td, th),
+.lab-library-table tbody tr.selected :is(td, th) {
+  background: var(--accent-surface);
+}
+.lab-check-col {
+  width: 28px;
+  padding-inline: var(--space-1) var(--space-2);
+}
+.lab-factor-desc {
+  max-width: 32ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lab-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.lab-yearly-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.lab-table tbody th {
+  color: var(--text-strong);
+  font-weight: 400;
+  white-space: nowrap;
+}
+/* Strategies or factors, one line each. */
+.lab-module-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: var(--space-3);
+}
+.lab-module-list > input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  margin-bottom: var(--space-2);
+}
+button.lab-module-item,
+.lab-evaluations li button {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--control-height);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: 0 var(--control-radius) var(--control-radius) 0;
+  background: none;
+  color: var(--text-strong);
+  font-size: var(--font-size-body);
+  text-align: left;
+}
+:is(button.lab-module-item, .lab-evaluations li button):enabled:not(
+    [aria-disabled="true"],
+    [aria-pressed="true"]
+  ):is(:hover, :active) {
+  background: var(--hover);
+  border-color: transparent;
+  color: var(--text-strong);
+}
+:is(button.lab-module-item, .lab-evaluations li button)[aria-pressed="true"],
+:is(button.lab-module-item, .lab-evaluations li button)[aria-pressed="true"]:enabled:not(
+    [aria-disabled="true"]
+  ):is(:hover, :active) {
+  border-color: transparent;
+  border-left-color: var(--accent);
+  background: var(--accent-surface);
+  color: var(--accent);
+}
+button.lab-module-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+button.lab-module-item small.lab-module-origin {
+  margin-left: 0;
+  color: var(--muted);
+}
+.lab-evaluations {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.lab-evaluations li span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lab-evaluations li small {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+.lab-evaluations li .numeric {
+  margin-left: auto;
+  font-family: var(--font-terminal);
+}
+button.lab-module-item small {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-xs);
+}
+.lab-module-error summary {
+  color: var(--warning);
+  font-size: var(--font-size-body);
+}
+.lab-module-error pre,
+.lab-details pre,
+.lab-code {
+  white-space: pre-wrap;
+  font-size: var(--font-size-aux);
+  color: var(--muted);
+}
+.lab-center {
+  grid-area: center;
+  padding: var(--space-4) var(--space-5);
+}
+.lab-placeholder {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--muted);
+}
+.lab-config {
+  grid-area: config;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+  background: color-mix(in oklab, var(--panel) 55%, var(--canvas));
+  border-left: 1px solid var(--line);
+}
+.lab-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3) var(--space-3);
+  align-content: start;
+}
+.lab-form label {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.lab-form label > span {
+  color: var(--muted);
+  font-size: var(--font-size-body);
+}
+.lab-form input.lab-param {
+  font-family: var(--font-terminal);
+  font-variant-numeric: tabular-nums;
+}
+.lab-form :is(input, select) {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.lab-form .wide {
+  grid-column: 1 / -1;
+}
+.lab-section > summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  color: var(--text-strong);
+  font-size: var(--font-size-body);
+  list-style: none;
+}
+.lab-section > summary::-webkit-details-marker {
+  display: none;
+}
+/* A flex summary loses the browser's marker; this one shows the section folds. */
+.lab-section > summary::before {
+  content: "▸";
+  color: var(--muted);
+}
+.lab-section[open] > summary::before {
+  content: "▾";
+}
+.lab-section > .lab-form {
+  padding: var(--space-2) 0 var(--space-1);
+}
+.lab-form .lab-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-body);
+}
+.lab-segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--control-radius);
+  background: var(--field);
+}
+.lab-form .lab-segmented label {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(var(--control-height) - 4px);
+  padding: 0 var(--space-2);
+  border-radius: calc(var(--control-radius) - 1px);
+  color: var(--muted);
+  font-size: var(--font-size-body);
+  text-align: center;
+  cursor: pointer;
+}
+.lab-segmented input[type="radio"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+}
+.lab-form .lab-segmented label:hover {
+  color: var(--text-strong);
+}
+.lab-form .lab-segmented label:has(:checked) {
+  background: var(--accent-surface);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+  color: var(--accent);
+  font-weight: 500;
+}
+.lab-form .lab-segmented label:has(:focus-visible) {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+@media (forced-colors: active) {
+  .lab-form .lab-segmented label:has(:checked) {
+    outline: 2px solid SelectedItem;
+    outline-offset: -2px;
+  }
+}
+.lab-submit {
+  position: sticky;
+  bottom: 0;
+  margin: 0 -16px;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border-top: 1px solid var(--line);
+  background: color-mix(in oklab, var(--panel) 88%, var(--canvas));
+  backdrop-filter: blur(8px);
+}
+.lab-submit > .primary {
+  width: 100%;
+}
+.lab-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-body);
+  font-variant-numeric: tabular-nums;
+}
+.lab-table th {
+  height: var(--row-height);
+  text-align: left;
+  font-weight: 400;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+.lab-table td {
+  height: var(--row-height);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.lab-table th,
+.lab-table td {
+  padding: 0 var(--space-3);
+}
+.lab-table thead th:has(> .lab-sort) {
+  padding: 0;
+}
+.lab-table th:first-child,
+.lab-table td:first-child {
+  padding-left: 0;
+}
+.lab-table .numeric {
+  text-align: right;
+}
+.lab-table tr:hover td {
+  background: var(--row-alt);
+}
+.lab-table tr.current td,
+.lab-table tr.selected td {
+  background: var(--accent-surface);
+}
+.lab-scroll {
+  overflow: auto;
+}
+.lab-scroll:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.lab-virtual-scroll {
+  overflow: auto;
+  max-inline-size: 100%;
+  max-block-size: min(520px, 65vh);
+}
+.lab-virtual-scroll:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.lab-virtual-scroll .lab-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.lab-virtual-scroll thead {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+}
+.lab-virtual-scroll thead th {
+  background: var(--canvas);
+  border-bottom: 0;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+.lab-virtual-scroll tr[data-spacer] td {
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.lab-up {
+  color: var(--quote-up);
+}
+.lab-down {
+  color: var(--quote-down);
+}
+.lab-result {
+  display: grid;
+  gap: var(--space-4);
+}
+/* Stacked charts are spaced by the grid, not ruled off from each other. */
+.lab-result .price-chart {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.lab-result h3 {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-size-body);
+  font-weight: 400;
+}
+.lab-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  gap: 1px;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+  overflow: hidden;
+  background: var(--line);
+  box-shadow: var(--surface-highlight);
+}
+.lab-figures > div {
+  padding: var(--space-3) var(--space-3);
+  background: var(--panel);
+}
+.lab-figures dt {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+.lab-figures dd.lab-up {
+  color: var(--quote-up);
+}
+.lab-figures dd.lab-down {
+  color: var(--quote-down);
+}
+.lab-figures dd {
+  margin: var(--space-1) 0 0;
+  color: var(--text-strong);
+  font-size: var(--font-size-xl);
+  font-family: var(--font-terminal);
+}
+.lab-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+}
+/* A label beside its control, unlike a form field's label above it. */
+label.lab-inline {
+  display: flex;
+  flex-direction: row;
+  justify-self: start;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted);
+  font-size: var(--font-size-body);
+}
+.lab-heatmap {
+  justify-self: start;
+  border-collapse: collapse;
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-body);
+}
+.lab-heatmap th {
+  padding: var(--space-2) var(--space-3);
+  color: var(--muted);
+  font-weight: 400;
+  text-align: right;
+}
+.lab-heatmap td {
+  min-width: 72px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--canvas);
+  text-align: right;
+  color: var(--text-strong);
+}
+.lab-corr-heatmap thead th:first-child,
+.lab-corr-heatmap tbody th {
+  text-align: left;
+  white-space: nowrap;
+}
+.lab-corr-heatmap tbody th {
+  color: var(--text-strong);
+}
+.lab-details dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-3);
+  font-size: var(--font-size-body);
+}
+.lab-details dt {
+  color: var(--muted);
+}
+.lab-details dd {
+  margin: 0;
+}
+/* A factor's IC by horizon: a bar of its mean, coloured by sign. */
+.lab-bar-cell {
+  width: 30%;
+}
+.lab-bar {
+  display: block;
+  height: 6px;
+  min-width: 1px;
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--muted) 65%, transparent);
+}
+.lab-bar.lab-up {
+  background: color-mix(in oklab, var(--quote-up) 68%, transparent);
+}
+.lab-bar.lab-down {
+  background: color-mix(in oklab, var(--quote-down) 68%, transparent);
+}
+.lab-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: var(--space-2);
+  border-radius: 2px;
+  vertical-align: baseline;
+}
+.lab-skipped {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
+  color: var(--muted);
+}
+.lab-skipped strong {
+  margin-right: var(--space-2);
+  color: var(--text);
+}
+
+.lab-center:has(> .lab-source) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+.lab-source {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.lab-source > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  min-height: 40px;
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in oklab, var(--panel) 55%, var(--canvas));
+}
+.lab-source > header > code {
+  margin-right: auto;
+  color: var(--text-strong);
+}
+.lab-readonly {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+.lab-source > header > button:not(.lab-link) {
+  min-height: 24px;
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-body);
+}
+.lab-source > .action-error {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+button.lab-module-item[data-context="true"]:not([aria-pressed="true"]),
+.lab-module-error summary[data-context="true"] {
+  background: var(--hover);
+}
+.lab-context-menu {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-width: 116px;
+  padding: var(--space-1);
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--pressed) 92%, transparent);
+  backdrop-filter: blur(16px);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 8%),
+    0 0 0 1px rgb(0 0 0 / 55%),
+    0 14px 32px -4px rgb(0 0 0 / 78%);
+}
+.lab-context-menu button {
+  justify-content: flex-start;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-strong);
+  font-size: var(--font-size-body);
+  text-align: left;
+}
+.lab-context-menu button .ui-icon {
+  color: var(--muted);
+}
+.lab-context-menu button:enabled:not([aria-disabled="true"]):is(:hover, :active) {
+  background: color-mix(in oklab, white 9%, var(--hover));
+  border-color: transparent;
+  color: var(--text-strong);
+}
+.lab-context-menu button:enabled:not([aria-disabled="true"]):is(:hover, :active) .ui-icon {
+  color: var(--text-strong);
+}
+.lab-context-menu button.danger-item,
+.lab-context-menu button.danger-item .ui-icon {
+  color: var(--danger);
+}
+.lab-context-menu button.danger-item:enabled:not([aria-disabled="true"]):is(:hover, :active) {
+  background: var(--danger-surface);
+  color: var(--danger);
+}
+.lab-context-menu hr {
+  width: 100%;
+  margin: var(--space-1) 0;
+  border: 0;
+  border-top: 1px solid rgb(255 255 255 / 9%);
+}
+.lab-source-editor {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--field);
+}
+.lab-new-module {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.lab-new-module input,
+.lab-new-module .action-error {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin: 0;
+}
+.lab-rejections summary {
+  color: var(--warning);
+}
+.lab-research[data-folded] {
+  grid-template-columns: 220px minmax(0, 1fr) 40px;
+}
+.lab-research:not(:has(> .lab-config)) {
+  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-areas:
+    "notice notice"
+    "modules steps"
+    "modules center";
+}
+.lab-config > h2 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.lab-research[data-folded] .lab-config {
+  padding-inline: var(--space-1);
+}
+button.lab-fold {
+  min-height: 24px;
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--control-radius);
+  color: var(--muted);
+}
+button.lab-fold:enabled:not([aria-disabled="true"]):is(:hover, :active) {
+  background: var(--hover);
+  border-color: transparent;
+  color: var(--text-strong);
+}
+
+/* The runs view: the records, or one report, a comparison or a sweep, each the whole page. */
+.lab-runs-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-4) var(--space-page);
+}
+.lab-runs-view > .lab-toolbar input[type="search"] {
+  width: 220px;
+}
+.lab-records td {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lab-records button.lab-link.strong {
+  padding: 0;
+}
+.lab-id {
+  display: block;
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+.lab-records td.lab-params {
+  min-width: 140px;
+  max-width: 220px;
+  white-space: normal;
+}
+.lab-compare {
+  width: 100%;
+}
+.lab-compare td,
+.lab-compare th {
+  min-width: 120px;
+}
+button.lab-sort {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 100%;
+  min-height: 24px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+button.lab-sort:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+button.lab-sort:enabled:not([aria-disabled="true"]):is(:hover, :active) {
+  background: none;
+  border-color: transparent;
+  color: var(--text-strong);
+}
+.lab-report-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+.lab-report-header h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: var(--font-size-lg);
+  font-weight: 500;
+}
+.lab-rename {
+  display: flex;
+  gap: var(--space-2);
+}
+.lab-rename input {
+  width: 260px;
+}
+.lab-report-tabs {
+  margin-top: var(--space-2);
+}
+.lab-segments {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
+  gap: var(--space-4);
+}
+.lab-monthly {
+  width: auto;
+}
+.lab-monthly td {
+  min-width: 64px;
+}
+.lab-differs td:first-child {
+  color: var(--warning);
+}
+/* The run configuration's groups. */
+.lab-config > .lab-section {
+  border-bottom: 1px solid var(--line);
+}
+.lab-config > .lab-section:last-of-type {
+  border-bottom: 0;
+}
+.lab-config > .lab-section > summary {
+  padding: var(--space-3) 0;
+  cursor: pointer;
+}
+.lab-config > .lab-section > summary strong {
+  flex-shrink: 0;
+  font-weight: 500;
+}
+.lab-config > .lab-section > .lab-form {
+  padding-bottom: var(--space-3);
+}
+.lab-symbol-field {
+  position: relative;
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.lab-symbol-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.lab-form .lab-symbol-header > label {
+  display: inline;
+  color: var(--muted);
+  font-size: var(--font-size-body);
+}
+.lab-symbol-box {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--control-height);
+  padding: 3px 26px 3px var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--control-radius);
+  background-color: var(--field);
+  cursor: text;
+}
+.lab-symbol-box:hover {
+  border-color: var(--subtle);
+}
+.lab-symbol-box:focus-within,
+.lab-symbol-field[data-open] .lab-symbol-box {
+  border-color: var(--accent-line);
+  box-shadow: var(--accent-glow);
+}
+.lab-symbol-box::after {
+  content: "";
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  width: 10px;
+  height: 6px;
+  translate: 0 -50%;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%237c8796' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+}
+.lab-symbol-field[data-open] .lab-symbol-box::after {
+  rotate: 180deg;
+}
+.lab-form .lab-symbol-box > input {
+  flex: 1 1 68px;
+  width: auto;
+  min-width: 56px;
+  height: 22px;
+  padding: 0 var(--space-1);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.lab-symbol-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  padding: 0 2px 0 var(--space-2);
+  border: 1px solid var(--accent-line);
+  border-radius: calc(var(--control-radius) - 1px);
+  background: var(--accent-surface);
+  color: var(--text-strong);
+  font-size: var(--font-size-xs);
+}
+.lab-symbol-tag code {
+  color: var(--accent);
+  font-family: var(--font-terminal);
+}
+.lab-symbol-tag > button {
+  min-height: 18px;
+  width: 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.lab-symbol-tag > button:hover {
+  background: transparent;
+  color: var(--text-strong);
+}
+.lab-symbol-menu {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  max-height: 296px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--panel-radius);
+  background: var(--raised);
+  box-shadow: var(--surface-highlight), var(--shadow-popover);
+  overflow: hidden;
+}
+.lab-symbol-venues {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: var(--space-1);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.lab-symbol-venues > button {
+  min-height: 22px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: calc(var(--control-radius) - 1px);
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-aux);
+}
+.lab-symbol-venues > button[aria-pressed="true"] {
+  background: var(--accent-surface);
+  color: var(--accent);
+}
+.lab-symbol-options {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-1);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.lab-symbol-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+button.lab-symbol-option {
+  flex: 1;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: 28px;
+  padding: 2px var(--space-2);
+  border: 0;
+  border-radius: var(--control-radius);
+  background: transparent;
+  color: var(--text-strong);
+  font-size: var(--font-size-body);
+  text-align: left;
+}
+button.lab-symbol-option.is-contract {
+  padding-left: var(--space-4);
+}
+button.lab-symbol-option[aria-selected="true"] {
+  color: var(--accent);
+}
+button.lab-symbol-option:enabled:hover {
+  background: var(--hover);
+}
+.lab-symbol-check {
+  flex: none;
+  width: 12px;
+  color: var(--accent);
+  font-size: var(--font-size-xs);
+}
+.lab-symbol-main {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow: hidden;
+}
+.lab-symbol-main code {
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-aux);
+  color: var(--muted);
+}
+button.lab-symbol-option[aria-selected="true"] .lab-symbol-main code {
+  color: var(--accent);
+}
+.lab-symbol-main small {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+button.lab-symbol-option > small {
+  flex: none;
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+button.lab-symbol-option > small.stored {
+  color: var(--muted);
+}
+button.lab-symbol-option > small.unstored {
+  color: var(--subtle);
+}
+button.lab-symbol-months {
+  flex: none;
+  min-height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--control-radius);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+  font-variant-numeric: tabular-nums;
+}
+button.lab-symbol-months:enabled:hover {
+  background: var(--hover);
+  color: var(--text-strong);
+}
+.lab-symbol-empty {
+  margin: 0;
+  padding: var(--space-2);
+}
+.lab-symbol-assist {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-2);
+  font-size: var(--font-size-xs);
+}
+.lab-symbol-assist .warn {
+  color: var(--warning);
+}
+.lab-recent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+}
+.lab-recent-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.lab-recent h3 {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+  font-weight: 400;
+}
+.lab-recent > button.lab-link {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  padding: 2px var(--space-1);
+  border-radius: var(--control-radius);
+  color: var(--text);
+}
+.lab-recent > button.lab-link:enabled:not([aria-disabled="true"]):is(:hover, :active) {
+  background: var(--hover);
+  color: var(--text-strong);
+  text-decoration: none;
+}
+@media (max-width: 1080px) {
+  .lab-research {
+    grid-template-columns: 176px minmax(0, 1fr) 236px;
+  }
+  .lab-research[data-folded] {
+    grid-template-columns: 176px minmax(0, 1fr) 40px;
+  }
+  .lab-research:not(:has(> .lab-config)) {
+    grid-template-columns: 176px minmax(0, 1fr);
+  }
+  .lab-modules,
+  .lab-config,
+  .lab-center {
+    padding: var(--space-3);
+  }
+  .lab-submit {
+    margin-inline: calc(-1 * var(--space-3));
+    padding: var(--space-3);
+  }
+  .lab-config .lab-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* A strategy's way to trading: backtest, published version, running accounts. */
+.strategy-lifecycle {
+  grid-area: steps;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-5);
+  margin: 0;
+  padding: var(--space-2) var(--space-5);
+  border-bottom: 1px solid var(--line);
+  list-style: none;
+  font-size: var(--font-size-sm);
+}
+.strategy-lifecycle li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--muted);
+}
+.strategy-lifecycle li::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+}
+.strategy-lifecycle li[data-done]::before {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.strategy-lifecycle li[data-done] > span:first-of-type {
+  color: var(--text);
+}
+.lifecycle-hint {
+  color: var(--subtle);
+}
+.lifecycle-unsaved {
+  color: var(--warning);
+}
+
+button.lab-link.lab-delete,
+button.lab-link.lab-delete:enabled:not([aria-disabled="true"]):is(:hover, :active) {
+  color: var(--danger);
+}

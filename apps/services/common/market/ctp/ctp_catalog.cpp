@@ -1,0 +1,525 @@
+#include "ctp_catalog.hpp"
+#include <asterion/futures/history_identity.hpp>
+#include "ctp_feed.hpp"
+#include "ctp_support.hpp"
+#include <ThostFtdcTraderApi.h>
+#include <asterion/base/error.hpp>
+#include <asterion/base/bounded_queue.hpp>
+#include <asterion/system/log.hpp>
+#include <atomic>
+#include <variant>
+#include <exception>
+#include <map>
+#include <regex>
+#include <iconv.h>
+
+namespace asterion::ctp {
+namespace {
+
+std::string text_utf8(std::string input)
+{
+    if (input.empty())
+        return {};
+    const auto converter = iconv_open("UTF-8", "GB18030");
+    if (converter == reinterpret_cast<iconv_t>(-1))
+        throw Error(ErrorCode::unavailable, "CTP catalog text conversion unavailable");
+
+    struct Close
+    {
+        ~Close()
+        {
+            iconv_close(converter);
+        }
+
+        iconv_t converter;
+    } close{converter};
+
+    std::string result(input.size() * 4 + 4, '\0');
+    char* in = input.data();
+    char* out = result.data();
+    auto remaining = input.size(), space = result.size();
+    if (iconv(converter, &in, &remaining, &out, &space) == static_cast<std::size_t>(-1)
+        || remaining)
+        throw Error(ErrorCode::operation_failed, "invalid CTP catalog text encoding");
+    result.resize(result.size() - space);
+    return result;
+}
+enum class Step
+{
+    connecting,
+    authenticate,
+    login,
+    products,
+    query,
+    done
+};
+
+const char* timeout_diagnostic(Step step)
+{
+    switch (step) {
+        case Step::connecting:
+            return "CTP catalog front connection timed out";
+        case Step::authenticate:
+            return "CTP catalog authentication timed out";
+        case Step::login:
+            return "CTP catalog login timed out";
+        case Step::products:
+            return "CTP catalog product query timed out";
+        case Step::query:
+            return "CTP catalog instrument query timed out";
+        case Step::done:
+            throw std::logic_error("completed CTP catalog query cannot be polled");
+    }
+    throw std::logic_error("invalid CTP catalog step");
+}
+
+struct Reader final : CThostFtdcTraderSpi
+{
+    struct Connected
+    {};
+
+    struct Disconnected
+    {
+        int reason;
+    };
+
+    struct Failure
+    {
+        CThostFtdcRspInfoField error;
+    };
+
+    struct Auth
+    {
+        CThostFtdcRspInfoField error;
+        int id;
+        bool last;
+    };
+
+    struct Login
+    {
+        std::optional<CThostFtdcRspUserLoginField> value;
+        CThostFtdcRspInfoField error;
+        int id;
+        bool last;
+    };
+
+    struct Instrument
+    {
+        std::optional<CThostFtdcInstrumentField> value;
+        CThostFtdcRspInfoField error;
+        int id;
+        bool last;
+    };
+
+    struct Product
+    {
+        std::optional<std::pair<std::string, std::string>> value; // exchange, product
+        CThostFtdcRspInfoField error;
+        int id;
+        bool last;
+    };
+
+    using Event = std::variant<Connected, Disconnected, Failure, Auth, Login, Instrument, Product>;
+
+    template <class T>
+    void deliver(T event) noexcept
+    {
+        try {
+            if (!incoming.try_push(std::move(event)))
+                failed = true;
+        } catch (...) {
+            failed = true;
+        }
+    }
+
+    void check(const CThostFtdcRspInfoField& error) const
+    {
+        static constexpr const char* names[] = {
+            "connection",
+            "authentication",
+            "login",
+            "product query",
+            "instrument query",
+            "instrument query"
+        };
+        if (!error.ErrorID)
+            return;
+        auto diagnostic = std::string("CTP catalog ") + names[static_cast<int>(step)]
+            + " rejected: " + std::to_string(error.ErrorID);
+        const auto message = text_utf8(field(error.ErrorMsg));
+        if (!message.empty())
+            diagnostic += ": " + message;
+        if (error.ErrorID == 7)
+            throw Error(ErrorCode::unavailable, "CTP catalog not initialized: " + diagnostic);
+        if (error.ErrorID == 8)
+            throw Error(ErrorCode::unavailable, "CTP catalog front inactive: " + diagnostic);
+        if (step == Step::authenticate || step == Step::login)
+            throw Error(ErrorCode::permission_denied, std::move(diagnostic));
+        throw Error(ErrorCode::operation_failed, std::move(diagnostic));
+    }
+
+    void OnFrontConnected() override
+    {
+        deliver(Connected{});
+    }
+
+    void OnFrontDisconnected(int reason) override
+    {
+        deliver(Disconnected{reason});
+    }
+
+    void OnRspError(CThostFtdcRspInfoField* info, int, bool) override
+    {
+        if (info && info->ErrorID)
+            deliver(Failure{*info});
+    }
+
+    void OnRspAuthenticate(
+        CThostFtdcRspAuthenticateField*,
+        CThostFtdcRspInfoField* info,
+        int id,
+        bool last) override
+    {
+        deliver(Auth{info ? *info : CThostFtdcRspInfoField{}, id, last});
+    }
+
+    void OnRspUserLogin(
+        CThostFtdcRspUserLoginField* value,
+        CThostFtdcRspInfoField* info,
+        int id,
+        bool last) override
+    {
+        deliver(
+            Login{
+                value ? std::optional(*value) : std::nullopt,
+                info ? *info : CThostFtdcRspInfoField{},
+                id,
+                last
+            });
+    }
+
+    void OnRspQryProduct(
+        CThostFtdcProductField* value,
+        CThostFtdcRspInfoField* info,
+        int id,
+        bool last) override
+    {
+        std::optional<std::pair<std::string, std::string>> future;
+        if (value && value->ProductClass == THOST_FTDC_PC_Futures)
+            future = std::pair{field(value->ExchangeID), field(value->ProductID)};
+        const int code = info ? info->ErrorID : 0;
+        if (future || code || last)
+            deliver(Product{std::move(future), info ? *info : CThostFtdcRspInfoField{}, id, last});
+    }
+
+    void OnRspQryInstrument(
+        CThostFtdcInstrumentField* value,
+        CThostFtdcRspInfoField* info,
+        int id,
+        bool last) override
+    {
+        if (id == 3)
+            ++instrument_responses;
+        // QueryInstrument includes options and inactive contracts. Filter those
+        // provider records before admission, while retaining failures and the end marker.
+        std::optional<CThostFtdcInstrumentField> future;
+        if (value && value->ProductClass == THOST_FTDC_PC_Futures && value->IsTrading)
+            future = *value;
+        const int code = info ? info->ErrorID : 0;
+        if (future || code || last)
+            deliver(
+                Instrument{std::move(future), info ? *info : CThostFtdcRspInfoField{}, id, last});
+    }
+
+    void instrument(const CThostFtdcInstrumentField* item)
+    {
+        if (item) {
+            CatalogContract entry;
+            entry.instrument = {field(item->ExchangeID), field(item->InstrumentID)};
+            entry.name = text_utf8(field(item->InstrumentName));
+            // One odd listing must not cost the whole market its subscription.
+            try {
+                validate_instruments({entry.instrument});
+            } catch (const std::exception&) {
+                log::warn("CTP catalog contract skipped: {}", field(item->InstrumentID));
+                return;
+            }
+            entry.product = field(item->ProductID);
+            entry.expiry = field(item->ExpireDate);
+            const int delivery_year = item->DeliveryYear >= 1 && item->DeliveryYear < 100
+                ? 2000 + item->DeliveryYear
+                : item->DeliveryYear;
+            if (delivery_year >= 1990 && delivery_year <= 2100 && item->DeliveryMonth >= 1
+                && item->DeliveryMonth <= 12) {
+                const HistoryIdentity identity{
+                    entry.instrument.venue,
+                    entry.product,
+                    std::to_string(delivery_year) + "-" + (item->DeliveryMonth < 10 ? "0" : "")
+                        + std::to_string(item->DeliveryMonth)
+                };
+                entry.contract_id = identity.key();
+            }
+            entry.multiplier = item->VolumeMultiple;
+            const auto tick = price(item->PriceTick);
+            if (!tick || *tick <= Decimal{} || entry.multiplier <= 0 || entry.product.empty()
+                || !std::regex_match(entry.expiry, std::regex("[0-9]{8}"))) {
+                log::warn("CTP catalog contract skipped: {}", field(item->InstrumentID));
+                return;
+            }
+            entry.price_tick = *tick;
+            if (contracts.size() >= 20000)
+                throw Error(ErrorCode::resource_exhausted, "CTP catalog exceeds contract limit");
+            const auto key = entry.instrument.venue + "." + entry.instrument.symbol;
+            if (!contracts.emplace(key, std::move(entry)).second)
+                throw Error(ErrorCode::operation_failed, "duplicate CTP catalog contract");
+        }
+    }
+
+    void poll()
+    {
+        if (failed)
+            throw Error(ErrorCode::resource_exhausted, "CTP catalog callback queue overflow");
+        for (unsigned i = 0; i < 1024; ++i) {
+            auto event = incoming.try_pop();
+            if (!event)
+                break;
+            std::visit(
+                [&](const auto& value) {
+                    using T = std::decay_t<decltype(value)>;
+                    if constexpr (std::is_same_v<T, Connected>) {
+                        if (step == Step::connecting)
+                            completed = true;
+                    } else if constexpr (std::is_same_v<T, Disconnected>) {
+                        throw Error(
+                            ErrorCode::unavailable,
+                            "CTP catalog disconnected: " + std::to_string(value.reason));
+                    } else if constexpr (std::is_same_v<T, Failure>) {
+                        check(value.error);
+                    } else if constexpr (std::is_same_v<T, Auth>) {
+                        if (step != Step::authenticate || value.id != 1)
+                            return;
+                        check(value.error);
+                        completed = value.last;
+                    } else if constexpr (std::is_same_v<T, Login>) {
+                        if (step != Step::login || value.id != 2)
+                            return;
+                        check(value.error);
+                        if (value.value)
+                            result.trading_day = field(value.value->TradingDay);
+                        if (value.last
+                            && !std::regex_match(result.trading_day, std::regex("[0-9]{8}")))
+                            throw Error(
+                                ErrorCode::operation_failed,
+                                "CTP catalog login has no trading day");
+                        completed = value.last;
+                    } else if constexpr (std::is_same_v<T, Product>) {
+                        if (step != Step::products || value.id != 4)
+                            return;
+                        check(value.error);
+                        if (value.value)
+                            products.push_back(*value.value);
+                        completed = value.last;
+                    } else if constexpr (std::is_same_v<T, Instrument>) {
+                        if (step != Step::query || value.id != 3)
+                            return;
+                        check(value.error);
+                        instrument(value.value ? &*value.value : nullptr);
+                        completed = value.last;
+                    }
+                },
+                *event);
+        }
+    }
+
+    void begin(Step next)
+    {
+        step = next;
+        completed = false;
+    }
+
+    BoundedQueue<Event> incoming{32768};
+    std::atomic<bool> failed{false};
+    std::atomic<unsigned> instrument_responses{0};
+    Step step = Step::connecting;
+    bool completed = false;
+    Catalog result;
+    std::map<std::string, CatalogContract> contracts;
+    // Futures products, each queried for its contracts in turn.
+    std::vector<std::pair<std::string, std::string>> products;
+};
+
+} // namespace
+
+struct CatalogQuery::Impl
+{
+    const std::chrono::milliseconds timeout;
+    std::chrono::steady_clock::time_point deadline, sent;
+    unsigned observed_responses = 0;
+    std::size_t next_product = 0;
+    CatalogConfiguration config;
+    Reader reader;
+    SharedLibrary library;
+    CThostFtdcTraderApi* api = nullptr;
+    CThostFtdcReqUserLoginField login{};
+    CThostFtdcReqAuthenticateField auth{};
+
+    Impl(
+        const std::filesystem::path& path,
+        CatalogConfiguration configuration,
+        std::chrono::milliseconds timeout)
+        : timeout(timeout),
+          deadline(std::chrono::steady_clock::now() + timeout),
+          config(std::move(configuration)),
+          library(path, "_ZN19CThostFtdcTraderApi19CreateFtdcTraderApiEPKc")
+    {}
+
+    ~Impl()
+    {
+        erase(config.password);
+        erase(config.auth_code);
+        erase(login.Password);
+        erase(auth.AuthCode);
+        if (api) {
+            api->RegisterSpi(nullptr);
+            api->Release();
+        }
+    }
+
+    void start(const std::filesystem::path& flow, std::chrono::milliseconds timeout)
+    {
+        if (!config.front.starts_with("tcp://") || config.front.find('\0') != std::string::npos
+            || config.app_id.empty() != config.auth_code.empty() || timeout.count() <= 0)
+            throw std::invalid_argument("invalid CTP catalog configuration");
+        copy(login.BrokerID, config.broker);
+        copy(login.UserID, config.user);
+        copy(login.Password, config.password);
+        erase(config.password);
+        if (!config.app_id.empty()) {
+            copy(auth.BrokerID, config.broker);
+            copy(auth.UserID, config.user);
+            copy(auth.AppID, config.app_id);
+            copy(auth.AuthCode, config.auth_code);
+        }
+        erase(config.auth_code);
+        const auto factory = library.symbol<CThostFtdcTraderApi* (*)(const char*)>();
+        if (!factory)
+            throw Error(ErrorCode::unavailable, "CTP catalog SDK unavailable");
+        std::filesystem::create_directories(flow);
+        const auto raw = flow.u8string();
+        const auto path = std::string(raw.begin(), raw.end()) + "/";
+        api = factory(path.c_str());
+        if (!api)
+            throw Error(ErrorCode::unavailable, "CTP catalog factory failed");
+        api->RegisterSpi(&reader);
+        api->RegisterFront(config.front.data());
+        api->Init();
+    }
+
+    static void accepted(int code)
+    {
+        if (code)
+            throw Error(
+                ErrorCode::operation_failed,
+                "CTP catalog request failed: " + std::to_string(code));
+    }
+
+    std::optional<Catalog> poll(std::stop_token stop)
+    {
+        if (stop.stop_requested())
+            throw Error(ErrorCode::cancelled, "CTP catalog cancelled");
+        // Full catalogs include many options. Even filtered responses are progress;
+        // only silence times out, and the final response still gates publication.
+        const auto responses = reader.instrument_responses.load();
+        if (responses != observed_responses) {
+            observed_responses = responses;
+            // SimNow paused for over 30 seconds after 3286 responses in a day session.
+            deadline = std::chrono::steady_clock::now() + 4 * timeout;
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            log::warn(
+                "ctp catalog timed out: {} instrument_responses={} active_futures={}",
+                timeout_diagnostic(reader.step),
+                reader.instrument_responses.load(),
+                reader.contracts.size());
+            std::string diagnostic = timeout_diagnostic(reader.step);
+            if (reader.step == Step::query)
+                diagnostic +=
+                    " after " + std::to_string(reader.instrument_responses.load()) + " responses";
+            throw Error(ErrorCode::unavailable, diagnostic);
+        }
+        reader.poll();
+        if (!reader.completed)
+            return {};
+        if (reader.step == Step::connecting && !config.app_id.empty()) {
+            reader.begin(Step::authenticate);
+            accepted(api->ReqAuthenticate(&auth, 1));
+            erase(auth.AuthCode);
+        } else if (reader.step == Step::connecting || reader.step == Step::authenticate) {
+            reader.begin(Step::login);
+#ifdef __APPLE__
+            TThostFtdcClientSystemInfoType system{};
+            accepted(api->ReqUserLogin(&login, 2, 0, system));
+#else
+            accepted(api->ReqUserLogin(&login, 2));
+#endif
+            erase(login.Password);
+        } else if (reader.step == Step::login) {
+            // Only futures products: the whole instrument list is mostly options,
+            // which SimNow streamed for minutes and then stopped sending.
+            reader.begin(Step::products);
+            CThostFtdcQryProductField query{};
+            query.ProductClass = THOST_FTDC_PC_Futures;
+            accepted(api->ReqQryProduct(&query, 4));
+            sent = std::chrono::steady_clock::now();
+        } else if ((reader.step == Step::products || reader.step == Step::query)
+            && next_product < reader.products.size()) {
+            // Counters accept about one query a second; a refusal for that is retried.
+            if (std::chrono::steady_clock::now() - sent < std::chrono::milliseconds(1100))
+                return {};
+            const auto& [exchange, product] = reader.products[next_product];
+            CThostFtdcQryInstrumentField query{};
+            copy(query.ExchangeID, exchange);
+            copy(query.ProductID, product);
+            const auto code = api->ReqQryInstrument(&query, 3);
+            sent = std::chrono::steady_clock::now();
+            if (code == -2 || code == -3)
+                return {};
+            accepted(code);
+            reader.begin(Step::query);
+            ++next_product;
+        } else if (reader.step == Step::products) {
+            throw Error(ErrorCode::operation_failed, "CTP catalog lists no futures products");
+        } else if (reader.step == Step::query) {
+            reader.step = Step::done;
+            for (auto& [key, contract] : reader.contracts)
+                reader.result.contracts.push_back(std::move(contract));
+            return std::move(reader.result);
+        } else
+            throw std::logic_error("completed CTP catalog query cannot be polled");
+        // A counter builds the whole instrument list before its first response:
+        // SimNow sent none for over 30 seconds during trading hours. Within the
+        // query, silence between responses is bounded the same way.
+        deadline = std::chrono::steady_clock::now()
+            + (reader.step == Step::query || reader.step == Step::products ? 4 * timeout : timeout);
+        return {};
+    }
+};
+
+CatalogQuery::CatalogQuery(
+    const std::filesystem::path& library,
+    const std::filesystem::path& flow,
+    CatalogConfiguration config,
+    std::chrono::milliseconds timeout)
+    : impl_(std::make_unique<Impl>(library, std::move(config), timeout))
+{
+    impl_->start(flow, timeout);
+}
+
+CatalogQuery::~CatalogQuery() = default;
+
+std::optional<Catalog> CatalogQuery::poll(std::stop_token stop)
+{
+    return impl_->poll(stop);
+}
+
+} // namespace asterion::ctp

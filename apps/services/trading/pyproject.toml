@@ -1,0 +1,6 @@
+# Trading's independently shipped strategy runtime. Packages cannot add dependencies.
+[dependency-groups]
+runtime = ["numpy==2.3.5", "scipy==1.17.1", "protobuf==5.29.3"]
+
+[tool.uv]
+environments = ["python_version == '3.12' and sys_platform == 'linux' and platform_machine == 'x86_64'"]

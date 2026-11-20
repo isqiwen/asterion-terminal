@@ -1,0 +1,116 @@
+.price-chart {
+  position: relative;
+  margin: var(--space-4) 0;
+  border-block: 1px solid var(--line);
+  padding: var(--space-3) 0;
+  min-width: 0;
+}
+/* Names a lower pane at its top left, over the chart. */
+.price-chart-pane-label {
+  position: absolute;
+  z-index: 2;
+  margin: var(--space-1) var(--space-2);
+  padding: 1px var(--space-1);
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--canvas) 82%, transparent);
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.price-chart-canvas {
+  display: block;
+  width: 100%;
+  min-height: 190px;
+}
+/* Lightweight Charts owns its layout table; application data-table rules
+   must not impose row heights, borders or hover fills on canvas panes. */
+.price-chart-canvas td {
+  height: auto;
+  padding: 0;
+  border: 0;
+}
+.price-chart-canvas tbody tr:hover {
+  background: transparent;
+}
+.price-chart-cursor {
+  font-size: var(--font-size-body);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  min-height: 32px;
+}
+.price-chart-cursor strong {
+  margin-right: var(--space-3);
+  color: var(--text-strong);
+  font-weight: 500;
+}
+.price-chart-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.price-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  font-size: var(--font-size-body);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: var(--space-1);
+}
+.intraday-chart {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+.intraday-chart .price-chart-cursor {
+  min-height: 18px;
+  font-size: var(--font-size-body);
+}
+.intraday-chart .price-chart {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+.price-chart-oi-label {
+  color: var(--series-3);
+}
+.price-chart[data-fit-height] .price-chart-canvas {
+  flex: 1 0 190px;
+  height: 190px;
+}
+.term-structure-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: var(--space-1) 0 var(--space-2);
+}
+.term-structure-cursor {
+  margin: 0;
+  min-height: 18px;
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+  font-variant-numeric: tabular-nums;
+}
+.term-structure-cursor b {
+  color: var(--text-strong);
+  font-family: var(--font-terminal);
+  font-weight: 500;
+}
+.term-structure-canvas {
+  width: 100%;
+  height: 124px;
+}
+.term-structure-canvas td {
+  height: auto;
+  padding: 0;
+  border: 0;
+}
+.term-structure-canvas tbody tr:hover {
+  background: transparent;
+}

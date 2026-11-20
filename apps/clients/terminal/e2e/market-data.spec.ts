@@ -1,0 +1,46 @@
+import { execFileSync } from "node:child_process";
+import { readFileSync, rmSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { openView } from "./navigation-helper";
+import { rpc } from "./rpc-fixture";
+import { test, expect } from "./test";
+
+// Only the independently supervised test Warehouse gets this fixture. Lab's
+// directory stays absent: data browsing must work without starting Python.
+test(
+  "Warehouse data page reads the shared warehouse with no live watch",
+  { tag: "@journey" },
+  async ({ page }) => {
+    const source = resolve(__dirname, "../../../..");
+    const host = resolve(process.env.ASTERION_TEST_WAREHOUSE_TLS!, "../..");
+    const data = join(host, "data");
+    execFileSync(join(source, "build/electron-resources/python/bin/python3"), [
+      "-I",
+      "-B",
+      join(source, "tests/lab/warehouse_fixture.py"),
+      join(source, "apps/services/lab"),
+      data,
+    ]);
+    try {
+      const version = readFileSync(join(data, "sources/research/warehouse/current"), "utf8").trim();
+      await page.goto("/");
+      await openView(page, "dataset");
+      await rpc(page.request, "market.endpoint.clear");
+      await expect(
+        page.getByRole("group", { name: "数据" }).getByRole("button", { name: /^日线/ }),
+      ).toContainText(/2026-02-13.*2026-01-05 起/);
+      await page.getByRole("button", { name: /^最近活动/ }).click();
+      await expect(
+        page.getByRole("table", { name: "最近活动" }).locator(`code[title="${version}"]`),
+      ).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("table", { name: "最近活动" })).toBeHidden();
+      await expect(page.getByRole("button", { name: "采集", exact: true })).toBeVisible();
+      await expect(page.getByRole("rowheader", { name: /^SHFE\/rb\b/ })).toContainText("螺纹钢");
+      await expect(page.getByRole("columnheader", { name: "01", exact: true })).toBeVisible();
+      expect((await rpc(page.request, "market.watch", { restart: false })).market_watch).toBeNull();
+    } finally {
+      rmSync(join(data, "sources/research"), { recursive: true, force: true });
+    }
+  },
+);

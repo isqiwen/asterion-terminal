@@ -1,0 +1,52 @@
+syntax = "proto3";
+package emergency;
+
+// Frozen minimal contract for braking an account when routine trading schemas
+// differ between Terminal and Trading. Keep this file independent of business
+// schemas so ASTERION_EMERGENCY_PROTOCOL stays stable across feature changes.
+
+message WorkingOrder {
+  string id = 1;
+  string exchange = 2;
+  string symbol = 3;
+  string side = 4;
+  string offset = 5;
+  string lots = 6;
+  string price = 7;
+}
+
+message State {
+  string protocol = 1;
+  string account_id = 2;
+  string policy_revision = 3;
+  bool account_open = 4;
+  bool broker_ready = 5;
+  bool authorized = 6;
+  string active_strategy_id = 7;
+  repeated WorkingOrder working_orders = 8;
+}
+
+message Revoke {
+  string request_id = 1;
+  string account_id = 2;
+  string policy_revision = 3;
+}
+
+message CancelOrder {
+  string request_id = 1;
+  string account_id = 2;
+  string policy_revision = 3;
+  string order_id = 4;
+}
+
+message StopStrategy {
+  string instance_id = 1;
+}
+
+message Control {
+  oneof action {
+    Revoke revoke = 1;
+    CancelOrder cancel_order = 2;
+    StopStrategy stop_strategy = 3;
+  }
+}

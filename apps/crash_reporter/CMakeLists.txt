@@ -1,0 +1,3 @@
+add_executable(asterion_crash_reporter main.cpp)
+target_link_libraries(asterion_crash_reporter PRIVATE Asterion::System)
+asterion_target_defaults(asterion_crash_reporter)
