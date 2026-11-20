@@ -606,6 +606,10 @@ AccountCommand LiveAccountState::advance_strategy_target(
                         total_cap > used_margin ? total_cap - used_margin : Decimal{};
                     remaining_margin_ratio =
                         divide(left_cap, *strategy_->frozen_equity, Rounding::toward_zero);
+                    // Zero disables the sizing helper's cap; an exhausted budget must flatten.
+                    if (remaining_margin_ratio == Decimal{})
+                        for (auto& member : ready_weights)
+                            member.weight = Decimal{};
                 }
                 // The complete target passed its net budget; quoted legs can exclude its hedge.
                 const auto sized = fixed_weight_targets(

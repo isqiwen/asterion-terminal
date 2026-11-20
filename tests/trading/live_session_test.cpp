@@ -3982,6 +3982,63 @@ TEST_F(StrategyTarget, CrossSessionWeightsAndPipelinedContractsAdvanceIndependen
     EXPECT_TRUE(session.strategy_failure(owner).empty());
 }
 
+TEST_F(StrategyTarget, LaterQuotesCannotReopenAnExhaustedWeightMarginBudget)
+{
+    auto definition = manifest(4);
+    definition["policy"]["contracts"].push_back(contract("rb2611", "rb", "2026-11"));
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, definition);
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    act(session, submit("seed", "2", "3501"));
+    ASSERT_EQ(held(wait_for(session, filled(1))), "2");
+    auto short_seed = submit("seed.other", "1", "3499", "rb2611");
+    short_seed["side"] = "sell";
+    act(session, short_seed);
+    ASSERT_EQ(held(wait_for(session, filled(2))), "3");
+    const auto owner = session
+                           .register_strategy(
+                               "margin",
+                               {{"SHFE", "rb2610"}, {"SHFE", "rb2611"}},
+                               asterion::trading::StrategyWeightBudget{
+                                   Decimal::parse("1"),
+                                   Decimal::parse("1"),
+                                   Decimal::parse("0.024"),
+                                   Decimal::parse("0.2")
+                               })
+                           .get();
+    exchange.call<void (*)(double)>("asterion_fake_trader_balance", 350000.0);
+    auto decision = lots(0);
+    decision.mutable_targets(0)->mutable_weight()->set_text("0.02");
+    auto* second = decision.add_targets();
+    second->mutable_instrument()->set_exchange("SHFE");
+    second->mutable_instrument()->set_symbol("rb2611");
+    second->mutable_weight()->set_text("0.4");
+    session.accept_target(owner, decision, {quote()});
+    const auto basis = progress(session, owner, [](const Json& state) {
+        return state.at("costs").size() == 2
+            && std::ranges::all_of(
+                state.at("costs"),
+                [](const auto& cost) {
+                    return cost.at("state") == "ready";
+                })
+            && decimal(state.at("funds").at("balance")) == "350000";
+    });
+    ASSERT_EQ(basis.at("costs").size(), 2U);
+    // The drift floor retains two rb2610 lots, consuming the entire 8,400 margin cap.
+    session.advance_target(owner, {quote()}).get();
+    auto other = quote();
+    other.instrument.symbol = "rb2611";
+    for (int i = 0; i < 30; ++i) {
+        clock->advance(250ms);
+        other.source_ms = other.received_ms = utc_now_ms(*clock);
+        session.advance_target(owner, {other}).get();
+        std::this_thread::sleep_for(5ms);
+    }
+    EXPECT_EQ(session.snapshot().at("orders").size(), 3U);
+    EXPECT_EQ(held(session.snapshot()), "2");
+    EXPECT_TRUE(session.strategy_failure(owner).empty());
+}
+
 TEST_F(Live, MarginCapReservesWorkingAndUnconfirmedOpenOrders)
 {
     auto definition = manifest(4);
