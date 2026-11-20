@@ -1905,7 +1905,17 @@ TEST_F(Live, AuthorizationOutlivesAReconnectAndEndsOnlyWhenRevoked)
     EXPECT_NO_THROW(act(session, submit("same.authorization", "1")));
     act(session, Json{{"request_id", "revoke"}, {"action", "live_revoke"}});
     EXPECT_FALSE(session.snapshot().contains("authorization"));
-    EXPECT_THROW(act(session, submit("revoked", "1")), std::invalid_argument);
+    const auto effects = exchange.call<int (*)()>("asterion_fake_catalog_side_effects");
+    try {
+        act(session, submit("revoked", "1"));
+        FAIL() << "an order was accepted after authorization was revoked";
+    } catch (const std::invalid_argument& error) {
+        EXPECT_STREQ(error.what(), "authorize live trading for this account first");
+    } catch (const Error& error) {
+        // The preceding fill can invalidate admission before the authorization check runs.
+        EXPECT_EQ(error.code(), ErrorCode::conflict) << error.what();
+    }
+    EXPECT_EQ(exchange.call<int (*)()>("asterion_fake_catalog_side_effects"), effects);
 }
 
 TEST_F(Live, TradingDayRolloverRebuildsReportsAndRatesWithoutResending)
