@@ -3201,12 +3201,14 @@ TEST_F(
     StrategyTarget,
     PriceDeviationRejectKeepsInstanceAliveAndTenContractPortfolioCompletesWithinTenSeconds)
 {
+    // Measure the real batch duration without accelerating its deadline while polling.
+    test_clock.reset();
+    exchange.set_clock(nullptr);
     auto definition = manifest(2);
     definition["policy"]["risk"]["max_gross_quantity"] = "15";
     definition["policy"]["risk"]["max_contract_quantity"] = "2";
     definition["policy"]["contracts"].clear();
     std::vector<InstrumentId> selected;
-    std::vector<MarketQuote> quotes;
     for (int i = 1; i <= 10; ++i) {
         const auto month = (i < 10 ? std::string("0") : std::string{}) + std::to_string(i);
         const auto symbol = "rb26" + month;
@@ -3214,9 +3216,6 @@ TEST_F(
         definition["policy"]["contracts"].push_back(
             contract(symbol.c_str(), "rb", delivery.c_str()));
         selected.push_back({"SHFE", symbol});
-        auto q = quote();
-        q.instrument.symbol = symbol;
-        quotes.push_back(q);
     }
     LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, definition);
     ASSERT_EQ(ready(session).at("phase"), "ready");
@@ -3224,11 +3223,12 @@ TEST_F(
     auto owner = session.register_strategy("portfolio-10", selected).get();
 
     // First bar: opposite-side ask deviates beyond max_price_deviation (2%).
-    auto deviated = quotes;
-    deviated[0].ask = Decimal::parse("3600");
+    auto deviated = quote();
+    deviated.instrument = selected.front();
+    deviated.ask = Decimal::parse("3600");
     auto bad_decision = lots(1, 1);
     bad_decision.mutable_targets(0)->mutable_instrument()->set_symbol("rb2601");
-    session.accept_target(owner, bad_decision, deviated);
+    session.accept_target(owner, bad_decision, {deviated});
     EXPECT_NO_THROW(session.advance_target(owner).get());
     EXPECT_TRUE(session.strategy_failure(owner).empty());
     EXPECT_TRUE(session.snapshot().at("orders").empty());
@@ -3244,11 +3244,15 @@ TEST_F(
     ::strategy::Decision ten;
     ten.set_sequence(2);
     ten.set_ready(true);
+    std::vector<MarketQuote> quotes;
     for (const auto& id : selected) {
         auto* item = ten.add_targets();
         item->mutable_instrument()->set_exchange(id.venue);
         item->mutable_instrument()->set_symbol(id.symbol);
         item->set_lots(1);
+        auto current = quote();
+        current.instrument = id;
+        quotes.push_back(current);
     }
     // Earlier callbacks can invalidate the next leg while its intent is being written.
     exchange.call<void (*)(int)>("asterion_fake_trader_hold_positions", 1);
