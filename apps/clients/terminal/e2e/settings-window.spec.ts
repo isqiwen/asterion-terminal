@@ -56,7 +56,7 @@ test("settings service failures stay in the main window notification center", as
     });
   });
   await settings.getByRole("button", { name: "数据服务", exact: true }).click();
-  await expect(settings.getByText("中断", { exact: true })).toBeVisible();
+  await expect(settings.getByText("数据服务与 Terminal 的通信协议不一致")).toBeVisible();
   await expect(settings.locator(".status-bar, .notification-center")).toHaveCount(0);
   const latest = page.locator(".notification-latest");
   await expect(latest).toContainText("数据服务与 Terminal 的通信协议不一致");
