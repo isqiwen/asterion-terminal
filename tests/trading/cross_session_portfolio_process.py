@@ -276,6 +276,14 @@ def append_ticks(flow: Path, contracts, tday: str, vol: int):
             )
 
 
+def stream_opening_ticks(flow: Path, contracts, tday: str, vol: int):
+    # Bar delivery can wait ten seconds for contracts whose sessions are still closed.
+    end = time.monotonic() + 10.5
+    while time.monotonic() < end:
+        append_ticks(flow, contracts, tday, vol)
+        time.sleep(0.2)
+
+
 def roll_trader_day(trader_flow: Path, next_day: str, host):
     target = trader_flow / "next-day"
     tmp = trader_flow / "next-day.tmp"
@@ -330,8 +338,7 @@ def run_daily_portfolio(base_dir: Path):
 
         # Roll counter to 20260930; at 21:00 ONLY night contracts open!
         roll_trader_day(trader_flow, "20260930", host)
-        append_ticks(md_flow, NIGHT_CONTRACTS, "20260930", 100)
-        time.sleep(10.5)
+        stream_opening_ticks(md_flow, NIGHT_CONTRACTS, "20260930", 100)
         append_ticks(md_flow, NIGHT_CONTRACTS, "20260930", 150)
 
         expected_after_night = {
@@ -418,8 +425,7 @@ def run_minute_portfolio(base_dir: Path):
             time.sleep(0.2)
 
         # Minute M2 + 10.5s freshness grace: deliver M1 bar and execute night contracts!
-        append_ticks(md_flow, NIGHT_CONTRACTS, "20260928", 300)
-        time.sleep(10.5)
+        stream_opening_ticks(md_flow, NIGHT_CONTRACTS, "20260928", 300)
         append_ticks(md_flow, NIGHT_CONTRACTS, "20260928", 350)
 
         expected_after_night = {
