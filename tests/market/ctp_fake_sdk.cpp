@@ -82,10 +82,13 @@ public:
                     std::tm tm{};
                     gmtime_r(&epoch, &tm);
                     std::strftime(tick.ActionDay, sizeof(tick.ActionDay), "%Y%m%d", &tm);
-                    auto day = epoch + (next_day && n > 20 ? 86400 : 0);
-                    std::tm trading{};
-                    gmtime_r(&day, &trading);
-                    std::strftime(tick.TradingDay, sizeof(tick.TradingDay), "%Y%m%d", &trading);
+                    // A continuous session keeps its trading day across civil midnight.
+                    if (next_day) {
+                        auto day = epoch + (n > 20 ? 86400 : 0);
+                        std::tm trading{};
+                        gmtime_r(&day, &trading);
+                        std::strftime(tick.TradingDay, sizeof(tick.TradingDay), "%Y%m%d", &trading);
+                    }
                     std::strftime(tick.UpdateTime, sizeof(tick.UpdateTime), "%H:%M:%S", &tm);
                     if (!night.empty()) {
                         // DCE names the trading day in both dates; CZCE the civil day.
