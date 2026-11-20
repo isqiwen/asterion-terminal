@@ -21,3 +21,15 @@ build/electron-resources/python/bin/python3 -I -B tests/acceptance/research_minu
 
 - 分钟线覆盖选定品种至少一年及回放涉及的实际交割月，主力回放额外采集样本前一开市日的结算与持仓量。六所多年日线分别按实际开市日和合约存续期核对首末日期与中间缺口。
 - 回测记录保留数据版本、源码、参数、运行 ID 和实际首末估值日。首次读取和缓存复跑分别计时，核对两次运行的固定版本、成交、每日结算、分钟排除统计与指标。性能目标见[产品说明](../product.md#三个循环)。
+- 多品种分钟策略记录累计 K 线数、峰值内存、历史重放与换月耗时；多因子评价记录品种数、交易日数、因子数与完整评价耗时。
+
+## 历史容量夹具
+
+Linux 开发机用合成 K 线单独测量共享策略上下文，沿用 Trading 的地址空间限制；输出历史数组大小、峰值内存、回放、因子调用和换月耗时。用同一台机器复测，运行期间暂停构建与其他计算任务。
+
+```sh
+build/electron-resources/python/bin/python3 -I -B tests/lab/strategy_capacity.py --symbols 64 --bars 65536
+build/electron-resources/python/bin/python3 -I -B tests/lab/strategy_capacity.py --symbols 64 --bars 131073
+```
+
+`status` 为 `memory_exhausted` 时按 `phase` 和 `completed_bars` 定位容量边界；固定版本真实数据的长期验收按上一节执行。
