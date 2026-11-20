@@ -62,15 +62,17 @@ class Startup(unittest.TestCase):
                 patch.object(runtime.runtime_manifest, "DESTINATION", destination), \
                 patch.object(runtime.runtime_manifest, "main", side_effect=lambda:
                              (destination / "manifest.json").write_text("{}")) as manifest:
-            for version, commit in (("1.2.3", "abc123"), ("1.2.4", "def456")):
+            for version, commit, protocol in (("1.2.3", "abc123", "abc"), ("1.2.4", "def456", "def")):
                 (source / "repository.py").write_text(f"# {commit}\n")
-                (self.build / "product.json").write_text(json.dumps({"version": version, "commit": commit}))
+                (self.build / "product.json").write_text(json.dumps({
+                    "version": version, "commit": commit, "warehouse_protocol": protocol}))
                 runtime.ensure(self.build)
                 packaged = destination / "app/asterion_lab"
                 self.assertEqual((packaged / "repository.py").read_text(), f"# {commit}\n")
                 values = {}
                 exec((packaged / "version.py").read_text(), values)
                 self.assertEqual((values["VERSION"], values["COMMIT"]), (version, commit))
+                self.assertEqual(values["WAREHOUSE_PROTOCOL"], protocol)
             prepare.assert_not_called()
             manifest.assert_called_once_with()
 

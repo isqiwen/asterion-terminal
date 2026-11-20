@@ -75,7 +75,7 @@ bool czce_night_of_session(
     if (valid_trading_day(day) && next_weekday_trading_day(day) == session_day)
         return true;
     using namespace std::chrono;
-    const auto now = system_clock::time_point{nanoseconds{clock.utc_now()}} + hours(8);
+    const auto now = sys_time<nanoseconds>{nanoseconds{clock.utc_now()}} + hours(8);
     auto night = floor<days>(now);
     if (now - night < hours(20))
         night -= days(1);
