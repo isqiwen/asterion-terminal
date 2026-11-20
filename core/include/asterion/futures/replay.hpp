@@ -35,6 +35,7 @@ struct DominantSeries
 //   next bar (plus slippage against the order), splitting into legs of at most
 //   the order limit and closing an opposite position before opening within the
 //   bar's participation volume; any unfilled remainder is cancelled after the bar.
+//   Simultaneous contracts finish all reductions before any opening.
 // - A month of a series that is no longer dominant gives up what it holds at
 //   the open of each of its bars until it holds nothing. The dominant month
 //   takes over what its series wants at the open of its first bar that finds
@@ -50,13 +51,9 @@ public:
     public:
         virtual ~Observer() = default;
 
-        // Event `index` advanced with `intent`: orders from `previous_orders`
-        // on in the account are those it placed.
-        virtual void advanced(
-            std::size_t,
-            const std::optional<PaperExecution::Target>&,
-            const RiskDecision&,
-            std::size_t)
+        // Event `index` advanced with `intent` as part of its timestamp's batch.
+        virtual void
+        advanced(std::size_t, const std::optional<PaperExecution::Target>&, const RiskDecision&)
         {}
 
         // All bars at the timestamp of this final event have closed.

@@ -55,8 +55,7 @@ struct Seen final : Replay::Observer
     void advanced(
         std::size_t index,
         const std::optional<PaperExecution::Target>& intent,
-        const RiskDecision& decision,
-        std::size_t) override
+        const RiskDecision& decision) override
     {
         events.push_back(
             "advanced " + std::to_string(index) + (intent ? " " + intent->order_id : ""));
@@ -146,6 +145,83 @@ TEST(Replay, SimultaneousOpensTradeBeforeThePortfolioIsMarkedAtTheClose)
     EXPECT_EQ(
         seen.events,
         (std::vector<std::string>{"advanced 2 strategy.0", "advanced 3 strategy.1", "marked 3"}));
+}
+
+TEST(Replay, SimultaneousTargetsCloseBeforeOpeningRegardlessOfContractOrder)
+{
+    for (const bool reverse : {false, true}) {
+        for (const bool flip : {false, true}) {
+            for (const bool limited_funds : {false, true}) {
+                SCOPED_TRACE(
+                    ::testing::Message() << reverse << ", " << flip << ", " << limited_funds);
+                const auto first = contract(reverse ? "cu2605" : "rb2605", {100, 100, 100});
+                const auto second = contract(reverse ? "rb2605" : "cu2605", {100, 100, 100});
+                Replay replay(
+                    d(limited_funds ? "225" : "1000000"),
+                    {first, second},
+                    {settled(first), settled(second)},
+                    {},
+                    limits("2", limited_funds ? "10" : "2"));
+                Seen seen;
+                const std::size_t opening = reverse ? 1 : 0, closing = 1 - opening;
+                replay.next(seen);
+                replay.want(opening, d(flip ? "1" : "0"));
+                replay.want(closing, d(flip ? "1" : "2"));
+                replay.decide();
+                replay.settle(seen);
+                replay.next(seen);
+                replay.want(opening, d(flip ? "-2" : "2"));
+                replay.want(closing, d("0"));
+                replay.decide();
+                replay.settle(seen);
+                seen.decisions.clear();
+                replay.next(seen);
+                const auto& account = replay.execution().account();
+                ASSERT_EQ(account.positions().size(), 1U);
+                EXPECT_EQ(account.positions()[0].instrument.symbol, "rb2605");
+                EXPECT_EQ(account.positions()[0].side, flip ? Side::sell : Side::buy);
+                EXPECT_EQ(account.positions()[0].quantity, d("2"));
+                for (const auto& decision : seen.decisions)
+                    EXPECT_TRUE(decision.allowed());
+            }
+        }
+    }
+}
+
+TEST(Replay, SimultaneousOpeningsWaitForUnfilledReductions)
+{
+    const auto first = contract("rb2605", {100, 100, 100, 100});
+    auto second = contract("cu2605", {100, 100, 100, 100});
+    second.bars[2].volume = d("10");
+    Replay replay(
+        d("1000000"),
+        {first, second},
+        {settled(first), settled(second)},
+        {},
+        limits("1", "3"));
+    Seen seen;
+    replay.next(seen);
+    replay.want(0, d("1"));
+    replay.want(1, d("2"));
+    replay.decide();
+    replay.settle(seen);
+    replay.next(seen);
+    replay.want(0, d("-1"));
+    replay.want(1, d("0"));
+    replay.decide();
+    replay.settle(seen);
+    replay.next(seen);
+    const auto& account = replay.execution().account();
+    ASSERT_EQ(account.positions().size(), 1U);
+    EXPECT_EQ(account.positions()[0].instrument.symbol, "cu2605");
+    EXPECT_EQ(account.positions()[0].quantity, d("1"));
+    replay.decide();
+    replay.settle(seen);
+    replay.next(seen);
+    ASSERT_EQ(account.positions().size(), 1U);
+    EXPECT_EQ(account.positions()[0].instrument.symbol, "rb2605");
+    EXPECT_EQ(account.positions()[0].side, Side::sell);
+    EXPECT_EQ(account.positions()[0].quantity, d("1"));
 }
 
 TEST(Replay, WhatABarDoesNotFillExpiresAfterIt)
@@ -320,6 +396,26 @@ TEST(Replay, ADominantSeriesRollsAtTheOpenAndShowsEachMonthsOwnPrices)
     EXPECT_EQ(rolls, (std::vector<std::string>{"@120", "@136"}));
     for (const auto& lot : account.positions())
         EXPECT_EQ(lot.instrument.symbol, "rb2610");
+}
+
+TEST(Replay, ADominantSeriesRollsWhenTheNewMonthIsListedFirst)
+{
+    const auto old_month = contract("rb2605", {100, 100, 100});
+    const auto new_month = contract("rb2610", {100, 100, 100});
+    DominantSeries series{{{days[0], 1}, {days[2], 0}}};
+    Replay replay(
+        d("1000000"),
+        {new_month, old_month},
+        {settled(new_month), settled(old_month)},
+        {series},
+        limits("1", "1"));
+    Seen seen;
+    run(replay, seen, d("1"));
+    const auto& account = replay.execution().account();
+    ASSERT_EQ(account.fills().size(), 3U);
+    ASSERT_EQ(account.positions().size(), 1U);
+    EXPECT_EQ(account.positions()[0].instrument.symbol, "rb2610");
+    EXPECT_EQ(account.positions()[0].quantity, d("1"));
 }
 
 TEST(Replay, ADayIsReplayedAndSettledInOrder)

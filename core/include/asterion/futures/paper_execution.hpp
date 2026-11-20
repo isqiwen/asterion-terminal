@@ -1,7 +1,9 @@
 #pragma once
 #include <asterion/futures/account.hpp>
 #include <asterion/futures/order_limits.hpp>
+#include <functional>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -50,8 +52,8 @@ struct ContractBars
 };
 
 // Historical bar replay of a futures portfolio. The contracts' bars form one
-// event stream ordered by bar time (then contract order); each advance
-// consumes one bar of one contract. A working order can only fill on a later
+// event stream ordered by bar time (then contract order); advance consumes
+// one bar, advance_targets consumes its timestamp's batch. A working order can only fill on a later
 // bar of its own contract than the one it was submitted after: a buy fills
 // when the bar's low reaches its limit, at min(open, limit); a sell fills
 // when the high reaches it, at max(open, limit). Fills share at most
@@ -127,6 +129,12 @@ public:
     // Limit rejection submits no target but still observes this bar. Risk
     // dependency/invalid-context and account failures propagate and roll back.
     RiskDecision advance(const std::optional<Target>& target = {});
+
+    // One target per event at the next timestamp: reductions precede openings
+    // and share each bar's volume. can_open receives the event index after reductions.
+    std::vector<RiskDecision> advance_targets(
+        std::span<const std::optional<Target>> targets,
+        const std::function<bool(std::size_t)>& can_open);
 
     // An explicit single-contract percentage model may revalue margin in the
     // same transaction, after settling P&L. The next day still uses its schedule.
@@ -206,6 +214,14 @@ private:
     void enter_day(const std::string& trading_day);
     // Whether a new day can bring other costs or price increments.
     bool changes_terms() const;
+    Decimal held_quantity(const InstrumentId& instrument) const;
+    RiskDecision match(
+        const Event& event,
+        const std::optional<Target>& target,
+        Decimal& liquidity,
+        std::uint64_t& sequence,
+        std::size_t& leg,
+        bool reduce_only);
 
     FuturesAccount account_;
     OrderLimits risk_;

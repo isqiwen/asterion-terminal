@@ -140,8 +140,7 @@ struct Record final : Replay::Observer
     void advanced(
         std::size_t index,
         const std::optional<PaperExecution::Target>& intent,
-        const RiskDecision& decision,
-        std::size_t) override
+        const RiskDecision& decision) override
     {
         const auto& execution = replay->execution();
         const auto& bar = execution.bar(execution.event(index));

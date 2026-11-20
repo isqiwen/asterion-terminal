@@ -123,72 +123,62 @@ const std::vector<Replay::Bar>& Replay::next(Observer& observer, std::stop_token
     if (finished() || day_done())
         throw std::logic_error("the trading day has no more bars");
     bars_.clear();
-    const auto& account = execution_.account();
+    std::vector<std::optional<PaperExecution::Target>> intents;
     const auto timestamp = execution_.bar(execution_.event(index_)).timestamp_ns;
-    for (; !day_done() && execution_.bar(execution_.event(index_)).timestamp_ns == timestamp;
-        ++index_) {
+    for (auto index = index_; index < execution_.size() && schedule_.event(index).day == day_
+        && execution_.bar(execution_.event(index)).timestamp_ns == timestamp;
+        ++index) {
         if (stop.stop_requested())
             throw std::runtime_error("backtest cancelled");
-        const auto current = execution_.event(index_);
+        const auto current = execution_.event(index);
         const auto& bar = execution_.bar(current);
-        const auto& instrument = execution_.contract(current.contract).terms.instrument;
-        // Orders placed after a contract's bar N execute at the open of its bar N+1;
-        // unfilled remainders expire before its strategy decides again.
-        auto& intent = pending_[current.contract];
+        auto intent = pending_[current.contract];
         if (intent)
             intent->limit_price = bar.open;
         const auto member = series_[current.contract];
         const auto* roll = member == none ? nullptr : &rolls_[member].on(bar.trading_day);
         const bool leading = !roll || roll->contract == current.contract;
-        bool others = false;
         if (roll && target(current.contract)) {
-            // A roll moves what the series holds and decides nothing, so it waits
-            // for no price: both months trade at the open of a bar, which every
-            // bar reaches. On daily bars both happen on the roll day where both
-            // months trade on it, the left month first.
-            others = std::ranges::any_of(rolls_[member].rolls, [&](const auto& other) {
-                return other.contract != current.contract && holds(other.contract);
-            });
             if (!leading) {
                 if (holds(current.contract))
                     intent = PaperExecution::Target{
-                        "roll." + std::to_string(index_),
+                        "roll." + std::to_string(index),
                         Decimal{},
                         bar.open
                     };
                 else
                     intent.reset();
-            } else if (others) {
-                if (intent && intent->quantity != Decimal{})
-                    intent.reset();
             } else if (!took_over_[current.contract]) {
-                if (const auto quantity = target(current.contract)) {
-                    if (held(current.contract) == *quantity)
-                        took_over_[current.contract] = true;
-                    else
-                        intent = PaperExecution::Target{
-                            "roll." + std::to_string(index_),
-                            *quantity,
-                            bar.open
-                        };
-                }
+                intent = PaperExecution::Target{
+                    "roll." + std::to_string(index),
+                    *target(current.contract),
+                    bar.open
+                };
             }
         }
-        const auto previous_orders = account.orders().size();
-        const auto decision = execution_.advance(intent);
-        if (roll && leading && !others && !took_over_[current.contract])
-            if (const auto quantity = target(current.contract);
-                quantity && held(current.contract) == *quantity)
-                took_over_[current.contract] = true;
-        observer.advanced(index_, intent, decision, previous_orders);
-        intent.reset();
-        // Daily orders expire after their original bar. A target remains
-        // evidence of intent; expiration does not turn it into a GTC order.
-        execution_.cancel_open_orders(instrument.id);
-        bars_.push_back({index_, current.contract, unit_[current.contract], leading, bar});
-        last_[current.contract] = bars_.back();
-        settled_at_ = bar.timestamp_ns;
+        intents.push_back(intent);
+        bars_.push_back({index, current.contract, unit_[current.contract], leading, bar});
     }
+    const auto can_open = [&](std::size_t index) {
+        const auto contract = execution_.event(index).contract;
+        const auto member = series_[contract];
+        return member == none || std::ranges::none_of(rolls_[member].rolls, [&](const auto& other) {
+            return other.contract != contract && holds(other.contract);
+        });
+    };
+    const auto decisions = execution_.advance_targets(intents, can_open);
+    for (std::size_t i = 0; i < bars_.size(); ++i) {
+        const auto& bar = bars_[i];
+        if (series_[bar.contract] != none && bar.leading && can_open(bar.index))
+            if (const auto quantity = target(bar.contract);
+                quantity && held(bar.contract) == *quantity)
+                took_over_[bar.contract] = true;
+        observer.advanced(bar.index, intents[i], decisions[i]);
+        pending_[bar.contract].reset();
+        last_[bar.contract] = bar;
+    }
+    index_ += bars_.size();
+    settled_at_ = timestamp;
     observer.marked(bars_.back().index);
     return bars_;
 }
