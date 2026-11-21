@@ -46,6 +46,7 @@ export function StrategyInstance({
   available,
   busy,
   published = "",
+  deployFirst = false,
   start,
 }: {
   connection?: string;
@@ -57,6 +58,8 @@ export function StrategyInstance({
   busy: boolean;
   // The `name/version` just published here, which the form then starts from.
   published?: string;
+  // Deploying comes first, so starting is not the highlighted step.
+  deployFirst?: boolean;
   start: (configuration: Instance) => Promise<boolean>;
 }) {
   const { error, attempt } = useActionError();
@@ -260,7 +263,7 @@ export function StrategyInstance({
           </button>
           <button
             type="button"
-            className="primary"
+            className={deployFirst ? undefined : "primary"}
             disabled={!usable || busy || review.policy !== live?.policyRevision}
             onClick={() =>
               void start(review.configuration).then(started => {
@@ -597,7 +600,11 @@ export function StrategyInstance({
                 </label>
               </div>
             )}
-            <button type="submit" className="primary" disabled={!usable || busy || preparing}>
+            <button
+              type="submit"
+              className={deployFirst ? undefined : "primary"}
+              disabled={!usable || busy || preparing}
+            >
               {t(preparing ? "正在准备预热数据…" : "核对启动配置")}
             </button>
             <ActionError error={error} namespace="asterion.terminal.trading" />

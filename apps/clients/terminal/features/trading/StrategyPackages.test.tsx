@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { beforeEach, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Period } from "../../src/generated/asterion/common_pb";
@@ -46,6 +47,7 @@ function Packages(props: Props) {
 }
 function AccountPackages({ account, ...rest }: Props) {
   const host = useStrategyHost(account);
+  const [deployFirst, setDeployFirst] = useState(false);
   return (
     <>
       {host.state && (
@@ -63,6 +65,7 @@ function AccountPackages({ account, ...rest }: Props) {
       {host.state && (
         <StrategyInstance
           repository={rest.listParameters ? rest.repository : undefined}
+          deployFirst={deployFirst}
           state={host.state}
           account={rest.record}
           available={host.fresh && !!rest.connected}
@@ -70,7 +73,12 @@ function AccountPackages({ account, ...rest }: Props) {
           start={configuration => host.mutate({ case: "startStrategy", value: configuration })}
         />
       )}
-      <StrategyPackages host={host} repository={rest.repository} initialRun={rest.initialRun} />
+      <StrategyPackages
+        host={host}
+        repository={rest.repository}
+        initialRun={rest.initialRun}
+        onDeployFirst={setDeployFirst}
+      />
     </>
   );
 }
@@ -246,6 +254,37 @@ test("deploying a backtest installs its frozen package and loads its settings be
     weightLimits: frozen.manifest!.research!.weightLimits,
     instruments: [rb],
   });
+});
+
+test("only the next step is highlighted: deploying a waiting backtest, then starting", async () => {
+  const frozen = create(PackageSchema, {
+    ...code,
+    manifest: {
+      ...code.manifest!,
+      version: "two",
+      research: create(ResearchRunSchema, { runId: "chosen", period: Period.MINUTES_5 }),
+    },
+  });
+  labAnswers(async () => frozen);
+  vi.mocked(strategyRequest).mockImplementation(async (_account, operation) =>
+    create(HostStrategiesSchema, {
+      packages:
+        operation.case === "publishStrategy"
+          ? [code.manifest!, frozen.manifest!]
+          : [code.manifest!],
+    }),
+  );
+  render(
+    <Packages account="account-a" repository="/s" initialRun="chosen" record={record} connected />,
+  );
+  const start = await screen.findByRole("button", { name: "核对启动配置" });
+  const deploy = screen.getByRole("button", { name: "部署" }) as HTMLButtonElement;
+  await waitFor(() => expect(deploy.disabled).toBe(false));
+  expect(deploy.className).toBe("primary");
+  expect(start.className).toBe("");
+  await click("部署");
+  expect(screen.getByRole("button", { name: "已部署" }).className).toBe("");
+  expect(screen.getByRole("button", { name: "核对启动配置" }).className).toBe("primary");
 });
 
 test("review sends explicit configuration and exact values only on confirmation, without authorizing", async () => {

@@ -14,6 +14,7 @@ export function StrategyPackages({
   initialRun,
   openRun,
   published,
+  onDeployFirst,
 }: {
   host: StrategyHost;
   repository: string;
@@ -21,6 +22,8 @@ export function StrategyPackages({
   initialRun?: string;
   openRun?: (id: string) => void;
   published?: (key: string) => void;
+  // Told whether deploying, rather than starting, is the next step.
+  onDeployFirst?: (first: boolean) => void;
 }) {
   const { state, busy, stopping, reading, fresh, readError, error, refresh, mutate, perform } =
     host;
@@ -50,6 +53,8 @@ export function StrategyPackages({
   const unavailable = busy || stopping || !fresh;
   // A backtest's source is frozen, so deploying it again would only add a copy.
   const deployed = !!run && !!state?.packages.some(item => item.research?.runId === run);
+  const deployFirst = run ? !deployed : !state?.packages.length;
+  useEffect(() => onDeployFirst?.(deployFirst), [deployFirst, onDeployFirst]);
   useEffect(() => {
     if (!repository || run) return;
     let current = true;
@@ -85,7 +90,7 @@ export function StrategyPackages({
           </p>
           <div className="strategy-package-actions">
             <button
-              className={deployed ? undefined : "primary"}
+              className={deployFirst ? "primary" : undefined}
               disabled={unavailable || deployed}
               onClick={() => void deploy({ runId: run })}
             >
@@ -121,7 +126,7 @@ export function StrategyPackages({
             </select>
           </label>
           <button
-            className="primary"
+            className={deployFirst ? "primary" : undefined}
             disabled={unavailable || !strategy}
             onClick={() => void deploy({ repository, strategy })}
           >

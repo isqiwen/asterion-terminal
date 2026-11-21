@@ -90,6 +90,7 @@ function AccountStrategies({
 }) {
   const host = useStrategyHost(account.id);
   const [published, setPublished] = useState("");
+  const [deployFirst, setDeployFirst] = useState(false);
   const { views, send } = useTradingAccounts();
   const view = views[account.id];
   const { error: emergencyError, attempt } = useActionError();
@@ -119,6 +120,7 @@ function AccountStrategies({
           initialRun={initialRun}
           openRun={openRun}
           published={setPublished}
+          onDeployFirst={setDeployFirst}
         />
       </div>
       <div className="ctp-account-panel">
@@ -150,6 +152,7 @@ function AccountStrategies({
             available={host.fresh && !!view && !view.failed}
             busy={host.busy || host.stopping}
             published={published}
+            deployFirst={deployFirst}
             start={configuration => host.mutate({ case: "startStrategy", value: configuration })}
           />
         )}
