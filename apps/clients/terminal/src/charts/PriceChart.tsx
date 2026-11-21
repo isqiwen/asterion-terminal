@@ -10,6 +10,7 @@ import {
   LineStyle,
   createChart,
   createSeriesMarkers,
+  type AutoscaleInfo,
   type IChartApi,
   type IPanePrimitive,
   type IPanePrimitivePaneView,
@@ -115,6 +116,21 @@ export function defaultVisibleCount(
   if (kind !== "candles" || count <= 0) return count;
   const plotWidth = containerWidth > 0 ? Math.max(168, containerWidth - 56) : 420;
   return Math.min(count, Math.max(24, Math.floor(plotWidth / 7)));
+}
+
+// A quiet market spans at least 20 price ticks, so one tick is not the whole height.
+export function minimumTickSpan(
+  info: AutoscaleInfo | null,
+  tick: number | null,
+): AutoscaleInfo | null {
+  if (!info?.priceRange || !tick) return info;
+  const { minValue, maxValue } = info.priceRange;
+  const missing = tick * 20 - (maxValue - minValue);
+  if (missing <= 0) return info;
+  return {
+    ...info,
+    priceRange: { minValue: minValue - missing / 2, maxValue: maxValue + missing / 2 },
+  };
 }
 
 // Whitespace preserves an observation on the time axis, but Lightweight Charts
@@ -528,19 +544,8 @@ export function PriceChart(props: Props) {
     const priceOptions = {
       priceScaleId,
       priceFormat: { type: "custom" as const, minMove: tick ?? 0.00000001, formatter: format },
-      autoscaleInfoProvider: (
-        original: () => { priceRange: { minValue: number; maxValue: number } } | null,
-      ) => {
-        const info = reference === null ? original() : shared();
-        // A quiet market spans at least 20 price ticks, so one tick is not the whole height.
-        const missing =
-          info && tick ? tick * 20 - (info.priceRange.maxValue - info.priceRange.minValue) : 0;
-        if (!info || missing <= 0) return info;
-        const { minValue, maxValue } = info.priceRange;
-        return {
-          priceRange: { minValue: minValue - missing / 2, maxValue: maxValue + missing / 2 },
-        };
-      },
+      autoscaleInfoProvider: (original: () => AutoscaleInfo | null) =>
+        minimumTickSpan(reference === null ? original() : shared(), tick),
     };
     const timeline = layer("timeline", "line", 0);
     timeline.setData(points.map((_, i) => ({ time: time(i) })));
