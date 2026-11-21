@@ -333,7 +333,7 @@ export function SourceEditor({
             theme,
             syntax,
             EditorState.readOnly.of(source.readOnly),
-            EditorView.contentAttributes.of({ "aria-label": path }),
+            EditorView.contentAttributes.of({ "aria-label": path, tabindex: "0" }),
             EditorView.domEventHandlers({
               mousedown(event) {
                 if (!source.readOnly && !(event.metaKey || event.ctrlKey)) return false;

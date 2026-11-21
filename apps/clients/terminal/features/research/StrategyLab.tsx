@@ -332,11 +332,7 @@ export function StrategyLab(context: TerminalContext) {
   const sameName = (item: ModuleItem) => items.filter(other => other.name === item.name).length > 1;
 
   return (
-    <section
-      className="lab-research"
-      data-layout="page"
-      data-folded={(!library && folded) || undefined}
-    >
+    <section className="lab-research" data-folded={(!library && folded) || undefined}>
       {!library && (
         <header className="lab-report-header lab-page-head">
           <button type="button" className="lab-link" onClick={() => setView("library")}>

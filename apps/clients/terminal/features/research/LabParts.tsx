@@ -1,5 +1,4 @@
 import {
-  Fragment,
   lazy,
   Suspense,
   useCallback,
@@ -426,13 +425,11 @@ export type ModuleItem = {
   id: string;
   name: string;
   module: string;
-  // Its heading in a long list; its module unless set.
+  // Its type, which the strategy library filters by.
   group?: string;
   description: string;
   // Bar fields a factor takes, shown in the library and searchable.
   inputs?: readonly string[];
-  // Its latest result, on the right of its row.
-  figure?: { text: string; className?: string; title: string };
 };
 
 // A library table's sortable figures: missing values last, each sort announced.
@@ -481,7 +478,7 @@ export function useLibrarySort<Key extends string>(initial: Key) {
   return { heading, sorted, status };
 }
 
-// Filter and sort strategies or factors consistently across sidebar and overview tables.
+// Strategies or factors by name, narrowed by a search.
 export function filterModuleItems(items: readonly ModuleItem[], search: string) {
   const query = search.trim().toLowerCase();
   return items
@@ -493,115 +490,6 @@ export function filterModuleItems(items: readonly ModuleItem[], search: string) 
           .includes(query),
     )
     .sort((a, b) => a.name.localeCompare(b.name) || a.module.localeCompare(b.module));
-}
-
-// From this many rows a list folds into groups.
-const GROUPED_FROM = 16;
-
-// Strategies or factors, one line each, searchable.
-export function ModuleList({
-  folder,
-  items,
-  chosen,
-  contextTarget,
-  choose,
-  onMenu,
-}: {
-  folder: Folder;
-  items: readonly ModuleItem[];
-  chosen: string;
-  contextTarget?: string;
-  choose: (item: ModuleItem) => void;
-  onMenu?: (path: string, x: number, y: number, symbol?: string, target?: string) => void;
-}) {
-  const [search, setSearch] = useWorkspaceDraft(`modules-search:${folder}`, "");
-  const counts = new Map<string, number>();
-  for (const item of items) counts.set(item.name, (counts.get(item.name) ?? 0) + 1);
-  const shown = filterModuleItems(items, search);
-  const [opened, setOpened] = useWorkspaceDraft<Record<string, boolean>>(
-    `modules-open:${folder}`,
-    {},
-  );
-  const groupOf = (item: ModuleItem) => item.group ?? item.module;
-  const chosenItem = items.find(item => item.id === chosen);
-  const chosenGroup = chosenItem && groupOf(chosenItem);
-  useEffect(() => {
-    if (chosenGroup)
-      setOpened(previous =>
-        previous[chosenGroup] === false ? { ...previous, [chosenGroup]: true } : previous,
-      );
-  }, [chosen, chosenGroup, setOpened]);
-  const row = (item: ModuleItem) => (
-    <button
-      key={item.id}
-      type="button"
-      className="lab-module-item"
-      aria-pressed={item.id === chosen}
-      data-context={contextTarget === item.id || undefined}
-      title={item.description}
-      onClick={() => choose(item)}
-      onContextMenu={
-        onMenu
-          ? event => {
-              event.preventDefault();
-              onMenu(
-                `${folder}/${item.module}.py`,
-                event.clientX,
-                event.clientY,
-                item.name,
-                item.id,
-              );
-            }
-          : undefined
-      }
-    >
-      <span>{item.name}</span>
-      {(counts.get(item.name) ?? 0) > 1 && (
-        <small className="lab-module-origin">{item.module}</small>
-      )}
-      {item.figure && (
-        <small className={item.figure.className} title={item.figure.title}>
-          {item.figure.text}
-        </small>
-      )}
-    </button>
-  );
-  const groups = [...new Set(shown.map(groupOf))].sort();
-  return (
-    <div className="lab-module-list">
-      <input
-        type="search"
-        aria-label={t(folder === "strategies" ? "搜索策略" : "搜索因子")}
-        placeholder={t(folder === "strategies" ? "搜索策略" : "搜索因子")}
-        spellCheck={false}
-        autoCorrect="off"
-        autoCapitalize="none"
-        value={search}
-        onChange={event => setSearch(event.target.value)}
-      />
-      {!shown.length && items.length > 0 && <p className="subtle">{t("没有匹配的模块")}</p>}
-      {search.trim() || items.length < GROUPED_FROM
-        ? shown.map(row)
-        : groups.map(group => {
-            const members = shown.filter(item => groupOf(item) === group);
-            const open = opened[group] ?? group === chosenGroup;
-            return (
-              <Fragment key={group}>
-                <button
-                  type="button"
-                  className="lab-module-group"
-                  aria-expanded={open}
-                  onClick={() => setOpened(previous => ({ ...previous, [group]: !open }))}
-                >
-                  <span>{group}</span>
-                  <small>{members.length}</small>
-                </button>
-                {open && <div className="lab-module-members">{members.map(row)}</div>}
-              </Fragment>
-            );
-          })}
-    </div>
-  );
 }
 
 // Context menu on a module row: duplicate any module, or delete a writable one.

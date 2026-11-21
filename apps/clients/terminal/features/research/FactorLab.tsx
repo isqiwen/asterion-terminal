@@ -1,4 +1,3 @@
-import { DateInput } from "../../src/ui/DateInput";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { lab } from "../../src/bridge/lab";
 import type { FactorResult } from "../../src/generated/asterion/lab_pb";
@@ -8,18 +7,22 @@ import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { type MessageValues, translate, listSeparator } from "../../src/i18n";
+import { StatusBadge } from "../../src/ui/StatusBadge";
 import {
-  defaultFactorForm,
   defaultText,
   factorRequest,
+  factorScopeOf,
   factorTurnover,
   identity,
+  onFactorScope,
   recordName,
   recordTime,
+  savedFactorForm,
   symbolsOf,
   type FactorForm,
 } from "./research-lab";
 import { FactorResultView } from "./FactorResultView";
+import { FactorScopeBar, useFactorConditions } from "./FactorScope";
 import {
   ConfigFold,
   datePlaceholders,
@@ -27,11 +30,9 @@ import {
   filterModuleItems,
   LabCentre,
   ModuleErrors,
-  ModuleList,
   type ModuleItem,
   NewModule,
   Section,
-  SymbolField,
   useConfigFold,
   useLibrarySort,
   useModuleMenu,
@@ -51,15 +52,25 @@ const resultName = (item: FactorResult) => {
 };
 const isCompositeResult = (item: FactorResult) =>
   item.factorNames.length >= 2 || (item.evaluation?.extraFactors.length ?? 0) > 0;
+const compositeName = (item: FactorResult) =>
+  item.factorNames.length
+    ? item.factorNames.map(name => name.split(".")[1] ?? name).join(" + ")
+    : recordName(item.id);
 
-// The factor view: the factor modules, their code, an evaluation's settings and
-// the chosen factor's kept evaluations, whose reports open in place of the code.
+// The factor view: every factor ranked on one set of evaluation settings, and
+// one factor's evaluation and code with its parameters beside them.
 export function FactorLab(context: TerminalContext) {
   const repository = context.snapshot?.research_directory ?? "";
   const { modules, read, forget } = useModules(repository);
   const [chosen, setChosen] = useWorkspaceDraft(`factor:${repository}`, "");
   const [report, setReport] = useWorkspaceDraft("factor-report", "");
-  const [form, setForm] = useWorkspaceDraft<FactorForm>("factor-form", defaultFactorForm);
+  const [form, setForm] = useWorkspaceDraft<FactorForm>("factor-form", savedFactorForm);
+  const conditions = useFactorConditions(setForm);
+  const scopeText = JSON.stringify(factorScopeOf(form));
+  const shownScope = useRef(scopeText);
+  const [view, setView] = useWorkspaceDraft<"library" | "detail">("factor-view", "library");
+  const [tab, setTab] = useWorkspaceDraft<"result" | "code">("factor-tab", "code");
+  const [search, setSearch] = useWorkspaceDraft("modules-search:factors", "");
   const [busy, setBusy] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
   const { error, attempt } = useActionError();
@@ -67,50 +78,73 @@ export function FactorLab(context: TerminalContext) {
   const [saved, setSaved] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
 
+  const library = view === "library";
+  // An evaluation takes a while: its report opens only if the page is still where it began.
+  const openPage = useRef("");
+  useEffect(() => {
+    openPage.current = library ? "" : chosen;
+  });
   const factor = modules?.factors.find(item => item.id === chosen);
   const users = (modules?.strategies ?? []).filter(item =>
     item.factorModules.includes(chosen.split(".")[0]),
   );
-  const [library, setLibrary] = useWorkspaceDraft("factor-library", false);
-  const [search] = useWorkspaceDraft("modules-search:factors", "");
-  // Kept evaluations, newest first: each factor's latest beside it in the list
-  // and in the library, and the chosen factor's under its settings.
+  // Kept evaluations, newest first.
   const [kept, setKept] = useState<FactorResult[]>([]);
   const readKept = useCallback(
     async () => setKept((await lab({ case: "listFactorResults", value: {} })).results),
     [],
   );
   useEffect(() => void readKept().catch(notify), [readKept]);
-  const latest = (id: string) =>
-    kept.find(item => item.evaluation?.factor === id && !isCompositeResult(item));
+  const catalog = useStoredCatalog(context, false, true);
+  const enteredSymbols = symbolsOf(form.symbols);
+  const [scopeBegin, scopeEnd] = datePlaceholders(catalog, enteredSymbols, false);
+  const inScope = enteredSymbols.length
+    ? (result: FactorResult) => onFactorScope(form, result, scopeBegin, scopeEnd)
+    : undefined;
+  const own = (id: string) =>
+    kept.filter(item => item.evaluation?.factor === id && !isCompositeResult(item));
+  // The evaluation a factor ranks by: its latest on the current settings, or else its latest.
+  const latest = (id: string) => {
+    const results = own(id);
+    return results.find(item => !inScope || inScope(item)) ?? results[0];
+  };
   const composites = kept.filter(isCompositeResult);
   const shownResult = kept.find(item => item.id === report);
   const evaluations = kept.filter(item => item.evaluation?.factor === chosen);
   const items: ModuleItem[] = (modules?.factors ?? []).map(item => {
     const [module, name] = item.id.split(".");
-    const ic = latest(item.id)?.horizons[0]?.mean;
     return {
       id: item.id,
       name,
       module,
       description: item.description.replace(/`/g, ""),
       inputs: item.inputs,
-      figure:
-        ic === undefined
-          ? undefined
-          : { text: metric(ic, false), className: signed(ic), title: t("最近一次 IC 均值") },
     };
   });
+  const change = (patch: Partial<FactorForm>) => setForm(previous => ({ ...previous, ...patch }));
   const choose = (id: string) => {
     const entry = modules!.factors.find(item => item.id === id)!;
+    const result = latest(id);
     setChosen(id);
-    setReport("");
+    setReport(result?.id ?? "");
+    setTab(result ? "result" : "code");
+    setView("detail");
     source.open(`factors/${id.split(".")[0]}.py`);
     if (id !== chosen) {
       change({ params: Object.fromEntries(entry.parameters.map(p => [p.name, defaultText(p)])) });
     }
   };
-  const change = (patch: Partial<FactorForm>) => setForm(previous => ({ ...previous, ...patch }));
+  const openCode = (path: string, id = "") => {
+    setChosen(id);
+    setReport("");
+    setTab("code");
+    setView("detail");
+    source.open(path);
+  };
+  const openLibrary = () => {
+    setReport("");
+    setView("library");
+  };
   const evaluate = async () => {
     if (!factor) return;
     setBusy(true);
@@ -124,7 +158,10 @@ export function FactorLab(context: TerminalContext) {
         case: "evaluateFactor",
         value: { ...factorRequest(form, repository, factor), id },
       });
-      setReport(id);
+      if (openPage.current === factor.id) {
+        setReport(id);
+        setTab("result");
+      }
       await readKept();
     });
     setBusy(false);
@@ -177,7 +214,7 @@ export function FactorLab(context: TerminalContext) {
       if (written.length) await read();
       const id = identity(primary.id, "mix");
       await lab({ case: "evaluateFactor", value: { ...request, id } });
-      setReport(id);
+      if (!openPage.current) setReport(id);
       await readKept();
     });
     setBusy(false);
@@ -188,17 +225,6 @@ export function FactorLab(context: TerminalContext) {
       setReport("");
       await readKept();
     });
-  const field = (label: string, key: "begin" | "end" | "horizons" | "groups", props = {}) => (
-    <label>
-      <span>{t(label)}</span>
-      <input
-        {...props}
-        value={form[key]}
-        onChange={event => change({ [key]: event.target.value })}
-      />
-    </label>
-  );
-
   useEffect(() => {
     if (!chosen || !modules || modules.factors.some(item => item.id === chosen)) return;
     const [stem] = chosen.split(".");
@@ -206,97 +232,30 @@ export function FactorLab(context: TerminalContext) {
     if (renamed) setChosen(renamed.id);
   }, [chosen, modules, setChosen]);
 
+  // The open factor's evaluation follows the settings in use.
   useEffect(() => {
-    if (chosen || source.path || !modules?.factors.length) return;
-    const first = [...modules.factors].sort((a, b) => {
-      const [am = "", an = ""] = a.id.split(".");
-      const [bm = "", bn = ""] = b.id.split(".");
-      return an.localeCompare(bn) || am.localeCompare(bm);
-    })[0]!;
-    setChosen(first.id);
-    source.open(`factors/${first.id.split(".")[0]}.py`);
-    setForm(previous => ({
-      ...previous,
-      params: Object.fromEntries(
-        first.parameters.map(p => [p.name, previous.params[p.name] ?? defaultText(p)]),
-      ),
-    }));
-  }, [chosen, source, modules, setChosen, setForm]);
+    if (shownScope.current === scopeText) return;
+    shownScope.current = scopeText;
+    if (library || !chosen) return;
+    setReport(own(chosen).find(item => inScope?.(item))?.id ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeText]);
 
   const [folded, setFolded] = useConfigFold();
-  const catalog = useStoredCatalog(context, false, true);
-  const [beginPlaceholder, endPlaceholder] = datePlaceholders(
-    catalog,
-    symbolsOf(form.symbols),
-    false,
-  );
   const menu = useModuleMenu({
     repository,
     source,
     deleted: path => {
       forget(path);
       const stem = path.replace(/^factors\//, "").replace(/\.py$/, "");
-      if (chosen.startsWith(`${stem}.`)) {
-        setChosen("");
-        setLibrary(false);
-      }
+      if (chosen.startsWith(`${stem}.`)) setChosen("");
+      openLibrary();
       setSelected(previous => previous.filter(id => !id.startsWith(`${stem}.`)));
       void read();
     },
   });
-  const shown = filterModuleItems(items, search);
-  const sharedSettings = (
-    <Section title={t("品种与区间")} open>
-      <SymbolField
-        context={context}
-        value={form.symbols}
-        allowExchanges
-        catalog={catalog}
-        onChange={symbols => change({ symbols })}
-      />
-      <label>
-        <span>{t("开始日")}</span>
-        <DateInput
-          value={form.begin}
-          placeholder={beginPlaceholder}
-          onChange={begin => change({ begin })}
-        />
-      </label>
-      <label>
-        <span>{t("结束日")}</span>
-        <DateInput
-          value={form.end}
-          placeholder={endPlaceholder}
-          onChange={end => change({ end })}
-        />
-      </label>
-    </Section>
-  );
-  const evaluationFields = (
-    <>
-      {field("持有期（K 线数）", "horizons")}
-      {field("分组数", "groups")}
-      <label>
-        <span>{t("截面处理")}</span>
-        <select
-          value={form.standardize ?? ""}
-          onChange={event =>
-            change({ standardize: event.target.value as FactorForm["standardize"] })
-          }
-        >
-          <option value="">{t("原始值")}</option>
-          <option value="zscore">Z-Score</option>
-          <option value="rank">{t("截面排名")}</option>
-        </select>
-      </label>
-      <label>
-        <span>{t("留出日")}</span>
-        <DateInput value={form.holdoutDay ?? ""} onChange={holdoutDay => change({ holdoutDay })} />
-      </label>
-    </>
-  );
-  const combinationField = (
-    <label className="wide">
+  const combinationField = (className?: string) => (
+    <label className={className}>
       <span>{t("合成方式")}</span>
       <select
         value={form.combination ?? "equal"}
@@ -307,69 +266,58 @@ export function FactorLab(context: TerminalContext) {
       </select>
     </label>
   );
+  const savedNote = saved.length > 0 && (
+    <p className="subtle">{t("已保存 {files}", { files: saved.join(listSeparator()) })}</p>
+  );
+  const sameName = (item: ModuleItem) => items.filter(other => other.name === item.name).length > 1;
+  const reportName = shownResult ? resultName(shownResult) : recordName(report);
+  const showsResult = !library && tab === "result" && Boolean(report);
   return (
-    <section className="lab-research" data-folded={folded || undefined}>
-      <aside className="lab-modules" aria-label={t("因子")}>
-        <h2>{t("因子")}</h2>
-        <button
-          type="button"
-          className="lab-module-item"
-          aria-pressed={library}
-          onClick={() => {
-            if (!library) setReport("");
-            setLibrary(!library);
-          }}
-        >
-          <span>{t("因子库")}</span>
-          {items.length > 0 && <small>{items.length}</small>}
-        </button>
-        <hr className="lab-divider" />
-        <ModuleList
-          folder="factors"
-          chosen={library ? "" : chosen}
-          contextTarget={menu.target}
-          items={items}
-          choose={item => {
-            choose(item.id);
-            setLibrary(false);
-          }}
-          onMenu={menu.open}
-        />
-        {modules && !modules.factors.length && <p className="subtle">{t("还没有因子")}</p>}
-        <NewModule
-          key={menu.copying?.id ?? "new"}
-          folder="factors"
-          repository={repository}
-          copying={menu.copying}
-          cancelCopy={menu.clearCopy}
-          created={(path, id) => {
-            setLibrary(false);
-            setReport("");
-            if (id) setChosen(id);
-            source.open(path);
-            void read();
-          }}
-        />
-        <ModuleErrors
-          folder="factors"
-          modules={modules}
-          contextTarget={menu.target}
-          open={path => {
-            setLibrary(false);
-            setReport("");
-            source.open(path);
-          }}
-          onMenu={menu.open}
-        />
-        {menu.overlay}
-      </aside>
-      {report ? (
+    <section className="lab-research" data-folded={(!library && folded) || undefined}>
+      {!library && (
+        <header className="lab-report-header lab-page-head">
+          <button type="button" className="lab-link" onClick={openLibrary}>
+            {t("← 因子库")}
+          </button>
+          {factor ? (
+            <select
+              className="lab-strategy-switch"
+              aria-label={t("切换因子")}
+              value={chosen}
+              onChange={event => choose(event.target.value)}
+            >
+              {items.map(item => (
+                <option key={item.id} value={item.id}>
+                  {sameName(item) ? `${item.name} · ${item.module}` : item.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <h2>{source.path}</h2>
+          )}
+          {showsResult && <h2>{shownResult ? recordTime(shownResult.id) : reportName}</h2>}
+          {showsResult && shownResult && inScope && !inScope(shownResult) && (
+            <StatusBadge tone="neutral">{t("条件不同")}</StatusBadge>
+          )}
+          <span className="lab-spacer" />
+          {showsResult && <DeleteRecord name={report} remove={() => remove(report)} />}
+        </header>
+      )}
+      <FactorScopeBar
+        context={context}
+        form={form}
+        begin={scopeBegin}
+        end={scopeEnd}
+        conditions={conditions}
+      />
+      {menu.overlay}
+      {library && report ? (
         <div className="lab-center lab-runs-view">
           <header className="lab-report-header">
             <button type="button" className="lab-link" onClick={() => setReport("")}>
-              {library ? t("← 因子库") : t("← 源码")}
+              {t("← 因子库")}
             </button>
-            <h2>{shownResult ? resultName(shownResult) : recordName(report)}</h2>
+            <h2>{reportName}</h2>
             <span className="lab-spacer" />
             <DeleteRecord name={report} remove={() => remove(report)} />
           </header>
@@ -377,68 +325,159 @@ export function FactorLab(context: TerminalContext) {
         </div>
       ) : library ? (
         <FactorLibrary
-          items={shown}
-          total={items.length}
+          items={items}
+          search={search}
+          setSearch={setSearch}
           chosen={chosen}
           selected={activeSelected}
           setSelected={setSelected}
           latest={latest}
+          onScope={inScope}
+          composites={composites}
           busy={busy || Boolean(context.busy)}
           batchProgress={batchProgress}
-          error={error}
           onBatchEvaluate={() => void evaluateBatch()}
           onCompositeEvaluate={() => void evaluateComposite()}
-          open={id => {
-            choose(id);
-            setLibrary(false);
-          }}
+          open={choose}
+          openComposite={setReport}
+          contextTarget={menu.target}
+          onMenu={menu.open}
+          combination={combinationField("lab-inline")}
+          newModule={
+            <NewModule
+              key={menu.copying?.id ?? "new"}
+              folder="factors"
+              repository={repository}
+              copying={menu.copying}
+              cancelCopy={menu.clearCopy}
+              created={(path, id) => {
+                openCode(path, id);
+                void read();
+              }}
+            />
+          }
+          notices={
+            <>
+              <ActionError error={error} namespace="asterion.terminal.research" />
+              {savedNote}
+              {modules && !modules.factors.length && <p className="subtle">{t("还没有因子")}</p>}
+              <ModuleErrors
+                folder="factors"
+                modules={modules}
+                contextTarget={menu.target}
+                open={openCode}
+                onMenu={menu.open}
+              />
+            </>
+          }
         />
       ) : (
-        <LabCentre
-          source={source}
-          repository={repository}
-          modules={modules}
-          focus={chosen}
-          changed={() => void read()}
-          onDelete={path => menu.remove(path)}
-        />
+        <div className="lab-detail">
+          {factor && (
+            <nav className="tabs" aria-label={t("因子")}>
+              {(
+                [
+                  ["result", "评价"],
+                  ["code", "代码"],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={tab === key}
+                  onClick={() => setTab(key)}
+                >
+                  {t(label)}
+                </button>
+              ))}
+            </nav>
+          )}
+          {tab === "result" ? (
+            report ? (
+              <div className="lab-center lab-runs-view">
+                <Report key={report} id={report} />
+              </div>
+            ) : (
+              <p className="lab-placeholder">{t("还没有评价")}</p>
+            )
+          ) : (
+            <LabCentre
+              source={source}
+              repository={repository}
+              modules={modules}
+              focus={chosen}
+              changed={() => void read()}
+              onDelete={path => menu.remove(path)}
+            />
+          )}
+        </div>
       )}
-      {library ? (
-        <aside className="lab-config" aria-label={t("批量与合成")}>
+      {factor && !library && (
+        <aside className="lab-config" aria-label={t("评价")}>
           <h2>
-            {!folded && t("批量与合成")}
+            {!folded && t("参数")}
             <ConfigFold folded={folded} fold={setFolded} />
           </h2>
           {!folded && (
             <>
-              {sharedSettings}
-              <Section title={t("评价设置")} open>
-                {evaluationFields}
-                {combinationField}
-              </Section>
-              {composites.length > 0 && (
-                <Section title={t("多因子合成记录")} open>
-                  <ul className="lab-evaluations" aria-label={t("多因子合成记录")}>
-                    {composites.map(item => {
+              {factor.parameters.length > 0 && (
+                <div className="lab-form lab-parameters">
+                  {factor.parameters.map(parameter => (
+                    <label
+                      key={parameter.name}
+                      className={factor.parameters.length === 1 ? "wide" : undefined}
+                    >
+                      <span>{parameter.name}</span>
+                      <input
+                        className="lab-param"
+                        placeholder={defaultText(parameter)}
+                        spellCheck={false}
+                        autoCorrect="off"
+                        autoCapitalize="none"
+                        value={form.params[parameter.name] ?? ""}
+                        onChange={event =>
+                          change({
+                            params: { ...form.params, [parameter.name]: event.target.value },
+                          })
+                        }
+                      />
+                    </label>
+                  ))}
+                </div>
+              )}
+              {items.length > 1 && (
+                <ExtraFactors
+                  items={items.filter(item => item.id !== factor.id)}
+                  value={form.extraFactors ?? []}
+                  onChange={extraFactors => change({ extraFactors })}
+                >
+                  {combinationField("wide")}
+                </ExtraFactors>
+              )}
+              {evaluations.length > 0 && (
+                <Section title={t("评价记录")} open>
+                  <ul className="lab-evaluations" aria-label={t("评价记录")}>
+                    {evaluations.map(item => {
                       const ic = item.horizons[0]?.mean;
-                      const names = item.factorNames.length
-                        ? item.factorNames.map(name => name.split(".")[1] ?? name).join(" + ")
-                        : recordName(item.id);
+                      const label = isCompositeResult(item)
+                        ? compositeName(item)
+                        : Object.entries(item.evaluation?.params ?? {})
+                            .map(([name, value]) => `${name}=${String(value.value.value)}`)
+                            .join(" ") || recordName(item.id);
                       return (
                         <li key={item.id}>
                           <button
                             type="button"
                             aria-pressed={item.id === report}
-                            title={item.factorNames.join(" + ") || item.id}
-                            onClick={() => setReport(item.id)}
+                            title={item.id}
+                            onClick={() => {
+                              setReport(item.id);
+                              setTab("result");
+                            }}
                           >
-                            <span>{names}</span>
+                            <span>{label}</span>
                             <small>
-                              {t("{count} 个因子", {
-                                count:
-                                  item.factorNames.length ||
-                                  1 + (item.evaluation?.extraFactors.length ?? 0),
-                              })}
+                              {item.evaluation?.firstDay} – {item.evaluation?.lastDay}
                             </small>
                             <span className={`numeric ${signed(ic)}`}>{metric(ic, false)}</span>
                           </button>
@@ -448,131 +487,41 @@ export function FactorLab(context: TerminalContext) {
                   </ul>
                 </Section>
               )}
-              {saved.length > 0 && (
-                <p className="subtle">
-                  {t("已保存 {files}", { files: saved.join(listSeparator()) })}
-                </p>
+              {users.length > 0 && (
+                <Section title={t("导入本模块的策略（{count}）", { count: users.length })}>
+                  <ul className="lab-evaluations" aria-label={t("导入本模块的策略")}>
+                    {users.map(item => (
+                      <li key={item.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReport("");
+                            setTab("code");
+                            source.jump(`strategies/${item.id.split(".")[0]}.py`);
+                          }}
+                        >
+                          {item.id.split(".")[1]}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </Section>
               )}
+              <footer className="lab-submit">
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={busy || context.busy}
+                  onClick={() => void evaluate()}
+                >
+                  {busy ? t("正在评价…") : t("评价")}
+                </button>
+                {savedNote}
+                <ActionError error={error} namespace="asterion.terminal.research" />
+              </footer>
             </>
           )}
         </aside>
-      ) : (
-        factor && (
-          <aside className="lab-config" aria-label={t("评价")}>
-            <h2>
-              {!folded && t("评价")}
-              <ConfigFold folded={folded} fold={setFolded} />
-            </h2>
-            {!folded && (
-              <>
-                {sharedSettings}
-                {factor.parameters.length > 0 && (
-                  <Section title={t("参数")} open>
-                    {factor.parameters.map(parameter => (
-                      <label
-                        key={parameter.name}
-                        className={factor.parameters.length === 1 ? "wide" : undefined}
-                      >
-                        <span>{parameter.name}</span>
-                        <input
-                          className="lab-param"
-                          placeholder={defaultText(parameter)}
-                          spellCheck={false}
-                          autoCorrect="off"
-                          autoCapitalize="none"
-                          value={form.params[parameter.name] ?? ""}
-                          onChange={event =>
-                            change({
-                              params: { ...form.params, [parameter.name]: event.target.value },
-                            })
-                          }
-                        />
-                      </label>
-                    ))}
-                  </Section>
-                )}
-                <Section title={t("评价设置")} open>
-                  {evaluationFields}
-                </Section>
-                {items.length > 1 && (
-                  <ExtraFactors
-                    items={items.filter(item => item.id !== factor.id)}
-                    value={form.extraFactors ?? []}
-                    onChange={extraFactors => change({ extraFactors })}
-                  >
-                    {combinationField}
-                  </ExtraFactors>
-                )}
-                {evaluations.length > 0 && (
-                  <Section title={t("评价记录")} open>
-                    <ul className="lab-evaluations" aria-label={t("评价记录")}>
-                      {evaluations.map(item => {
-                        const ic = item.horizons[0]?.mean;
-                        const label = isCompositeResult(item)
-                          ? item.factorNames.map(name => name.split(".")[1] ?? name).join(" + ")
-                          : Object.entries(item.evaluation?.params ?? {})
-                              .map(([name, value]) => `${name}=${String(value.value.value)}`)
-                              .join(" ") || recordName(item.id);
-                        return (
-                          <li key={item.id}>
-                            <button
-                              type="button"
-                              aria-pressed={item.id === report}
-                              title={item.id}
-                              onClick={() => setReport(item.id)}
-                            >
-                              <span>{label}</span>
-                              <small>
-                                {item.evaluation?.firstDay} – {item.evaluation?.lastDay}
-                              </small>
-                              <span className={`numeric ${signed(ic)}`}>{metric(ic, false)}</span>
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </Section>
-                )}
-                {users.length > 0 && (
-                  <Section title={t("导入本模块的策略（{count}）", { count: users.length })}>
-                    <ul className="lab-evaluations" aria-label={t("导入本模块的策略")}>
-                      {users.map(item => (
-                        <li key={item.id}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setLibrary(false);
-                              setReport("");
-                              source.jump(`strategies/${item.id.split(".")[0]}.py`);
-                            }}
-                          >
-                            {item.id.split(".")[1]}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </Section>
-                )}
-                <footer className="lab-submit">
-                  <button
-                    type="button"
-                    className="primary"
-                    disabled={busy || context.busy}
-                    onClick={() => void evaluate()}
-                  >
-                    {busy ? t("正在评价…") : t("评价")}
-                  </button>
-                  {saved.length > 0 && (
-                    <p className="subtle">
-                      {t("已保存 {files}", { files: saved.join(listSeparator()) })}
-                    </p>
-                  )}
-                  <ActionError error={error} namespace="asterion.terminal.research" />
-                </footer>
-              </>
-            )}
-          </aside>
-        )
       )}
     </section>
   );
@@ -626,42 +575,93 @@ function ExtraFactors({
 }
 
 type LibraryKey = "ic" | "holdoutIc" | "ir" | "t" | "turnover" | "evaluated";
+const sections = ["", "条件不同", "未评价"] as const;
 
-// Every factor with its latest evaluation, multi-select batch & composite actions,
-// and sortable figures (IC, holdout IC, ICIR, t, turnover).
+const figuresOf = (result?: FactorResult) => {
+  const first = result?.horizons[0];
+  return {
+    ic: first?.mean,
+    holdoutIc: result?.holdoutHorizons[0]?.mean,
+    ir: first?.ir,
+    t: first?.t,
+    turnover: factorTurnover(result),
+    evaluated: result ? Number(result.evaluatedMs) : undefined,
+  };
+};
+
+function Figures({ result }: { result?: FactorResult }) {
+  const value = figuresOf(result);
+  return (
+    <>
+      <td className={`numeric ${signed(value.ic)}`}>{result && metric(value.ic, false)}</td>
+      <td className={`numeric ${signed(value.holdoutIc)}`}>
+        {result && metric(value.holdoutIc, false)}
+      </td>
+      <td className="numeric">{result && metric(value.ir, false)}</td>
+      <td className="numeric">{result && metric(value.t, false)}</td>
+      <td className="numeric">{result && metric(value.turnover, true)}</td>
+      <td className="subtle numeric">{result && shortTime(result.evaluatedMs)}</td>
+    </>
+  );
+}
+
+// Every factor beside its evaluation on the current settings. Results on other
+// settings and factors without one are listed apart, so they never rank.
 function FactorLibrary({
-  items: searched,
-  total,
+  items: all,
+  search,
+  setSearch,
   chosen,
   selected,
   setSelected,
   latest,
+  onScope,
+  composites,
   busy,
   batchProgress,
-  error,
   onBatchEvaluate,
   onCompositeEvaluate,
   open,
+  openComposite,
+  contextTarget,
+  onMenu,
+  combination,
+  newModule,
+  notices,
 }: {
   items: readonly ModuleItem[];
-  total: number;
+  search: string;
+  setSearch: (search: string) => void;
   chosen: string;
   selected: readonly string[];
   setSelected: (next: string[] | ((previous: string[]) => string[])) => void;
   latest: (id: string) => FactorResult | undefined;
+  // Absent until the settings name a symbol.
+  onScope?: (result: FactorResult) => boolean;
+  composites: readonly FactorResult[];
   busy: boolean;
   batchProgress: { done: number; total: number } | null;
-  error: DisplayError;
   onBatchEvaluate: () => void;
   onCompositeEvaluate: () => void;
   open: (id: string) => void;
+  openComposite: (id: string) => void;
+  contextTarget?: string;
+  onMenu: (path: string, x: number, y: number, symbol?: string, target?: string) => void;
+  combination: ReactNode;
+  newModule: ReactNode;
+  notices: ReactNode;
 }) {
   const { heading, sorted, status } = useLibrarySort<LibraryKey>("ic");
   const [moduleFilter, setModuleFilter] = useState("");
-  const moduleNames = [...new Set(searched.map(item => item.module))].sort();
-  // A search can leave the filtered module with no rows, and so without its option.
+  const moduleNames = [...new Set(all.map(item => item.module))].sort();
+  // Deleting a module's last factor removes its option.
   const activeModule = moduleNames.includes(moduleFilter) ? moduleFilter : "";
+  const searched = filterModuleItems(all, search);
   const items = activeModule ? searched.filter(item => item.module === activeModule) : searched;
+  const query = search.trim().toLowerCase();
+  const shownComposites = activeModule
+    ? []
+    : composites.filter(item => compositeName(item).toLowerCase().includes(query));
   const selectAllRef = useRef<HTMLInputElement>(null);
   const shownIds = items.map(item => item.id);
   const selectedShown = shownIds.filter(id => selected.includes(id));
@@ -671,18 +671,13 @@ function FactorLibrary({
     if (selectAllRef.current) selectAllRef.current.indeterminate = someShown;
   }, [someShown]);
 
-  const rows = sorted(items, (item, key) => {
-    const result = latest(item.id);
-    const first = result?.horizons[0];
-    return {
-      ic: first?.mean,
-      holdoutIc: result?.holdoutHorizons[0]?.mean,
-      ir: first?.ir,
-      t: first?.t,
-      turnover: factorTurnover(result),
-      evaluated: result ? Number(result.evaluatedMs) : undefined,
-    }[key];
-  });
+  const rows = sorted(
+    items.map(item => {
+      const result = latest(item.id);
+      return { item, result, place: !result ? 2 : !onScope || onScope(result) ? 0 : 1 };
+    }),
+    (row, key) => figuresOf(row.result)[key],
+  );
   const toggleOne = (id: string, checked: boolean) =>
     setSelected(previous =>
       checked
@@ -697,36 +692,59 @@ function FactorLibrary({
         ? [...new Set([...previous, ...shownIds])]
         : previous.filter(id => !shownIds.includes(id)),
     );
-  if (!total) return <div className="lab-center" />;
+  const row = ({ item, result }: (typeof rows)[number]) => {
+    const checked = selected.includes(item.id);
+    return (
+      <tr
+        key={item.id}
+        className={checked ? "selected" : item.id === chosen ? "current" : undefined}
+        data-empty={result ? undefined : true}
+        data-context={contextTarget === item.id || undefined}
+        title={[item.description, item.inputs?.join(listSeparator())].filter(Boolean).join("\n")}
+        onClick={() => open(item.id)}
+        onContextMenu={event => {
+          event.preventDefault();
+          onMenu(`factors/${item.module}.py`, event.clientX, event.clientY, item.name, item.id);
+        }}
+      >
+        <td className="lab-check-col" onClick={event => event.stopPropagation()}>
+          <input
+            type="checkbox"
+            aria-label={t("选择 {name}", { name: item.id })}
+            checked={checked}
+            onChange={event => toggleOne(item.id, event.target.checked)}
+          />
+        </td>
+        <th scope="row">
+          <button
+            type="button"
+            className="lab-link strong"
+            onClick={event => {
+              event.stopPropagation();
+              open(item.id);
+            }}
+          >
+            {item.name}
+          </button>
+        </th>
+        <td className="subtle">{item.module}</td>
+        <Figures result={result} />
+      </tr>
+    );
+  };
   return (
     <div className="lab-center lab-library-view">
       <div className="lab-toolbar">
-        <button
-          type="button"
-          className="primary"
-          disabled={busy || selected.length === 0}
-          onClick={onBatchEvaluate}
-        >
-          {batchProgress
-            ? t("正在评价 {done} / {total}…", batchProgress)
-            : t("批量评价（{count}）", { count: selected.length })}
-        </button>
-        <button type="button" disabled={busy || selected.length < 2} onClick={onCompositeEvaluate}>
-          {busy && !batchProgress
-            ? t("正在评价…")
-            : t("相关性与合成（{count}）", { count: selected.length })}
-        </button>
-        {selected.length > 0 && (
-          <button
-            type="button"
-            className="lab-link"
-            disabled={busy}
-            onClick={() => setSelected([])}
-          >
-            {t("清空选择")}
-          </button>
-        )}
-        <span className="lab-spacer" />
+        <input
+          type="search"
+          aria-label={t("搜索因子")}
+          placeholder={t("搜索因子")}
+          spellCheck={false}
+          autoCorrect="off"
+          autoCapitalize="none"
+          value={search}
+          onChange={event => setSearch(event.target.value)}
+        />
         <label className="lab-inline">
           <span>{t("模块")}</span>
           <select value={activeModule} onChange={event => setModuleFilter(event.target.value)}>
@@ -738,12 +756,42 @@ function FactorLibrary({
             ))}
           </select>
         </label>
+        <span className="lab-spacer" />
+        {selected.length > 0 && (
+          <button
+            type="button"
+            className="lab-link"
+            disabled={busy}
+            onClick={() => setSelected([])}
+          >
+            {t("清空选择")}
+          </button>
+        )}
+        {selected.length >= 2 && combination}
+        {newModule}
+        <button type="button" disabled={busy || selected.length < 2} onClick={onCompositeEvaluate}>
+          {busy && !batchProgress
+            ? t("正在评价…")
+            : selected.length
+              ? t("相关性与合成（{count}）", { count: selected.length })
+              : t("相关性与合成")}
+        </button>
+        <button
+          type="button"
+          className="primary"
+          disabled={busy || selected.length === 0}
+          onClick={onBatchEvaluate}
+        >
+          {batchProgress
+            ? t("正在评价 {done} / {total}…", batchProgress)
+            : selected.length
+              ? t("批量评价（{count}）", { count: selected.length })
+              : t("批量评价")}
+        </button>
       </div>
-      <ActionError error={error} namespace="asterion.terminal.research" />
+      {notices}
       {status}
-      {!rows.length && total > 0 ? (
-        <p className="subtle">{t("没有匹配的模块")}</p>
-      ) : (
+      {rows.length > 0 || shownComposites.length > 0 ? (
         <div
           className="lab-scroll lab-library-scroll"
           tabIndex={0}
@@ -775,59 +823,64 @@ function FactorLibrary({
                 {heading("evaluated", t("评价时间"))}
               </tr>
             </thead>
-            <tbody>
-              {rows.map(item => {
-                const result = latest(item.id);
-                const first = result?.horizons[0];
-                const holdoutIc = result?.holdoutHorizons[0]?.mean;
-                const turnover = factorTurnover(result);
-                const checked = selected.includes(item.id);
-                return (
+            {sections.map((title, place) => {
+              const group = rows.filter(entry => entry.place === place);
+              if (!group.length) return null;
+              return (
+                <tbody key={place}>
+                  {title && (
+                    <tr className="lab-library-group">
+                      <th scope="colgroup" colSpan={9}>
+                        {t(title)}
+                      </th>
+                    </tr>
+                  )}
+                  {group.map(row)}
+                </tbody>
+              );
+            })}
+            {shownComposites.length > 0 && (
+              <tbody>
+                <tr className="lab-library-group">
+                  <th scope="colgroup" colSpan={9}>
+                    {t("多因子合成记录")}
+                  </th>
+                </tr>
+                {shownComposites.map(item => (
                   <tr
                     key={item.id}
-                    className={checked ? "selected" : item.id === chosen ? "current" : undefined}
-                    title={[item.description, item.inputs?.join(listSeparator())]
-                      .filter(Boolean)
-                      .join("\n")}
-                    onClick={() => open(item.id)}
+                    title={item.factorNames.join(" + ") || item.id}
+                    onClick={() => openComposite(item.id)}
                   >
-                    <td className="lab-check-col" onClick={event => event.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        aria-label={t("选择 {name}", { name: item.id })}
-                        checked={checked}
-                        onChange={event => toggleOne(item.id, event.target.checked)}
-                      />
-                    </td>
+                    <td className="lab-check-col" />
                     <th scope="row">
                       <button
                         type="button"
                         className="lab-link strong"
                         onClick={event => {
                           event.stopPropagation();
-                          open(item.id);
+                          openComposite(item.id);
                         }}
                       >
-                        {item.name}
+                        {compositeName(item)}
                       </button>
                     </th>
-                    <td className="subtle">{item.module}</td>
-                    <td className={`numeric ${signed(first?.mean)}`}>
-                      {metric(first?.mean, false)}
+                    <td className="subtle">
+                      {t("{count} 个因子", {
+                        count:
+                          item.factorNames.length ||
+                          1 + (item.evaluation?.extraFactors.length ?? 0),
+                      })}
                     </td>
-                    <td className={`numeric ${signed(holdoutIc)}`}>{metric(holdoutIc, false)}</td>
-                    <td className="numeric">{metric(first?.ir, false)}</td>
-                    <td className="numeric">{metric(first?.t, false)}</td>
-                    <td className="numeric">{metric(turnover, true)}</td>
-                    <td className="subtle numeric">
-                      {result ? shortTime(result.evaluatedMs) : "—"}
-                    </td>
+                    <Figures result={item} />
                   </tr>
-                );
-              })}
-            </tbody>
+                ))}
+              </tbody>
+            )}
           </table>
         </div>
+      ) : (
+        all.length > 0 && <p className="subtle">{t("没有匹配的模块")}</p>
       )}
     </div>
   );

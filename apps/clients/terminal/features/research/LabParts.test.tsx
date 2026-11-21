@@ -9,7 +9,7 @@ import { feature } from "./feature";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "../../src/host/workspace/drafts";
 import {
   datePlaceholders,
-  ModuleList,
+  filterModuleItems,
   NewModule,
   SymbolField,
   useSource,
@@ -67,7 +67,7 @@ test("copying pre-fills and selects the module name, renames the target symbol, 
   expect(cancelCopy).toHaveBeenCalledOnce();
 });
 
-test("items list flat in name order, disambiguate duplicate names, search and filter by input", () => {
+test("modules sort by name, and a search covers descriptions and bar fields", () => {
   const items: ModuleItem[] = [
     {
       id: "price.momentum",
@@ -89,7 +89,6 @@ test("items list flat in name order, disambiguate duplicate names, search and fi
       module: "price",
       description: "Negated return",
       inputs: ["close"],
-      figure: { text: "0.120", title: "IC" },
     },
     {
       id: "positions.interest",
@@ -99,47 +98,15 @@ test("items list flat in name order, disambiguate duplicate names, search and fi
       inputs: ["open_interest"],
     },
   ];
-  const choose = vi.fn();
-  render(
-    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.lab-factors">
-      <ModuleList folder="factors" items={items} chosen="" choose={choose} />
-    </WorkspaceDraftScope>,
-  );
-  expect(screen.getAllByRole("button").map(button => button.textContent)).toEqual([
-    "interest",
-    "momentumcarry",
-    "momentumprice",
-    "reversal0.120",
+  const found = (search: string) => filterModuleItems(items, search).map(item => item.id);
+  expect(found("")).toEqual([
+    "positions.interest",
+    "carry.momentum",
+    "price.momentum",
+    "price.reversal",
   ]);
-  fireEvent.change(screen.getByLabelText("搜索因子"), { target: { value: "negated" } });
-  expect(screen.queryByRole("button", { name: /momentum/ })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: /reversal/ }));
-  expect(choose).toHaveBeenCalledWith(items[2]);
-  fireEvent.change(screen.getByLabelText("搜索因子"), { target: { value: "open_interest" } });
-  expect(screen.queryByRole("button", { name: /reversal/ })).toBeNull();
-  expect(screen.getByRole("button", { name: "interest" })).toBeTruthy();
-});
-
-test("a long list folds into groups and opens the chosen item's group", () => {
-  const items = Array.from({ length: 16 }, (_, index) => ({
-    id: `${index < 8 ? "price" : "risk"}.factor_${index}`,
-    name: `factor_${index}`,
-    module: index < 8 ? "price" : "risk",
-    description: "",
-  }));
-  render(
-    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.lab-factors">
-      <ModuleList folder="factors" items={items} chosen="risk.factor_9" choose={vi.fn()} />
-    </WorkspaceDraftScope>,
-  );
-  expect(screen.queryByRole("button", { name: "factor_0" })).toBeNull();
-  expect(screen.getByRole("button", { name: "factor_9" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: /^price/ }));
-  expect(screen.getByRole("button", { name: "factor_0" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: /^price/ }));
-  fireEvent.change(screen.getByLabelText("搜索因子"), { target: { value: "factor_1" } });
-  expect(screen.getByRole("button", { name: "factor_1" })).toBeTruthy();
-  expect(screen.queryByRole("button", { name: /^price/ })).toBeNull();
+  expect(found("negated")).toEqual(["price.reversal"]);
+  expect(found("open_interest")).toEqual(["positions.interest"]);
 });
 
 test("edits made while saving remain an unsaved draft after navigation", async () => {

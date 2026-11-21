@@ -1,20 +1,31 @@
-/* A research view: modules left, result centre, configuration right and, for
-   strategies, every run below. Columns are divided by lines, not boxed. */
+/* A research page: its settings across the top, then a library or one item with
+   its configuration beside it. Columns are divided by lines, not boxed. */
 .lab-research {
-  --lab-list: 220px;
   --lab-config: 320px;
   display: grid;
-  grid-template-columns: var(--lab-list) minmax(0, 1fr) var(--lab-config);
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) var(--lab-config);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   grid-template-areas:
-    "notice notice notice"
-    "modules center config";
+    "notice notice"
+    "head head"
+    "scope scope"
+    "center config";
   height: 100%;
   min-height: 0;
 }
+.lab-research[data-folded] {
+  grid-template-columns: minmax(0, 1fr) 40px;
+}
+.lab-research:not(:has(> .lab-config)) {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "notice"
+    "head"
+    "scope"
+    "center";
+}
 @media (min-width: 2200px) and (min-height: 1200px) {
   .lab-research {
-    --lab-list: 280px;
     --lab-config: 400px;
   }
 }
@@ -48,7 +59,6 @@ button.lab-link.strong:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   grid-area: notice;
   margin: var(--space-2) var(--space-page) 0;
 }
-.lab-modules,
 .lab-config,
 .lab-center {
   min-width: 0;
@@ -56,45 +66,22 @@ button.lab-link.strong:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   overflow: auto;
   padding: var(--space-4);
 }
-.lab-modules h2,
 .lab-config > h2 {
   margin: 0 0 var(--space-3);
   color: var(--muted);
   font-size: var(--font-size-body);
   font-weight: 400;
 }
-.lab-modules {
-  grid-area: modules;
-  display: flex;
-  flex-direction: column;
-  background: var(--pane);
-  border-right: 1px solid var(--line);
-}
-.lab-modules > * {
-  flex-shrink: 0;
-}
-.lab-modules > .lab-link {
-  align-self: flex-start;
-}
 button.lab-add-module {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-1);
-  width: 100%;
-  margin-bottom: var(--space-3);
   color: var(--muted);
   font-size: var(--font-size-body);
 }
 button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   color: var(--text-strong);
-}
-.lab-divider {
-  width: 100%;
-  height: 1px;
-  margin: var(--space-2) 0 var(--space-3);
-  border: 0;
-  background: var(--line);
 }
 .lab-library-view {
   display: flex;
@@ -216,65 +203,6 @@ button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   font-weight: 400;
   white-space: nowrap;
 }
-/* Strategies or factors, one line each. */
-.lab-module-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-bottom: var(--space-3);
-}
-.lab-module-list > input {
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-  margin-bottom: var(--space-2);
-}
-button.lab-module-group {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  min-height: var(--control-height);
-  padding: 0 var(--space-2);
-  border: 0;
-  background: none;
-  color: var(--text-strong);
-  font-size: var(--font-size-body);
-  font-weight: 500;
-  text-align: left;
-}
-button.lab-module-group::before {
-  content: "▸" / "";
-  flex: none;
-  width: 10px;
-  color: var(--muted);
-}
-button.lab-module-group[aria-expanded="true"]::before {
-  content: "▾" / "";
-}
-button.lab-module-group:enabled:not([aria-disabled="true"]):is(:hover, :active) {
-  background: var(--hover);
-  border-color: transparent;
-  color: var(--text-strong);
-}
-button.lab-module-group small {
-  margin-left: auto;
-  color: var(--muted);
-  font-family: var(--font-terminal);
-  font-size: var(--font-size-xs);
-  font-weight: 400;
-}
-/* Item names start under their group's name: past its marker, less the item's accent edge. */
-.lab-module-members {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding-left: calc(var(--space-2) + 8px);
-}
-.lab-module-members button.lab-module-item {
-  color: var(--text);
-}
-button.lab-module-item,
 .lab-evaluations li button {
   display: flex;
   justify-content: flex-start;
@@ -291,32 +219,21 @@ button.lab-module-item,
   font-size: var(--font-size-body);
   text-align: left;
 }
-:is(button.lab-module-item, .lab-evaluations li button):enabled:not(
-    [aria-disabled="true"],
-    [aria-pressed="true"]
-  ):is(:hover, :active) {
+.lab-evaluations
+  li
+  button:enabled:not([aria-disabled="true"], [aria-pressed="true"]):is(:hover, :active) {
   background: var(--hover);
   border-color: transparent;
   color: var(--text-strong);
 }
-:is(button.lab-module-item, .lab-evaluations li button)[aria-pressed="true"],
-:is(button.lab-module-item, .lab-evaluations li button)[aria-pressed="true"]:enabled:not(
-    [aria-disabled="true"]
-  ):is(:hover, :active) {
+.lab-evaluations li button[aria-pressed="true"],
+.lab-evaluations
+  li
+  button[aria-pressed="true"]:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   border-color: transparent;
   border-left-color: var(--accent);
   background: var(--accent-surface);
   color: var(--accent);
-}
-button.lab-module-item span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-button.lab-module-item small.lab-module-origin {
-  margin-left: 0;
-  color: var(--muted);
 }
 .lab-evaluations {
   grid-column: 1 / -1;
@@ -336,12 +253,6 @@ button.lab-module-item small.lab-module-origin {
 .lab-evaluations li .numeric {
   margin-left: auto;
   font-family: var(--font-terminal);
-}
-button.lab-module-item small {
-  flex-shrink: 0;
-  margin-left: auto;
-  font-family: var(--font-terminal);
-  font-size: var(--font-size-xs);
 }
 .lab-module-error summary {
   color: var(--warning);
@@ -752,7 +663,7 @@ label.lab-inline {
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
-button.lab-module-item[data-context="true"]:not([aria-pressed="true"]),
+.lab-library-table tbody tr[data-context] :is(td, th),
 .lab-module-error summary[data-context="true"] {
   background: var(--hover);
 }
@@ -816,28 +727,19 @@ button.lab-module-item[data-context="true"]:not([aria-pressed="true"]),
   background: var(--field);
 }
 .lab-new-module {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  align-items: center;
   gap: var(--space-2);
-  margin-bottom: var(--space-3);
 }
-.lab-new-module input,
+.lab-new-module input {
+  width: 180px;
+  margin: 0;
+}
 .lab-new-module .action-error {
-  grid-column: 1 / -1;
-  width: 100%;
   margin: 0;
 }
 .lab-rejections summary {
   color: var(--warning);
-}
-.lab-research[data-folded] {
-  grid-template-columns: var(--lab-list) minmax(0, 1fr) 40px;
-}
-.lab-research:not(:has(> .lab-config)) {
-  grid-template-columns: var(--lab-list) minmax(0, 1fr);
-  grid-template-areas:
-    "notice notice"
-    "modules center";
 }
 .lab-config > h2 {
   display: flex;
@@ -1252,10 +1154,8 @@ button.lab-symbol-months:enabled:hover {
 }
 @media (max-width: 1080px) {
   .lab-research {
-    --lab-list: 176px;
     --lab-config: 236px;
   }
-  .lab-modules,
   .lab-config,
   .lab-center {
     padding: var(--space-3);
@@ -1269,27 +1169,6 @@ button.lab-symbol-months:enabled:hover {
   }
 }
 
-/* The strategy page: its settings across the top, then the library or one strategy. */
-.lab-research[data-layout="page"] {
-  grid-template-columns: minmax(0, 1fr) var(--lab-config);
-  grid-template-rows: auto auto auto minmax(0, 1fr);
-  grid-template-areas:
-    "notice notice"
-    "head head"
-    "scope scope"
-    "center config";
-}
-.lab-research[data-layout="page"][data-folded] {
-  grid-template-columns: minmax(0, 1fr) 40px;
-}
-.lab-research[data-layout="page"]:not(:has(> .lab-config)) {
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-areas:
-    "notice"
-    "head"
-    "scope"
-    "center";
-}
 .lab-page-head {
   grid-area: head;
   padding: var(--space-3) var(--space-page) var(--space-2);
@@ -1410,17 +1289,9 @@ button.lab-symbol-months:enabled:hover {
 .lab-library-view > .lab-toolbar input[type="search"] {
   width: 240px;
 }
-.lab-library-view > .lab-toolbar button.lab-add-module {
-  width: auto;
-  margin: 0;
-}
-.lab-library-view > .lab-toolbar .lab-new-module {
-  display: flex;
-  align-items: center;
-  margin: 0;
-}
-.lab-library-view > .lab-toolbar .lab-new-module input {
-  width: 180px;
+.lab-library-table tbody tr:is(:hover, .current, .selected) td.subtle,
+.lab-library-table tbody tr[data-empty]:is(:hover, .current, .selected) td {
+  color: var(--text);
 }
 .lab-library-table tbody tr.lab-library-group {
   cursor: default;

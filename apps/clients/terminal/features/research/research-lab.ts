@@ -117,23 +117,24 @@ const scopeFields = [
 ] as const;
 
 export type ScopeFields = Pick<RunForm, (typeof scopeFields)[number]>;
-// The named sets of backtest settings; the page uses one at a time.
-export type RunConditions = { active: string; items: { name: string; fields: ScopeFields }[] };
+// Named sets of settings; a page uses one at a time.
+export type ConditionSet<F> = { active: string; items: { name: string; fields: F }[] };
+export type RunConditions = ConditionSet<ScopeFields>;
 
 export const scopeOf = (form: RunForm) =>
   Object.fromEntries(scopeFields.map(field => [field, form[field]])) as ScopeFields;
 
-export function readConditions(): RunConditions {
+function readConditionSet<F extends object>(key: string, defaults: () => F): ConditionSet<F> {
   try {
-    const saved = JSON.parse(localStorage.getItem(conditionsKey) ?? "");
-    const items: RunConditions["items"] = saved.items
+    const saved = JSON.parse(localStorage.getItem(key) ?? "");
+    const items: ConditionSet<F>["items"] = saved.items
       .filter((item: { name?: unknown }) => item?.name && typeof item.name === "string")
       .map((item: { name: string; fields?: Record<string, unknown> }) => {
-        const fields: Record<string, unknown> = scopeOf(defaultForm());
-        for (const field of scopeFields)
+        const fields = defaults() as Record<string, unknown>;
+        for (const field of Object.keys(fields))
           if (typeof item.fields?.[field] === typeof fields[field])
             fields[field] = item.fields![field];
-        return { name: item.name, fields: fields as ScopeFields };
+        return { name: item.name, fields: fields as F };
       });
     const active = items.some(item => item.name === saved.active)
       ? saved.active
@@ -144,6 +145,8 @@ export function readConditions(): RunConditions {
     return { active: "", items: [] };
   }
 }
+
+export const readConditions = () => readConditionSet(conditionsKey, () => scopeOf(defaultForm()));
 
 export function saveConditions(conditions: RunConditions) {
   localStorage.setItem(conditionsKey, JSON.stringify(conditions));
@@ -170,21 +173,23 @@ export function sameScope(a: ScopeFields, b: ScopeFields) {
   });
 }
 
+// A blank day means `stored`; a day not yet known matches any.
+const sameDay = (value: string, stored: string, actual: string) =>
+  !/^\d/.test(value || stored) || (value || stored) === actual;
+
 // Whether a run was measured on the form's settings. `begin` and `end` are what
 // blank days resolve to; a day not yet known matches any.
 export function onScope(form: RunForm, run: RunSummary, begin: string, end: string) {
   const settings = run.settings;
   if (!settings) return false;
   const symbols = symbolsOf(form.symbols);
-  const day = (value: string, stored: string, actual: string) =>
-    !/^\d/.test(value || stored) || (value || stored) === actual;
   const same = (text: string, value?: { text: string }) =>
     Number(text || 0) === Number(value?.text || 0);
   return (
     symbols.length === run.symbols.length &&
     symbols.every(symbol => run.symbols.includes(symbol)) &&
-    day(form.begin, begin, run.firstDay) &&
-    day(form.end, end, run.lastDay) &&
+    sameDay(form.begin, begin, run.firstDay) &&
+    sameDay(form.end, end, run.lastDay) &&
     protocolPeriod(form.minutes === "0" ? "day" : Number(form.minutes)) === run.period &&
     same(form.deposit, settings.deposit) &&
     Number(form.slippage) === settings.slippageTicks &&
@@ -437,6 +442,53 @@ export function defaultFactorForm(): FactorForm {
     combination: "equal",
     holdoutDay: "",
   };
+}
+
+const factorConditionsKey = "asterion.research.factor-scope";
+const factorScopeFields = [
+  "symbols",
+  "begin",
+  "end",
+  "horizons",
+  "groups",
+  "standardize",
+  "holdoutDay",
+] as const;
+export type FactorScope = Required<Pick<FactorForm, (typeof factorScopeFields)[number]>>;
+
+export const factorScopeOf = (form: FactorForm) =>
+  Object.fromEntries(factorScopeFields.map(field => [field, form[field] ?? ""])) as FactorScope;
+
+export const readFactorConditions = () =>
+  readConditionSet(factorConditionsKey, () => factorScopeOf(defaultFactorForm()));
+
+export function saveFactorConditions(conditions: ConditionSet<FactorScope>) {
+  localStorage.setItem(factorConditionsKey, JSON.stringify(conditions));
+}
+
+export function savedFactorForm(): FactorForm {
+  const { active, items } = readFactorConditions();
+  return { ...defaultFactorForm(), ...items.find(item => item.name === active)?.fields };
+}
+
+// Whether an evaluation was made on the form's settings. `begin` and `end` are
+// what blank days resolve to.
+export function onFactorScope(form: FactorForm, result: FactorResult, begin: string, end: string) {
+  const evaluation = result.evaluation;
+  if (!evaluation) return false;
+  const symbols = symbolsOf(form.symbols);
+  const horizons = symbolsOf(form.horizons).map(Number);
+  return (
+    symbols.length === evaluation.symbols.length &&
+    symbols.every(symbol => evaluation.symbols.includes(symbol)) &&
+    sameDay(form.begin, begin, evaluation.firstDay) &&
+    sameDay(form.end, end, evaluation.lastDay) &&
+    horizons.length === evaluation.horizons.length &&
+    horizons.every((horizon, index) => horizon === evaluation.horizons[index]) &&
+    Number(form.groups) === evaluation.groups &&
+    (form.standardize ?? "") === evaluation.standardize &&
+    (form.holdoutDay ?? "").trim() === evaluation.holdoutDay
+  );
 }
 
 // The evaluation the factor form describes. A factor takes one value of each

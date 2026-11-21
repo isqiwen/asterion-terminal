@@ -93,21 +93,26 @@ test(
     prepare();
     await page.goto("/");
     await openView(page, "factors");
-    const modules = page.locator(".lab-modules");
-    await modules.getByRole("button", { name: /^risk\s*\d+$/ }).click();
+    const library = page.getByRole("table", { name: "因子库" });
     await expect(
-      modules.getByRole("button", { name: "expected_shortfall", exact: true }),
+      library.getByRole("button", { name: "expected_shortfall", exact: true }),
     ).toBeVisible();
-    await modules.getByRole("button", { name: /^price\s*\d+$/ }).click();
-    await modules.getByRole("button", { name: /^momentum(?:\s|$)/ }).click();
-    const form = page.locator(".lab-config");
-    await form
-      .getByLabel("品种", { exact: true })
+    await page.getByRole("button", { name: "设置评价条件", exact: true }).click();
+    const scope = page.getByRole("dialog", { name: "评价条件" });
+    await scope
+      .getByRole("combobox", { name: "品种" })
       .fill("SHFE/rb/2026-05, SHFE/rb/2026-10, SHFE/rb");
-    await form.getByLabel("开始日").fill("2026-01-05");
-    await form.getByLabel("结束日").fill("2026-02-13");
+    await scope.getByRole("combobox", { name: "品种" }).press("Escape");
+    await scope.getByLabel("开始日").fill("2026-01-05");
+    await scope.getByLabel("结束日").fill("2026-02-13");
+    await scope.getByLabel("分组数").fill("3");
+    await scope.getByRole("button", { name: "完成", exact: true }).click();
+    await library
+      .locator("tr", { has: page.getByLabel("选择 price.momentum", { exact: true }) })
+      .getByRole("button", { name: "momentum", exact: true })
+      .click();
+    const form = page.locator(".lab-config");
     await form.getByLabel("lookback").fill("2");
-    await form.getByLabel("分组数").fill("3");
     await form.getByRole("button", { name: "评价", exact: true }).click();
     const decay = page.getByRole("table", { name: "IC 与衰减" });
     await expect(decay.locator("tbody tr")).toHaveCount(6);
@@ -116,7 +121,10 @@ test(
     await expect(page.getByText(/3 个品种/)).toBeVisible();
     await page.screenshot({ path: join(__dirname, "../test-results/research-lab-factor.png") });
     // The evaluation is kept under the factor's settings and reopens from there.
-    await page.getByRole("button", { name: "← 源码", exact: true }).click();
+    await page
+      .locator(".lab-detail > .tabs")
+      .getByRole("button", { name: "代码", exact: true })
+      .click();
     const records = page.getByRole("list", { name: "评价记录" }).getByRole("button");
     await expect(records).toHaveCount(1);
     await records.click();
