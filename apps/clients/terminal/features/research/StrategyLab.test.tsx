@@ -480,54 +480,6 @@ test("editor indents four spaces on Tab, saves on Ctrl+S, and duplicates or dele
   expect(screen.queryByRole("alert")).toBeNull();
 });
 
-test("non-rolling sweep runs advance strategy lifecycle while rolling summaries are excluded", async () => {
-  vi.mocked(lab).mockReset();
-  vi.mocked(lab).mockImplementation(async operation => {
-    switch (operation?.case) {
-      case "listStrategies":
-        return create(StrategiesSchema, { strategies: [{ id: "once.Once" }] }) as never;
-      case "listRecentRuns":
-        return create(RunsSchema, {
-          runs: [
-            {
-              id: "sweep-1-0",
-              sweepId: "sweep-1",
-              strategy: "once.Once",
-              state: RunState.SUCCEEDED,
-              startedMs: 10n,
-              metrics: { total_return: 0.15 },
-            },
-            {
-              id: "sweep-1-rolling",
-              sweepId: "sweep-1",
-              strategy: "once.Once",
-              state: RunState.SUCCEEDED,
-              startedMs: 20n,
-              metrics: { total_return: 0.5 },
-            },
-          ],
-        }) as never;
-      case "readSource":
-        return create(SourceSchema, { content: "x = 1\n" }) as never;
-    }
-    return new Promise(() => {}) as never;
-  });
-  const context = {
-    snapshot: { research_directory: "/research" },
-    navigate: vi.fn(),
-  } as unknown as TerminalContext;
-  render(
-    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.lab-strategies">
-      <StrategyLab {...context} />
-    </WorkspaceDraftScope>,
-  );
-  const deploy = await screen.findByRole("button", { name: "去部署" });
-  fireEvent.click(deploy);
-  expect(context.navigate).toHaveBeenCalledWith("workspace.trading-strategies", {
-    params: { run: "sweep-1-0" },
-  });
-});
-
 test("selected strategies run as one batch and compare on the same settings", async () => {
   const started: { strategies?: { strategy?: string; params?: Record<string, unknown> }[] }[] = [];
   const member = (id: string, strategy: string, state: RunState, sharpe?: number) => ({

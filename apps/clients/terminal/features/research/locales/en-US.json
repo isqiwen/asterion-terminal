@@ -289,16 +289,8 @@
   "已按 {column}{direction}排序": "Sorted by {column} {direction}",
   "降序": "descending",
   "升序": "ascending",
-  "上线进度": "Path to trading",
-  "版本": "Version",
   "仿真": "Simulation",
   "实盘": "Live",
   "未保存": "Unsaved",
-  "运行回测": "Run a backtest",
-  "去启动": "Start",
-  "回测后部署": "Deploy after a backtest",
-  "部署后仿真": "Simulate after deploying",
-  "仿真后上线": "Go live after simulating",
-  "部署新版": "Deploy new",
   "{days} 个有效交易日，{samples} 个品种日样本": "{days} valid trading days, {samples} symbol-day observations"
 }

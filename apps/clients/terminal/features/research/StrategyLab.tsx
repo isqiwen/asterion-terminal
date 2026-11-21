@@ -17,6 +17,7 @@ import {
   formFromRun,
   identity,
   recordName,
+  runName,
   runRequest,
   runState,
   symbolsOf,
@@ -41,7 +42,6 @@ import {
 } from "./LabParts";
 import { RunResult, SweepResult, metric, runTones, signed, states } from "./ResearchResult";
 import { type LibraryScope, StrategyLibrary, useStrategyBatch } from "./StrategyLibrary";
-import { StrategyLifecycle } from "./StrategyLifecycle";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
@@ -237,7 +237,6 @@ export function StrategyLab(context: TerminalContext) {
   );
   const validation = { none: "不验证", holdout: "留出", rolling: "滚动验证" } as const;
   const [folded, setFolded] = useConfigFold();
-  const strategyPath = `strategies/${strategy?.id.split(".")[0]}.py`;
   const menu = useModuleMenu({
     repository,
     source,
@@ -436,27 +435,6 @@ export function StrategyLab(context: TerminalContext) {
         />
         {menu.overlay}
       </aside>
-      {strategy && !library && (
-        <StrategyLifecycle
-          strategy={strategy.id}
-          path={strategyPath}
-          unsaved={source.drafts[strategyPath] !== undefined}
-          runs={singleRuns}
-          openCode={() => {
-            setReport(null);
-            source.open(strategyPath);
-          }}
-          backtest={() => {
-            setFolded(false);
-            if (enteredSymbols.length) void submit();
-          }}
-          openRun={id => setReport({ kind: "run", id })}
-          deploy={run => context.navigate("workspace.trading-strategies", { params: { run } })}
-          openTrading={account =>
-            context.navigate("workspace.trading-strategies", account ? { params: { account } } : {})
-          }
-        />
-      )}
       {library ? (
         <StrategyLibrary
           items={filterModuleItems(items, search)}
@@ -503,10 +481,17 @@ export function StrategyLab(context: TerminalContext) {
                       Object.keys(activeSweep.runs[0]?.params ?? {}).length === 0
                       ? "多品种回测 {id}"
                       : "扫描 {id}",
-                    { id: recordName(report.id) },
+                    {
+                      id: recordName(
+                        report.id,
+                        activeSweep?.id === report.id
+                          ? activeSweep.runs[0]?.strategy.split(".")[1]
+                          : undefined,
+                      ),
+                    },
                   )
-                : activeRun?.id === report.id && activeRun.label
-                  ? activeRun.label
+                : activeRun?.id === report.id
+                  ? runName(activeRun)
                   : recordName(report.id)}
             </h2>
             {activeState && (
@@ -731,7 +716,7 @@ function RecentRuns({
       </div>
       {runs.slice(0, 3).map(run => (
         <button key={run.id} type="button" className="lab-link" onClick={() => open(run.id)}>
-          <span>{run.label || recordName(run.id)}</span>
+          <span>{runName(run)}</span>
           <span className={signed(run.metrics.total_return)}>
             {metric(run.metrics.total_return, true)}
           </span>

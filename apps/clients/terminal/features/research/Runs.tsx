@@ -20,7 +20,7 @@ import {
   signed,
   states,
 } from "./ResearchResult";
-import { batchKey, parameterText, recordName, runState } from "./research-lab";
+import { batchKey, parameterText, recordName, recordTime, runName, runState } from "./research-lab";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
@@ -42,7 +42,6 @@ const paramsText = (run: RunSummary) =>
   Object.entries(run.params)
     .map(([name, value]) => `${name}=${parameterText(value)}`)
     .join(" ");
-export const runName = (run: RunSummary) => run.label || recordName(run.id);
 
 // Every run and sweep so far: a table to find, rank and compare them, and
 // each one's report. The strategy view opens a new one: param `run` or `sweep`.
@@ -215,9 +214,11 @@ export function Runs(context: TerminalContext) {
             {t("← 回测记录")}
           </button>
           <h2>
-            {t(sweep?.runs[0]?.params[batchKey] ? "批量回测 {id}" : "扫描 {id}", {
-              id: recordName(shown.id),
-            })}
+            {sweep?.runs[0]?.params[batchKey]
+              ? t("批量回测 {id}", { id: recordTime(shown.id) })
+              : t("扫描 {id}", {
+                  id: recordName(shown.id, sweep?.runs[0]?.strategy.split(".")[1]),
+                })}
           </h2>
         </header>
         {sweep?.id === shown.id ? (
@@ -383,11 +384,11 @@ export function Runs(context: TerminalContext) {
                         {group
                           ? run.sweepStrategies
                             ? t("批量 {id}（{count} 个策略）", {
-                                id: recordName(group),
+                                id: recordTime(group),
                                 count: run.sweepStrategies,
                               })
                             : t("扫描 {id}（{count} 组）", {
-                                id: recordName(group),
+                                id: recordName(group, run.strategy.split(".")[1]),
                                 count: run.sweepSize,
                               })
                           : runName(run)}
@@ -518,7 +519,7 @@ function RunHeader({
             aria-label={t("名称")}
             autoFocus
             maxLength={64}
-            placeholder={recordName(id)}
+            placeholder={run ? runName({ ...run, label: "" }) : recordName(id)}
             value={editing}
             onChange={event => setEditing(event.target.value)}
           />

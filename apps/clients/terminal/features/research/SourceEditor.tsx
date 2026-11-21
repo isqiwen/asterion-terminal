@@ -455,6 +455,7 @@ export function SourceEditor({
           </button>
         )}
         <code>{path}</code>
+        {dirty && <span className="lab-unsaved">{t("未保存")}</span>}
         {readOnly ? (
           <span className="lab-readonly">{t("只读")}</span>
         ) : (

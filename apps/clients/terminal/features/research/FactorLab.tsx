@@ -15,6 +15,7 @@ import {
   factorTurnover,
   identity,
   recordName,
+  recordTime,
   symbolsOf,
   type FactorForm,
 } from "./research-lab";
@@ -43,6 +44,11 @@ import { metric, shortTime, signed } from "./ResearchResult";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
 
+// The factors it evaluated and when.
+const resultName = (item: FactorResult) => {
+  const names = item.factorNames.length ? item.factorNames : [item.evaluation?.factor ?? ""];
+  return `${names.map(name => name.split(".")[1] ?? name).join(" + ")} ${recordTime(item.id)}`;
+};
 const isCompositeResult = (item: FactorResult) =>
   item.factorNames.length >= 2 || (item.evaluation?.extraFactors.length ?? 0) > 0;
 
@@ -81,6 +87,7 @@ export function FactorLab(context: TerminalContext) {
   const latest = (id: string) =>
     kept.find(item => item.evaluation?.factor === id && !isCompositeResult(item));
   const composites = kept.filter(isCompositeResult);
+  const shownResult = kept.find(item => item.id === report);
   const evaluations = kept.filter(item => item.evaluation?.factor === chosen);
   const items: ModuleItem[] = (modules?.factors ?? []).map(item => {
     const [module, name] = item.id.split(".");
@@ -365,7 +372,7 @@ export function FactorLab(context: TerminalContext) {
             <button type="button" className="lab-link" onClick={() => setReport("")}>
               {library ? t("← 因子库") : t("← 源码")}
             </button>
-            <h2>{recordName(report)}</h2>
+            <h2>{shownResult ? resultName(shownResult) : recordName(report)}</h2>
             <span className="lab-spacer" />
             <DeleteRecord name={report} remove={() => remove(report)} />
           </header>

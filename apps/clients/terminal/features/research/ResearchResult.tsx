@@ -27,7 +27,7 @@ import {
   heatmap,
   monthlyReturns,
   parameterText,
-  recordName,
+  runName,
   runState,
 } from "./research-lab";
 
@@ -805,7 +805,7 @@ function Comparison({ joined }: { joined: string }) {
   if (error) return null;
   if (details.length !== ids.length) return <p className="subtle">{t("正在读取结果…")}</p>;
   const [first, ...others] = details;
-  const name = (detail: RunDetail) => detail.summary!.label || recordName(detail.summary!.id);
+  const name = (detail: RunDetail) => runName(detail.summary!);
   const base = (detail: RunDetail) => Number(JSON.parse(detail.record).costs.deposit);
   const params = [...new Set(details.flatMap(detail => Object.keys(detail.summary!.params)))];
   const differing = params.filter(

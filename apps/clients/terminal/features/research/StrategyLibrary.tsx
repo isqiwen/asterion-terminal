@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { lab } from "../../src/bridge/lab";
 import { RunState, type RunSummary } from "../../src/generated/asterion/lab_pb";
+import { Environment, InstanceState } from "../../src/generated/asterion/trading_pb";
 import { useSequentialPoll } from "../../src/host/polling";
 import type { TradingAccounts } from "../../src/host/trading-accounts";
 import { type MessageValues, translate, listSeparator } from "../../src/i18n";
@@ -8,7 +9,6 @@ import { StatusBadge, type Tone } from "../../src/ui/StatusBadge";
 import { type ModuleItem, useLibrarySort } from "./LabParts";
 import { metric, periodText, runTones, shortTime, signed, states } from "./ResearchResult";
 import { batchStrategy, runState } from "./research-lab";
-import { strategyDeployment } from "./StrategyLifecycle";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
@@ -27,6 +27,22 @@ const figures = [
   ["max_drawdown", "最大回撤", true],
 ] as const;
 type LibraryKey = "stage" | "started" | (typeof figures)[number][0];
+const running = new Set([InstanceState.STARTING, InstanceState.WARMING, InstanceState.READY]);
+
+// How far a strategy has gone toward trading, as an index into `stages`.
+function stageOf(views: TradingAccounts["views"], strategy: string, tested: boolean) {
+  const accounts = Object.values(views);
+  const hosts = accounts.filter(view => {
+    const instance = view.strategies?.instance;
+    return instance?.instance?.packageName === strategy && running.has(instance.state);
+  });
+  if (hosts.some(view => view.account?.environment === Environment.REAL)) return 3;
+  if (hosts.length) return 2;
+  if (accounts.some(view => view.strategies?.packages.some(item => item.name === strategy)))
+    return 1;
+  return tested ? 0 : undefined;
+}
+
 export type LibraryScope = "all" | "batch";
 export type StrategyBatch = { id: string; runs: readonly RunSummary[]; active: boolean };
 
@@ -110,17 +126,7 @@ export function StrategyLibrary({
               : runs.find(
                   entry => entry.strategy === item.id && entry.state === RunState.SUCCEEDED,
                 );
-        const deployment = strategyDeployment(views, item.id);
-        const stage = deployment.live.length
-          ? 3
-          : deployment.simulating.length
-            ? 2
-            : deployment.version
-              ? 1
-              : run
-                ? 0
-                : undefined;
-        return { item, run, latest, stage };
+        return { item, run, latest, stage: stageOf(views, item.id, Boolean(run)) };
       }),
     (row, key) =>
       key === "stage"

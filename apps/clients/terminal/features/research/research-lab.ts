@@ -350,16 +350,31 @@ export function identity(code: string, suffix = "") {
 }
 
 // An id as shown: its module and that time in Beijing time, to the second.
-export function recordName(id: string) {
-  const match = /^(.*)-(\d{4})(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)\d{3}(.*)$/.exec(id);
+const RECORD_ID = /^(.*)-(\d{4})(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)\d{3}(.*)$/;
+
+// When a record was made, from its id.
+export function recordTime(id: string) {
+  const match = RECORD_ID.exec(id);
   if (!match) return id;
-  const [, code, ...parts] = match;
-  const [year, month, day, hour, minute, second] = parts.slice(0, 6).map(Number);
-  const time = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
-  const formatted = time
+  const [year, month, day, hour, minute, second] = match.slice(2, 8).map(Number);
+  return new Date(Date.UTC(year, month - 1, day, hour, minute, second))
     .toLocaleString("sv-SE", { timeZone: "Asia/Shanghai", hour12: false })
     .slice(5);
-  return `${code} ${formatted}${parts[6]}`;
+}
+
+export function recordName(id: string, name?: string) {
+  const match = RECORD_ID.exec(id);
+  return match ? `${name ?? match[1]} ${recordTime(id)}${match[8]}` : id;
+}
+
+// A run's label, or its strategy and time; only a sweep's runs need their index.
+export function runName(run: Pick<RunSummary, "id" | "label" | "strategy">) {
+  if (run.label) return run.label;
+  const [module, name] = run.strategy.split(".");
+  if (!name || !RECORD_ID.test(run.id)) return recordName(run.id);
+  return run.id.startsWith(`${module}-`)
+    ? recordName(run.id, name)
+    : `${name} ${recordTime(run.id)}`;
 }
 
 export function factorRequest(
