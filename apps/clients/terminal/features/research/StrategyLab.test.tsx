@@ -30,7 +30,7 @@ vi.mock("@asterion/terminal/charts/PriceChart", () => ({ PriceChart: () => null 
 beforeEach(() => localStorage.clear());
 
 const editScope = (edit: () => void) => {
-  fireEvent.click(screen.getByRole("button", { name: /^(修改|选择品种)$/ }));
+  fireEvent.click(screen.getByRole("button", { name: /^(修改|设置)回测条件$/ }));
   edit();
   fireEvent.click(screen.getByRole("button", { name: "完成" }));
 };
@@ -584,5 +584,5 @@ test("selected strategies run as one batch and compare on the same settings", as
   expect(await screen.findByText("1.500")).toBeTruthy();
   expect(screen.getByText("回测失败")).toBeTruthy();
   expect(screen.getByText("失败")).toBeTruthy();
-  expect(screen.queryByText("口径不同")).toBeNull();
+  expect(screen.queryByText("条件不同")).toBeNull();
 });

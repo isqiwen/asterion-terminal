@@ -39,8 +39,8 @@ test(
     await expect(
       page.getByRole("button", { name: "RandomFeatureForecast", exact: true }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "选择品种", exact: true }).click();
-    const scope = page.getByRole("dialog", { name: "回测口径" });
+    await page.getByRole("button", { name: "设置回测条件", exact: true }).click();
+    const scope = page.getByRole("dialog", { name: "回测条件" });
     await scope.getByRole("combobox", { name: "品种" }).fill("SHFE/rb");
     await scope.getByRole("combobox", { name: "品种" }).press("Escape");
     await scope.getByLabel("开始日").fill("2026-01-05");

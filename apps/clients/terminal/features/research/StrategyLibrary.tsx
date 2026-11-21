@@ -26,7 +26,7 @@ const figures = [
   ["max_drawdown", "最大回撤", true],
 ] as const;
 type LibraryKey = "stage" | "started" | (typeof figures)[number][0];
-const sections = ["", "回测失败", "口径不同", "未回测"] as const;
+const sections = ["", "回测失败", "条件不同", "未回测"] as const;
 const running = new Set([InstanceState.STARTING, InstanceState.WARMING, InstanceState.READY]);
 
 // How far a strategy has gone toward trading, as an index into `stages`.

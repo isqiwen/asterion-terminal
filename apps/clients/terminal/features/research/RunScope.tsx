@@ -66,10 +66,15 @@ export function RunScope(props: ScopeProps) {
   const text = summary(props);
   return (
     <div className="lab-scope">
-      <span>{t("口径")}</span>
+      <span>{t("回测条件")}</span>
       {text && <p title={text}>{text}</p>}
-      <button type="button" className="lab-link" onClick={() => setEditing(true)}>
-        {t(text ? "修改" : "选择品种")}
+      <button
+        type="button"
+        className="lab-link"
+        aria-label={t(text ? "修改回测条件" : "设置回测条件")}
+        onClick={() => setEditing(true)}
+      >
+        {t(text ? "修改" : "设置")}
       </button>
       {editing && <ScopeDialog {...props} close={() => setEditing(false)} />}
     </div>
@@ -114,7 +119,7 @@ function ScopeDialog({
     >
       {/* Focus starts here: the symbol field opens its list when focused. */}
       <h2 id={heading} tabIndex={-1}>
-        {t("回测口径")}
+        {t("回测条件")}
       </h2>
       <div className="lab-scope-fields">
         <section>

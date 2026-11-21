@@ -20,9 +20,9 @@ const scope = (symbols: string) => (
 
 test("the settings line asks for symbols first, then names what is chosen", () => {
   const { container, rerender } = render(scope(""));
-  expect(screen.getByRole("button", { name: "选择品种" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "设置回测条件" })).toBeTruthy();
   expect(container.textContent).not.toContain("滑点");
   rerender(scope("SHFE/rb"));
-  expect(screen.getByRole("button", { name: "修改" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "修改回测条件" })).toBeTruthy();
   expect(container.textContent).toContain("螺纹钢 · 全部区间 · 日线");
 });

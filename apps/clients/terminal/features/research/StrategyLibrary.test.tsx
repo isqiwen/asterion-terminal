@@ -147,5 +147,5 @@ test("only results on the current settings rank", () => {
   const titles = within(table)
     .getAllByRole("columnheader")
     .map(header => header.textContent);
-  expect(titles).toEqual(expect.arrayContaining(["口径不同", "未回测"]));
+  expect(titles).toEqual(expect.arrayContaining(["条件不同", "未回测"]));
 });

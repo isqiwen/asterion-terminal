@@ -285,9 +285,6 @@
   "实盘": "Live",
   "未保存": "Unsaved",
   "{days} 个有效交易日，{samples} 个品种日样本": "{days} valid trading days, {samples} symbol-day observations",
-  "口径": "Settings",
-  "回测口径": "Backtest settings",
-  "口径不同": "Other settings",
   "修改": "Edit",
   "完成": "Done",
   "{names} 等 {count} 个品种": "{names} and more, {count} symbols",
@@ -298,8 +295,12 @@
   "未回测": "Not tested",
   "还没有回测": "No backtest yet",
   "回测失败": "Failed",
-  "选择品种": "Choose symbols",
   "全部区间": "All dates",
   "{day} 起": "From {day}",
-  "至 {day}": "To {day}"
+  "至 {day}": "To {day}",
+  "回测条件": "Backtest settings",
+  "条件不同": "Other settings",
+  "设置": "Set up",
+  "设置回测条件": "Set up backtest settings",
+  "修改回测条件": "Edit backtest settings"
 }
