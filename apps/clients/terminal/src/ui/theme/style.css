@@ -853,8 +853,9 @@ h2,
   border-color: color-mix(in oklab, var(--warning) 42%, transparent);
 }
 .status-badge[data-tone="danger"] {
+  background: var(--danger-surface);
   color: var(--danger);
-  border-color: color-mix(in oklab, var(--danger) 42%, transparent);
+  border-color: color-mix(in oklab, var(--danger) 62%, transparent);
 }
 /* One attribute: square, without the state dot. */
 .tag {
@@ -869,6 +870,7 @@ h2,
   white-space: nowrap;
 }
 .tag[data-tone="danger"] {
+  background: var(--danger-surface);
   border-color: color-mix(in oklab, var(--danger) 55%, transparent);
   color: var(--danger);
 }

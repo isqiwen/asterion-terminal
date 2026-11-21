@@ -17,7 +17,7 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  background: var(--panel);
+  background: var(--canvas);
 }
 .data-activity-header h2 {
   margin: 0;
@@ -617,11 +617,11 @@ button.picker-chip small {
     border-color 120ms ease,
     color 120ms ease;
 }
-.coverage-matrix thead th {
+.coverage-matrix .data-table thead th {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: var(--panel);
+  background: var(--canvas);
   border-bottom: 1px solid var(--line);
   text-align: center;
 }
@@ -639,7 +639,7 @@ button.picker-chip small {
   border-bottom: 0;
   white-space: nowrap;
   text-align: left;
-  background: var(--panel);
+  background: var(--canvas);
   color: var(--text);
 }
 .coverage-matrix tbody tr:hover th[scope="row"] {
@@ -660,9 +660,9 @@ button.picker-chip small {
   padding-left: calc(var(--space-page) - 3px);
 }
 :is(.coverage-matrix td, .data-legend i)[data-cell="full"] {
-  background: color-mix(in oklab, var(--success) 24%, var(--panel));
-  border: 1px solid color-mix(in oklab, var(--success) 60%, var(--panel));
-  color: color-mix(in oklab, var(--success) 76%, white);
+  background: color-mix(in oklab, var(--success) 13%, var(--panel));
+  border: 1px solid color-mix(in oklab, var(--success) 30%, var(--panel));
+  color: var(--text);
 }
 :is(.coverage-matrix td, .data-legend i)[data-cell="pending"] {
   background: color-mix(in oklab, var(--series-2) 26%, var(--panel));
@@ -768,7 +768,7 @@ button.picker-chip small {
 }
 .stored-contracts-list {
   overflow: auto;
-  background: color-mix(in oklab, var(--panel) 55%, var(--canvas));
+  background: var(--pane);
   border-right: 1px solid var(--line);
   padding: var(--space-2);
 }

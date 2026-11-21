@@ -11,6 +11,7 @@
   --canvas: #06080c;
   --panel: #0b0f15;
   --raised: #111720;
+  --pane: color-mix(in oklab, var(--panel) 55%, var(--canvas));
   --hover: #171f2b;
   --pressed: #1e2836;
 
@@ -40,10 +41,10 @@
   --accent-line: color-mix(in oklab, var(--accent) 46%, transparent);
   --accent-glow: 0 0 0 1px rgb(56 214 242 / 35%), 0 0 14px rgb(56 214 242 / 18%);
 
-  /* States. */
-  --success: #34d399;
+  /* States. Red and green are kept for prices, sides and profit. */
+  --success: #8cc8dc;
   --warning: #e5b45a;
-  --danger: #ff5c7a;
+  --danger: #ff8a3d;
   --danger-surface: color-mix(in oklab, var(--danger) 10%, transparent);
 
   /* Market values and analytical series. */
@@ -51,7 +52,7 @@
   --quote-green: #14c49c;
   --quote-up: var(--quote-red);
   --quote-down: var(--quote-green);
-  --quote-activity: #2fc6d6;
+  --quote-activity: var(--text);
   --series-1: #e5b45a;
   --series-2: #58a6ff;
   --series-3: #b48ead;
@@ -90,6 +91,20 @@
   --panel-radius: 4px;
   --space-page: 20px;
   --background-grid: none;
+}
+/* A full screen is read from further away. */
+@media (min-width: 2200px) and (min-height: 1200px) {
+  :root {
+    --font-size-xs: 12px;
+    --font-size-sm: 14px;
+    --font-size-md: 15px;
+    --font-size-lg: 17px;
+    --font-size-xl: 21px;
+    --font-size-2xl: 26px;
+    --row-height: 30px;
+    --control-height: 32px;
+    --space-page: 24px;
+  }
 }
 /* A full screen gives charts the height it has. */
 @media (min-height: 1300px) {

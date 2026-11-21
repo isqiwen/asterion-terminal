@@ -81,12 +81,14 @@
   display: grid;
   grid-template-columns: 200px minmax(0, 1fr);
   flex: 1;
-  gap: var(--space-4);
-  padding: var(--space-4);
 }
 .ctp-account-list {
   display: grid;
+  align-content: start;
   gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--pane);
+  border-right: 1px solid var(--line);
 }
 .ctp-accounts[data-single] {
   grid-template-columns: minmax(0, 1fr);
@@ -117,7 +119,6 @@
 .ctp-account-column {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
   min-width: 0;
 }
 .ctp-account-column > .ctp-account-panel {
@@ -148,10 +149,7 @@
 }
 .ctp-account-panel {
   min-width: 0;
-  border: 1px solid var(--line);
-  border-radius: var(--panel-radius);
-  background: var(--panel);
-  box-shadow: var(--surface-highlight);
+  background: var(--canvas);
 }
 .ctp-account-panel > * {
   margin: 0;
@@ -302,6 +300,8 @@
   }
   .ctp-account-list {
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
   }
   .paper-metrics,
   .ctp-account-panel > form .futures-fields {

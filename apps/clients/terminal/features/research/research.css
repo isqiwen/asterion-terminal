@@ -1,14 +1,22 @@
 /* A research view: modules left, result centre, configuration right and, for
    strategies, every run below. Columns are divided by lines, not boxed. */
 .lab-research {
+  --lab-list: 220px;
+  --lab-config: 320px;
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr) 320px;
+  grid-template-columns: var(--lab-list) minmax(0, 1fr) var(--lab-config);
   grid-template-rows: auto minmax(0, 1fr);
   grid-template-areas:
     "notice notice notice"
     "modules center config";
   height: 100%;
   min-height: 0;
+}
+@media (min-width: 2200px) and (min-height: 1200px) {
+  .lab-research {
+    --lab-list: 280px;
+    --lab-config: 400px;
+  }
 }
 .lab-spacer {
   flex: 1;
@@ -59,7 +67,7 @@ button.lab-link.strong:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   grid-area: modules;
   display: flex;
   flex-direction: column;
-  background: color-mix(in oklab, var(--panel) 55%, var(--canvas));
+  background: var(--pane);
   border-right: 1px solid var(--line);
 }
 .lab-modules > * {
@@ -361,7 +369,7 @@ button.lab-module-item small {
   display: flex;
   flex-direction: column;
   padding-bottom: 0;
-  background: color-mix(in oklab, var(--panel) 55%, var(--canvas));
+  background: var(--pane);
   border-left: 1px solid var(--line);
 }
 .lab-form {
@@ -719,7 +727,7 @@ label.lab-inline {
   min-height: 40px;
   padding: var(--space-2) var(--space-4);
   border-bottom: 1px solid var(--line);
-  background: color-mix(in oklab, var(--panel) 55%, var(--canvas));
+  background: var(--pane);
 }
 .lab-source > header > code {
   margin-right: auto;
@@ -823,10 +831,10 @@ button.lab-module-item[data-context="true"]:not([aria-pressed="true"]),
   color: var(--warning);
 }
 .lab-research[data-folded] {
-  grid-template-columns: 220px minmax(0, 1fr) 40px;
+  grid-template-columns: var(--lab-list) minmax(0, 1fr) 40px;
 }
 .lab-research:not(:has(> .lab-config)) {
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: var(--lab-list) minmax(0, 1fr);
   grid-template-areas:
     "notice notice"
     "modules center";
@@ -1244,13 +1252,8 @@ button.lab-symbol-months:enabled:hover {
 }
 @media (max-width: 1080px) {
   .lab-research {
-    grid-template-columns: 176px minmax(0, 1fr) 236px;
-  }
-  .lab-research[data-folded] {
-    grid-template-columns: 176px minmax(0, 1fr) 40px;
-  }
-  .lab-research:not(:has(> .lab-config)) {
-    grid-template-columns: 176px minmax(0, 1fr);
+    --lab-list: 176px;
+    --lab-config: 236px;
   }
   .lab-modules,
   .lab-config,

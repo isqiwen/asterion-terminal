@@ -129,16 +129,17 @@ async function closeDesktop(application) {
     if (process.platform !== "darwin") {
       // F11 fills the screen and gives the window back.
       const window = await application.browserWindow(page);
-      const pressF11 = () =>
-        window.evaluate(win => {
-          win.focus();
-          win.webContents.focus();
-          win.webContents.sendInputEvent({ type: "keyDown", keyCode: "F11" });
-          win.webContents.sendInputEvent({ type: "keyUp", keyCode: "F11" });
+      const toggle = () =>
+        application.evaluate(({ BrowserWindow, Menu }) => {
+          const item = Menu.getApplicationMenu()
+            .items.flatMap(entry => entry.submenu?.items ?? [])
+            .find(entry => entry.role === "togglefullscreen");
+          item.click(undefined, BrowserWindow.getAllWindows()[0]);
+          return item.accelerator;
         });
-      await pressF11();
+      assert.equal(await toggle(), "F11");
       await expect.poll(() => window.evaluate(win => win.isFullScreen())).toBe(true);
-      await pressF11();
+      await toggle();
       await expect.poll(() => window.evaluate(win => win.isFullScreen())).toBe(false);
     }
     const call = async (method, params = {}) => {

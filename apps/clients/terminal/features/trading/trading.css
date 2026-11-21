@@ -29,9 +29,11 @@
 .strategy-instance .futures-fields > .checkbox {
   grid-column: 1 / -1;
 }
-.strategy-instance fieldset fieldset {
-  border: 1px solid var(--line);
-  padding: var(--space-3);
+.strategy-instance fieldset legend {
+  margin-bottom: var(--space-2);
+  padding: 0;
+  color: var(--muted);
+  font-size: var(--font-size-body);
 }
 .strategy-instance select {
   min-width: 0;
@@ -52,6 +54,11 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3);
+}
+.strategy-contracts > p {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--muted);
 }
 .strategy-parameter {
   display: grid;
@@ -152,6 +159,11 @@
   grid-template-columns: minmax(0, 1fr) 340px;
   padding: 0;
 }
+@media (min-width: 2200px) and (min-height: 1200px) {
+  .ctp-account-panel > .ctp-trade-body {
+    grid-template-columns: minmax(0, 1fr) 420px;
+  }
+}
 .ctp-trade-records {
   min-width: 0;
   padding: var(--space-3) var(--space-page);
@@ -166,6 +178,7 @@
   gap: var(--space-3);
   min-width: 0;
   padding: var(--space-3) var(--space-4);
+  background: var(--pane);
   border-left: 1px solid var(--line);
 }
 .ctp-trade-side .futures-fields {
@@ -179,7 +192,7 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   padding: var(--space-2) 0;
-  background: var(--panel);
+  background: var(--pane);
 }
 @media (max-height: 820px) {
   .order-book button {
@@ -281,9 +294,11 @@
 .ctp-strategy-body {
   display: grid;
   grid-template-columns: minmax(380px, 480px) minmax(0, 1fr);
-  gap: var(--space-4);
-  align-items: start;
-  padding: var(--space-4);
+  flex: 1;
+}
+.ctp-strategy-versions {
+  background: var(--pane);
+  border-right: 1px solid var(--line);
 }
 .ctp-strategy-body > .ctp-account-panel > * {
   padding: var(--space-3) var(--space-4);
@@ -291,6 +306,10 @@
 @media (max-width: 1100px) {
   .ctp-strategy-body {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .ctp-strategy-versions {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
   }
   /* A running strategy's controls come before the versions. */
   .ctp-strategy-body[data-running] > .ctp-strategy-versions {
@@ -301,10 +320,9 @@
 .strategy-card {
   display: grid;
   gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--accent-line);
-  border-radius: var(--panel-radius);
-  background: var(--accent-surface);
+  padding: var(--space-3) var(--space-page);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
 }
 .strategy-card header {
   display: flex;

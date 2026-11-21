@@ -191,12 +191,13 @@ function priceExtremesPrimitive(
   items: readonly { index: number; price: string }[],
   color: string,
   fontFamily: string,
+  fontSize: number,
 ): IPanePrimitive<Time> {
   const renderer: IPrimitivePaneRenderer = {
     draw(target) {
       target.useMediaCoordinateSpace(({ context, mediaSize }) => {
         context.save();
-        context.font = `500 11px ${fontFamily}`;
+        context.font = `500 ${fontSize}px ${fontFamily}`;
         context.textBaseline = "middle";
         context.fillStyle = color;
         for (const item of items) {
@@ -360,7 +361,7 @@ export function PriceChart(props: Props) {
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
         textColor: text,
-        fontSize: 11,
+        fontSize: Number.parseFloat(css.getPropertyValue("--font-size-xs")) || 11,
         attributionLogo: false,
         panes: { separatorColor: line, separatorHoverColor: line },
       },
@@ -893,6 +894,7 @@ export function PriceChart(props: Props) {
       items,
       color("--muted", "#999faa"),
       fontFamily,
+      Number.parseFloat(color("--font-size-xs", "11")),
     );
     pane.attachPrimitive(primitive);
     extremesPrimitive.current = primitive;

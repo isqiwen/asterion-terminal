@@ -109,7 +109,7 @@ export function TermStructureChart({
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
         textColor: text,
-        fontSize: 11,
+        fontSize: Number.parseFloat(css.getPropertyValue("--font-size-xs")) || 11,
         attributionLogo: false,
       },
       grid: { vertLines: { color: grid }, horzLines: { color: grid } },
