@@ -62,18 +62,21 @@ test(
     });
     await page.goto("/");
     await openView(page, "research");
+    await page.getByRole("button", { name: "修改", exact: true }).click();
+    const scope = page.getByRole("dialog", { name: "回测口径" });
+    await scope.getByRole("combobox", { name: "品种" }).fill("SHFE/rb");
+    await scope.getByRole("combobox", { name: "品种" }).press("Escape");
+    await scope.getByLabel("开始日").fill("2026-01-05");
+    await scope.getByLabel("结束日").fill("2026-02-13");
+    for (const label of ["单笔手数", "单合约持仓手数", "账户总持仓手数"])
+      await scope.getByLabel(label, { exact: true }).fill("10");
+    await scope.getByLabel("总权重上限", { exact: true }).fill("0.4");
+    await scope.getByLabel("净权重上限", { exact: true }).fill("0.2");
+    await scope.getByRole("button", { name: "完成", exact: true }).click();
     await page.getByRole("button", { name: "DeploymentProbe", exact: true }).click();
     const research = page.locator(".lab-research");
-    await research.getByLabel("品种", { exact: true }).fill("SHFE/rb");
-    await research.getByLabel("开始日").fill("2026-01-05");
-    await research.getByLabel("结束日").fill("2026-02-13");
     await research.getByLabel("fast").fill("2");
     await research.getByLabel("slow").fill("4");
-    await research.getByText("资金与风控", { exact: true }).click();
-    for (const label of ["单笔手数", "单合约持仓手数", "账户总持仓手数"])
-      await research.getByLabel(label, { exact: true }).fill("10");
-    await research.getByLabel("总权重上限", { exact: true }).fill("0.4");
-    await research.getByLabel("净权重上限", { exact: true }).fill("0.2");
     await research.getByRole("button", { name: "运行", exact: true }).click();
     await expect(page.getByRole("heading", { name: "月度收益" })).toBeVisible({ timeout: 30000 });
     const [run] = (

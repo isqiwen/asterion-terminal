@@ -1,8 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 import { EditorView } from "codemirror";
-import { expect, test, vi } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { lab } from "../../src/bridge/lab";
+import { Period } from "../../src/generated/asterion/common_pb";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import {
   RunDetailSchema,
@@ -25,6 +26,14 @@ vi.mock("../../src/i18n", async original => ({
     values ? `${key} ${Object.values(values).join(" ")}` : key,
 }));
 vi.mock("@asterion/terminal/charts/PriceChart", () => ({ PriceChart: () => null }));
+
+beforeEach(() => localStorage.clear());
+
+const editScope = (edit: () => void) => {
+  fireEvent.click(screen.getByRole("button", { name: "修改" }));
+  edit();
+  fireEvent.click(screen.getByRole("button", { name: "完成" }));
+};
 
 const editor = () => EditorView.findFromDOM(document.querySelector(".cm-editor") as HTMLElement)!;
 
@@ -96,16 +105,19 @@ test("an unsaved edit is saved before the run reads it, and the run opens its re
       <StrategyLab {...context} />
     </WorkspaceDraftScope>,
   );
+  fireEvent.click(await screen.findByRole("button", { name: "Once" }));
   await waitFor(() => expect(editor().state.doc.toString()).toBe("LOTS = 1\n"));
   editor().dispatch({ changes: { from: 7, to: 8, insert: "2" } });
-  fireEvent.focus(screen.getByLabelText("品种"));
-  fireEvent.click(screen.getByRole("option", { name: /SHFE\/rb/ }));
+  editScope(() => {
+    fireEvent.focus(screen.getByLabelText("品种"));
+    fireEvent.click(screen.getByRole("option", { name: /SHFE\/rb/ }));
+  });
   fireEvent.click(screen.getByRole("button", { name: "运行" }));
 
   // The edit was saved first and the report opens in place while keeping the config panel live.
   await screen.findByText("已保存 {files} strategies/once.py");
   expect(order).toEqual(["saved LOTS = 2\n", "ran with LOTS = 2\n"]);
-  expect(await screen.findByRole("button", { name: "← 源码" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "在回测中打开" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "运行" })).toBeTruthy();
 
   fireEvent.click(screen.getByRole("button", { name: "在回测中打开" }));
@@ -117,8 +129,8 @@ test("an unsaved edit is saved before the run reads it, and the run opens its re
     params: { run: startedId },
   });
 
-  // Returning to source shows the saved code.
-  fireEvent.click(screen.getByRole("button", { name: "← 源码" }));
+  // The code tab shows what was saved.
+  fireEvent.click(screen.getByRole("button", { name: "代码" }));
   await waitFor(() => expect(editor().state.doc.toString()).toBe("LOTS = 2\n"));
 });
 
@@ -149,6 +161,8 @@ test("only a successful individual run offers deployment from a restored report"
   const namespace = "workspace.lab-strategies";
   const reportKey = JSON.stringify([namespace, "strategy-report:/research"]);
   drafts.write(reportKey, { kind: "run", id: "failed" });
+  drafts.write(JSON.stringify([namespace, "strategy-view"]), "detail");
+  drafts.write(JSON.stringify([namespace, "strategy-tab"]), "result");
   const context = {
     snapshot: { research_directory: "/research" },
     navigate: vi.fn(),
@@ -173,7 +187,7 @@ test("only a successful individual run offers deployment from a restored report"
   });
 });
 
-test("the first strategy opens automatically and its configuration can fold away", async () => {
+test("the library comes first, and a strategy without a run opens on its code", async () => {
   vi.mocked(lab).mockReset();
   vi.mocked(lab).mockImplementation(async operation => {
     switch (operation?.case) {
@@ -192,12 +206,15 @@ test("the first strategy opens automatically and its configuration can fold away
       <StrategyLab {...context} />
     </WorkspaceDraftScope>,
   );
+  fireEvent.click(await screen.findByRole("button", { name: "Once" }));
   expect(await screen.findByRole("button", { name: "运行" })).toBeTruthy();
   await waitFor(() => expect(editor().state.doc.toString()).toBe("x = 1\n"));
   fireEvent.click(screen.getByRole("button", { name: "收起配置" }));
   expect(screen.queryByRole("button", { name: "运行" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "展开配置" }));
   expect(screen.getByRole("button", { name: "运行" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "← 策略库" }));
+  expect(screen.getByRole("table", { name: "策略库" })).toBeTruthy();
 });
 
 test("recent runs open in place and loadRun populates the form", async () => {
@@ -244,19 +261,14 @@ test("recent runs open in place and loadRun populates the form", async () => {
       <StrategyLab {...context} />
     </WorkspaceDraftScope>,
   );
-  await waitFor(() =>
-    expect(screen.getByRole("button", { name: "移除 {symbol} SHFE/rb" })).toBeTruthy(),
-  );
-  const fastInput = screen.getByLabelText("fast") as HTMLInputElement;
-  expect(fastInput.value).toBe("8");
+  const fastInput = (await screen.findByLabelText("fast")) as HTMLInputElement;
+  await waitFor(() => expect(fastInput.value).toBe("8"));
   expect(fastInput.placeholder).toBe("3");
-  fireEvent.click(screen.getByRole("button", { name: /^Once/ }));
-  expect((screen.getByLabelText("fast") as HTMLInputElement).value).toBe("8");
   expect(context.navigate).toHaveBeenCalledWith("workspace.lab-strategies", {});
-
-  const funds = screen.getByText("资金与风控").closest("details")!;
-  expect(funds.open).toBe(false);
-  expect((screen.getByLabelText("初始资金") as HTMLInputElement).value).toBe("500000");
+  editScope(() => {
+    expect(screen.getByRole("button", { name: "移除 {symbol} SHFE/rb" })).toBeTruthy();
+    expect((screen.getByLabelText("初始资金") as HTMLInputElement).value).toBe("500000");
+  });
   const processesInput = screen.getByLabelText("并行进程数") as HTMLInputElement;
   expect(processesInput.value).toBe(String(Math.max(1, (navigator.hardwareConcurrency || 2) - 1)));
   expect(processesInput.placeholder).toBe(processesInput.value);
@@ -331,20 +343,25 @@ test("multiple symbols default to separate runs for single-symbol strategies and
       <StrategyLab {...context} />
     </WorkspaceDraftScope>,
   );
+  fireEvent.click(await screen.findByRole("button", { name: "Breakout" }));
   await screen.findByRole("button", { name: "运行" });
   expect(screen.queryByRole("radio", { name: "分别回测" })).toBeNull();
 
-  fireEvent.focus(screen.getByLabelText("品种"));
-  fireEvent.click(screen.getByRole("option", { name: /SHFE\/rb/ }));
-  expect(screen.queryByRole("radio", { name: "分别回测" })).toBeNull();
-  fireEvent.click(screen.getByRole("option", { name: /DCE\/i/ }));
+  editScope(() => {
+    fireEvent.focus(screen.getByLabelText("品种"));
+    fireEvent.click(screen.getByRole("option", { name: /SHFE\/rb/ }));
+    expect(screen.queryByRole("radio", { name: "分别回测" })).toBeNull();
+    fireEvent.click(screen.getByRole("option", { name: /DCE\/i/ }));
+  });
   expect((screen.getByRole("radio", { name: "分别回测" }) as HTMLInputElement).checked).toBe(true);
 
   fireEvent.click(screen.getByRole("button", { name: "运行" }));
   await waitFor(() => expect(calls).toEqual([{ kind: "sweep", symbols: ["SHFE/rb", "DCE/i"] }]));
   expect(await screen.findByText("2020-01-02 – 2026-02-13")).toBeTruthy();
 
-  fireEvent.click(screen.getByRole("button", { name: "CompositePortfolio" }));
+  fireEvent.change(screen.getByLabelText("切换策略"), {
+    target: { value: "composite.CompositePortfolio" },
+  });
   expect((screen.getByRole("radio", { name: "组合合跑" }) as HTMLInputElement).checked).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "运行" }));
   await waitFor(() =>
@@ -414,6 +431,7 @@ test("editor indents four spaces on Tab, saves on Ctrl+S, and duplicates or dele
       <StrategyLab {...context} />
     </WorkspaceDraftScope>,
   );
+  fireEvent.click(await screen.findByRole("button", { name: "Builtin" }));
   const imported = await waitFor(() => {
     const element = document.querySelector('[data-module="strategies/_common.py"]');
     expect(element).toBeTruthy();
@@ -432,6 +450,7 @@ test("editor indents four spaces on Tab, saves on Ctrl+S, and duplicates or dele
     expect(screen.getByRole("region", { name: "strategies/builtin.py" })).toBeTruthy(),
   );
   expect(screen.queryByRole("button", { name: /^返回/ })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "← 策略库" }));
   fireEvent.contextMenu(screen.getByRole("button", { name: "Builtin" }));
   await waitFor(() =>
     expect((screen.getByRole("menuitem", { name: "复制" }) as HTMLButtonElement).disabled).toBe(
@@ -467,16 +486,16 @@ test("editor indents four spaces on Tab, saves on Ctrl+S, and duplicates or dele
       "    from strategies._common import helper\nclass Custom(Strategy):\n    pass\n    ",
     ),
   );
-  const copyRow = await screen.findByRole("button", { name: "Custom" });
-  await waitFor(() => expect(copyRow.getAttribute("aria-pressed")).toBe("true"));
-  fireEvent.contextMenu(copyRow);
+  await waitFor(() =>
+    expect((screen.getByLabelText("切换策略") as HTMLSelectElement).value).toBe("aaaaa.Custom"),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "← 策略库" }));
+  fireEvent.contextMenu(await screen.findByRole("button", { name: "Custom" }));
   const del = await screen.findByRole("menuitem", { name: "删除" });
   fireEvent.click(del);
   fireEvent.click(screen.getByRole("menuitem", { name: "确认删除 {name} strategies/aaaaa.py" }));
   await waitFor(() => expect(screen.queryByRole("button", { name: "Custom" })).toBeNull());
-  await waitFor(() =>
-    expect(screen.getByRole("region", { name: "strategies/builtin.py" })).toBeTruthy(),
-  );
+  expect(screen.getByRole("button", { name: "Builtin" })).toBeTruthy();
   expect(screen.queryByRole("alert")).toBeNull();
 });
 
@@ -489,10 +508,29 @@ test("selected strategies run as one batch and compare on the same settings", as
     symbols: ["SHFE/rb"],
     firstDay: "2026-01-05",
     lastDay: "2026-02-13",
+    period: Period.DAY,
+    settings: {
+      deposit: { text: "1000000" },
+      slippageTicks: 1,
+      limits: {
+        maxOrderLots: { text: "100" },
+        maxContractLots: { text: "500" },
+        maxGrossLots: { text: "2000" },
+        maxWorkingOrders: 64,
+      },
+      maxGrossWeight: { text: "1" },
+      maxNetWeight: { text: "1" },
+      periodsPerYear: 252,
+      zeroRiskFreeRate: true,
+    },
     error: state === RunState.FAILED ? "no data" : "",
     params: { __strategy__: { value: { case: "text" as const, value: strategy } } },
     metrics: (sharpe === undefined ? {} : { sharpe }) as Record<string, number>,
   });
+  const finished = () => [
+    member("batch-0", "a.Alpha", RunState.SUCCEEDED, 1.5),
+    member("batch-1", "b.Beta", RunState.FAILED),
+  ];
   vi.mocked(lab).mockReset();
   vi.mocked(lab).mockImplementation(async operation => {
     switch (operation?.case) {
@@ -507,7 +545,7 @@ test("selected strategies run as one batch and compare on the same settings", as
           ],
         }) as never;
       case "listRecentRuns":
-        return create(RunsSchema, {}) as never;
+        return create(RunsSchema, { runs: started.length ? finished() : [] }) as never;
       case "readSource":
         return create(SourceSchema, { content: "x = 1\n" }) as never;
       case "startSweep":
@@ -516,10 +554,7 @@ test("selected strategies run as one batch and compare on the same settings", as
       case "getSweep":
         return create(SweepRunsSchema, {
           active: false,
-          runs: [
-            member("batch-0", "a.Alpha", RunState.SUCCEEDED, 1.5),
-            member("batch-1", "b.Beta", RunState.FAILED),
-          ],
+          runs: finished(),
         }) as never;
     }
     return new Promise(() => {}) as never;
@@ -533,13 +568,13 @@ test("selected strategies run as one batch and compare on the same settings", as
       <StrategyLab {...context} />
     </WorkspaceDraftScope>,
   );
-  await screen.findByText("strategies/a.py");
-  fireEvent.click(screen.getByRole("button", { name: /^策略库/ }));
   fireEvent.click(await screen.findByLabelText("选择 {name} a.Alpha"));
   fireEvent.click(screen.getByLabelText("选择 {name} b.Beta"));
-  fireEvent.change(screen.getByPlaceholderText("选择品种或合约…"), {
-    target: { value: "SHFE/rb," },
-  });
+  editScope(() =>
+    fireEvent.change(screen.getByPlaceholderText("选择品种或合约…"), {
+      target: { value: "SHFE/rb," },
+    }),
+  );
   fireEvent.click(screen.getByRole("button", { name: "批量回测（{count}） 2" }));
   await waitFor(() => expect(started).toHaveLength(1));
   expect(started[0]!.strategies!.map(item => item.strategy)).toEqual(["a.Alpha", "b.Beta"]);
@@ -548,5 +583,5 @@ test("selected strategies run as one batch and compare on the same settings", as
   });
   expect(await screen.findByText("1.500")).toBeTruthy();
   expect(screen.getByText("失败")).toBeTruthy();
-  expect(screen.queryByRole("complementary", { name: "批量回测" })).toBeNull();
+  expect(screen.queryByText("口径不同")).toBeNull();
 });

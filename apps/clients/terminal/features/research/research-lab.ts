@@ -95,6 +95,79 @@ export function defaultForm(): RunForm {
   };
 }
 
+const scopeKey = "asterion.research.scope";
+const scopeFields = [
+  "symbols",
+  "begin",
+  "end",
+  "minutes",
+  "deposit",
+  "slippage",
+  "maxOrderLots",
+  "maxContractLots",
+  "maxGrossLots",
+  "maxWorkingOrders",
+  "maxGrossWeight",
+  "maxNetWeight",
+  "maxMarginRatio",
+  "minRebalanceWeight",
+  "annualPeriods",
+  "zeroRiskFree",
+  "holdoutDay",
+] as const;
+
+// The form, on the settings the last session left.
+export function savedForm(): RunForm {
+  const form: Record<string, unknown> = defaultForm();
+  try {
+    const saved = JSON.parse(localStorage.getItem(scopeKey) ?? "{}");
+    for (const field of scopeFields)
+      if (typeof saved[field] === typeof form[field]) form[field] = saved[field];
+  } catch {
+    // A damaged entry leaves the defaults.
+  }
+  return form as RunForm;
+}
+
+export function saveScope(form: RunForm) {
+  localStorage.setItem(
+    scopeKey,
+    JSON.stringify(Object.fromEntries(scopeFields.map(field => [field, form[field]]))),
+  );
+}
+
+// Whether a run was measured on the form's settings. `begin` and `end` are what
+// blank days resolve to; a day not yet known matches any.
+export function onScope(form: RunForm, run: RunSummary, begin: string, end: string) {
+  const settings = run.settings;
+  if (!settings) return false;
+  const symbols = symbolsOf(form.symbols);
+  const day = (value: string, stored: string, actual: string) =>
+    !/^\d/.test(value || stored) || (value || stored) === actual;
+  const same = (text: string, value?: { text: string }) =>
+    Number(text || 0) === Number(value?.text || 0);
+  return (
+    symbols.length === run.symbols.length &&
+    symbols.every(symbol => run.symbols.includes(symbol)) &&
+    day(form.begin, begin, run.firstDay) &&
+    day(form.end, end, run.lastDay) &&
+    protocolPeriod(form.minutes === "0" ? "day" : Number(form.minutes)) === run.period &&
+    same(form.deposit, settings.deposit) &&
+    Number(form.slippage) === settings.slippageTicks &&
+    same(form.maxOrderLots, settings.limits?.maxOrderLots) &&
+    same(form.maxContractLots, settings.limits?.maxContractLots) &&
+    same(form.maxGrossLots, settings.limits?.maxGrossLots) &&
+    Number(form.maxWorkingOrders) === settings.limits?.maxWorkingOrders &&
+    same(form.maxGrossWeight, settings.maxGrossWeight) &&
+    same(form.maxNetWeight, settings.maxNetWeight) &&
+    same(form.maxMarginRatio, settings.maxMarginRatio) &&
+    same(form.minRebalanceWeight, settings.minRebalanceWeight) &&
+    (Number(form.annualPeriods) || 0) === settings.periodsPerYear &&
+    form.zeroRiskFree === settings.zeroRiskFreeRate &&
+    form.holdoutDay === settings.holdoutDay
+  );
+}
+
 export function symbolsOf(text: string) {
   return text
     .split(/[\s,，]+/)

@@ -39,15 +39,17 @@ test(
     await expect(
       page.getByRole("button", { name: "RandomFeatureForecast", exact: true }),
     ).toBeVisible();
-    await page.getByRole("button", { name: /MaCross/ }).click();
-    const form = page.locator(".lab-research");
-    await form.getByLabel("品种", { exact: true }).fill("SHFE/rb");
-    await form.getByLabel("开始日").fill("2026-01-05");
-    await form.getByLabel("结束日").fill("2026-02-13");
-    await form.getByText("资金与风控", { exact: true }).click();
-    await form.getByLabel("单笔手数").fill("10");
-    await form.getByLabel("单合约持仓手数").fill("10");
-    await form.getByLabel("账户总持仓手数").fill("10");
+    await page.getByRole("button", { name: "修改", exact: true }).click();
+    const scope = page.getByRole("dialog", { name: "回测口径" });
+    await scope.getByRole("combobox", { name: "品种" }).fill("SHFE/rb");
+    await scope.getByRole("combobox", { name: "品种" }).press("Escape");
+    await scope.getByLabel("开始日").fill("2026-01-05");
+    await scope.getByLabel("结束日").fill("2026-02-13");
+    await scope.getByLabel("单笔手数").fill("10");
+    await scope.getByLabel("单合约持仓手数").fill("10");
+    await scope.getByLabel("账户总持仓手数").fill("10");
+    await scope.getByRole("button", { name: "完成", exact: true }).click();
+    await page.getByRole("button", { name: "MaCross", exact: true }).click();
 
     await backtest(page, "2", "4");
     await expect(page.getByText(/^成交（[1-9]\d* 笔）$/)).toBeVisible();

@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { lab } from "../../src/bridge/lab";
 import { RunState, type RunSummary } from "../../src/generated/asterion/lab_pb";
 import { Environment, InstanceState } from "../../src/generated/asterion/trading_pb";
 import { useSequentialPoll } from "../../src/host/polling";
 import type { TradingAccounts } from "../../src/host/trading-accounts";
-import { type MessageValues, translate, listSeparator } from "../../src/i18n";
+import { type MessageValues, translate } from "../../src/i18n";
 import { StatusBadge, type Tone } from "../../src/ui/StatusBadge";
-import { type ModuleItem, useLibrarySort } from "./LabParts";
-import { metric, periodText, runTones, shortTime, signed, states } from "./ResearchResult";
+import { filterModuleItems, type ModuleItem, useLibrarySort } from "./LabParts";
+import { metric, runTones, shortTime, signed, states } from "./ResearchResult";
 import { batchStrategy, runState } from "./research-lab";
 
 const t = (key: string, values?: MessageValues) =>
@@ -21,7 +21,6 @@ const stages: readonly (readonly [string, Tone])[] = [
 ];
 const figures = [
   ["total_return", "总收益", true],
-  ["annual_return", "年化收益", true],
   ["sharpe", "夏普比率", false],
   ["holdout_sharpe", "留出夏普", false],
   ["max_drawdown", "最大回撤", true],
@@ -43,11 +42,9 @@ function stageOf(views: TradingAccounts["views"], strategy: string, tested: bool
   return tested ? 0 : undefined;
 }
 
-export type LibraryScope = "all" | "batch";
 export type StrategyBatch = { id: string; runs: readonly RunSummary[]; active: boolean };
 
-// A batch's runs, read until the last one ends. One deleted from the backtest
-// records reads as none, and the library shows all strategies again.
+// A batch's runs, read until the last one ends.
 export function useStrategyBatch(id: string, ended: () => void) {
   const [batch, setBatch] = useState<StrategyBatch | null>(null);
   useSequentialPoll(
@@ -70,25 +67,40 @@ export function useStrategyBatch(id: string, ended: () => void) {
   return batch?.id === id ? batch : null;
 }
 
-// Every strategy beside its latest successful backtest and how far it has gone
-// toward trading; or one batch's strategies, all on the same settings.
+// The run a strategy ranks by: its latest success on the current settings, or
+// else its latest success. Runs are newest first.
+export function rankedRun(
+  runs: readonly RunSummary[],
+  strategy: string,
+  onScope?: (run: RunSummary) => boolean,
+) {
+  const own = runs.filter(run => run.strategy === strategy && run.state === RunState.SUCCEEDED);
+  return own.find(run => !onScope || onScope(run)) ?? own[0];
+}
+
+// Every strategy beside its result on the current settings. Results on other
+// settings and strategies without one are listed apart, so they never rank.
 export function StrategyLibrary({
   items,
-  total,
   runs,
   views,
   chosen,
   selected,
   setSelected,
   batch,
-  scope,
-  setScope,
+  onScope,
+  search,
+  setSearch,
+  busy,
+  startBatch,
   cancelBatch,
   open,
-  openRun,
+  contextTarget,
+  onMenu,
+  newModule,
+  notices,
 }: {
   items: readonly ModuleItem[];
-  total: number;
   // Newest first.
   runs: readonly RunSummary[];
   views: TradingAccounts["views"];
@@ -96,37 +108,37 @@ export function StrategyLibrary({
   selected: readonly string[];
   setSelected: (next: string[]) => void;
   batch: StrategyBatch | null;
-  scope: LibraryScope;
-  setScope: (scope: LibraryScope) => void;
+  // Absent until the settings name a symbol.
+  onScope?: (run: RunSummary) => boolean;
+  search: string;
+  setSearch: (search: string) => void;
+  busy: boolean;
+  startBatch: () => void;
   cancelBatch: () => void;
-  open: (item: ModuleItem) => void;
-  openRun: (item: ModuleItem, run: string) => void;
+  open: (item: ModuleItem, run?: string) => void;
+  contextTarget?: string;
+  onMenu: (path: string, x: number, y: number, symbol?: string, target?: string) => void;
+  newModule: ReactNode;
+  notices: ReactNode;
 }) {
   const { heading, sorted, status } = useLibrarySort<LibraryKey>("sharpe");
   const [groupFilter, setGroupFilter] = useState("");
+  const filterName = useId();
   const selectAllRef = useRef<HTMLInputElement>(null);
   const groups = [...new Set(items.map(item => item.group!))].sort();
-  // A search can leave the filtered group with no rows, and so without its option.
+  // Deleting a group's last strategy removes its option.
   const activeGroup = groups.includes(groupFilter) ? groupFilter : "";
-  const shownBatch = scope === "batch" ? batch : null;
-  const memberOf = (id: string) => shownBatch?.runs.find(run => batchStrategy(run) === id);
+  const members = batch?.active ? batch.runs : [];
   const rows = sorted(
-    items
+    filterModuleItems(items, search)
       .filter(item => !activeGroup || item.group === activeGroup)
-      .filter(item => !shownBatch || memberOf(item.id))
       .map(item => {
-        const latest = shownBatch
-          ? memberOf(item.id)
-          : runs.find(entry => entry.strategy === item.id);
-        const run =
-          latest?.state === RunState.SUCCEEDED
-            ? latest
-            : shownBatch
-              ? undefined
-              : runs.find(
-                  entry => entry.strategy === item.id && entry.state === RunState.SUCCEEDED,
-                );
-        return { item, run, latest, stage: stageOf(views, item.id, Boolean(run)) };
+        const member = members.find(run => batchStrategy(run) === item.id);
+        const own = runs.filter(entry => entry.strategy === item.id);
+        const run = rankedRun(member ? [member, ...own] : own, item.id, onScope);
+        const latest = member ?? own.find(entry => !onScope || onScope(entry)) ?? own[0];
+        const place = !run ? 2 : !onScope || onScope(run) ? 0 : 1;
+        return { item, run, latest, place, stage: stageOf(views, item.id, Boolean(run)) };
       }),
     (row, key) =>
       key === "stage"
@@ -142,35 +154,106 @@ export function StrategyLibrary({
   useEffect(() => {
     if (selectAllRef.current) selectAllRef.current.indeterminate = someShown;
   }, [someShown]);
-  // The settings panel takes the width of what it sets.
-  const compact = selected.length > 0;
   const ended = batch?.runs.filter(
     run => run.state !== RunState.UNSPECIFIED && run.state !== RunState.RUNNING,
   ).length;
-  if (!total) return <div className="lab-center" />;
+  const row = ({ item, run, latest, stage }: (typeof rows)[number]) => {
+    const checked = selected.includes(item.id);
+    const unfinished = latest && latest.state !== RunState.SUCCEEDED;
+    const idle = run?.metrics.fills === 0;
+    return (
+      <tr
+        key={item.id}
+        className={checked ? "selected" : item.id === chosen ? "current" : undefined}
+        data-empty={run && !idle ? undefined : true}
+        data-context={contextTarget === item.id || undefined}
+        title={item.description}
+        onClick={() => open(item, run?.id)}
+        onContextMenu={event => {
+          event.preventDefault();
+          onMenu(`strategies/${item.module}.py`, event.clientX, event.clientY, item.name, item.id);
+        }}
+      >
+        <td className="lab-check-col" onClick={event => event.stopPropagation()}>
+          <input
+            type="checkbox"
+            aria-label={t("选择 {name}", { name: item.id })}
+            checked={checked}
+            onChange={event =>
+              setSelected(
+                event.target.checked
+                  ? [...selected, item.id]
+                  : selected.filter(id => id !== item.id),
+              )
+            }
+          />
+        </td>
+        <th scope="row">
+          <button
+            type="button"
+            className="lab-link strong"
+            onClick={event => {
+              event.stopPropagation();
+              open(item, run?.id);
+            }}
+          >
+            {item.name}
+          </button>
+        </th>
+        <td className="numeric">
+          {stage !== undefined && (
+            <StatusBadge tone={stages[stage]![1]}>{t(stages[stage]![0])}</StatusBadge>
+          )}
+        </td>
+        {figures.map(([key, , percent]) => {
+          const value = run?.metrics[key];
+          return (
+            <td key={key} className={`numeric ${key.endsWith("return") ? signed(value) : ""}`}>
+              {run && metric(value, percent)}
+            </td>
+          );
+        })}
+        <td className="subtle numeric" title={unfinished ? latest.error : undefined}>
+          {unfinished ? (
+            <StatusBadge tone={runTones[runState(latest.state)] ?? "neutral"}>
+              {t(states[runState(latest.state)] ?? "未开始")}
+            </StatusBadge>
+          ) : idle ? (
+            <StatusBadge tone="neutral">{t("无成交")}</StatusBadge>
+          ) : (
+            run && shortTime(run.startedMs)
+          )}
+        </td>
+      </tr>
+    );
+  };
   return (
     <div className="lab-center lab-library-view">
       <div className="lab-toolbar">
-        <label className="lab-inline">
-          <span>{t("类型")}</span>
-          <select value={activeGroup} onChange={event => setGroupFilter(event.target.value)}>
-            <option value="">{t("全部")}</option>
-            {groups.map(group => (
-              <option key={group} value={group}>
-                {group}
-              </option>
-            ))}
-          </select>
-        </label>
-        {batch && (
-          <label className="lab-inline">
-            <span>{t("范围")}</span>
-            <select value={scope} onChange={event => setScope(event.target.value as LibraryScope)}>
-              <option value="all">{t("全部策略")}</option>
-              <option value="batch">{t("本次批量")}</option>
-            </select>
-          </label>
-        )}
+        <input
+          type="search"
+          aria-label={t("搜索策略")}
+          placeholder={t("搜索策略")}
+          spellCheck={false}
+          autoCorrect="off"
+          autoCapitalize="none"
+          value={search}
+          onChange={event => setSearch(event.target.value)}
+        />
+        <fieldset className="lab-segmented">
+          <legend className="sr-only">{t("类型")}</legend>
+          {["", ...groups].map(group => (
+            <label key={group}>
+              <input
+                type="radio"
+                name={filterName}
+                checked={activeGroup === group}
+                onChange={() => setGroupFilter(group)}
+              />
+              {group || t("全部")}
+            </label>
+          ))}
+        </fieldset>
         {batch?.active && (
           <>
             <span className="subtle numeric">
@@ -187,11 +270,19 @@ export function StrategyLibrary({
             {t("清空选择")}
           </button>
         )}
+        {newModule}
+        <button
+          type="button"
+          className="primary"
+          disabled={busy || selected.length < 2}
+          onClick={startBatch}
+        >
+          {selected.length ? t("批量回测（{count}）", { count: selected.length }) : t("批量回测")}
+        </button>
       </div>
+      {notices}
       {status}
-      {!rows.length ? (
-        <p className="subtle">{t("没有匹配的模块")}</p>
-      ) : (
+      {rows.length > 0 ? (
         <div
           className="lab-scroll lab-library-scroll"
           tabIndex={0}
@@ -221,118 +312,29 @@ export function StrategyLibrary({
                 </th>
                 {heading("stage", t("阶段"))}
                 {figures.map(([key, label]) => heading(key, t(label)))}
-                {!compact && <th scope="col">{t("品种")}</th>}
-                {!compact && <th scope="col">{t("区间")}</th>}
                 {heading("started", t("最近回测"))}
               </tr>
             </thead>
-            <tbody>
-              {rows.map(({ item, run, latest, stage }) => {
-                const checked = selected.includes(item.id);
-                const unfinished = latest && latest.state !== RunState.SUCCEEDED;
-                const idle = run?.metrics.fills === 0;
-                return (
-                  <tr
-                    key={item.id}
-                    className={checked ? "selected" : item.id === chosen ? "current" : undefined}
-                    data-empty={run && !idle ? undefined : true}
-                    title={item.description}
-                    onClick={() => open(item)}
-                  >
-                    <td className="lab-check-col" onClick={event => event.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        aria-label={t("选择 {name}", { name: item.id })}
-                        checked={checked}
-                        onChange={event =>
-                          setSelected(
-                            event.target.checked
-                              ? [...selected, item.id]
-                              : selected.filter(id => id !== item.id),
-                          )
-                        }
-                      />
-                    </td>
-                    <th scope="row">
-                      <button
-                        type="button"
-                        className="lab-link strong"
-                        onClick={event => {
-                          event.stopPropagation();
-                          open(item);
-                        }}
-                      >
-                        {item.name}
-                      </button>
-                    </th>
-                    <td className="numeric">
-                      {stage === undefined ? (
-                        "—"
-                      ) : (
-                        <StatusBadge tone={stages[stage]![1]}>{t(stages[stage]![0])}</StatusBadge>
-                      )}
-                    </td>
-                    {figures.map(([key, label, percent]) => {
-                      const value = run?.metrics[key];
-                      return (
-                        <td
-                          key={key}
-                          className={`numeric ${key.endsWith("return") ? signed(value) : ""}`}
-                        >
-                          {key === "total_return" && run ? (
-                            <button
-                              type="button"
-                              className="lab-link"
-                              aria-label={t("{name} {figure}", {
-                                name: item.name,
-                                figure: t(label),
-                              })}
-                              onClick={event => {
-                                event.stopPropagation();
-                                openRun(item, run.id);
-                              }}
-                            >
-                              {metric(value, percent)}
-                            </button>
-                          ) : (
-                            metric(value, percent)
-                          )}
-                        </td>
-                      );
-                    })}
-                    {!compact && (
-                      <td className="subtle" title={run?.symbols.join(listSeparator())}>
-                        {!run
-                          ? "—"
-                          : run.symbols.length === 1
-                            ? run.symbols[0]
-                            : t("{count} 个品种", { count: run.symbols.length })}
-                      </td>
-                    )}
-                    {!compact && (
-                      <td className="subtle">
-                        {run ? `${run.firstDay} – ${run.lastDay} · ${periodText(run.period)}` : "—"}
-                      </td>
-                    )}
-                    <td className="subtle numeric" title={unfinished ? latest.error : undefined}>
-                      {unfinished ? (
-                        <StatusBadge tone={runTones[runState(latest.state)] ?? "neutral"}>
-                          {t(states[runState(latest.state)] ?? "未开始")}
-                        </StatusBadge>
-                      ) : idle ? (
-                        <StatusBadge tone="neutral">{t("无成交")}</StatusBadge>
-                      ) : run ? (
-                        shortTime(run.startedMs)
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
+            {([0, 1, 2] as const).map(place => {
+              const group = rows.filter(entry => entry.place === place);
+              if (!group.length) return null;
+              return (
+                <tbody key={place}>
+                  {place > 0 && (
+                    <tr className="lab-library-group">
+                      <th scope="colgroup" colSpan={figures.length + 4}>
+                        {t(place === 1 ? "口径不同" : "未回测")}
+                      </th>
+                    </tr>
+                  )}
+                  {group.map(row)}
+                </tbody>
+              );
+            })}
           </table>
         </div>
+      ) : (
+        items.length > 0 && <p className="subtle">{t("没有匹配的模块")}</p>
       )}
     </div>
   );

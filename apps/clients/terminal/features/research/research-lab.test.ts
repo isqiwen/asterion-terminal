@@ -1,5 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { expect, test } from "vitest";
+import { Period } from "../../src/generated/asterion/common_pb";
 import {
   FactorDaySchema,
   FactorEntrySchema,
@@ -7,6 +8,7 @@ import {
   RunDaySchema,
   RunDetailSchema,
   ParameterSchema,
+  RunSummarySchema,
 } from "../../src/generated/asterion/lab_pb";
 import { setLocale } from "../../src/i18n";
 import "./feature";
@@ -20,8 +22,11 @@ import {
   heatmap,
   identity,
   monthlyReturns,
+  onScope,
   parameterValues,
   runRequest,
+  savedForm,
+  saveScope,
   yearlyIc,
 } from "./research-lab";
 
@@ -224,4 +229,53 @@ test("formFromRun restores strategy, parameters, period, limits and validation f
       holdoutDay: "2026-02-02",
     },
   });
+});
+
+const measured = (settings: Record<string, unknown> = {}) =>
+  create(RunSummarySchema, {
+    symbols: ["DCE/i", "SHFE/rb"],
+    firstDay: "2024-01-02",
+    lastDay: "2026-02-13",
+    period: Period.DAY,
+    settings: {
+      deposit: { text: "1000000.00" },
+      slippageTicks: 1,
+      limits: {
+        maxOrderLots: { text: "100" },
+        maxContractLots: { text: "500" },
+        maxGrossLots: { text: "2000" },
+        maxWorkingOrders: 64,
+      },
+      maxGrossWeight: { text: "1" },
+      maxNetWeight: { text: "1" },
+      maxMarginRatio: { text: "0" },
+      minRebalanceWeight: { text: "0" },
+      periodsPerYear: 252,
+      zeroRiskFreeRate: true,
+      ...settings,
+    },
+  });
+
+test("a run is on the settings when every measured value agrees", () => {
+  const form = { ...defaultForm(), symbols: "SHFE/rb, DCE/i" };
+  expect(onScope(form, measured(), "2024-01-02", "2026-02-13")).toBe(true);
+  // Days not yet known cannot tell runs apart.
+  expect(onScope(form, measured(), "YYYY-MM-DD", "YYYY-MM-DD")).toBe(true);
+  expect(onScope(form, measured(), "2024-01-03", "2026-02-13")).toBe(false);
+  expect(onScope(form, measured({ slippageTicks: 2 }), "2024-01-02", "2026-02-13")).toBe(false);
+  expect(onScope(form, measured({ holdoutDay: "2025-01-02" }), "2024-01-02", "2026-02-13")).toBe(
+    false,
+  );
+  expect(onScope({ ...form, symbols: "SHFE/rb" }, measured(), "2024-01-02", "2026-02-13")).toBe(
+    false,
+  );
+});
+
+test("the settings outlive a restart, and a strategy's parameters do not", () => {
+  localStorage.clear();
+  saveScope({ ...defaultForm(), symbols: "SHFE/rb", deposit: "500000", params: { fast: "8" } });
+  const form = savedForm();
+  expect(form.symbols).toBe("SHFE/rb");
+  expect(form.deposit).toBe("500000");
+  expect(form.params).toEqual({});
 });

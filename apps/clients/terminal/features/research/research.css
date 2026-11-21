@@ -126,7 +126,7 @@ button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   color: var(--subtle);
 }
 .lab-library-table button.lab-sort {
-  padding-inline: var(--space-2);
+  padding-inline: 0;
 }
 .lab-library-table td button.lab-link {
   padding: 0;
@@ -437,7 +437,7 @@ button.lab-module-item small {
   border-radius: var(--control-radius);
   background: var(--field);
 }
-.lab-form .lab-segmented label {
+:is(.lab-form, .lab-toolbar) .lab-segmented label {
   position: relative;
   display: flex;
   flex: 1 1 auto;
@@ -457,21 +457,21 @@ button.lab-module-item small {
   opacity: 0;
   margin: 0;
 }
-.lab-form .lab-segmented label:hover {
+:is(.lab-form, .lab-toolbar) .lab-segmented label:hover {
   color: var(--text-strong);
 }
-.lab-form .lab-segmented label:has(:checked) {
+:is(.lab-form, .lab-toolbar) .lab-segmented label:has(:checked) {
   background: var(--accent-surface);
   box-shadow: inset 0 0 0 1px var(--accent-line);
   color: var(--accent);
   font-weight: 500;
 }
-.lab-form .lab-segmented label:has(:focus-visible) {
+:is(.lab-form, .lab-toolbar) .lab-segmented label:has(:focus-visible) {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
 }
 @media (forced-colors: active) {
-  .lab-form .lab-segmented label:has(:checked) {
+  :is(.lab-form, .lab-toolbar) .lab-segmented label:has(:checked) {
     outline: 2px solid SelectedItem;
     outline-offset: -2px;
   }
@@ -1267,6 +1267,154 @@ button.lab-symbol-months:enabled:hover {
   .lab-config .lab-form {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* The strategy page: its settings across the top, then the library or one strategy. */
+.lab-research[data-layout="page"] {
+  grid-template-columns: minmax(0, 1fr) var(--lab-config);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  grid-template-areas:
+    "notice notice"
+    "head head"
+    "scope scope"
+    "center config";
+}
+.lab-research[data-layout="page"][data-folded] {
+  grid-template-columns: minmax(0, 1fr) 40px;
+}
+.lab-research[data-layout="page"]:not(:has(> .lab-config)) {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "notice"
+    "head"
+    "scope"
+    "center";
+}
+.lab-page-head {
+  grid-area: head;
+  padding: var(--space-3) var(--space-page) var(--space-2);
+  border-bottom: 0;
+}
+.lab-strategy-switch {
+  width: auto;
+  max-width: 320px;
+  color: var(--text-strong);
+  font-size: var(--font-size-lg);
+  font-weight: 500;
+}
+.lab-scope {
+  grid-area: scope;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-2) var(--space-page);
+  border-bottom: 1px solid var(--line);
+  background: var(--pane);
+  font-size: var(--font-size-body);
+}
+.lab-page-head + .lab-scope {
+  border-top: 1px solid var(--line);
+}
+.lab-scope > span {
+  flex: none;
+  color: var(--muted);
+}
+.lab-scope > p {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lab-scope > button {
+  flex: none;
+}
+.lab-scope-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: min(880px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: var(--space-5);
+}
+.lab-scope-dialog h2 {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  outline: none;
+}
+.lab-scope-dialog h3 {
+  margin: 0 0 var(--space-3);
+  color: var(--muted);
+  font-size: var(--font-size-body);
+  font-weight: 400;
+}
+.lab-scope-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  gap: var(--space-5);
+}
+.lab-scope-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+}
+.lab-detail {
+  grid-area: center;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.lab-detail > .tabs {
+  flex: none;
+  padding: var(--space-2) var(--space-page) 0;
+}
+.lab-detail > .lab-center {
+  flex: 1;
+}
+.lab-detail > .lab-placeholder {
+  flex: 1;
+  margin: 0;
+}
+.lab-parameters {
+  margin-bottom: var(--space-3);
+}
+.lab-library-view {
+  padding-inline: var(--space-page);
+}
+/* Fewer columns than the run records: figures stay close to their strategy. */
+.lab-library-view > .lab-toolbar,
+.lab-table.lab-library-table {
+  max-width: 1440px;
+}
+.lab-library-view > .lab-toolbar input[type="search"] {
+  width: 240px;
+}
+.lab-library-view > .lab-toolbar button.lab-add-module {
+  width: auto;
+  margin: 0;
+}
+.lab-library-view > .lab-toolbar .lab-new-module {
+  display: flex;
+  align-items: center;
+  margin: 0;
+}
+.lab-library-view > .lab-toolbar .lab-new-module input {
+  width: 180px;
+}
+.lab-library-table tbody tr.lab-library-group {
+  cursor: default;
+}
+.lab-library-table tbody tr.lab-library-group:hover th,
+.lab-library-table tbody tr.lab-library-group th {
+  position: static;
+  padding-top: var(--space-3);
+  background: var(--canvas);
+  color: var(--muted);
+  font-size: var(--font-size-aux);
 }
 
 button.lab-link.lab-delete,

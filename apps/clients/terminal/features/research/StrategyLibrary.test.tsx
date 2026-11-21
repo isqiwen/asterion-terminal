@@ -29,6 +29,33 @@ const run = (id: string, name: string, state: RunState, sharpe: number, fills = 
     metrics: { sharpe, total_return: sharpe / 10, fills },
   });
 
+const library = (props: Partial<Parameters<typeof StrategyLibrary>[0]>) =>
+  render(
+    <StrategyLibrary
+      items={[]}
+      runs={[]}
+      views={{}}
+      chosen=""
+      selected={[]}
+      setSelected={vi.fn()}
+      batch={null}
+      search=""
+      setSearch={vi.fn()}
+      busy={false}
+      startBatch={vi.fn()}
+      cancelBatch={vi.fn()}
+      open={vi.fn()}
+      onMenu={vi.fn()}
+      newModule={null}
+      notices={null}
+      {...props}
+    />,
+  );
+const order = () =>
+  within(screen.getByRole("table", { name: "策略库" }))
+    .getAllByRole("rowheader")
+    .map(header => header.textContent);
+
 test("strategies rank by their latest success and show how far they reached", () => {
   const items = [
     item("Alpha", "单品种"),
@@ -52,29 +79,8 @@ test("strategies rank by their latest success and show how far they reached", ()
     },
   } as unknown as Record<string, TradingView>;
   const open = vi.fn();
-  const openRun = vi.fn();
-  render(
-    <StrategyLibrary
-      items={items}
-      total={4}
-      runs={runs}
-      views={views}
-      chosen=""
-      selected={[]}
-      setSelected={vi.fn()}
-      batch={null}
-      scope="all"
-      setScope={vi.fn()}
-      cancelBatch={vi.fn()}
-      open={open}
-      openRun={openRun}
-    />,
-  );
+  library({ items, runs, views, open });
   const table = screen.getByRole("table", { name: "策略库" });
-  const order = () =>
-    within(table)
-      .getAllByRole("rowheader")
-      .map(header => header.textContent);
   expect(order()).toEqual(["Beta", "Alpha", "Delta", "Gamma"]);
   const delta = within(table).getByRole("row", { name: /m\.Delta/ });
   expect(within(delta).getByText("无成交")).toBeTruthy();
@@ -84,12 +90,31 @@ test("strategies rank by their latest success and show how far they reached", ()
   expect(within(alpha).getByText("已回测")).toBeTruthy();
   expect(within(alpha).getByText("1.000")).toBeTruthy();
 
-  fireEvent.click(within(alpha).getByRole("button", { name: "Alpha 总收益" }));
-  expect(openRun).toHaveBeenCalledWith(items[0], "alpha");
-  expect(open).not.toHaveBeenCalled();
+  fireEvent.click(alpha);
+  expect(open).toHaveBeenCalledWith(items[0], "alpha");
   fireEvent.click(within(table).getByRole("button", { name: "Gamma" }));
-  expect(open).toHaveBeenCalledWith(items[2]);
+  expect(open).toHaveBeenCalledWith(items[2], undefined);
 
-  fireEvent.change(screen.getByLabelText("类型"), { target: { value: "组合" } });
+  fireEvent.click(screen.getByRole("radio", { name: "组合" }));
   expect(order()).toEqual(["Beta", "Gamma"]);
+});
+
+test("only results on the current settings rank", () => {
+  const items = [item("Alpha", "单品种"), item("Beta", "单品种"), item("Gamma", "单品种")];
+  // Beta's better figure was measured on other settings.
+  const runs = [
+    run("beta-other", "Beta", RunState.SUCCEEDED, 9),
+    run("alpha-same", "Alpha", RunState.SUCCEEDED, 1),
+    run("alpha-other", "Alpha", RunState.SUCCEEDED, 5),
+  ];
+  library({ items, runs, onScope: entry => entry.id === "alpha-same" });
+  const table = screen.getByRole("table", { name: "策略库" });
+  expect(order()).toEqual(["Alpha", "Beta", "Gamma"]);
+  expect(
+    within(within(table).getByRole("row", { name: /m\.Alpha/ })).getByText("1.000"),
+  ).toBeTruthy();
+  const titles = within(table)
+    .getAllByRole("columnheader")
+    .map(header => header.textContent);
+  expect(titles).toEqual(expect.arrayContaining(["口径不同", "未回测"]));
 });

@@ -1,4 +1,3 @@
-import { DateInput } from "../../src/ui/DateInput";
 import { StatusBadge } from "../../src/ui/StatusBadge";
 import { useCallback, useEffect, useId, useState } from "react";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
@@ -11,29 +10,28 @@ import { useLabActiveReport } from "../../src/host/lab";
 import { useTradingAccounts } from "../../src/host/trading-accounts";
 import { type MessageValues, translate, listSeparator } from "../../src/i18n";
 import {
-  defaultForm,
   defaultProcesses,
   defaultText,
   formFromRun,
   identity,
+  onScope,
   recordName,
   runName,
   runRequest,
   runState,
+  savedForm,
+  saveScope,
   symbolsOf,
   type RunForm,
 } from "./research-lab";
 import {
   ConfigFold,
   datePlaceholders,
-  filterModuleItems,
   LabCentre,
   ModuleErrors,
-  ModuleList,
   type ModuleItem,
   NewModule,
   Section,
-  SymbolField,
   useConfigFold,
   useModuleMenu,
   useModules,
@@ -41,18 +39,18 @@ import {
   useStoredCatalog,
 } from "./LabParts";
 import { RunResult, SweepResult, metric, runTones, signed, states } from "./ResearchResult";
-import { type LibraryScope, StrategyLibrary, useStrategyBatch } from "./StrategyLibrary";
+import { RunScope } from "./RunScope";
+import { rankedRun, StrategyLibrary, useStrategyBatch } from "./StrategyLibrary";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
 
 type ActiveReport = { kind: "run" | "sweep"; id: string; fromSweep?: string } | null;
 
-// The strategy view: the strategy modules, their code or the latest run/sweep
-// report in place, and the configuration beside it for immediate iteration.
+// The strategy view: every strategy ranked on one set of backtest settings, and
+// one strategy's result and code with its parameters beside them.
 export function StrategyLab(context: TerminalContext) {
   const modeGroup = useId();
-  const validationGroup = useId();
   const repository = context.snapshot?.research_directory ?? "";
   const {
     modules: strategies,
@@ -64,9 +62,11 @@ export function StrategyLab(context: TerminalContext) {
     `strategy-report:${repository}`,
     null,
   );
-  const [form, setForm] = useWorkspaceDraft<RunForm>("run-form", defaultForm);
-  const [library, setLibrary] = useWorkspaceDraft("strategy-library", false);
-  const [search] = useWorkspaceDraft("modules-search:strategies", "");
+  const [form, setForm] = useWorkspaceDraft<RunForm>("run-form", savedForm);
+  useEffect(() => saveScope(form), [form]);
+  const [view, setView] = useWorkspaceDraft<"library" | "detail">("strategy-view", "library");
+  const [tab, setTab] = useWorkspaceDraft<"result" | "code">("strategy-tab", "code");
+  const [search, setSearch] = useWorkspaceDraft("modules-search:strategies", "");
   const { views } = useTradingAccounts();
   const source = useSource(repository);
   const [runs, setRuns] = useState<RunSummary[]>([]);
@@ -87,19 +87,6 @@ export function StrategyLab(context: TerminalContext) {
   }, [chosen, strategies, setChosen]);
 
   useEffect(() => {
-    if (loadRunId || chosen || source.path || !strategies?.strategies.length) return;
-    const first = strategies.strategies[0]!;
-    setChosen(first.id);
-    source.open(`strategies/${first.id.split(".")[0]}.py`);
-    setForm(previous => ({
-      ...previous,
-      params: Object.fromEntries(
-        first.parameters.map(p => [p.name, previous.params[p.name] ?? defaultText(p)]),
-      ),
-    }));
-  }, [loadRunId, chosen, source, strategies, setChosen, setForm]);
-
-  useEffect(() => {
     if (!loadRunId) return;
     let active = true;
     void lab({ case: "getRun", value: { id: loadRunId } })
@@ -110,8 +97,9 @@ export function StrategyLab(context: TerminalContext) {
           setChosen(loaded.strategy);
           source.open(`strategies/${loaded.strategy.split(".")[0]}.py`);
         }
-        setLibrary(false);
-        setReport(null);
+        setView("detail");
+        setReport({ kind: "run", id: loadRunId });
+        setTab("result");
         setForm(loaded.form);
         context.navigate("workspace.lab-strategies", {});
       })
@@ -132,7 +120,6 @@ export function StrategyLab(context: TerminalContext) {
   } = useLabActiveReport(report, refreshRecentRuns);
 
   const [batchId, setBatchId] = useWorkspaceDraft("strategy-batch", "");
-  const [scope, setScope] = useWorkspaceDraft<LibraryScope>("strategy-library-scope", "all");
   const [selected, setSelected] = useState<string[]>([]);
   const batch = useStrategyBatch(batchId, refreshRecentRuns);
   const [saved, setSaved] = useState<string[]>([]);
@@ -140,6 +127,7 @@ export function StrategyLab(context: TerminalContext) {
   const submitted = useActionError();
   const reportActed = useActionError();
 
+  const library = view === "library";
   const strategy = strategies?.strategies.find(item => item.id === chosen);
   const enteredSymbols = symbolsOf(form.symbols);
   const effectiveMode = form.multiSymbolMode ?? (strategy?.portfolio ? "portfolio" : "separate");
@@ -150,8 +138,16 @@ export function StrategyLab(context: TerminalContext) {
     enteredSymbols,
     separateMulti,
   );
+  const [scopeBegin, scopeEnd] = datePlaceholders(catalog, enteredSymbols, false);
+  const inScope = enteredSymbols.length
+    ? (run: RunSummary) => onScope(form, run, scopeBegin, scopeEnd)
+    : undefined;
   const activeValidation =
-    separateMulti && form.validation === "rolling" ? "none" : form.validation;
+    form.validation === "rolling" && !separateMulti
+      ? "rolling"
+      : form.holdoutDay
+        ? "holdout"
+        : "none";
 
   const change = (patch: Partial<RunForm>) => setForm(previous => ({ ...previous, ...patch }));
   const submit = async () => {
@@ -195,6 +191,7 @@ export function StrategyLab(context: TerminalContext) {
         await lab({ case: "startBacktest", value: run });
         setReport({ kind: "run", id });
       }
+      setTab("result");
       void readRecentRuns().catch(() => {});
     });
     setBusy(false);
@@ -225,17 +222,6 @@ export function StrategyLab(context: TerminalContext) {
       />
     </label>
   );
-  const dateField = (label: string, key: "begin" | "end" | "holdoutDay", placeholder?: string) => (
-    <label>
-      <span>{t(label)}</span>
-      <DateInput
-        value={form[key]}
-        placeholder={placeholder}
-        onChange={value => change({ [key]: value })}
-      />
-    </label>
-  );
-  const validation = { none: "不验证", holdout: "留出", rolling: "滚动验证" } as const;
   const [folded, setFolded] = useConfigFold();
   const menu = useModuleMenu({
     repository,
@@ -243,7 +229,11 @@ export function StrategyLab(context: TerminalContext) {
     deleted: path => {
       forgetStrategy(path);
       const stem = path.replace(/^strategies\//, "").replace(/\.py$/, "");
-      if (chosen.startsWith(`${stem}.`)) setChosen("");
+      if (chosen.startsWith(`${stem}.`)) {
+        setChosen("");
+        setReport(null);
+      }
+      setView("library");
       void readStrategies();
     },
   });
@@ -275,99 +265,27 @@ export function StrategyLab(context: TerminalContext) {
         },
       });
       setBatchId(id);
-      setScope("batch");
       setSelected([]);
     });
     setBusy(false);
   };
-  const marketSection = (
-    <Section title={t("品种与区间")} open>
-      <SymbolField
-        context={context}
-        value={form.symbols}
-        minutes={form.minutes !== "0"}
-        catalog={catalog}
-        onChange={symbols => change({ symbols })}
-      />
-      {!library && enteredSymbols.length > 1 && (
-        <fieldset className="wide lab-segmented">
-          <legend className="sr-only">{t("多品种运行方式")}</legend>
-          {(["separate", "portfolio"] as const).map(item => (
-            <label key={item}>
-              <input
-                type="radio"
-                name={modeGroup}
-                checked={effectiveMode === item}
-                onChange={() => change({ multiSymbolMode: item })}
-              />
-              {t(item === "separate" ? "分别回测" : "组合合跑")}
-            </label>
-          ))}
-        </fieldset>
-      )}
-      {dateField("开始日", "begin", beginPlaceholder)}
-      {dateField("结束日", "end", endPlaceholder)}
-      <label className="wide">
-        <span>{t("周期")}</span>
-        <select value={form.minutes} onChange={event => change({ minutes: event.target.value })}>
-          <option value="0">{t("日线")}</option>
-          {[1, 5, 10, 15, 30, 60].map(value => (
-            <option key={value} value={String(value)}>
-              {t("{count} 分钟", { count: value })}
-            </option>
-          ))}
-        </select>
-      </label>
-    </Section>
-  );
-  const riskSection = (
-    <Section title={t("资金与风控")}>
-      {field("初始资金", "deposit")}
-      {field("滑点（跳）", "slippage")}
-      {field("单笔手数", "maxOrderLots")}
-      {field("单合约持仓手数", "maxContractLots")}
-      {field("账户总持仓手数", "maxGrossLots")}
-      {field("在途委托数", "maxWorkingOrders")}
-      {field("总权重上限", "maxGrossWeight")}
-      {field("净权重上限", "maxNetWeight")}
-      {field("保证金率上限", "maxMarginRatio")}
-      {field("最小调仓偏离", "minRebalanceWeight")}
-      {field("每年期数", "annualPeriods")}
-      <label className="lab-check wide">
-        <input
-          type="checkbox"
-          checked={form.zeroRiskFree}
-          onChange={event => change({ zeroRiskFree: event.target.checked })}
-        />
-        {t("无风险利率为零")}
-      </label>
-    </Section>
-  );
   const singleRuns = runs.filter(run => !run.sweepId || run.id !== `${run.sweepId}-rolling`);
   const items: ModuleItem[] = (strategies?.strategies ?? []).map(item => {
     const [module, name] = item.id.split(".");
-    const value = singleRuns.find(run => run.strategy === item.id)?.metrics.total_return;
     return {
       id: item.id,
       name,
       module,
       group: t(item.portfolio ? "组合" : "单品种"),
       description: item.description.replace(/`/g, ""),
-      figure:
-        value === undefined
-          ? undefined
-          : {
-              text: metric(value, true),
-              className: signed(value),
-              title: t("最近一次总收益"),
-            },
     };
   });
-  const choose = (item: ModuleItem) => {
+  const choose = (item: ModuleItem, run = rankedRun(singleRuns, item.id, inScope)?.id) => {
     const entry = strategies!.strategies.find(entry => entry.id === item.id)!;
-    setLibrary(false);
     setChosen(item.id);
-    setReport(null);
+    setReport(run ? { kind: "run", id: run } : null);
+    setTab(run ? "result" : "code");
+    setView("detail");
     source.open(`strategies/${item.module}.py`);
     if (item.id !== chosen) {
       change({
@@ -376,241 +294,262 @@ export function StrategyLab(context: TerminalContext) {
       });
     }
   };
+  const openCode = (path: string, id = "") => {
+    setChosen(id);
+    setReport(null);
+    setTab("code");
+    setView("detail");
+    source.open(path);
+  };
   const activeState =
     report?.kind === "run" && activeRun?.id === report.id ? runState(activeRun.state) : "";
   const reportRunning =
     report?.kind === "run"
       ? activeState === "running"
       : report?.kind === "sweep" && activeSweep?.id === report.id && activeSweep.active;
+  const shownReport = tab === "result" ? report : null;
+  // The strategy is named by the switch beside the run.
+  const shortName = (run: RunSummary) =>
+    run.label || runName(run).replace(`${chosen.split(".")[1]} `, "");
+  const sameName = (item: ModuleItem) => items.filter(other => other.name === item.name).length > 1;
 
   return (
-    <section className="lab-research" data-folded={folded || undefined}>
-      <aside className="lab-modules" aria-label={t("策略")}>
-        <h2 className="sr-only">{t("策略")}</h2>
-        <button
-          type="button"
-          className="lab-module-item"
-          aria-pressed={library}
-          onClick={() => {
-            if (!library) setReport(null);
-            setLibrary(!library);
-          }}
-        >
-          <span>{t("策略库")}</span>
-          {items.length > 0 && <small>{items.length}</small>}
-        </button>
-        <hr className="lab-divider" />
-        <ModuleList
-          folder="strategies"
-          chosen={library ? "" : chosen}
-          contextTarget={menu.target}
-          items={items}
-          choose={choose}
-          onMenu={menu.open}
-        />
-        <NewModule
-          key={menu.copying?.id ?? "new"}
-          folder="strategies"
-          repository={repository}
-          copying={menu.copying}
-          cancelCopy={menu.clearCopy}
-          created={(path, id) => {
-            setLibrary(false);
-            setReport(null);
-            if (id) setChosen(id);
-            source.open(path);
-            void readStrategies();
-          }}
-        />
-        <ModuleErrors
-          folder="strategies"
-          modules={strategies}
-          contextTarget={menu.target}
-          open={path => {
-            setLibrary(false);
-            setReport(null);
-            source.open(path);
-          }}
-          onMenu={menu.open}
-        />
-        {menu.overlay}
-      </aside>
-      {library ? (
-        <StrategyLibrary
-          items={filterModuleItems(items, search)}
-          total={items.length}
-          runs={singleRuns}
-          views={views}
-          chosen={chosen}
-          selected={activeSelected}
-          setSelected={setSelected}
-          batch={batch}
-          scope={scope}
-          setScope={setScope}
-          cancelBatch={() =>
-            void submitted.attempt(async () => {
-              await lab({ case: "cancelSweep", value: { id: batchId } });
-            })
-          }
-          open={choose}
-          openRun={(item, id) => {
-            choose(item);
-            setReport({ kind: "run", id });
-          }}
-        />
-      ) : report ? (
-        <div className="lab-center lab-runs-view">
-          <header className="lab-report-header">
-            <button type="button" className="lab-link" onClick={() => setReport(null)}>
-              {t("← 源码")}
+    <section
+      className="lab-research"
+      data-layout="page"
+      data-folded={(!library && folded) || undefined}
+    >
+      {!library && (
+        <header className="lab-report-header lab-page-head">
+          <button type="button" className="lab-link" onClick={() => setView("library")}>
+            {t("← 策略库")}
+          </button>
+          {strategy ? (
+            <select
+              className="lab-strategy-switch"
+              aria-label={t("切换策略")}
+              value={chosen}
+              onChange={event => choose(items.find(item => item.id === event.target.value)!)}
+            >
+              {items.map(item => (
+                <option key={item.id} value={item.id}>
+                  {sameName(item) ? `${item.name} · ${item.module}` : item.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <h2>{source.path}</h2>
+          )}
+          {shownReport?.kind === "run" && shownReport.fromSweep && (
+            <button
+              type="button"
+              className="lab-link"
+              onClick={() => setReport({ kind: "sweep", id: shownReport.fromSweep! })}
+            >
+              {t("← 扫描")}
             </button>
-            {report.kind === "run" && report.fromSweep && (
-              <button
-                type="button"
-                className="lab-link"
-                onClick={() => setReport({ kind: "sweep", id: report.fromSweep! })}
-              >
-                {t("← 扫描")}
-              </button>
-            )}
+          )}
+          {shownReport && (
             <h2>
-              {report.kind === "sweep"
+              {shownReport.kind === "sweep"
                 ? t(
-                    activeSweep?.id === report.id &&
+                    activeSweep?.id === shownReport.id &&
                       new Set(activeSweep.runs.map(run => run.symbols.join(","))).size > 1 &&
                       Object.keys(activeSweep.runs[0]?.params ?? {}).length === 0
                       ? "多品种回测 {id}"
                       : "扫描 {id}",
                     {
                       id: recordName(
-                        report.id,
-                        activeSweep?.id === report.id
+                        shownReport.id,
+                        activeSweep?.id === shownReport.id
                           ? activeSweep.runs[0]?.strategy.split(".")[1]
                           : undefined,
                       ),
                     },
                   )
-                : activeRun?.id === report.id
-                  ? runName(activeRun)
-                  : recordName(report.id)}
+                : activeRun?.id === shownReport.id
+                  ? shortName(activeRun)
+                  : recordName(shownReport.id)}
             </h2>
-            {activeState && (
-              <StatusBadge tone={runTones[activeState] ?? "neutral"}>
-                {states[activeState] ? t(states[activeState]!) : activeState}
-              </StatusBadge>
-            )}
-            <span className="lab-spacer" />
-            {reportRunning && (
-              <button type="button" className="lab-link" onClick={() => void cancelReport()}>
-                {t("取消")}
-              </button>
-            )}
+          )}
+          {shownReport && activeState && (
+            <StatusBadge tone={runTones[activeState] ?? "neutral"}>
+              {states[activeState] ? t(states[activeState]!) : activeState}
+            </StatusBadge>
+          )}
+          <span className="lab-spacer" />
+          {shownReport && reportRunning && (
+            <button type="button" className="lab-link" onClick={() => void cancelReport()}>
+              {t("取消")}
+            </button>
+          )}
+          {shownReport && (
             <button
               type="button"
               className="lab-link"
               onClick={() =>
                 context.navigate("workspace.lab-runs", {
-                  params: report.kind === "sweep" ? { sweep: report.id } : { run: report.id },
+                  params:
+                    shownReport.kind === "sweep"
+                      ? { sweep: shownReport.id }
+                      : { run: shownReport.id },
                 })
               }
             >
               {t("在回测中打开")}
             </button>
-            {report.kind === "run" &&
-              activeState === "succeeded" &&
-              (!activeRun?.sweepId || report.id !== `${activeRun.sweepId}-rolling`) && (
+          )}
+          {shownReport?.kind === "run" &&
+            activeState === "succeeded" &&
+            (!activeRun?.sweepId || shownReport.id !== `${activeRun.sweepId}-rolling`) && (
+              <button
+                type="button"
+                onClick={() =>
+                  context.navigate("workspace.trading-strategies", {
+                    params: { run: shownReport.id },
+                  })
+                }
+              >
+                {t("去部署")}
+              </button>
+            )}
+        </header>
+      )}
+      <RunScope
+        context={context}
+        form={form}
+        change={change}
+        catalog={catalog}
+        begin={beginPlaceholder}
+        end={endPlaceholder}
+      />
+      {menu.overlay}
+      {library ? (
+        <StrategyLibrary
+          items={items}
+          runs={singleRuns}
+          views={views}
+          chosen={chosen}
+          selected={activeSelected}
+          setSelected={setSelected}
+          batch={batch}
+          onScope={inScope}
+          search={search}
+          setSearch={setSearch}
+          busy={busy || Boolean(context.busy)}
+          startBatch={() => void startBatch()}
+          cancelBatch={() =>
+            void submitted.attempt(async () => {
+              await lab({ case: "cancelSweep", value: { id: batchId } });
+            })
+          }
+          open={choose}
+          contextTarget={menu.target}
+          onMenu={menu.open}
+          newModule={
+            <NewModule
+              key={menu.copying?.id ?? "new"}
+              folder="strategies"
+              repository={repository}
+              copying={menu.copying}
+              cancelCopy={menu.clearCopy}
+              created={(path, id) => {
+                openCode(path, id);
+                void readStrategies();
+              }}
+            />
+          }
+          notices={
+            <>
+              <ActionError error={submitted.error} namespace="asterion.terminal.research" />
+              <ModuleErrors
+                folder="strategies"
+                modules={strategies}
+                contextTarget={menu.target}
+                open={openCode}
+                onMenu={menu.open}
+              />
+            </>
+          }
+        />
+      ) : (
+        <div className="lab-detail">
+          {strategy && (
+            <nav className="tabs" aria-label={t("策略")}>
+              {(
+                [
+                  ["result", "回测"],
+                  ["code", "代码"],
+                ] as const
+              ).map(([key, label]) => (
                 <button
+                  key={key}
                   type="button"
-                  className="lab-link"
-                  onClick={() =>
-                    context.navigate("workspace.trading-strategies", {
-                      params: { run: report.id },
-                    })
-                  }
+                  aria-pressed={tab === key}
+                  onClick={() => setTab(key)}
                 >
-                  {t("去部署")}
+                  {t(label)}
                 </button>
-              )}
-          </header>
-          <ActionError error={reportActed.error} namespace="asterion.terminal.research" />
-          {report.kind === "run" ? (
-            <RunResult
-              key={report.id}
-              id={report.id}
-              state={activeState}
-              openVersion={version =>
-                context.navigate("workspace.data-dataset", { params: { version } })
-              }
-            />
-          ) : activeSweep?.id === report.id ? (
-            <SweepResult
-              runs={activeSweep.runs}
-              selected={activeSweep.selected}
-              open={id => setReport({ kind: "run", id, fromSweep: report.id })}
-              rolling={
-                activeSweep.rolling
-                  ? () =>
-                      setReport({
-                        kind: "run",
-                        id: activeSweep.rolling!.id,
-                        fromSweep: report.id,
-                      })
-                  : undefined
-              }
-            />
+              ))}
+            </nav>
+          )}
+          {tab === "result" ? (
+            report ? (
+              <div className="lab-center lab-runs-view">
+                <ActionError error={reportActed.error} namespace="asterion.terminal.research" />
+                {report.kind === "run" ? (
+                  <RunResult
+                    key={report.id}
+                    id={report.id}
+                    state={activeState}
+                    openVersion={version =>
+                      context.navigate("workspace.data-dataset", { params: { version } })
+                    }
+                  />
+                ) : activeSweep?.id === report.id ? (
+                  <SweepResult
+                    runs={activeSweep.runs}
+                    selected={activeSweep.selected}
+                    open={id => setReport({ kind: "run", id, fromSweep: report.id })}
+                    rolling={
+                      activeSweep.rolling
+                        ? () =>
+                            setReport({
+                              kind: "run",
+                              id: activeSweep.rolling!.id,
+                              fromSweep: report.id,
+                            })
+                        : undefined
+                    }
+                  />
+                ) : (
+                  <p className="subtle">{t("正在读取结果…")}</p>
+                )}
+              </div>
+            ) : (
+              <p className="lab-placeholder">{t("还没有回测")}</p>
+            )
           ) : (
-            <p className="subtle">{t("正在读取结果…")}</p>
+            <LabCentre
+              source={source}
+              repository={repository}
+              modules={strategies}
+              focus={chosen}
+              changed={() => void readStrategies()}
+              onDelete={path => menu.remove(path)}
+            />
           )}
         </div>
-      ) : (
-        <LabCentre
-          source={source}
-          repository={repository}
-          modules={strategies}
-          focus={chosen}
-          changed={() => void readStrategies()}
-          onDelete={path => menu.remove(path)}
-        />
-      )}
-      {library && activeSelected.length > 0 && (
-        <aside className="lab-config" aria-label={t("批量回测")}>
-          <h2>
-            {!folded && t("批量回测")}
-            <ConfigFold folded={folded} fold={setFolded} />
-          </h2>
-          {!folded && (
-            <>
-              {marketSection}
-              {riskSection}
-              <Section title={t("扫描与验证")} open>
-                {dateField("留出日", "holdoutDay")}
-                {field("并行进程数", "processes", { placeholder: defaultProcesses() })}
-              </Section>
-              <footer className="lab-submit">
-                <button
-                  type="button"
-                  className="primary"
-                  disabled={busy || context.busy || activeSelected.length < 2}
-                  onClick={() => void startBatch()}
-                >
-                  {t("批量回测（{count}）", { count: activeSelected.length })}
-                </button>
-                <ActionError error={submitted.error} namespace="asterion.terminal.research" />
-              </footer>
-            </>
-          )}
-        </aside>
       )}
       {strategy && !library && (
-        <aside className="lab-config" aria-label={t("运行配置")}>
+        <aside className="lab-config" aria-label={t("参数")}>
           <h2>
-            {!folded && t("运行配置")}
+            {!folded && t("参数")}
             <ConfigFold folded={folded} fold={setFolded} />
           </h2>
           {!folded && (
             <>
-              {marketSection}
-              <Section title={t("参数")} open>
+              <div className="lab-form lab-parameters">
                 {strategy.parameters.map(parameter => (
                   <label
                     key={parameter.name}
@@ -633,39 +572,43 @@ export function StrategyLab(context: TerminalContext) {
                     />
                   </label>
                 ))}
-              </Section>
-              {riskSection}
+                {enteredSymbols.length > 1 && (
+                  <fieldset className="wide lab-segmented">
+                    <legend className="sr-only">{t("多品种运行方式")}</legend>
+                    {(["separate", "portfolio"] as const).map(item => (
+                      <label key={item}>
+                        <input
+                          type="radio"
+                          name={modeGroup}
+                          checked={effectiveMode === item}
+                          onChange={() => change({ multiSymbolMode: item })}
+                        />
+                        {t(item === "separate" ? "分别回测" : "组合合跑")}
+                      </label>
+                    ))}
+                  </fieldset>
+                )}
+              </div>
               <Section title={t("扫描与验证")}>
-                <fieldset className="wide lab-segmented">
-                  <legend className="sr-only">{t("扫描与验证")}</legend>
-                  {(separateMulti
-                    ? (["none", "holdout"] as const)
-                    : (["none", "holdout", "rolling"] as const)
-                  ).map(kind => (
-                    <label key={kind}>
-                      <input
-                        type="radio"
-                        name={validationGroup}
-                        checked={activeValidation === kind}
-                        onChange={() => change({ validation: kind })}
-                      />
-                      {t(validation[kind])}
-                    </label>
-                  ))}
-                </fieldset>
-                {activeValidation === "holdout" && dateField("留出日", "holdoutDay")}
+                {!separateMulti && (
+                  <label className="lab-check wide">
+                    <input
+                      type="checkbox"
+                      checked={activeValidation === "rolling"}
+                      onChange={event =>
+                        change({ validation: event.target.checked ? "rolling" : "none" })
+                      }
+                    />
+                    {t("滚动验证")}
+                  </label>
+                )}
                 {activeValidation === "rolling" && (
                   <>
                     {field("训练交易日数", "trainingDays")}
                     {field("每轮验证交易日数", "validationDays")}
                   </>
                 )}
-                {field(
-                  "并行进程数",
-                  "processes",
-                  { placeholder: defaultProcesses() },
-                  activeValidation === "holdout" ? undefined : "wide",
-                )}
+                {field("并行进程数", "processes", { placeholder: defaultProcesses() }, "wide")}
               </Section>
               <footer className="lab-submit">
                 <button
@@ -683,7 +626,10 @@ export function StrategyLab(context: TerminalContext) {
                 <ActionError error={submitted.error} namespace="asterion.terminal.research" />
                 <RecentRuns
                   runs={singleRuns.filter(run => run.strategy === strategy.id)}
-                  open={id => setReport({ kind: "run", id })}
+                  open={id => {
+                    setReport({ kind: "run", id });
+                    setTab("result");
+                  }}
                   openAll={() => context.navigate("workspace.lab-runs", {})}
                 />
               </footer>
