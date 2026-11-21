@@ -45,7 +45,7 @@
      coloured figures always mean a price, a side or a profit. */
   --success: #3fcf6e;
   --warning: #e5b45a;
-  --danger: #ff8a3d;
+  --danger: #f04438;
   --danger-surface: color-mix(in oklab, var(--danger) 10%, transparent);
 
   /* Market values and analytical series. */
