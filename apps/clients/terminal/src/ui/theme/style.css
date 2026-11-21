@@ -863,7 +863,8 @@ h2,
   border-color: color-mix(in oklab, var(--warning) 42%, transparent);
 }
 .status-badge[data-tone="danger"] {
-  background: var(--danger-surface);
+  /* Opaque: a highlighted row beneath must not lower the red text's contrast. */
+  background: color-mix(in oklab, var(--danger) 10%, var(--canvas));
   color: var(--danger);
   border-color: color-mix(in oklab, var(--danger) 62%, transparent);
 }

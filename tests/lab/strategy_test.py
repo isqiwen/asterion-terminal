@@ -754,15 +754,15 @@ class Records(unittest.TestCase):
         self.assertEqual([row["id"] for row in runs.recent()], ["third", "second", "first", "good"])
         runs.index.close()
 
-    def test_recent_runs_keep_the_latest_success_of_each_settings(self):
+    def test_recent_runs_keep_the_latest_outcome_and_success_of_each_settings(self):
         runs = Runs(self.directory)
         other = replace(self.plan, costs={**self.plan.costs, "deposit": "2000000"})
-        for identity, plan in (("old", self.plan), ("kept", self.plan), ("a", other), ("b", other),
-                               ("c", other)):
+        for identity, plan in (("old", self.plan), ("kept", self.plan), ("broken", self.plan),
+                               ("a", other), ("b", other), ("c", other)):
             runs.start(identity, plan)
-            runs.end(identity, "stopped", "")
-        runs.index.execute("update runs set state = 'succeeded'")
-        self.assertEqual([row["id"] for row in runs.recent()], ["c", "b", "a", "kept"])
+            runs.end(identity, "failed" if identity == "broken" else "stopped", "")
+        runs.index.execute("update runs set state = 'succeeded' where id != 'broken'")
+        self.assertEqual([row["id"] for row in runs.recent()], ["c", "b", "a", "broken", "kept"])
         runs.index.close()
 
     def test_a_run_from_start_to_success(self):

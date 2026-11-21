@@ -297,5 +297,6 @@
   "← 策略库": "← Strategies",
   "切换策略": "Switch strategy",
   "未回测": "Not tested",
-  "还没有回测": "No backtest yet"
+  "还没有回测": "No backtest yet",
+  "回测失败": "Failed"
 }

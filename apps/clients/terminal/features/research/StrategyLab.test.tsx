@@ -582,6 +582,7 @@ test("selected strategies run as one batch and compare on the same settings", as
     value: { case: "integer", value: 2n },
   });
   expect(await screen.findByText("1.500")).toBeTruthy();
+  expect(screen.getByText("回测失败")).toBeTruthy();
   expect(screen.getByText("失败")).toBeTruthy();
   expect(screen.queryByText("口径不同")).toBeNull();
 });

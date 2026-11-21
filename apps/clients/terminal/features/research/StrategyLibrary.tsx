@@ -26,6 +26,7 @@ const figures = [
   ["max_drawdown", "最大回撤", true],
 ] as const;
 type LibraryKey = "stage" | "started" | (typeof figures)[number][0];
+const sections = ["", "回测失败", "口径不同", "未回测"] as const;
 const running = new Set([InstanceState.STARTING, InstanceState.WARMING, InstanceState.READY]);
 
 // How far a strategy has gone toward trading, as an index into `stages`.
@@ -67,19 +68,26 @@ export function useStrategyBatch(id: string, ended: () => void) {
   return batch?.id === id ? batch : null;
 }
 
-// The run a strategy ranks by: its latest success on the current settings, or
-// else its latest success. Runs are newest first.
-export function rankedRun(
+// What a strategy shows on the current settings: a failure when that is the
+// latest outcome there, or else its latest success there or on other settings.
+// Runs are newest first.
+export function strategyResult(
   runs: readonly RunSummary[],
   strategy: string,
   onScope?: (run: RunSummary) => boolean,
 ) {
-  const own = runs.filter(run => run.strategy === strategy && run.state === RunState.SUCCEEDED);
-  return own.find(run => !onScope || onScope(run)) ?? own[0];
+  const own = runs.filter(run => run.strategy === strategy);
+  const outcome = own.find(
+    run =>
+      (run.state === RunState.SUCCEEDED || run.state === RunState.FAILED) &&
+      (!onScope || onScope(run)),
+  );
+  if (outcome?.state === RunState.FAILED) return { failed: outcome };
+  return { run: outcome ?? own.find(run => run.state === RunState.SUCCEEDED) };
 }
 
-// Every strategy beside its result on the current settings. Results on other
-// settings and strategies without one are listed apart, so they never rank.
+// Every strategy beside its result on the current settings. Failures, results
+// on other settings and strategies without one are listed apart and never rank.
 export function StrategyLibrary({
   items,
   runs,
@@ -135,10 +143,11 @@ export function StrategyLibrary({
       .map(item => {
         const member = members.find(run => batchStrategy(run) === item.id);
         const own = runs.filter(entry => entry.strategy === item.id);
-        const run = rankedRun(member ? [member, ...own] : own, item.id, onScope);
-        const latest = member ?? own.find(entry => !onScope || onScope(entry)) ?? own[0];
-        const place = !run ? 2 : !onScope || onScope(run) ? 0 : 1;
-        return { item, run, latest, place, stage: stageOf(views, item.id, Boolean(run)) };
+        const { run, failed } = strategyResult(member ? [member, ...own] : own, item.id, onScope);
+        const latest = member ?? failed ?? own.find(entry => !onScope || onScope(entry));
+        const place = failed ? 1 : !run ? 3 : !onScope || onScope(run) ? 0 : 2;
+        const opens = (failed ?? run)?.id;
+        return { item, run, latest, opens, place, stage: stageOf(views, item.id, Boolean(run)) };
       }),
     (row, key) =>
       key === "stage"
@@ -157,7 +166,7 @@ export function StrategyLibrary({
   const ended = batch?.runs.filter(
     run => run.state !== RunState.UNSPECIFIED && run.state !== RunState.RUNNING,
   ).length;
-  const row = ({ item, run, latest, stage }: (typeof rows)[number]) => {
+  const row = ({ item, run, latest, opens, stage }: (typeof rows)[number]) => {
     const checked = selected.includes(item.id);
     const unfinished = latest && latest.state !== RunState.SUCCEEDED;
     const idle = run?.metrics.fills === 0;
@@ -168,7 +177,7 @@ export function StrategyLibrary({
         data-empty={run && !idle ? undefined : true}
         data-context={contextTarget === item.id || undefined}
         title={item.description}
-        onClick={() => open(item, run?.id)}
+        onClick={() => open(item, opens)}
         onContextMenu={event => {
           event.preventDefault();
           onMenu(`strategies/${item.module}.py`, event.clientX, event.clientY, item.name, item.id);
@@ -194,7 +203,7 @@ export function StrategyLibrary({
             className="lab-link strong"
             onClick={event => {
               event.stopPropagation();
-              open(item, run?.id);
+              open(item, opens);
             }}
           >
             {item.name}
@@ -315,15 +324,15 @@ export function StrategyLibrary({
                 {heading("started", t("最近回测"))}
               </tr>
             </thead>
-            {([0, 1, 2] as const).map(place => {
+            {sections.map((title, place) => {
               const group = rows.filter(entry => entry.place === place);
               if (!group.length) return null;
               return (
                 <tbody key={place}>
-                  {place > 0 && (
+                  {title && (
                     <tr className="lab-library-group">
                       <th scope="colgroup" colSpan={figures.length + 4}>
-                        {t(place === 1 ? "口径不同" : "未回测")}
+                        {t(title)}
                       </th>
                     </tr>
                   )}

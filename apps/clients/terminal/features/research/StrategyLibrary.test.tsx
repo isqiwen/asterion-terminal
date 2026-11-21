@@ -64,7 +64,6 @@ test("strategies rank by their latest success and show how far they reached", ()
     item("Delta", "单品种"),
   ];
   const runs = [
-    run("alpha-failed", "Alpha", RunState.FAILED, 9),
     run("beta", "Beta", RunState.SUCCEEDED, 2),
     run("alpha", "Alpha", RunState.SUCCEEDED, 1),
     run("delta", "Delta", RunState.SUCCEEDED, 0, 0),
@@ -97,6 +96,38 @@ test("strategies rank by their latest success and show how far they reached", ()
 
   fireEvent.click(screen.getByRole("radio", { name: "组合" }));
   expect(order()).toEqual(["Beta", "Gamma"]);
+});
+
+test("a strategy whose latest outcome failed leaves the ranking and opens on the failure", () => {
+  const items = [item("Alpha", "单品种"), item("Beta", "单品种")];
+  const runs = [
+    run("alpha-failed", "Alpha", RunState.FAILED, 0),
+    run("beta", "Beta", RunState.SUCCEEDED, 1),
+    run("alpha", "Alpha", RunState.SUCCEEDED, 9),
+  ];
+  const open = vi.fn();
+  library({ items, runs, open });
+  expect(order()).toEqual(["Beta", "Alpha"]);
+  const table = screen.getByRole("table", { name: "策略库" });
+  expect(within(table).getByRole("columnheader", { name: "回测失败" })).toBeTruthy();
+  const alpha = within(table).getByRole("row", { name: /m\.Alpha/ });
+  expect(within(alpha).getByText("失败")).toBeTruthy();
+  expect(within(alpha).queryByText("9.000")).toBeNull();
+  fireEvent.click(alpha);
+  expect(open).toHaveBeenCalledWith(items[0], "alpha-failed");
+});
+
+test("a cancelled run or a failure on other settings keeps the result", () => {
+  const items = [item("Alpha", "单品种")];
+  const runs = [
+    run("alpha-stopped", "Alpha", RunState.STOPPED, 0),
+    run("alpha-other", "Alpha", RunState.FAILED, 0),
+    run("alpha", "Alpha", RunState.SUCCEEDED, 1),
+  ];
+  library({ items, runs, onScope: entry => entry.id !== "alpha-other" });
+  const table = screen.getByRole("table", { name: "策略库" });
+  expect(within(table).getByText("1.000")).toBeTruthy();
+  expect(within(table).queryByRole("columnheader", { name: "回测失败" })).toBeNull();
 });
 
 test("only results on the current settings rank", () => {

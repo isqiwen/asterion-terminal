@@ -257,9 +257,9 @@ class Runs:
         return next(iter(self.list([identity])), None)
 
     def recent(self):
-        """Each strategy's last three runs outside parameter sweeps and its latest
-        success under each settings, so a ranking can return to earlier settings."""
-        places, measured, kept = {}, set(), []
+        """Each strategy's last three runs outside parameter sweeps and, under each
+        settings, its latest outcome and success, so a ranking can return to them."""
+        places, outcomes, measured, kept = {}, set(), set(), []
         for identity, strategy, state in self.index.execute(f"""
                 select id, strategy, state from runs
                 where id not in (select run from sweeps
@@ -268,7 +268,7 @@ class Runs:
                 order by started_ns desc, id desc""").fetchall():
             places[strategy] = places.get(strategy, 0) + 1
             latest = places[strategy] <= 3
-            if state == "succeeded":
+            if state in ("succeeded", "failed"):
                 try:
                     record = self.record(identity)
                 except FileNotFoundError:
@@ -278,8 +278,11 @@ class Runs:
                 settings = json.dumps([strategy, sorted(data["symbols"]), data["begin_day"],
                                        data["end_day"], data["bars"]["period"], record["costs"],
                                        record["risk"], record["statistics"]], sort_keys=True)
-                latest = latest or settings not in measured
-                measured.add(settings)
+                latest = latest or settings not in outcomes or (
+                    state == "succeeded" and settings not in measured)
+                outcomes.add(settings)
+                if state == "succeeded":
+                    measured.add(settings)
             if latest:
                 kept.append(identity)
         return self.list(kept)

@@ -40,7 +40,7 @@ import {
 } from "./LabParts";
 import { RunResult, SweepResult, metric, runTones, signed, states } from "./ResearchResult";
 import { RunScope } from "./RunScope";
-import { rankedRun, StrategyLibrary, useStrategyBatch } from "./StrategyLibrary";
+import { strategyResult, StrategyLibrary, useStrategyBatch } from "./StrategyLibrary";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
@@ -280,7 +280,11 @@ export function StrategyLab(context: TerminalContext) {
       description: item.description.replace(/`/g, ""),
     };
   });
-  const choose = (item: ModuleItem, run = rankedRun(singleRuns, item.id, inScope)?.id) => {
+  const shownRun = (id: string) => {
+    const { run, failed } = strategyResult(singleRuns, id, inScope);
+    return (failed ?? run)?.id;
+  };
+  const choose = (item: ModuleItem, run = shownRun(item.id)) => {
     const entry = strategies!.strategies.find(entry => entry.id === item.id)!;
     setChosen(item.id);
     setReport(run ? { kind: "run", id: run } : null);
