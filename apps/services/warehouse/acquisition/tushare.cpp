@@ -42,7 +42,7 @@ Cell label(const Json& value)
 {
     if (value.is_null())
         return {};
-    auto out = text(value);
+    auto out = value.is_binary() ? numeric(value) : text(value);
     for (auto& c : out)
         if (static_cast<unsigned char>(c) < 32 || c == 127)
             c = ' ';
@@ -240,12 +240,13 @@ Tushare::warehouse_receipts(const std::string& exchange, const std::string& day)
 {
     auto compact = day;
     std::erase(compact, '-');
+    const auto reporting_exchange = exchange == "INE" ? "SHFE" : exchange;
     std::vector<WarehouseReceipt> rows;
     // One product per request keeps large exchange reports below the API's 1000-row ceiling.
     for (const auto& product : products(exchange, day)) {
         const auto table = ask(
             "fut_wsr",
-            {{"exchange", exchange}, {"trade_date", compact}, {"symbol", upper(product)}},
+            {{"exchange", reporting_exchange}, {"trade_date", compact}, {"symbol", upper(product)}},
             "trade_date,symbol,warehouse,wh_id,pre_vol,vol,vol_chg,area,year,grade,brand,place,pd,is_ct,unit,exchange,fore_vol",
             1000);
         const auto observed = observation_time();
@@ -254,7 +255,7 @@ Tushare::warehouse_receipts(const std::string& exchange, const std::string& day)
                 return table.at(item, field);
             };
             if (at("trade_date") != compact || upper(text(at("symbol"))) != upper(product)
-                || at("exchange") != exchange)
+                || (at("exchange") != exchange && at("exchange") != reporting_exchange))
                 throw SourceError(
                     "invalid_data",
                     "fut_wsr returned a foreign day, product or exchange");

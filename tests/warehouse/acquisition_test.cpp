@@ -168,6 +168,8 @@ struct Vendor
             return table("ts_code,trade_date,up_limit,down_limit", std::move(rows));
         }
         if (api == "fut_wsr" || api == "fut_holding" || api == "fut_inv_weekly") {
+            if (api == "fut_wsr" && p.at("exchange") == "INE")
+                return table(request.at("fields"), Json::array());
             const auto product = p.at(api == "fut_inv_weekly" ? "ts_code" : "symbol");
             Json record{
                 {"trade_date", p.at("trade_date")},
@@ -180,7 +182,7 @@ struct Vendor
                 {"vol", fundamental_value},
                 {"vol_chg", -75},
                 {"area", "上海"},
-                {"year", nullptr},
+                {"year", 0},
                 {"grade", nullptr},
                 {"brand", nullptr},
                 {"place", nullptr},
@@ -213,8 +215,10 @@ struct Vendor
             add();
             if (api == "fut_holding")
                 record["symbol"] = product.get<std::string>() + "2605";
-            else
+            else {
                 record["warehouse"] = "总计";
+                record["year"] = "2025/2026";
+            }
             add();
             return table(request.at("fields"), rows);
         }
@@ -434,8 +438,12 @@ TEST_F(Acquisition, FundamentalReportsAreAcquiredAndBrowsedInFixedVersions)
         } else {
             EXPECT_EQ(cell(0, "unit"), "吨");
             EXPECT_EQ(cell(1, "warehouse"), "总计");
-            if (table == ::warehouse::TABLE_WAREHOUSE_RECEIPTS)
+            if (table == ::warehouse::TABLE_WAREHOUSE_RECEIPTS) {
                 EXPECT_EQ(cell(0, "forecast_volume"), "12.500000");
+                EXPECT_EQ(cell(0, "warehouse_id"), "001");
+                EXPECT_EQ(cell(0, "crop_year"), "0");
+                EXPECT_EQ(cell(1, "crop_year"), "2025/2026");
+            }
         }
         vendor->fundamental_value = "400";
         query.set_id(std::string(name) + "-revised");
@@ -458,7 +466,7 @@ TEST_F(Acquisition, FundamentalReportsAreAcquiredAndBrowsedInFixedVersions)
         }
 }
 
-TEST_F(Acquisition, FundamentalCapabilitiesAndIneMemberReportsKeepTheirExchangeScope)
+TEST_F(Acquisition, FundamentalCapabilitiesAndIneReportsKeepTheirExchangeScope)
 {
     auto vendor = std::make_shared<Vendor>();
     ac::Manager manager(root, {{"tushare", factory(vendor)}});
@@ -477,6 +485,10 @@ TEST_F(Acquisition, FundamentalCapabilitiesAndIneMemberReportsKeepTheirExchangeS
     EXPECT_EQ(rows[0].product, "sc");
     EXPECT_EQ(rows[0].contract, wh::Cell{});
     EXPECT_EQ(rows[1].contract, wh::Cell{std::string("INE/sc/2026-05")});
+    const auto receipts = source->warehouse_receipts("INE", "2026-01-05");
+    ASSERT_EQ(receipts.size(), 2);
+    EXPECT_EQ(receipts[0].exchange, "INE");
+    EXPECT_EQ(receipts[0].product, "sc");
 }
 
 TEST_F(Acquisition, FundamentalProviderRepliesCannotMixReportDatesOrTruncateAProduct)
