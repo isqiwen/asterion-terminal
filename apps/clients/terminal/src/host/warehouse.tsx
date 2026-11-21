@@ -34,9 +34,6 @@ const tableLabel: Partial<Record<Table, string>> = {
 export type WarehouseActivity = {
   done: bigint;
   total: bigint;
-  requests: bigint;
-  ratePerMin: number;
-  queued: number;
   running: boolean;
   heading: string;
   summary: string;
@@ -103,9 +100,6 @@ function summarizeActive(tasks: readonly AcquisitionTask[]): WarehouseActivity |
   return {
     done,
     total,
-    requests,
-    ratePerMin,
-    queued: batches.length - 1,
     running,
     heading,
     summary: parts.filter(Boolean).join(" · "),

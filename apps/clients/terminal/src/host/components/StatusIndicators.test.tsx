@@ -303,8 +303,9 @@ test("active Warehouse acquisition renders centered after the service lights whi
   expect(view.container.children[4]?.className).toBe("panel-spacer");
   const button = bar.closest("button")!;
   expect(button.textContent).toContain("采集中 · 日线 SHFE");
-  expect(button.textContent).toContain("60% · 126/210");
-  expect(button.textContent).toContain("+1");
+  expect(button.textContent).toBe("采集中 · 日线 SHFE60%");
+  expect(button.title).toContain("126 / 210 个分区");
+  expect(button.title).toContain("另有 1 个任务等待");
   expect(button.title).toContain("SHFE");
   expect(button.title).toContain("磁盘可用 80 GB");
   fireEvent.click(button);

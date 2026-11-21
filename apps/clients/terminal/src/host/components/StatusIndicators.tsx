@@ -111,15 +111,19 @@ export function StatusIndicators({
   const percent = determinate
     ? Math.min(100, Math.floor((Number(activeTask!.done) * 100) / Number(activeTask!.total)))
     : 0;
-  const rateSuffix = activeTask && activeTask.ratePerMin > 0 ? ` · ${activeTask.ratePerMin}/m` : "";
-  const queueSuffix = activeTask && activeTask.queued > 0 ? ` +${activeTask.queued}` : "";
-  const taskMetric = activeTask
-    ? determinate
-      ? `${percent}% · ${activeTask.done}/${activeTask.total}${rateSuffix}${queueSuffix}`
-      : activeTask.requests > 0n
-        ? `${t("{count} 次请求", { count: activeTask.requests.toString() })}${rateSuffix}${queueSuffix}`
-        : `${t("等待")}${queueSuffix}`
-    : "";
+  // The partitions, requests and queue are in the tooltip.
+  const taskProgress = activeTask && (
+    <>
+      <span className="status-task-label">{activeTask.heading}</span>
+      <progress
+        className="status-progress"
+        aria-label={activeTask.heading}
+        value={determinate ? Number(activeTask.done) : undefined}
+        max={determinate ? Number(activeTask.total) : undefined}
+      />
+      {determinate && <span className="status-metric">{percent}%</span>}
+    </>
+  );
   // The sidebar's order; trading last, since there is one light per account.
   return (
     <>
@@ -260,25 +264,11 @@ export function StatusIndicators({
               title={warehouseTitle}
               onClick={openDataset}
             >
-              <span className="status-task-label">{activeTask.heading}</span>
-              <progress
-                className="status-progress"
-                aria-label={activeTask.heading}
-                value={determinate ? Number(activeTask.done) : undefined}
-                max={determinate ? Number(activeTask.total) : undefined}
-              />
-              <span className="status-metric">{taskMetric}</span>
+              {taskProgress}
             </button>
           ) : (
             <span className="status-task" title={warehouseTitle}>
-              <span className="status-task-label">{activeTask.heading}</span>
-              <progress
-                className="status-progress"
-                aria-label={activeTask.heading}
-                value={determinate ? Number(activeTask.done) : undefined}
-                max={determinate ? Number(activeTask.total) : undefined}
-              />
-              <span className="status-metric">{taskMetric}</span>
+              {taskProgress}
             </span>
           )}
         </>
