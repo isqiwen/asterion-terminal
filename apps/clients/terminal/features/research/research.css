@@ -227,12 +227,16 @@ button.lab-module-group {
   padding: 0 var(--space-2);
   border: 0;
   background: none;
-  color: var(--muted);
+  color: var(--text-strong);
   font-size: var(--font-size-body);
+  font-weight: 500;
   text-align: left;
 }
 button.lab-module-group::before {
   content: "▸" / "";
+  flex: none;
+  width: 10px;
+  color: var(--muted);
 }
 button.lab-module-group[aria-expanded="true"]::before {
   content: "▾" / "";
@@ -244,14 +248,20 @@ button.lab-module-group:enabled:not([aria-disabled="true"]):is(:hover, :active) 
 }
 button.lab-module-group small {
   margin-left: auto;
+  color: var(--muted);
   font-family: var(--font-terminal);
   font-size: var(--font-size-xs);
+  font-weight: 400;
 }
+/* Item names start under their group's name: past its marker, less the item's accent edge. */
 .lab-module-members {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding-left: var(--space-2);
+  padding-left: calc(var(--space-2) + 8px);
+}
+.lab-module-members button.lab-module-item {
+  color: var(--text);
 }
 button.lab-module-item,
 .lab-evaluations li button {
