@@ -6,8 +6,8 @@ import numpy as np
 from asterion_strategy import WEIGHT_STEP, cross_section_rank
 
 from factors.positions import interest_change
-from factors.price import momentum, volatility
-from factors.risk import downside_volatility, realized_skewness
+from factors.price import information_discreteness, momentum, volatility
+from factors.risk import downside_volatility, maximum_return, realized_skewness
 from factors.term_structure import roll_yield_carry
 from strategies._portfolio import AlignedPortfolio, tails
 
@@ -111,6 +111,33 @@ class DualMomentum(_Ranked):
 
     def scores(self, data):
         return {s: momentum(row["close"], self.params["window"])[-1] for s, row in data.items()}
+
+
+# Da, Gurun & Warachka (2014), "Frog in the Pan: Continuous Information and Momentum", Eq. (1): https://doi.org/10.1093/rfs/hhu003
+# Adaptation: filter futures by ID threshold before momentum ranking instead of the paper's equity double sort.
+class ContinuousMomentumRank(_Ranked):
+    """Rank momentum among paths with low information discreteness, with inverse-volatility weights."""
+    params = {**_Ranked.params, "window": 126, "max_discreteness": 0.0}
+
+    def __init__(self, **values):
+        super().__init__(**values)
+        if not -1 <= self.params["max_discreteness"] <= 1:
+            raise ValueError("max_discreteness must be in [-1, 1]")
+
+    def scores(self, data):
+        p = self.params
+        return {s: momentum(row["close"], p["window"])[-1] for s, row in data.items()
+                if information_discreteness(row["close"], p["window"])[-1] <= p["max_discreteness"]}
+
+
+# Bali, Cakici & Whitelaw (2011), "Maxing out: Stocks as lotteries and the cross-section of expected returns": https://doi.org/10.1016/j.jfineco.2010.08.014
+# Adaptation: low-MAX/high-MAX futures tails with inverse-volatility weights; the original evidence concerns equities.
+class MaximumReturnRank(_Ranked):
+    """Long low maximum-return futures, short high maximum-return futures."""
+    params = {**_Ranked.params, "window": 20}
+
+    def scores(self, data):
+        return {s: -maximum_return(row["close"], self.params["window"])[-1] for s, row in data.items()}
 
 
 # Carry source: Koijen et al. (2018), "Carry": https://doi.org/10.1016/j.jfineco.2017.11.002

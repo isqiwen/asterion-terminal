@@ -14,12 +14,14 @@ sys.path[:0] = [str(ROOT / "research"), str(ROOT / "apps/services/common/python"
 import numpy as np
 
 from asterion_strategy import Bar, Context, check_factor, observe, quantize_weight, step
-from factors import liquidity, price, risk, technical, term_structure
+from factors import liquidity, positions, price, risk, technical, term_structure
 from strategies.composite import CompositePortfolio
 from strategies.learning import RandomFeatureForecast, RidgeForecast
 from strategies.oscillators import AtrBreakout, RsiReversion
+from strategies.panel import PanelRandomFeatureRank, PanelRidgeRank
 from strategies.risk_premia import (
-    CarryRank, DownsideRiskRank, DualMomentum, LowVolatilityRank, OpenInterestRank, SkewnessRank, TrendCarryRank,
+    CarryRank, ContinuousMomentumRank, DownsideRiskRank, DualMomentum, LowVolatilityRank, MaximumReturnRank,
+    OpenInterestRank, SkewnessRank, TrendCarryRank,
 )
 from strategies.trend import TurningPointMomentum, VolatilityTargetMomentum
 
@@ -30,6 +32,8 @@ EXTRA_BAR = {
     "channel_position", "efficiency_ratio", "downside_volatility", "upside_volatility",
     "realized_skewness", "excess_kurtosis", "expected_shortfall", "semivariance_balance",
     "money_flow_index", "return_per_volume", "volume_return_correlation", "volume_weighted_return",
+    "information_discreteness", "return_autocorrelation", "variance_ratio", "maximum_return",
+    "yang_zhang_volatility",
 }
 
 
@@ -75,7 +79,42 @@ class Factors(unittest.TestCase):
                             observe(ctx, [Bar("a", "a", row("a", i, close[i]).time, **fields)])
                             actual.append(ctx.factor(function, "a", count, **settings))
                         np.testing.assert_allclose(actual, expected, equal_nan=True)
-        self.assertEqual(len(checked), 36)
+        self.assertEqual(len(checked), 42)
+
+    def test_continuity_and_serial_dependence_distinguish_smooth_and_jumpy_paths(self):
+        smooth = np.array([100., 101., 103., 106., 110.])
+        jumpy = np.array([100., 99., 98., 97., 110.])
+        self.assertEqual(price.information_discreteness(smooth, 4)[-1], -1)
+        self.assertEqual(price.information_discreteness(jumpy, 4)[-1], 0.5)
+        self.assertEqual(price.information_discreteness(np.array([100., 100., 101., 101., 102.]), 4)[-1], -0.5)
+        self.assertEqual(price.information_discreteness(np.array([100., 110., 120., 130., 100.]), 4)[-1], 0)
+        alternating = 100 * np.r_[1, np.cumprod([1.1, 0.9, 1.1, 0.9])]
+        self.assertAlmostEqual(price.return_autocorrelation(alternating, 4)[-1], -1)
+        self.assertAlmostEqual(price.variance_ratio(np.exp(np.array([0., 1., 3., 6., 10.])), 4)[-1], 1.6)
+        self.assertAlmostEqual(price.variance_ratio(np.exp(np.array([0., 1., 0., 1., 0.])), 4)[-1], 0)
+        for function in (price.return_autocorrelation, price.variance_ratio):
+            self.assertTrue(np.isnan(function(np.ones(5), 4)[-1]))
+
+    def test_max_return_keeps_losses_and_yang_zhang_measures_opening_gaps(self):
+        close = 100 * np.r_[1, np.cumprod([0.9, 0.98, 0.95])]
+        self.assertAlmostEqual(risk.maximum_return(close, 3)[-1], -0.02)
+        flat_intraday = np.exp(np.array([0., 0.1, 0.3, 0.2]))
+        self.assertAlmostEqual(risk.yang_zhang_volatility(
+            flat_intraday, flat_intraday, flat_intraday, flat_intraday, 3)[-1],
+            np.std([0.1, 0.2, -0.1], ddof=1))
+        opening = np.ones(4)
+        close = np.exp(np.array([0., 0.1, -0.1, 0.2]))
+        high, low = np.exp(np.maximum(0, np.log(close)) + 0.1), np.exp(np.minimum(0, np.log(close)) - 0.1)
+        k = 0.34 / (1.34 + 2)
+        expected = np.sqrt(np.var([0., -0.1, 0.1], ddof=1) + k * np.var([0.1, -0.1, 0.2], ddof=1)
+                           + (1 - k) * np.mean([0.04, 0.04, 0.06]))
+        self.assertAlmostEqual(risk.yang_zhang_volatility(opening, high, low, close, 3)[-1], expected)
+
+    def test_chaikin_flow_weights_close_locations_by_volume(self):
+        high, low = np.array([12., 12., 10.]), np.array([8., 8., 10.])
+        close, volume = np.array([12., 8., 10.]), np.array([30., 10., 10.])
+        self.assertAlmostEqual(liquidity.chaikin_money_flow(high, low, close, volume, 3)[-1], 0.4)
+        self.assertTrue(np.isnan(liquidity.chaikin_money_flow(high, low, close, np.zeros(3), 3)[-1]))
 
     def test_price_oscillators_distinguish_direction_flat_prices_and_breakouts(self):
         close = np.array([100., 100., 103.])
@@ -174,6 +213,7 @@ class Portfolios(unittest.TestCase):
         cases = [(SkewnessRank, [-0.1, 0.01, 0.01, 0.01], [0.1, -0.01, -0.01, -0.01]),
                  (LowVolatilityRank, [0.01, 0.02, 0.01, 0.02], [0.05, 0.1, 0.05, 0.1]),
                  (DownsideRiskRank, [-0.01, 0.02, -0.01, 0.02], [-0.05, 0.1, -0.05, 0.1]),
+                 (MaximumReturnRank, [-0.01, 0.02, -0.01, 0.02], [-0.05, 0.1, -0.05, 0.1]),
                  (OpenInterestRank, [-0.01, 0.02, -0.01, 0.02], [-0.01, 0.02, -0.01, 0.02])]
         for cls, first, second in cases:
             with self.subTest(strategy=cls.__name__):
@@ -184,6 +224,14 @@ class Portfolios(unittest.TestCase):
                     output = step(strategy, ctx, [replace(row("a", i, a), open_interest=1000 + 50 * i),
                                                   replace(row("b", i, b), open_interest=1000 - 50 * i)])
                 self.assertEqual(output, {"a": 0.3, "b": -0.3})
+
+    def test_continuous_momentum_excludes_a_jumpy_winner(self):
+        strategy = ContinuousMomentumRank(window=4, volatility=4, count=1, rebalance=1)
+        ctx = Context(["a", "b", "c"])
+        for i, prices in enumerate(zip((100, 101, 103, 106, 110), (100, 99, 97, 94, 90),
+                                        (100, 99, 98, 97, 120))):
+            output = step(strategy, ctx, [row(s, i, close) for s, close in zip(ctx.symbols, prices)])
+        self.assertEqual(output, {"a": 0.3, "b": -0.3, "c": 0.0})
 
     def test_trend_carry_ranks_the_intersection_and_closes_unrankable_ties(self):
         strategy = TrendCarryRank(window=3, volatility=3, count=1, rebalance=1, trend_share=0.0)
@@ -296,6 +344,138 @@ class Learning(unittest.TestCase):
         self.assertEqual(full[:50], replay(changed)[:50])
         self.assertEqual(full, replay(closes))
         self.assertTrue(any(value.get("a") for value in full))
+
+
+class PanelLearning(unittest.TestCase):
+    def sample(self, length):
+        rng = np.random.default_rng(15)
+        data = {}
+        for symbol in ("a", "b", "c", "d"):
+            close = 100 * np.exp(rng.normal(0.001, 0.02, length).cumsum())
+            opening = close * np.exp(rng.normal(0, 0.005, length))
+            data[symbol] = dict(open=opening, high=np.maximum(opening, close) + 1,
+                                low=np.minimum(opening, close) - 1, close=close,
+                                volume=rng.uniform(100, 300, length), open_interest=rng.uniform(1000, 2000, length),
+                                roll_yield=rng.normal(0, 0.05, length), next_open=np.r_[opening[1:], np.nan])
+        return data
+
+    def test_pooled_forecasts_share_labels_and_exclude_unfinished_training_features(self):
+        for cls in (PanelRidgeRank, PanelRandomFeatureRank):
+            for horizon in (1, 3):
+                with self.subTest(model=cls.__name__, horizon=horizon):
+                    strategy = cls(fast=2, window=4, train=8, volatility=3, rebalance=horizon)
+                    n = strategy.need
+                    data = {}
+                    for symbol, rate in (("a", 0.01), ("b", 0.02)):
+                        opening = 100 * (1 + rate) ** np.arange(n)
+                        data[symbol] = dict(open=opening, high=np.full(n, 200.), low=np.full(n, 1.),
+                                            close=np.full(n, 100.), volume=np.full(n, 100.),
+                                            open_interest=np.full(n, 1000.), roll_yield=np.full(n, np.nan),
+                                            next_open=np.r_[opening[1:], np.nan])
+                    expected = ((1.01 ** horizon - 1) + (1.02 ** horizon - 1)) / 2
+                    np.testing.assert_allclose(list(strategy.scores(data).values()), [expected] * 2, atol=1e-12)
+                    for row_data in data.values():
+                        row_data["close"][-horizon - 1:] = 150
+                    np.testing.assert_allclose(list(strategy.scores(data).values()), [expected] * 2, atol=1e-12)
+
+    def test_pooled_ridge_matches_an_augmented_least_squares_fit(self):
+        strategy = PanelRidgeRank(fast=2, window=4, train=8, volatility=3, rebalance=2, ridge=0.7)
+        data = self.sample(strategy.need)
+        x, y, query = [], [], []
+        for values in data.values():
+            close = values["close"]
+            features = np.column_stack((price.momentum(close, 2), price.momentum(close, 4),
+                price.volatility(close, 2), technical.price_zscore(close, 4), technical.rsi(close, 2),
+                technical.efficiency_ratio(close, 4), price.information_discreteness(close, 4),
+                risk.maximum_return(close, 4),
+                liquidity.chaikin_money_flow(values["high"], values["low"], close, values["volume"], 4),
+                positions.interest_change(values["open_interest"], 4)))
+            for time in range(4, 12):
+                x.append(features[time])
+                y.append(values["open"][time + 3] / values["open"][time + 1] - 1)
+            query.append(features[-1])
+        x, query = np.asarray(x), np.asarray(query)
+        mean, scale = x.mean(axis=0), x.std(axis=0)
+        x = np.column_stack((np.ones(len(x)), (x - mean) / scale))
+        query = np.column_stack((np.ones(len(query)), (query - mean) / scale))
+        penalty = np.diag([0.] + [np.sqrt(0.7 * len(x))] * 10)
+        beta = np.linalg.lstsq(np.vstack((x, penalty)), np.r_[y, np.zeros(11)], rcond=None)[0]
+        np.testing.assert_allclose(list(strategy.scores(data).values()), query @ beta, atol=1e-12)
+
+    def test_labels_use_the_next_symbol_open_between_shared_observations(self):
+        for cls in (PanelRidgeRank, PanelRandomFeatureRank):
+            class Observed(cls):
+                def scores(self, data):
+                    self.prediction = super().scores(data)
+                    return self.prediction
+            strategy = Observed(fast=2, window=4, train=8, volatility=3, rebalance=1, count=1)
+            ctx = Context(["a", "b"])
+            for i in range(strategy.need):
+                if i:
+                    step(strategy, ctx, [row("a", i - 0.5, 100 * 1.02 ** i)])
+                close = 100 + i + (-1) ** i
+                openings = (100 * (1 + 0.08 * i), 100 * 1.02 ** i)
+                bars = [replace(row(s, i, close), open=opening, high=max(opening, close) + 1)
+                        for s, opening in zip(ctx.symbols, openings)]
+                output = step(strategy, ctx, bars)
+                self.assertEqual(ctx.ready, i == strategy.need - 1)
+                if not ctx.ready:
+                    self.assertEqual(output, {})
+            np.testing.assert_allclose(list(strategy.prediction.values()), [0.02, 0.02], atol=1e-12)
+
+    def test_missing_carry_is_optional_or_excluded_from_the_panel(self):
+        for cls in (PanelRidgeRank, PanelRandomFeatureRank):
+            params = dict(fast=2, window=4, train=8, volatility=3, rebalance=2)
+            strategy = cls(use_carry=True, **params)
+            data = self.sample(strategy.need)
+            self.assertEqual(set(strategy.scores(data)), set(data))
+            data["a"]["roll_yield"][-1] = np.nan
+            self.assertEqual(set(strategy.scores(data)), {"b", "c", "d"})
+            for values in data.values():
+                values["roll_yield"][:] = np.nan
+            self.assertEqual(strategy.scores(data), {})
+            self.assertEqual(set(cls(**params).scores(data)), set(data))
+
+    def test_panel_replay_preserves_prefixes_seed_and_portfolio_budgets(self):
+        data = self.sample(65)
+        changed = {s: {field: values.copy() for field, values in fields.items()} for s, fields in data.items()}
+        for fields in changed.values():
+            for field in ("open", "high", "low", "close"):
+                fields[field][50:] *= 2
+        for cls in (PanelRidgeRank, PanelRandomFeatureRank):
+            def replay(source, stop=65, reverse=False):
+                strategy = cls(fast=2, window=6, train=12, volatility=3, rebalance=3, count=2)
+                ctx = Context(list(reversed(source)) if reverse else list(source))
+                return [dict(step(strategy, ctx, [Bar(s, s, row(s, i, 100).time,
+                            **{field: values[i] for field, values in source[s].items() if field != "next_open"})
+                            for s in ctx.symbols])) for i in range(stop)]
+            full = replay(data)
+            self.assertEqual(full[:50], replay(data, 50))
+            self.assertEqual(full[:50], replay(changed)[:50])
+            self.assertEqual(full, replay(data, reverse=True))
+            self.assertTrue(any(any(weights.values()) for weights in full))
+            for weights in full:
+                values = list(map(quantize_weight, weights.values()))
+                self.assertLessEqual(sum(map(abs, values), Decimal(0)), Decimal("0.6"))
+                self.assertEqual(sum(values, Decimal(0)), 0)
+
+    def test_panel_roll_reprices_training_entries_and_exits_with_the_price_history(self):
+        data = self.sample(40)
+        for cls in (PanelRidgeRank, PanelRandomFeatureRank):
+            def replay(roll):
+                strategy = cls(fast=2, window=6, train=12, volatility=3, rebalance=3, count=1)
+                ctx = Context(list(data), {"a2": 2.0})
+                decisions = []
+                for i in range(40):
+                    bars = []
+                    for s, source in data.items():
+                        rolled = roll and s == "a" and i >= 25
+                        fields = {field: values[i] * (2 if rolled and field in ("open", "high", "low", "close") else 1)
+                                  for field, values in source.items() if field != "next_open"}
+                        bars.append(Bar(s, "a2" if rolled else s, row(s, i, 100).time, **fields))
+                    decisions.append(dict(step(strategy, ctx, bars)))
+                return decisions
+            self.assertEqual(replay(False), replay(True))
 
 
 if __name__ == "__main__":

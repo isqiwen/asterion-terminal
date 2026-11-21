@@ -223,7 +223,7 @@ class Repository(unittest.TestCase):
         learned = build(self.root, "learning.RandomFeatureForecast")
         self.assertEqual([file.path for file in learned.files],
                          ["factors/_rolling.py", "factors/price.py", "factors/technical.py",
-                          "strategies/_common.py", "strategies/learning.py"])
+                          "strategies/_common.py", "strategies/_learning.py", "strategies/learning.py"])
         noisy = build(self.root, "noisy.Noisy")
         self.assertEqual([file.path for file in noisy.files], ["helpers.py", "strategies/noisy.py"])
         (self.root / "helpers.py").unlink()
@@ -283,7 +283,12 @@ class Repository(unittest.TestCase):
         from asterion_lab.package import build
         runner = EXAMPLES.parent / "apps/services/trading/python/strategy_runner.py"
         cases = [("risk_premia.CarryRank", dict(window=3, volatility=3, count=1, rebalance=1)),
-                 ("learning.RandomFeatureForecast", dict(fast=2, slow=6, train=12, features=32, rebalance=3))]
+                 ("learning.RandomFeatureForecast", dict(fast=2, slow=6, train=12, features=32, rebalance=3)),
+                 ("risk_premia.ContinuousMomentumRank", dict(window=3, volatility=3, count=1, rebalance=1)),
+                 ("risk_premia.MaximumReturnRank", dict(window=3, volatility=3, count=1, rebalance=1)),
+                 ("panel.PanelRidgeRank", dict(fast=2, window=6, train=12, volatility=3, count=1, rebalance=3)),
+                 ("panel.PanelRandomFeatureRank", dict(fast=2, window=6, train=12, volatility=3, count=1,
+                                                      rebalance=3, features=32, use_carry=True))]
         for case, (identity, params) in enumerate(cases):
             with self.subTest(strategy=identity):
                 package = build(self.root, identity)
@@ -331,7 +336,10 @@ class Repository(unittest.TestCase):
                             series.contracts.add(instrument=dict(exchange=exchange, symbol=product + "2605"),
                                                  delivery_month="2026-05")
                         for name, value in params.items():
-                            load.load.instance.params[name].integer = value
+                            if isinstance(value, bool):
+                                load.load.instance.params[name].flag = value
+                            else:
+                                load.load.instance.params[name].integer = value
                         self.assertTrue(call(load).HasField("load"))
                         channel.settimeout(2)
                         research = repository.load(self.root, identity, params)
@@ -394,9 +402,11 @@ class Repository(unittest.TestCase):
                          ["breakout.Breakout", "composite.CompositePortfolio", "composite.MultiFactorRank",
                           "learning.RandomFeatureForecast", "learning.RidgeForecast", "ma_cross.MaCross",
                           "momentum.Momentum", "momentum_rank.MomentumRank", "noisy.Noisy",
-                          "oscillators.AtrBreakout", "oscillators.RsiReversion", "reversion.Reversion",
-                          "risk_premia.CarryRank", "risk_premia.DownsideRiskRank", "risk_premia.DualMomentum",
-                          "risk_premia.LowVolatilityRank", "risk_premia.OpenInterestRank",
+                          "oscillators.AtrBreakout", "oscillators.RsiReversion",
+                          "panel.PanelRandomFeatureRank", "panel.PanelRidgeRank", "reversion.Reversion",
+                          "risk_premia.CarryRank", "risk_premia.ContinuousMomentumRank",
+                          "risk_premia.DownsideRiskRank", "risk_premia.DualMomentum",
+                          "risk_premia.LowVolatilityRank", "risk_premia.MaximumReturnRank", "risk_premia.OpenInterestRank",
                           "risk_premia.SkewnessRank", "risk_premia.TrendCarryRank",
                           "trend.TurningPointMomentum", "trend.VolatilityTargetMomentum"])
         strategies = {entry.id: entry for entry in listed.strategies}
@@ -533,7 +543,7 @@ class Repository(unittest.TestCase):
         request = Request(id=1)
         request.list_strategies.path = str(self.root)
         response = asyncio.run(service.reply(request))
-        self.assertEqual(len(response.list_strategies.strategies), 21, response)
+        self.assertEqual(len(response.list_strategies.strategies), 25, response)
         request.list_strategies.path = str(Path(self.temporary.name) / "missing")
         response = asyncio.run(service.reply(request))
         self.assertEqual(response.error.code, ErrorCode.ERROR_CODE_INVALID_REQUEST)

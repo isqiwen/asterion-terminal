@@ -1,12 +1,10 @@
 """Rolling return forecasts using linear and random Fourier feature ridge regression."""
 import numpy as np
-from scipy.linalg import solve
 
 from asterion_strategy import Strategy
 
-from factors.price import momentum, volatility
-from factors.technical import efficiency_ratio, price_zscore, rsi
 from strategies._common import SIDES, lots
+from strategies._learning import fourier, price_features, ridge_predict
 
 
 # Linear control for RandomFeatureForecast, with the same inputs, labels and rolling fit.
@@ -36,31 +34,14 @@ class RidgeForecast(Strategy):
     def forecast(self, open, close):
         p = self.params
         horizon = p["rebalance"]
-        inputs = np.column_stack((momentum(close, p["fast"]), momentum(close, p["slow"]),
-                                  volatility(close, p["fast"]), price_zscore(close, p["slow"]),
-                                  rsi(close, p["fast"]), efficiency_ratio(close, p["slow"])))
+        inputs = price_features(close, p["fast"], p["slow"])
         train = inputs[p["slow"]:-horizon - 1]
         query = inputs[-1:]
         # Targets execute at the next open; exclude features whose holding-period return is not yet known.
         labels = open[p["slow"] + horizon + 1:] / open[p["slow"] + 1:-horizon] - 1
         if not np.isfinite(train).all() or not np.isfinite(query).all() or not np.isfinite(labels).all():
             return np.nan
-        mean, sigma = train.mean(axis=0), train.std(axis=0)
-        sigma = np.where(sigma > 0, sigma, 1.0)
-        train, query = self.transform((train - mean) / sigma, (query - mean) / sigma)
-        center = train.mean(axis=0)
-        train, query = train - center, query - center
-        intercept = labels.mean()
-        penalty = p["ridge"] * len(train)
-        if train.shape[1] <= len(train):
-            gram = train.T @ train + penalty * np.eye(train.shape[1])
-            beta = solve(gram, train.T @ (labels - intercept), assume_a="pos")
-            prediction = query @ beta
-        else:
-            gram = train @ train.T + penalty * np.eye(len(train))
-            dual = solve(gram, labels - intercept, assume_a="pos")
-            prediction = (query @ train.T) @ dual
-        return float(prediction[0] + intercept)
+        return float(ridge_predict(train, query, labels, p["ridge"], self.transform)[0])
 
     def on_bar(self, ctx, bar):
         p = self.params
@@ -91,10 +72,4 @@ class RandomFeatureForecast(RidgeForecast):
         self.projection = np.random.default_rng(p["seed"]).normal(size=(p["features"] // 2, 6)).T
 
     def transform(self, train, query):
-        train = self.params["gamma"] * (train @ self.projection)
-        query = self.params["gamma"] * (query @ self.projection)
-        train = np.column_stack((np.sin(train), np.cos(train)))
-        query = np.column_stack((np.sin(query), np.cos(query)))
-        sigma = train.std(axis=0)
-        sigma = np.where(sigma > 0, sigma, 1.0)
-        return train / sigma, query / sigma
+        return fourier(train, query, self.projection, self.params["gamma"])

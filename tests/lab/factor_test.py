@@ -166,13 +166,16 @@ class Repository(unittest.TestCase):
         listed = repository.list_strategies(str(self.repository))
         entries = {entry.id: entry for entry in listed.factors}
         self.assertEqual(sorted(entries), [
-            "liquidity.money_flow_index", "liquidity.relative_volume", "liquidity.return_per_volume",
+            "liquidity.chaikin_money_flow", "liquidity.money_flow_index", "liquidity.relative_volume",
+            "liquidity.return_per_volume",
             "liquidity.turnover", "liquidity.volume_return_correlation", "liquidity.volume_weighted_return",
-            "positions.interest_change", "price.blended_momentum", "price.distance_to_high", "price.momentum",
-            "price.momentum_strength", "price.reversal", "price.skip_momentum", "price.volatility",
+            "positions.interest_change", "price.blended_momentum", "price.distance_to_high",
+            "price.information_discreteness", "price.momentum", "price.momentum_strength",
+            "price.return_autocorrelation", "price.reversal", "price.skip_momentum", "price.variance_ratio", "price.volatility",
             "risk.downside_volatility", "risk.excess_kurtosis", "risk.expected_shortfall",
-            "risk.garman_klass_volatility", "risk.parkinson_volatility", "risk.realized_skewness",
+            "risk.garman_klass_volatility", "risk.maximum_return", "risk.parkinson_volatility", "risk.realized_skewness",
             "risk.rogers_satchell_volatility", "risk.semivariance_balance", "risk.upside_volatility",
+            "risk.yang_zhang_volatility",
             "technical.average_true_range", "technical.channel_position", "technical.commodity_channel_index",
             "technical.efficiency_ratio", "technical.log_price_slope", "technical.moving_average_gap",
             "technical.price_zscore", "technical.rsi", "technical.stochastic",

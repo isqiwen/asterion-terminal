@@ -29,9 +29,11 @@ class AlignedPortfolio(Strategy):
         if self.shared < self.need or (self.shared - self.need) % self.params["rebalance"]:
             return
         # Re-read prices from Context so a dominant-contract roll adjusts older observations.
-        data = {s: {field: ctx.history(s, field, 1 << 30)[list(indices)] for field in FIELDS}
-                for s, indices in self.indices.items()}
+        data = {s: self.history(ctx, s, list(indices)) for s, indices in self.indices.items()}
         ctx.weights(self.allocate(data))
+
+    def history(self, ctx, symbol, indices):
+        return {field: ctx.history(symbol, field, 1 << 30)[indices] for field in FIELDS}
 
     def allocate(self, data):
         raise NotImplementedError

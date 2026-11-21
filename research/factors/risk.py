@@ -4,6 +4,13 @@ import numpy as np
 from factors._rolling import apply as _apply, log as _log, ratio as _ratio, returns as _returns
 
 
+# Bali, Cakici & Whitelaw (2011), "Maxing out: Stocks as lotteries and the cross-section of expected returns": https://doi.org/10.1016/j.jfineco.2010.08.014
+# Adaptation: maximum simple return over configurable futures bars instead of the prior equity month.
+def maximum_return(close, window: int = 20):
+    """Largest one-bar simple return in the window (MAX); needs window + 1 bars."""
+    return _apply(_returns(close), window, lambda x: x.max(axis=1))
+
+
 def downside_volatility(close, window: int = 20):
     """Root mean squared negative simple returns; needs window + 1 bars."""
     return np.sqrt(_apply(np.minimum(_returns(close), 0) ** 2, window, lambda x: x.mean(axis=1)))
@@ -71,3 +78,17 @@ def rogers_satchell_volatility(open, high, low, close, window: int = 20):
     variance = (log_high - log_open) * (log_high - log_close) \
         + (log_low - log_open) * (log_low - log_close)
     return np.sqrt(_apply(variance, window, lambda x: x.mean(axis=1)))
+
+
+# Yang & Zhang (2000), "Drift-Independent Volatility Estimation Based on High, Low, Open, and Close Prices", Eqs. (7), (18): https://doi.org/10.1086/209650
+# Adaptation: rolling per-bar volatility, with no annualization.
+def yang_zhang_volatility(open, high, low, close, window: int = 20):
+    """Opening-gap, open-close and Rogers-Satchell volatility; needs window + 1 bars."""
+    lo, lc = _log(open), _log(close)
+    previous = np.full(len(close), np.nan)
+    previous[1:] = lc[:-1]
+    overnight = _apply(lo - previous, window, lambda x: x.var(axis=1, ddof=1), 2)
+    intraday = _apply(lc - lo, window, lambda x: x.var(axis=1, ddof=1), 2)
+    k = 0.34 / (1.34 + (window + 1) / (window - 1))
+    rs = rogers_satchell_volatility(open, high, low, close, window) ** 2
+    return np.sqrt(overnight + k * intraday + (1 - k) * rs)

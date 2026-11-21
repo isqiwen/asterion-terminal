@@ -50,3 +50,12 @@ def money_flow_index(high, low, close, volume, window: int = 14):
     total = np.where(np.isfinite(changes), flow * (changes != 0), np.nan)
     return 100 * _ratio(_apply(positive, window, lambda x: x.sum(axis=1)),
                         _apply(total, window, lambda x: x.sum(axis=1)), neutral=0.5)
+
+
+# Marc Chaikin's CMF formula: https://chartschool.stockcharts.com/table-of-contents/technical-indicators-and-overlays/technical-indicators/chaikin-money-flow-cmf
+def chaikin_money_flow(high, low, close, volume, window: int = 20):
+    """Volume-weighted close location (-1..1), not observed order flow; needs window bars."""
+    location = _ratio((close - low) - (high - close), high - low, neutral=0.0)
+    weighted = _apply(location * volume, window, lambda x: x.sum(axis=1))
+    total = _apply(volume, window, lambda x: x.sum(axis=1))
+    return _ratio(weighted, total)
