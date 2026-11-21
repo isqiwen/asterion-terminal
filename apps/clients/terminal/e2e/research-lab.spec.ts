@@ -36,6 +36,9 @@ test(
     prepare();
     await page.goto("/");
     await openView(page, "research");
+    await expect(
+      page.getByRole("button", { name: "RandomFeatureForecast", exact: true }),
+    ).toBeVisible();
     await page.getByRole("button", { name: /MaCross/ }).click();
     const form = page.locator(".lab-research");
     await form.getByLabel("品种", { exact: true }).fill("SHFE/rb");
@@ -78,9 +81,12 @@ test(
     prepare();
     await page.goto("/");
     await openView(page, "factors");
+    await expect(
+      page.getByRole("button", { name: "expected_shortfall", exact: true }),
+    ).toBeVisible();
     await page
       .locator(".lab-modules")
-      .getByRole("button", { name: /^momentum/ })
+      .getByRole("button", { name: /^momentum(?:\s|$)/ })
       .click();
     const form = page.locator(".lab-config");
     await form

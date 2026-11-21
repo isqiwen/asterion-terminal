@@ -2,7 +2,7 @@
 
 Lab 是 Terminal 启动和看护的本机 Python 服务，负责策略、因子、回测、参数扫描、滚动验证和研究记录。它只读 Warehouse 的固定数据版本，不采集数据，也不运行实盘策略。关闭 Terminal 会结束 Lab，不影响 Warehouse 和 Trading。
 
-内部设计与通信时序见[开发者导读](architecture.md)，运行环境及目录见[部署与运行](deployment.md)。
+内置方法、公式与论文来源见[因子与策略库](catalog.md)，内部设计与通信时序见[开发者导读](architecture.md)，运行环境及目录见[部署与运行](deployment.md)。
 
 Lab 用保存在本机的 Warehouse 地址和客户端证书直连 Warehouse；没有配置时数据请求失败，已有研究结果仍可查看。界面用 `protocol/proto/asterion/lab.proto` 的消息经本机 Unix socket 请求 Lab。
 

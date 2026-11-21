@@ -237,7 +237,8 @@ def describe(root: Path) -> Strategies:
         except ValueError as failure:
             reply.errors.add(module=name, traceback=str(failure))
             continue
-        used = [file[len("factors/"):-len(".py")] for file in files if file.startswith("factors/")]
+        used = [file[len("factors/"):-len(".py")] for file in files
+                if file.startswith("factors/") and not Path(file).name.startswith("_")]
         for cls in defined(module):
             entry = reply.strategies.add(id=f"{name}.{cls.__name__}",
                                          description=inspect.getdoc(cls) or "",

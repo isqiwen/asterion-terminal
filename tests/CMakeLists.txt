@@ -188,6 +188,8 @@ add_dependencies(asterion_live_tests asterion_test_ctp_trader)
 # lab: the Python research service under the Terminal, with the prepared runtime.
 add_test(NAME lab_strategy COMMAND ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/lab/strategy_test.py ${PROJECT_SOURCE_DIR}/apps/services/lab ${CMAKE_BINARY_DIR}/generated-python)
 set_tests_properties(lab_strategy PROPERTIES TIMEOUT 60)
+add_test(NAME lab_catalog COMMAND ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/lab/catalog_test.py)
+set_tests_properties(lab_catalog PROPERTIES TIMEOUT 60)
 if(ASTERION_PYTHON_HOME)
   add_test(NAME lab_engine COMMAND ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/lab/engine_test.py ${CMAKE_BINARY_DIR}/engine-python)
   set_tests_properties(lab_engine PROPERTIES TIMEOUT 60)

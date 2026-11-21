@@ -9,6 +9,8 @@ import json
 import os
 import select
 import signal
+import socket
+import struct
 from decimal import Decimal
 from pathlib import Path
 import shutil
@@ -16,6 +18,7 @@ import subprocess
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "apps/services/common/python"))
 import tempfile
+import time
 import tomllib
 import unittest
 from unittest.mock import patch
@@ -210,10 +213,17 @@ class Repository(unittest.TestCase):
         # A strategy that uses a factor is published with the factor's module.
         ranked = build(self.root, "momentum_rank.MomentumRank")
         self.assertEqual([file.path for file in ranked.files],
-                         ["factors/price.py", "strategies/_common.py", "strategies/momentum_rank.py"])
+                         ["factors/_rolling.py", "factors/price.py", "strategies/_common.py",
+                          "strategies/momentum_rank.py"])
         composite = build(self.root, "composite.CompositePortfolio")
         self.assertEqual([file.path for file in composite.files],
-                         ["factors/positions.py", "factors/price.py", "strategies/composite.py"])
+                         ["factors/_rolling.py", "factors/positions.py", "factors/price.py", "factors/risk.py",
+                          "factors/technical.py", "factors/term_structure.py", "strategies/_portfolio.py",
+                          "strategies/composite.py", "strategies/risk_premia.py"])
+        learned = build(self.root, "learning.RandomFeatureForecast")
+        self.assertEqual([file.path for file in learned.files],
+                         ["factors/_rolling.py", "factors/price.py", "factors/technical.py",
+                          "strategies/_common.py", "strategies/learning.py"])
         noisy = build(self.root, "noisy.Noisy")
         self.assertEqual([file.path for file in noisy.files], ["helpers.py", "strategies/noisy.py"])
         (self.root / "helpers.py").unlink()
@@ -268,6 +278,99 @@ class Repository(unittest.TestCase):
         service.reads.shutdown()
         service.runs.index.close()
 
+    def test_catalog_packages_match_research_decisions_in_the_trading_child(self):
+        from asterion import strategy_pb2 as wire
+        from asterion_lab.package import build
+        runner = EXAMPLES.parent / "apps/services/trading/python/strategy_runner.py"
+        cases = [("risk_premia.CarryRank", dict(window=3, volatility=3, count=1, rebalance=1)),
+                 ("learning.RandomFeatureForecast", dict(fast=2, slow=6, train=12, features=32, rebalance=3))]
+        for case, (identity, params) in enumerate(cases):
+            with self.subTest(strategy=identity):
+                package = build(self.root, identity)
+                folder = Path(self.temporary.name) / str(case)
+                folder.mkdir()
+                for file in package.files:
+                    target = folder / file.path
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(file.content)
+                (folder / "strategy.json").write_text(json.dumps({"entry": package.manifest.entry}))
+                endpoint = folder / "child.sock"
+                child = subprocess.Popen([sys.executable, "-I", "-B", str(runner), str(endpoint),
+                                          str(folder), str(os.getpid())], stderr=subprocess.PIPE)
+                try:
+                    deadline = time.monotonic() + 10
+                    while not endpoint.exists() and child.poll() is None and time.monotonic() < deadline:
+                        time.sleep(0.01)
+                    self.assertTrue(endpoint.exists(), "Trading strategy child did not start")
+                    with socket.socket(socket.AF_UNIX) as channel:
+                        channel.settimeout(10)
+                        channel.connect(str(endpoint))
+                        def send(request):
+                            raw = request.SerializeToString()
+                            channel.sendall(struct.pack("!I", len(raw)) + raw)
+                        def exact(size):
+                            parts = bytearray()
+                            while len(parts) < size:
+                                part = channel.recv(size - len(parts))
+                                if not part:
+                                    raise EOFError("strategy child closed the socket")
+                                parts.extend(part)
+                            return bytes(parts)
+                        def call(request):
+                            send(request)
+                            size, = struct.unpack("!I", exact(4))
+                            response = wire.Response.FromString(exact(size))
+                            self.assertNotEqual(response.WhichOneof("result"), "error", response)
+                            return response
+                        symbols = ["SHFE/rb", "SHFE/cu", "SHFE/al", "SHFE/zn"]
+                        load = wire.Request()
+                        load.load.symbols.extend(symbols)
+                        for symbol in symbols:
+                            exchange, product = symbol.split("/")
+                            series = load.load.instance.series.add(exchange=exchange, product=product)
+                            series.contracts.add(instrument=dict(exchange=exchange, symbol=product + "2605"),
+                                                 delivery_month="2026-05")
+                        for name, value in params.items():
+                            load.load.instance.params[name].integer = value
+                        self.assertTrue(call(load).HasField("load"))
+                        channel.settimeout(2)
+                        research = repository.load(self.root, identity, params)
+                        ctx = Context(symbols)
+                        decisions = []
+                        for i in range(25):
+                            request = wire.Request(bars=dict(sequence=i + 1))
+                            bars = []
+                            for j, symbol in enumerate(symbols):
+                                close = float(100 + i + (i % 3 - 1) * (j + 1))
+                                current = bar(symbol, i, close)
+                                current = replace(current, contract=symbol + "/2026-05", roll_yield=j * 0.01)
+                                bars.append(current)
+                                stamp = current.time.replace(tzinfo=datetime.timezone(datetime.timedelta(hours=8)))
+                                item = request.bars.bars.add(instrument=dict(exchange="SHFE",
+                                    symbol=symbol.split("/")[1] + "2605"), end_ms=int(stamp.timestamp() * 1000),
+                                    volume=10, open_interest=dict(text="100"), roll_yield=dict(text=str(j * 0.01)))
+                                for field in ("open", "high", "low", "close"):
+                                    getattr(item, field).text = str(close)
+                            expected = step(research, ctx, bars)
+                            result = call(request).bars
+                            self.assertEqual((result.sequence, result.ready), (i + 1, ctx.ready))
+                            actual = {"SHFE/" + target.instrument.symbol[:-4]: target for target in result.targets}
+                            self.assertEqual(actual.keys(), expected.keys())
+                            for symbol, value in expected.items():
+                                if ctx.mode == "weights":
+                                    self.assertEqual(Decimal(actual[symbol].weight.text), quantize_weight(value))
+                                else:
+                                    self.assertEqual(actual[symbol].lots, value)
+                            decisions.append(expected)
+                        self.assertTrue(any(decisions))
+                        send(wire.Request(stop={}))
+                    _, errors = child.communicate(timeout=5)
+                    self.assertEqual(child.returncode, 0, errors.decode())
+                finally:
+                    if child.poll() is None:
+                        child.kill()
+                    child.communicate()
+
     def test_listing(self):
         listed = repository.list_strategies(str(self.root))
         head = subprocess.run(["git", "-C", str(self.root), "rev-parse", "HEAD"], capture_output=True,
@@ -288,9 +391,14 @@ class Repository(unittest.TestCase):
         finally:
             (self.root / "strategies/private_helper.py").unlink()
         self.assertEqual([entry.id for entry in listed.strategies],
-                         ["breakout.Breakout", "composite.CompositePortfolio",
-                          "composite.MultiFactorRank", "ma_cross.MaCross", "momentum.Momentum",
-                          "momentum_rank.MomentumRank", "noisy.Noisy", "reversion.Reversion"])
+                         ["breakout.Breakout", "composite.CompositePortfolio", "composite.MultiFactorRank",
+                          "learning.RandomFeatureForecast", "learning.RidgeForecast", "ma_cross.MaCross",
+                          "momentum.Momentum", "momentum_rank.MomentumRank", "noisy.Noisy",
+                          "oscillators.AtrBreakout", "oscillators.RsiReversion", "reversion.Reversion",
+                          "risk_premia.CarryRank", "risk_premia.DownsideRiskRank", "risk_premia.DualMomentum",
+                          "risk_premia.LowVolatilityRank", "risk_premia.OpenInterestRank",
+                          "risk_premia.SkewnessRank", "risk_premia.TrendCarryRank",
+                          "trend.TurningPointMomentum", "trend.VolatilityTargetMomentum"])
         strategies = {entry.id: entry for entry in listed.strategies}
         self.assertTrue(strategies["ma_cross.MaCross"].description.startswith("Long while the mean"))
         self.assertEqual([(item.name, item.default.WhichOneof("value"))
@@ -425,7 +533,7 @@ class Repository(unittest.TestCase):
         request = Request(id=1)
         request.list_strategies.path = str(self.root)
         response = asyncio.run(service.reply(request))
-        self.assertEqual(len(response.list_strategies.strategies), 8, response)
+        self.assertEqual(len(response.list_strategies.strategies), 21, response)
         request.list_strategies.path = str(Path(self.temporary.name) / "missing")
         response = asyncio.run(service.reply(request))
         self.assertEqual(response.error.code, ErrorCode.ERROR_CODE_INVALID_REQUEST)

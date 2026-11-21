@@ -19,5 +19,5 @@
 | Market | [功能与使用](market/README.md) → [部署](market/deployment.md) |
 | Warehouse | [功能与使用](warehouse/README.md) → [架构与通信图解](warehouse/architecture.md) → [部署](warehouse/deployment.md) |
 | Trading | [交易与风控](trading/README.md) → [架构与通信图解](trading/architecture.md) → [部署与运行](trading/deployment.md) |
-| Lab | [策略、因子与回测](lab/README.md) → [架构与通信图解](lab/architecture.md) → [部署与运行](lab/deployment.md) |
+| Lab | [策略、因子与回测](lab/README.md) → [内置方法与论文来源](lab/catalog.md) → [架构与通信图解](lab/architecture.md) → [部署与运行](lab/deployment.md) |
 | Terminal | [界面与交互](terminal/README.md) → [架构与通信图解](terminal/architecture.md) → [部署与运行](terminal/deployment.md) |

@@ -18,7 +18,7 @@ import numpy as np  # noqa: E402
 import polars as pl  # noqa: E402
 from asterion.lab_pb2 import Request  # noqa: E402
 from asterion_lab import factor, repository  # noqa: E402
-from asterion_strategy import Bar, Context, check_factor, observe  # noqa: E402
+from asterion_strategy import check_factor  # noqa: E402
 from service_fixture import Service  # noqa: E402
 from warehouse_writer import Warehouse  # noqa: E402
 from warehouse_fixture import DAYS, warehouse  # noqa: E402
@@ -42,38 +42,6 @@ def frame(values, rates, bars=5):
 
 
 class Evaluation(unittest.TestCase):
-    def test_builtin_factors_match_prefixes_and_strategy_history_windows(self):
-        import datetime
-        import importlib.util
-
-        rng = np.random.default_rng(42)
-        prices = 100 + rng.normal(size=65).cumsum()
-        for path in sorted((EXAMPLES / "factors").glob("*.py")):
-            spec = importlib.util.spec_from_file_location(path.stem, path)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            for name, function, inputs, defaults in repository.factors(module):
-                for length in (3, 20):
-                    settings = {parameter: length for parameter in defaults}
-                    count = length if name == "roll_yield_carry" else length + 1
-                    data = {field: prices.copy() for field in inputs}
-                    data[inputs[0]][30] = np.nan
-                    with self.subTest(factor=name, length=length):
-                        check_factor(function, data, count, **settings)
-                        expected = function(**data, **settings)
-                        ctx = Context(["SHFE/rb"])
-                        actual = []
-                        for i in range(len(prices)):
-                            fields = dict(open=prices[i], high=prices[i], low=prices[i], close=prices[i],
-                                          volume=10., open_interest=100., roll_yield=0.1)
-                            fields.update({field: data[field][i] for field in inputs})
-                            row = Bar("SHFE/rb", "SHFE/rb/2026-05",
-                                      datetime.datetime(2026, 1, 1) + datetime.timedelta(days=i),
-                                      **fields)
-                            observe(ctx, [row])
-                            actual.append(ctx.factor(function, "SHFE/rb", count, **settings))
-                        np.testing.assert_allclose(actual, expected, equal_nan=True)
-
     def test_factor_check_identifies_future_dependent_values(self):
         with self.assertRaisesRegex(ValueError, "changes historical values"):
             check_factor(lambda close: np.roll(close, -1), {"close": [100, 110, 120]}, 3)
@@ -197,10 +165,19 @@ class Repository(unittest.TestCase):
     def test_factors_are_listed_with_inputs_and_settings(self):
         listed = repository.list_strategies(str(self.repository))
         entries = {entry.id: entry for entry in listed.factors}
-        self.assertEqual(sorted(entries), ["positions.interest_change", "price.momentum",
-                                           "price.reversal", "price.volatility",
-                                           "term_structure.roll_yield_carry",
-                                           "term_structure.roll_yield_momentum"])
+        self.assertEqual(sorted(entries), [
+            "liquidity.money_flow_index", "liquidity.relative_volume", "liquidity.return_per_volume",
+            "liquidity.turnover", "liquidity.volume_return_correlation", "liquidity.volume_weighted_return",
+            "positions.interest_change", "price.blended_momentum", "price.distance_to_high", "price.momentum",
+            "price.momentum_strength", "price.reversal", "price.skip_momentum", "price.volatility",
+            "risk.downside_volatility", "risk.excess_kurtosis", "risk.expected_shortfall",
+            "risk.garman_klass_volatility", "risk.parkinson_volatility", "risk.realized_skewness",
+            "risk.rogers_satchell_volatility", "risk.semivariance_balance", "risk.upside_volatility",
+            "technical.average_true_range", "technical.channel_position", "technical.commodity_channel_index",
+            "technical.efficiency_ratio", "technical.log_price_slope", "technical.moving_average_gap",
+            "technical.price_zscore", "technical.rsi", "technical.stochastic",
+            "term_structure.carry_to_risk", "term_structure.carry_zscore",
+            "term_structure.roll_yield_carry", "term_structure.roll_yield_momentum"])
         momentum = entries["price.momentum"]
         self.assertEqual(list(momentum.inputs), ["close"])
         self.assertEqual([(item.name, item.default.integer) for item in momentum.parameters],

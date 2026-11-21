@@ -9,6 +9,7 @@ from asterion_strategy import (
 
 from factors.positions import interest_change
 from factors.price import momentum, reversal, volatility
+from strategies.risk_premia import CarryRank
 
 
 class MultiFactorRank(Strategy):
@@ -105,13 +106,12 @@ class CompositePortfolio(CombinedStrategy):
             min_volume=p["min_volume"],
             standardize="zscore",
         )
-        carry = MultiFactorRank(
-            fast=max(1, p["carry_lookback"] // 2),
-            slow=p["carry_lookback"],
+        carry = CarryRank(
+            window=p["carry_lookback"],
+            volatility=p["carry_lookback"],
             rebalance=3,
             count=p["count"],
             gross_weight=p["gross_weight"],
             min_volume=p["min_volume"],
-            standardize="rank",
         )
         return [(trend, p["trend_share"]), (carry, p["carry_share"])]
