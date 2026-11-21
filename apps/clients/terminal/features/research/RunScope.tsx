@@ -3,8 +3,18 @@ import type { TerminalContext } from "../../src/host/feature-registry";
 import { getLocale, listSeparator, type MessageValues, translate } from "../../src/i18n";
 import { warehouseName } from "../../src/ui/contract-names";
 import { DateInput } from "../../src/ui/DateInput";
-import { SymbolField, type useStoredCatalog } from "./LabParts";
-import { symbolsOf, type RunForm } from "./research-lab";
+import { datePlaceholders, DeleteRecord, SymbolField, useStoredCatalog } from "./LabParts";
+import {
+  defaultForm,
+  readConditions,
+  sameScope,
+  saveConditions,
+  scopeOf,
+  symbolsOf,
+  type RunConditions,
+  type RunForm,
+  type ScopeFields,
+} from "./research-lab";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
@@ -23,27 +33,24 @@ const limits = [
   ["每年期数", "annualPeriods"],
 ] as const;
 
-type ScopeProps = {
-  context: TerminalContext;
-  form: RunForm;
-  change: (patch: Partial<RunForm>) => void;
-  catalog: ReturnType<typeof useStoredCatalog>;
-  // What blank days resolve to.
-  begin: string;
-  end: string;
-};
-
-function summary({ form, begin, end }: Pick<ScopeProps, "form" | "begin" | "end">) {
-  const names = symbolsOf(form.symbols).map(symbol => warehouseName(symbol) ?? symbol);
-  if (!names.length) return "";
+function symbolNames(symbols: string) {
+  const names = symbolsOf(symbols).map(symbol => warehouseName(symbol) ?? symbol);
   const shown = names.slice(0, 3).join(listSeparator());
+  return names.length > 3
+    ? t("{names} 等 {count} 个品种", { names: shown, count: names.length })
+    : shown;
+}
+const periodName = (minutes: string) =>
+  minutes === "0" ? t("日线") : t("{count} 分钟", { count: minutes });
+const conditionName = (fields: ScopeFields) =>
+  `${symbolNames(fields.symbols)} · ${periodName(fields.minutes)}`;
+
+function summary(form: RunForm, begin: string, end: string) {
   const day = (value: string, stored: string) => value || (/^\d/.test(stored) ? stored : "");
   const [first, last] = [day(form.begin, begin), day(form.end, end)];
   const deposit = Number(form.deposit);
   return [
-    names.length > 3
-      ? t("{names} 等 {count} 个品种", { names: shown, count: names.length })
-      : shown,
+    symbolNames(form.symbols),
     first && last
       ? `${first} – ${last}`
       : first
@@ -51,7 +58,7 @@ function summary({ form, begin, end }: Pick<ScopeProps, "form" | "begin" | "end"
         : last
           ? t("至 {day}", { day: last })
           : t("全部区间"),
-    form.minutes === "0" ? t("日线") : t("{count} 分钟", { count: form.minutes }),
+    periodName(form.minutes),
     Number.isFinite(deposit)
       ? new Intl.NumberFormat(getLocale(), { notation: "compact" }).format(deposit)
       : form.deposit,
@@ -60,38 +67,139 @@ function summary({ form, begin, end }: Pick<ScopeProps, "form" | "begin" | "end"
   ].join(" · ");
 }
 
-// What every backtest on this page is measured under: one line, edited in a dialog.
-export function RunScope(props: ScopeProps) {
-  const [editing, setEditing] = useState(false);
-  const text = summary(props);
+// The saved sets of settings, with the one in use mirrored into the form.
+export function useRunConditions(setForm: (update: (previous: RunForm) => RunForm) => void) {
+  const [conditions, setConditions] = useState(readConditions);
+  const commit = (next: RunConditions) => {
+    saveConditions(next);
+    setConditions(next);
+    const fields = next.items.find(item => item.name === next.active)?.fields;
+    setForm(previous => ({ ...previous, ...(fields ?? scopeOf(defaultForm())) }));
+  };
+  // `previous` is the set being edited, or empty for a new one.
+  const save = (previous: string, name: string, fields: ScopeFields) => {
+    const { items } = readConditions();
+    const taken = items.filter(item => item.name !== previous).map(item => item.name);
+    const base = name.trim() || conditionName(fields);
+    let unique = base;
+    for (let number = 2; taken.includes(unique); number++) unique = `${base} ${number}`;
+    const item = { name: unique, fields };
+    commit({
+      active: unique,
+      items: previous
+        ? items.map(entry => (entry.name === previous ? item : entry))
+        : [...items, item],
+    });
+  };
+  return {
+    ...conditions,
+    save,
+    choose: (name: string) => commit({ ...readConditions(), active: name }),
+    remove: (name: string) => {
+      const current = readConditions();
+      const items = current.items.filter(item => item.name !== name);
+      commit({ active: current.active === name ? (items[0]?.name ?? "") : current.active, items });
+    },
+    // A past run's settings: the set that already holds them, or a new one.
+    adopt: (fields: ScopeFields) => {
+      const current = readConditions();
+      const same = current.items.find(item => sameScope(item.fields, fields));
+      if (same) commit({ ...current, active: same.name });
+      else save("", "", fields);
+      return same?.fields ?? fields;
+    },
+  };
+}
+
+// What every backtest on this page is measured under: one of the saved sets.
+export function RunScope({
+  context,
+  form,
+  begin,
+  end,
+  conditions,
+}: {
+  context: TerminalContext;
+  form: RunForm;
+  // What blank days resolve to.
+  begin: string;
+  end: string;
+  conditions: ReturnType<typeof useRunConditions>;
+}) {
+  const [editing, setEditing] = useState<{ name: string; fields: ScopeFields } | null>(null);
+  const active = conditions.items.find(item => item.name === conditions.active);
+  const text = active ? summary(form, begin, end) : "";
   return (
     <div className="lab-scope">
-      <span>{t("回测条件")}</span>
+      {active ? (
+        <label>
+          <span>{t("回测条件")}</span>
+          <select
+            value={active.name}
+            onChange={event =>
+              event.target.value
+                ? conditions.choose(event.target.value)
+                : setEditing({ name: "", fields: active.fields })
+            }
+          >
+            {conditions.items.map(item => (
+              <option key={item.name} value={item.name}>
+                {item.name}
+              </option>
+            ))}
+            <option value="">{t("＋ 新建")}</option>
+          </select>
+        </label>
+      ) : (
+        <span>{t("回测条件")}</span>
+      )}
       {text && <p title={text}>{text}</p>}
       <button
         type="button"
         className="lab-link"
-        aria-label={t(text ? "修改回测条件" : "设置回测条件")}
-        onClick={() => setEditing(true)}
+        aria-label={t(active ? "修改回测条件" : "设置回测条件")}
+        onClick={() => setEditing(active ?? { name: "", fields: scopeOf(form) })}
       >
-        {t(text ? "修改" : "设置")}
+        {t(active ? "修改" : "设置")}
       </button>
-      {editing && <ScopeDialog {...props} close={() => setEditing(false)} />}
+      {editing && (
+        <ScopeDialog
+          context={context}
+          name={editing.name}
+          initial={editing.fields}
+          save={conditions.save}
+          remove={conditions.remove}
+          close={() => setEditing(null)}
+        />
+      )}
     </div>
   );
 }
 
 function ScopeDialog({
   context,
-  form,
-  change,
-  catalog,
-  begin,
-  end,
+  name,
+  initial,
+  save,
+  remove,
   close,
-}: ScopeProps & { close: () => void }) {
+}: {
+  context: TerminalContext;
+  // Empty for a new set.
+  name: string;
+  initial: ScopeFields;
+  save: (previous: string, name: string, fields: ScopeFields) => void;
+  remove: (name: string) => void;
+  close: () => void;
+}) {
   const dialog = useRef<HTMLDialogElement>(null);
   const heading = useId();
+  const [title, setTitle] = useState(name);
+  const [form, setForm] = useState(initial);
+  const change = (patch: Partial<ScopeFields>) => setForm(previous => ({ ...previous, ...patch }));
+  const symbols = symbolsOf(form.symbols);
+  const catalog = useStoredCatalog(context, form.minutes !== "0");
+  const [begin, end] = datePlaceholders(catalog, symbols, false);
   useLayoutEffect(() => {
     const element = dialog.current;
     element?.showModal();
@@ -121,6 +229,14 @@ function ScopeDialog({
       <h2 id={heading} tabIndex={-1}>
         {t("回测条件")}
       </h2>
+      <label className="lab-scope-name">
+        <span>{t("名称")}</span>
+        <input
+          value={title}
+          placeholder={symbols.length ? conditionName(form) : undefined}
+          onChange={event => setTitle(event.target.value)}
+        />
+      </label>
       <div className="lab-scope-fields">
         <section>
           <h3>{t("品种与区间")}</h3>
@@ -175,7 +291,28 @@ function ScopeDialog({
         </section>
       </div>
       <footer>
-        <button type="button" className="primary" onClick={close}>
+        {name && (
+          <DeleteRecord
+            name={name}
+            remove={() => {
+              remove(name);
+              close();
+            }}
+          />
+        )}
+        <span className="lab-spacer" />
+        <button type="button" onClick={close}>
+          {t("取消")}
+        </button>
+        <button
+          type="button"
+          className="primary"
+          disabled={!symbols.length}
+          onClick={() => {
+            save(name, title, form);
+            close();
+          }}
+        >
           {t("完成")}
         </button>
       </footer>

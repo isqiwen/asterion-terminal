@@ -1,5 +1,5 @@
 import { StatusBadge } from "../../src/ui/StatusBadge";
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { lab } from "../../src/bridge/lab";
 import { ActionError, useActionError } from "../../src/host/action-error";
@@ -20,7 +20,7 @@ import {
   runRequest,
   runState,
   savedForm,
-  saveScope,
+  scopeOf,
   symbolsOf,
   type RunForm,
 } from "./research-lab";
@@ -39,7 +39,7 @@ import {
   useStoredCatalog,
 } from "./LabParts";
 import { RunResult, SweepResult, metric, runTones, signed, states } from "./ResearchResult";
-import { RunScope } from "./RunScope";
+import { RunScope, useRunConditions } from "./RunScope";
 import { strategyResult, StrategyLibrary, useStrategyBatch } from "./StrategyLibrary";
 
 const t = (key: string, values?: MessageValues) =>
@@ -63,7 +63,9 @@ export function StrategyLab(context: TerminalContext) {
     null,
   );
   const [form, setForm] = useWorkspaceDraft<RunForm>("run-form", savedForm);
-  useEffect(() => saveScope(form), [form]);
+  const conditions = useRunConditions(setForm);
+  const scopeText = JSON.stringify(scopeOf(form));
+  const shownScope = useRef(scopeText);
   const [view, setView] = useWorkspaceDraft<"library" | "detail">("strategy-view", "library");
   const [tab, setTab] = useWorkspaceDraft<"result" | "code">("strategy-tab", "code");
   const [search, setSearch] = useWorkspaceDraft("modules-search:strategies", "");
@@ -101,6 +103,8 @@ export function StrategyLab(context: TerminalContext) {
         setReport({ kind: "run", id: loadRunId });
         setTab("result");
         setForm(loaded.form);
+        // This run is the one to show, whatever else its settings have produced.
+        shownScope.current = JSON.stringify(conditions.adopt(scopeOf(loaded.form)));
         context.navigate("workspace.lab-strategies", {});
       })
       .catch(failure => active && notify(failure));
@@ -270,6 +274,16 @@ export function StrategyLab(context: TerminalContext) {
     setBusy(false);
   };
   const singleRuns = runs.filter(run => !run.sweepId || run.id !== `${run.sweepId}-rolling`);
+  // The open strategy's result follows the settings in use.
+  useEffect(() => {
+    if (shownScope.current === scopeText) return;
+    shownScope.current = scopeText;
+    if (library || !chosen) return;
+    const { run, failed } = strategyResult(singleRuns, chosen, inScope);
+    const current = failed ?? (run && inScope?.(run) ? run : undefined);
+    setReport(current ? { kind: "run", id: current.id } : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeText]);
   const items: ModuleItem[] = (strategies?.strategies ?? []).map(item => {
     const [module, name] = item.id.split(".");
     return {
@@ -381,6 +395,11 @@ export function StrategyLab(context: TerminalContext) {
               {states[activeState] ? t(states[activeState]!) : activeState}
             </StatusBadge>
           )}
+          {shownReport?.kind === "run" &&
+            !shownReport.fromSweep &&
+            activeRun?.id === shownReport.id &&
+            inScope &&
+            !inScope(activeRun) && <StatusBadge tone="neutral">{t("条件不同")}</StatusBadge>}
           <span className="lab-spacer" />
           {shownReport && reportRunning && (
             <button type="button" className="lab-link" onClick={() => void cancelReport()}>
@@ -422,10 +441,9 @@ export function StrategyLab(context: TerminalContext) {
       <RunScope
         context={context}
         form={form}
-        change={change}
-        catalog={catalog}
         begin={beginPlaceholder}
         end={endPlaceholder}
+        conditions={conditions}
       />
       {menu.overlay}
       {library ? (

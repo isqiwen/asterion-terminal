@@ -95,7 +95,7 @@ export function defaultForm(): RunForm {
   };
 }
 
-const scopeKey = "asterion.research.scope";
+const conditionsKey = "asterion.research.scope";
 const scopeFields = [
   "symbols",
   "begin",
@@ -116,24 +116,58 @@ const scopeFields = [
   "holdoutDay",
 ] as const;
 
-// The form, on the settings the last session left.
-export function savedForm(): RunForm {
-  const form: Record<string, unknown> = defaultForm();
+export type ScopeFields = Pick<RunForm, (typeof scopeFields)[number]>;
+// The named sets of backtest settings; the page uses one at a time.
+export type RunConditions = { active: string; items: { name: string; fields: ScopeFields }[] };
+
+export const scopeOf = (form: RunForm) =>
+  Object.fromEntries(scopeFields.map(field => [field, form[field]])) as ScopeFields;
+
+export function readConditions(): RunConditions {
   try {
-    const saved = JSON.parse(localStorage.getItem(scopeKey) ?? "{}");
-    for (const field of scopeFields)
-      if (typeof saved[field] === typeof form[field]) form[field] = saved[field];
+    const saved = JSON.parse(localStorage.getItem(conditionsKey) ?? "");
+    const items: RunConditions["items"] = saved.items
+      .filter((item: { name?: unknown }) => item?.name && typeof item.name === "string")
+      .map((item: { name: string; fields?: Record<string, unknown> }) => {
+        const fields: Record<string, unknown> = scopeOf(defaultForm());
+        for (const field of scopeFields)
+          if (typeof item.fields?.[field] === typeof fields[field])
+            fields[field] = item.fields![field];
+        return { name: item.name, fields: fields as ScopeFields };
+      });
+    const active = items.some(item => item.name === saved.active)
+      ? saved.active
+      : (items[0]?.name ?? "");
+    return { active, items };
   } catch {
-    // A damaged entry leaves the defaults.
+    // Nothing saved yet, or a damaged entry.
+    return { active: "", items: [] };
   }
-  return form as RunForm;
 }
 
-export function saveScope(form: RunForm) {
-  localStorage.setItem(
-    scopeKey,
-    JSON.stringify(Object.fromEntries(scopeFields.map(field => [field, form[field]]))),
-  );
+export function saveConditions(conditions: RunConditions) {
+  localStorage.setItem(conditionsKey, JSON.stringify(conditions));
+}
+
+// The form, on the settings the last session was using.
+export function savedForm(): RunForm {
+  const { active, items } = readConditions();
+  return { ...defaultForm(), ...items.find(item => item.name === active)?.fields };
+}
+
+// Whether two sets of settings say the same: "1000000.00" is 1000000, blank is 0.
+export function sameScope(a: ScopeFields, b: ScopeFields) {
+  return scopeFields.every(field => {
+    if (field === "symbols") {
+      const [x, y] = [symbolsOf(a.symbols), symbolsOf(b.symbols)];
+      return x.length === y.length && x.every(symbol => y.includes(symbol));
+    }
+    const [x, y] = [a[field], b[field]];
+    return (
+      x === y ||
+      (typeof x === "string" && typeof y === "string" && Number(x || 0) === Number(y || 0))
+    );
+  });
 }
 
 // Whether a run was measured on the form's settings. `begin` and `end` are what

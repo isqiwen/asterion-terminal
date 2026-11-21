@@ -15,6 +15,7 @@ import {
   SweepRunsSchema,
 } from "../../src/generated/asterion/lab_pb";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "../../src/host/workspace/drafts";
+import { defaultForm, saveConditions, scopeOf } from "./research-lab";
 import { StrategyLab } from "./StrategyLab";
 
 vi.mock("../../src/bridge/lab", () => ({
@@ -497,6 +498,75 @@ test("editor indents four spaces on Tab, saves on Ctrl+S, and duplicates or dele
   await waitFor(() => expect(screen.queryByRole("button", { name: "Custom" })).toBeNull());
   expect(screen.getByRole("button", { name: "Builtin" })).toBeTruthy();
   expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("the open strategy follows the settings in use", async () => {
+  const fields = (deposit: string) => scopeOf({ ...defaultForm(), symbols: "SHFE/rb", deposit });
+  saveConditions({
+    active: "甲",
+    items: [
+      { name: "甲", fields: fields("1000000") },
+      { name: "乙", fields: fields("2000000") },
+      { name: "丙", fields: fields("3000000") },
+    ],
+  });
+  const measured = (id: string, label: string, deposit: string) => ({
+    id,
+    label,
+    strategy: "once.Once",
+    state: RunState.SUCCEEDED,
+    symbols: ["SHFE/rb"],
+    period: Period.DAY,
+    settings: {
+      deposit: { text: deposit },
+      slippageTicks: 1,
+      limits: {
+        maxOrderLots: { text: "100" },
+        maxContractLots: { text: "500" },
+        maxGrossLots: { text: "2000" },
+        maxWorkingOrders: 64,
+      },
+      maxGrossWeight: { text: "1" },
+      maxNetWeight: { text: "1" },
+      periodsPerYear: 252,
+      zeroRiskFreeRate: true,
+    },
+  });
+  const runs = [measured("run-b", "第二", "2000000"), measured("run-a", "第一", "1000000")];
+  vi.mocked(lab).mockReset();
+  vi.mocked(lab).mockImplementation(async operation => {
+    switch (operation?.case) {
+      case "listStrategies":
+        return create(StrategiesSchema, { strategies: [{ id: "once.Once" }] }) as never;
+      case "listRecentRuns":
+        return create(RunsSchema, { runs }) as never;
+      case "readSource":
+        return create(SourceSchema, { content: "" }) as never;
+      case "getRunSummary":
+        return create(
+          RunSummarySchema,
+          runs.find(run => run.id === operation.value.id),
+        ) as never;
+      case "getRun":
+        return mockRunDetail(operation.value.id!) as never;
+    }
+    return new Promise(() => {}) as never;
+  });
+  const context = {
+    snapshot: { research_directory: "/research" },
+    navigate: vi.fn(),
+  } as unknown as TerminalContext;
+  render(
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.lab-strategies">
+      <StrategyLab {...context} />
+    </WorkspaceDraftScope>,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "Once" }));
+  expect(await screen.findByRole("heading", { name: "第一" })).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("回测条件"), { target: { value: "乙" } });
+  expect(await screen.findByRole("heading", { name: "第二" })).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("回测条件"), { target: { value: "丙" } });
+  expect(await screen.findByText("还没有回测")).toBeTruthy();
 });
 
 test("selected strategies run as one batch and compare on the same settings", async () => {

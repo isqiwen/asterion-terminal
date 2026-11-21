@@ -25,8 +25,10 @@ import {
   onScope,
   parameterValues,
   runRequest,
+  sameScope,
+  saveConditions,
   savedForm,
-  saveScope,
+  scopeOf,
   yearlyIc,
 } from "./research-lab";
 
@@ -273,9 +275,25 @@ test("a run is on the settings when every measured value agrees", () => {
 
 test("the settings outlive a restart, and a strategy's parameters do not", () => {
   localStorage.clear();
-  saveScope({ ...defaultForm(), symbols: "SHFE/rb", deposit: "500000", params: { fast: "8" } });
+  saveConditions({
+    active: "黑色",
+    items: [
+      { name: "全市场", fields: scopeOf({ ...defaultForm(), symbols: "DCE/i" }) },
+      {
+        name: "黑色",
+        fields: scopeOf({ ...defaultForm(), symbols: "SHFE/rb", deposit: "500000" }),
+      },
+    ],
+  });
   const form = savedForm();
   expect(form.symbols).toBe("SHFE/rb");
   expect(form.deposit).toBe("500000");
   expect(form.params).toEqual({});
+});
+
+test("two sets of settings are the same when their values are", () => {
+  const base = scopeOf({ ...defaultForm(), symbols: "SHFE/rb, DCE/i", deposit: "1000000" });
+  expect(sameScope(base, { ...base, symbols: "DCE/i, SHFE/rb", deposit: "1000000.00" })).toBe(true);
+  expect(sameScope(base, { ...base, slippage: "2" })).toBe(false);
+  expect(sameScope(base, { ...base, begin: "2026-01-05" })).toBe(false);
 });

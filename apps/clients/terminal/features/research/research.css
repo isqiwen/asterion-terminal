@@ -1316,9 +1316,22 @@ button.lab-symbol-months:enabled:hover {
 .lab-page-head + .lab-scope {
   border-top: 1px solid var(--line);
 }
-.lab-scope > span {
+.lab-scope > span,
+.lab-scope > label {
   flex: none;
   color: var(--muted);
+}
+.lab-scope > label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: inherit;
+}
+.lab-scope select {
+  width: auto;
+  max-width: 280px;
+  color: var(--text-strong);
 }
 .lab-scope > p {
   min-width: 0;
@@ -1352,6 +1365,9 @@ button.lab-symbol-months:enabled:hover {
   font-size: var(--font-size-body);
   font-weight: 400;
 }
+.lab-scope-name {
+  width: min(400px, 100%);
+}
 .lab-scope-fields {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
@@ -1359,7 +1375,8 @@ button.lab-symbol-months:enabled:hover {
 }
 .lab-scope-dialog footer {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-2);
 }
 .lab-detail {
   grid-area: center;
