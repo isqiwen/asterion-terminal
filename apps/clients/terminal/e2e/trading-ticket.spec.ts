@@ -43,6 +43,9 @@ test(
     const panel = page.getByRole("region", { name: "CTP 交易账户", exact: true });
     // The confirmation's step goes once it is ticked.
     await panel.getByRole("checkbox", { name: "我已核对账户与柜台环境" }).click();
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await expect(panel.getByRole("button", { name: /^买入/ })).toBeInViewport({ ratio: 1 });
+    await page.setViewportSize({ width: 1440, height: 900 });
     const position = panel.getByRole("table", { name: "CTP 持仓" }).locator("tbody tr");
     // 3500 × 1 lot × 10 from the counter's cost.
     await expect(position).toContainText("3500.00");

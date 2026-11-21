@@ -32,9 +32,12 @@ function backtestLimits(record: string): Partial<LimitsDraft> {
 // optional capital and cancel limits, each with its unit.
 export function LimitFields({
   limits,
+  applied,
   change,
 }: {
   limits: LimitsDraft;
+  // What is in force, shown beside a field that differs from it.
+  applied?: LimitsDraft;
   change: (next: LimitsDraft) => void;
 }) {
   const [runs, setRuns] = useState<RunSummary[]>([]);
@@ -56,7 +59,12 @@ export function LimitFields({
     required: boolean,
   ) => (
     <label key={name}>
-      {t(label)}
+      <span className="limit-label">
+        {t(label)}
+        {applied && (applied[name] ?? "") !== (limits[name] ?? "") && (
+          <small>{t("当前 {value}", { value: applied[name] || "—" })}</small>
+        )}
+      </span>
       <span className="unit-input">
         <input
           aria-label={t(label)}

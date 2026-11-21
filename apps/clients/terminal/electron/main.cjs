@@ -374,7 +374,15 @@ app
       Menu.buildFromTemplate([
         ...(process.platform === "darwin" ? [{ role: "appMenu" }] : []),
         { role: "editMenu" },
-        { label: "Window", submenu: [{ role: "minimize" }, { role: "zoom" }, { role: "close" }] },
+        {
+          label: "Window",
+          submenu: [
+            { role: "minimize" },
+            { role: "zoom" },
+            { role: "togglefullscreen" },
+            { role: "close" },
+          ],
+        },
       ]),
     );
     main = new BrowserWindow({

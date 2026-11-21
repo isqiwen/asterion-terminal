@@ -81,12 +81,23 @@
   --space-4: 16px;
   --space-5: 24px;
 
+  --chart-height: 340px;
+  --chart-height-compact: 240px;
+  --chart-height-oscillator: 430px;
   --row-height: 26px;
   --control-height: 28px;
   --control-radius: 3px;
   --panel-radius: 4px;
   --space-page: 20px;
   --background-grid: none;
+}
+/* A full screen gives charts the height it has. */
+@media (min-height: 1300px) {
+  :root {
+    --chart-height: 520px;
+    --chart-height-compact: 400px;
+    --chart-height-oscillator: 660px;
+  }
 }
 :root[data-density="comfortable"] {
   --font-size-body: var(--font-size-md);

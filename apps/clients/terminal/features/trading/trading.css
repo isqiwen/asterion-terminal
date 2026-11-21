@@ -4,15 +4,41 @@
   margin-top: var(--space-5);
   padding-top: var(--space-3);
 }
-.strategy-instance fieldset {
+.ctp-account-panel > .ctp-identity + .strategy-instance {
+  margin-top: 0;
+  border-top: 0;
+}
+.ctp-strategy-body .strategy-instance form {
+  max-width: 1240px;
+  padding: 0;
+}
+.strategy-instance form > fieldset {
+  display: grid;
+  gap: var(--space-3);
+}
+.strategy-instance form > fieldset > button {
+  justify-self: start;
+}
+.strategy-instance .futures-fields {
+  margin-block: 0;
+}
+/* A published version's name and stamp need the widest field. */
+.strategy-instance form > fieldset > .futures-fields:first-child {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
+}
+.strategy-instance .futures-fields > .checkbox {
+  grid-column: 1 / -1;
+}
+.strategy-instance fieldset fieldset {
   border: 1px solid var(--line);
-  margin: var(--space-3) 0;
   padding: var(--space-3);
-  min-width: 0;
 }
 .strategy-instance select {
   min-width: 0;
   width: 100%;
+}
+.strategy-instance > p {
+  margin: 0 0 var(--space-3);
 }
 .account-setup .strategy-instance .checkbox {
   flex-direction: row;
@@ -29,10 +55,13 @@
 }
 .strategy-parameter {
   display: grid;
-  grid-template-columns: 1fr 100px 1fr auto;
+  grid-template-columns: 1fr 120px 1fr auto;
   align-items: end;
   gap: var(--space-3);
   margin: var(--space-3) 0;
+}
+.strategy-parameter > label {
+  min-width: 0;
 }
 .strategy-monitor table {
   width: 100%;
@@ -59,12 +88,48 @@
 .strategy-monitor dd {
   overflow-wrap: anywhere;
 }
+.ctp-strategies table {
+  width: 100%;
+  table-layout: fixed;
+}
+.ctp-strategies th:first-child {
+  width: 42%;
+}
+.ctp-strategies th:nth-child(2) {
+  width: 140px;
+}
 .ctp-strategies td {
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ctp-strategies td > :is(span, small) {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ctp-strategies td small {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
 }
 .ctp-strategies td button {
-  max-width: 100%;
-  white-space: normal;
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.strategy-package-source {
+  overflow: hidden;
+  margin: 0 0 var(--space-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.strategy-package-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 @media (max-width: 900px) {
   .strategy-parameter {
@@ -91,6 +156,10 @@
   min-width: 0;
   padding: var(--space-3) var(--space-page);
 }
+/* On a full screen, figures stay close enough to read across a row. */
+.ctp-trade-records table {
+  max-width: 1680px;
+}
 .ctp-trade-side {
   display: flex;
   flex-direction: column;
@@ -102,9 +171,20 @@
 .ctp-trade-side .futures-fields {
   grid-template-columns: 1fr 1fr;
 }
-.ctp-trade-side .source-actions:has(.order-buy) {
+/* Buy and sell stay on screen however short the window. */
+.ctp-account-panel .ctp-trade-side .source-actions:has(.order-buy) {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
   display: grid;
   grid-template-columns: 1fr 1fr;
+  padding: var(--space-2) 0;
+  background: var(--panel);
+}
+@media (max-height: 820px) {
+  .order-book button {
+    min-height: 16px;
+  }
 }
 @media (max-width: 1100px) {
   .ctp-account-panel > .ctp-trade-body {
@@ -200,7 +280,7 @@
 /* An account's strategies: its instance beside the packages that can run. */
 .ctp-strategy-body {
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  grid-template-columns: minmax(380px, 480px) minmax(0, 1fr);
   gap: var(--space-4);
   align-items: start;
   padding: var(--space-4);
@@ -211,6 +291,10 @@
 @media (max-width: 1100px) {
   .ctp-strategy-body {
     grid-template-columns: minmax(0, 1fr);
+  }
+  /* A running strategy's controls come before the versions. */
+  .ctp-strategy-body[data-running] > .ctp-strategy-versions {
+    order: 1;
   }
 }
 /* The running strategy above its account: state, latest bars, targets, events. */
@@ -280,7 +364,7 @@
 }
 .account-headline {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 300px));
   gap: var(--space-4);
   margin: 0;
 }
@@ -408,6 +492,105 @@
   color: var(--muted);
   font-family: var(--font-terminal);
   font-size: var(--font-size-aux);
+}
+
+/* The risk settings: limits, contracts, then the one action that applies them. */
+.policy-editor .workflow-heading {
+  justify-content: flex-start;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+.policy-editor .workflow-heading code {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+.ctp-account-panel .policy-editor form {
+  display: grid;
+  gap: var(--space-4);
+  max-width: 1240px;
+  padding: 0;
+}
+.policy-editor fieldset {
+  display: grid;
+  gap: var(--space-4);
+}
+.policy-limits {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: var(--space-4) var(--space-5);
+}
+.policy-limits > .limit-source {
+  grid-column: 1 / -1;
+}
+.policy-limits .futures-fields {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-block: var(--space-2) 0;
+}
+.limit-label {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.limit-label small {
+  color: var(--warning);
+  font-size: var(--font-size-aux);
+  white-space: nowrap;
+}
+.policy-contracts ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+.policy-contracts li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-left: var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  color: var(--text);
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-body);
+}
+.policy-contracts li button {
+  min-height: 24px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+}
+.policy-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+.policy-add label {
+  width: 260px;
+}
+.policy-add p {
+  margin: 0 0 var(--space-1);
+}
+.policy-apply {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
+}
+.policy-apply p {
+  flex: 1;
+  min-width: 180px;
+  margin: 0;
+}
+@media (max-width: 1100px) {
+  .policy-limits {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .limit-source {

@@ -19,7 +19,7 @@ test(
     const panel = page.getByRole("region", { name: "CTP 交易账户", exact: true });
     await panel.getByRole("button", { name: "风控", exact: true }).click();
     const editor = panel.getByRole("region", { name: "风控设置", exact: true });
-    await expect(editor).toContainText(original.session.policyRevision);
+    await expect(editor.locator(`code[title="${original.session.policyRevision}"]`)).toBeVisible();
     await editor.getByLabel("单合约持仓上限", { exact: true }).fill("8");
     await editor.getByLabel("我确认应用上述风控设置并重新登录", { exact: true }).check();
     await editor.getByRole("button", { name: "应用新风控设置", exact: true }).click();

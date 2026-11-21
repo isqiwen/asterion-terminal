@@ -22,17 +22,19 @@ export type ParameterInput = {
 const maximum = (1n << 63n) - 1n;
 
 // The bar periods a live strategy can run on.
-export const strategyPeriods: [Period, string][] = [
-  [Period.MINUTES_1, "1m"],
-  [Period.MINUTES_5, "5m"],
-  [Period.MINUTES_10, "10m"],
-  [Period.MINUTES_15, "15m"],
-  [Period.MINUTES_30, "30m"],
-  [Period.MINUTES_60, "60m"],
-  [Period.DAY, "1d"],
+export const strategyPeriods = [
+  Period.MINUTES_1,
+  Period.MINUTES_5,
+  Period.MINUTES_10,
+  Period.MINUTES_15,
+  Period.MINUTES_30,
+  Period.MINUTES_60,
+  Period.DAY,
 ];
 export const periodText = (period: Period) =>
-  strategyPeriods.find(([value]) => value === period)?.[1] ?? Period[period];
+  period === Period.DAY
+    ? t("日线")
+    : t("{count} 分钟", { count: Period[period].replace("MINUTES_", "") });
 
 export function parameterValues(rows: ParameterInput[]): Record<string, ParameterValue> {
   const entries: [string, ParameterValue][] = [];

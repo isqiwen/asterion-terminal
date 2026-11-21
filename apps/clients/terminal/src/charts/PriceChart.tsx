@@ -994,7 +994,11 @@ export function PriceChart(props: Props) {
       )}
       <div
         className="price-chart-canvas"
-        style={{ height: fitHeight ? undefined : compact ? 240 : oscillator ? 430 : 340 }}
+        style={{
+          height: fitHeight
+            ? undefined
+            : `var(--chart-height${compact ? "-compact" : oscillator ? "-oscillator" : ""})`,
+        }}
         ref={container}
         role="img"
         aria-label={label}

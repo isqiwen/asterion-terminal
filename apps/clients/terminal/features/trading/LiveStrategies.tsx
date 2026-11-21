@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { TradingConnection } from "../../src/bridge/client";
 import { Environment } from "../../src/generated/asterion/trading_pb";
+import { activeStrategy } from "./strategy-instance";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useStrategyHost, useTradingAccounts } from "../../src/host/trading-accounts";
 import { ServiceUnset } from "../../src/host/components/ServiceUnset";
@@ -88,6 +89,7 @@ function AccountStrategies({
   openRun: (id: string) => void;
 }) {
   const host = useStrategyHost(account.id);
+  const [published, setPublished] = useState("");
   const { views, send } = useTradingAccounts();
   const view = views[account.id];
   const { error: emergencyError, attempt } = useActionError();
@@ -107,7 +109,18 @@ function AccountStrategies({
   const broker = view?.account?.broker;
   const real = view?.account?.environment === Environment.REAL;
   return (
-    <div className="ctp-strategy-body">
+    <div className="ctp-strategy-body" data-running={activeStrategy(instance?.state) || undefined}>
+      <div className="ctp-account-panel ctp-strategy-versions">
+        <StrategyPackages
+          key={`${repository}:${initialStrategy ?? ""}:${initialRun ?? ""}`}
+          host={host}
+          repository={repository}
+          initialStrategy={initialStrategy}
+          initialRun={initialRun}
+          openRun={openRun}
+          published={setPublished}
+        />
+      </div>
       <div className="ctp-account-panel">
         <div className="ctp-identity" data-real={real || undefined}>
           <strong>
@@ -135,19 +148,10 @@ function AccountStrategies({
             account={view?.account}
             available={host.fresh && !!view && !view.failed}
             busy={host.busy || host.stopping}
+            published={published}
             start={configuration => host.mutate({ case: "startStrategy", value: configuration })}
           />
         )}
-      </div>
-      <div className="ctp-account-panel">
-        <StrategyPackages
-          key={`${repository}:${initialStrategy ?? ""}:${initialRun ?? ""}`}
-          host={host}
-          repository={repository}
-          initialStrategy={initialStrategy}
-          initialRun={initialRun}
-          openRun={openRun}
-        />
       </div>
     </div>
   );

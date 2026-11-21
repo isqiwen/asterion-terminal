@@ -578,6 +578,7 @@ test("editing risk limits resets policy confirmation so Enter cannot submit stal
   });
   expect(confirmBox.checked).toBe(false);
   expect(button("应用新风控设置").disabled).toBe(true);
+  expect(screen.getByText(/^当前 /)).toBeTruthy();
 });
 
 test("policy editor loads selectable contracts from Trading when Market is offline", async () => {

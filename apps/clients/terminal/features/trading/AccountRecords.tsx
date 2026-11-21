@@ -1,4 +1,3 @@
-import { listSeparator } from "../../src/i18n";
 import { useEffect, useRef, useState } from "react";
 import { decimalText, groupedText } from "../../src/bridge/decimal";
 import { tradingRequest } from "../../src/bridge/trading";
@@ -22,17 +21,7 @@ import { AccountPolicyEditor } from "./AccountPolicyEditor";
 import { closableLots, lots } from "./exposure";
 import { ActivityTabs, type Activity } from "./ActivityTabs";
 import type { Preset } from "./OrderTicket";
-import {
-  findPolicyTerms,
-  fundFields,
-  key,
-  limitText,
-  offsets,
-  ratioPercent,
-  statuses,
-  t,
-  type Run,
-} from "./live-shared";
+import { findPolicyTerms, fundFields, key, offsets, statuses, t, type Run } from "./live-shared";
 
 const pageSize = 50;
 const working = [OrderState.SUBMITTED, OrderState.ACCEPTED, OrderState.PARTIALLY_FILLED];
@@ -342,7 +331,6 @@ export function AccountRecords({
   separate: (exchange: string) => boolean;
 }) {
   const live = record.session!;
-  const policy = live.policy;
   const [onlyWorking, setOnlyWorking] = useState(false);
   const [cancelArmed, setCancelArmed] = useState(false);
   const [cancellingAll, setCancellingAll] = useState(false);
@@ -502,42 +490,6 @@ export function AccountRecords({
       )}
       {activity === "policy" && (
         <div>
-          <section aria-label={t("风险限制")}>
-            <h2>{t("风险限制")}</h2>
-            <p>
-              {(
-                [
-                  ["单笔数量上限", decimalText(policy?.limits?.maxOrderLots), "手"],
-                  ["单合约持仓上限", decimalText(policy?.limits?.maxContractLots), "手"],
-                  ["账户总持仓上限", decimalText(policy?.limits?.maxGrossLots), "手"],
-                  ["在途委托数上限", String(policy?.limits?.maxWorkingOrders ?? 0), "笔"],
-                  ["价格偏离上限", ratioPercent(decimalText(policy?.maxPriceDeviation)), "%"],
-                  ["日内亏损限额", policy?.maxDailyLoss?.text, "元"],
-                  ["最大回撤限额", policy?.maxDrawdown?.text, "元"],
-                  [
-                    "保证金率上限",
-                    policy?.maxMarginRatio?.text && ratioPercent(policy.maxMarginRatio.text),
-                    "%",
-                  ],
-                  [
-                    "单合约日撤单上限",
-                    policy?.maxDailyCancelsPerContract
-                      ? String(policy.maxDailyCancelsPerContract)
-                      : undefined,
-                    "次",
-                  ],
-                ] as const
-              )
-                .flatMap(([label, value, unit]) =>
-                  value ? [limitText(t(label), value, unit)] : [],
-                )
-                .join(" · ")}
-            </p>
-            <p>
-              {t("可交易合约")}:{" "}
-              {policy?.contracts.map(item => key(item.instrument)).join(listSeparator())}
-            </p>
-          </section>
           <AccountPolicyEditor
             key={live.policyRevision}
             connection={connection}

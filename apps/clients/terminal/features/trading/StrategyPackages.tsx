@@ -14,12 +14,14 @@ export function StrategyPackages({
   initialStrategy,
   initialRun,
   openRun,
+  published,
 }: {
   host: StrategyHost;
   repository: string;
   initialStrategy?: string;
   initialRun?: string;
   openRun?: (id: string) => void;
+  published?: (key: string) => void;
 }) {
   const { state, busy, stopping, reading, fresh, readError, error, refresh, mutate, perform } =
     host;
@@ -64,30 +66,32 @@ export function StrategyPackages({
       <ActionError error={error} namespace="asterion.terminal.trading" />
       {run ? (
         <div>
-          <p>
+          <p className="strategy-package-source" title={run}>
             {t("来源回测")} · {run}
           </p>
-          <button
-            disabled={busy}
-            onClick={() =>
-              void perform(async () => {
+          <div className="strategy-package-actions">
+            <button
+              disabled={busy}
+              onClick={() =>
+                void perform(async () => {
+                  setPreparation(undefined);
+                  const value = await lab({ case: "buildPackage", value: { runId: run } });
+                  setPreparation({ repository, value });
+                })
+              }
+            >
+              {t("生成版本")}
+            </button>
+            <button
+              disabled={busy}
+              onClick={() => {
+                setRun("");
                 setPreparation(undefined);
-                const value = await lab({ case: "buildPackage", value: { runId: run } });
-                setPreparation({ repository, value });
-              })
-            }
-          >
-            {t("生成版本")}
-          </button>
-          <button
-            disabled={busy}
-            onClick={() => {
-              setRun("");
-              setPreparation(undefined);
-            }}
-          >
-            {t("改用当前源码")}
-          </button>
+              }}
+            >
+              {t("改用当前源码")}
+            </button>
+          </div>
         </div>
       ) : !repository ? (
         <p>{t("没有策略目录")}</p>
@@ -135,10 +139,13 @@ export function StrategyPackages({
           </p>
           <p>{prepared.manifest.files.join(listSeparator())}</p>
           <button
+            className="primary"
             disabled={busy || stopping || !fresh}
             onClick={() =>
-              void mutate({ case: "publishStrategy", value: prepared }).then(published => {
-                if (published) setPreparation(undefined);
+              void mutate({ case: "publishStrategy", value: prepared }).then(done => {
+                if (!done) return;
+                setPreparation(undefined);
+                published?.(`${prepared.manifest!.name}/${prepared.manifest!.version}`);
               })
             }
           >
@@ -154,17 +161,18 @@ export function StrategyPackages({
                 <tr>
                   <th scope="col">{t("名称")}</th>
                   <th scope="col">{t("版本")}</th>
-                  <th scope="col">{t("入口")}</th>
                   <th scope="col">{t("来源回测")}</th>
                 </tr>
               </thead>
               <tbody>
                 {state.packages.map(item => (
                   <tr key={`${item.name}/${item.version}`}>
-                    <td>{item.name}</td>
+                    <td title={`${item.name}\n${item.entry}`}>
+                      <span>{item.name}</span>
+                      <small>{item.entry}</small>
+                    </td>
                     <td>{item.version}</td>
-                    <td>{item.entry}</td>
-                    <td>
+                    <td title={item.research?.runId}>
                       {item.research && openRun ? (
                         <button className="link" onClick={() => openRun(item.research!.runId)}>
                           {item.research.runId}

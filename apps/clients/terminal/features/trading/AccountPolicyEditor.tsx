@@ -73,12 +73,11 @@ export function AccountPolicyEditor({
     selectable.find(item => item.id === trimmedChoice) ??
     selectable.find(item => item.id.toLowerCase() === trimmedChoice.toLowerCase());
   return (
-    <section aria-label={t("风控设置")}>
-      <h2>{t("风控设置")}</h2>
-      <p>
-        {t("风控版本")}：<code>{live.policyRevision}</code>
-      </p>
-      <p className="subtle">{t("保存后断开柜台连接，需重新允许下单")}</p>
+    <section className="policy-editor" aria-label={t("风控设置")}>
+      <div className="workflow-heading">
+        <h2>{t("风控设置")}</h2>
+        <code title={live.policyRevision}>{live.policyRevision.slice(0, 8)}</code>
+      </div>
       {live.brokerState !== BrokerState.READY && (
         <p role="status" className="subtle">
           {t("账户连接并同步后可修改风控设置")}
@@ -109,84 +108,95 @@ export function AccountPolicyEditor({
         }}
       >
         <fieldset disabled={disabled || live.brokerState !== BrokerState.READY}>
-          <LimitFields
-            limits={limits}
-            change={next => {
-              setLimits(next);
-              setConfirmed(false);
-            }}
-          />
-          <ul className="dataset-list" aria-label={t("可交易合约")}>
-            {contracts.map(value => (
-              <li key={value}>
-                {value}{" "}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setContracts(contracts.filter(item => item !== value));
-                    setConfirmed(false);
-                  }}
-                >
-                  {t("移除")}
-                </button>
-              </li>
-            ))}
-          </ul>
-          <label>
-            {t("添加合约")}
-            <input
-              aria-label={t("新增可交易合约")}
-              list={catalogListId}
-              spellCheck={false}
-              autoCorrect="off"
-              autoCapitalize="none"
-              placeholder="SHFE.rb / SHFE.rb2610"
-              value={choice}
-              onChange={event => setChoice(event.target.value)}
+          <div className="policy-limits">
+            <LimitFields
+              limits={limits}
+              applied={currentLimits(live.policy)}
+              change={next => {
+                setLimits(next);
+                setConfirmed(false);
+              }}
             />
-          </label>
-          <datalist id={catalogListId}>
-            {selectable.map(item => (
-              <option key={item.id} value={item.id}>
-                {item.label}
-              </option>
-            ))}
-          </datalist>
-          <button
-            type="button"
-            disabled={!matchedChoice || contracts.length >= 64}
-            onClick={() => {
-              if (!matchedChoice) return;
-              setContracts([...contracts, matchedChoice.id]);
-              setChoice("");
-              setConfirmed(false);
-            }}
-          >
-            {t("添加")}
-          </button>
-          {!catalogReady && <p className="subtle">{t("合约目录未就绪，暂不能新增合约")}</p>}
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={confirmed}
-              onChange={event => setConfirmed(event.target.checked)}
-            />
-            {t("我确认应用上述风控设置并重新登录")}
-          </label>
-          <button
-            type="button"
-            onClick={() => {
-              setLimits(currentLimits(live.policy));
-              setContracts(allowed.map(item => contractKey(item.instrument)));
-              setChoice("");
-              setConfirmed(false);
-            }}
-          >
-            {t("恢复当前设置")}
-          </button>
-          <button type="submit" className="primary" disabled={!confirmed || !contracts.length}>
-            {t("应用新风控设置")}
-          </button>
+          </div>
+          <section className="policy-contracts">
+            <h3>{t("可交易合约")}</h3>
+            <ul aria-label={t("可交易合约")}>
+              {contracts.map(value => (
+                <li key={value}>
+                  {value}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setContracts(contracts.filter(item => item !== value));
+                      setConfirmed(false);
+                    }}
+                  >
+                    {t("移除")}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div className="policy-add">
+              <label>
+                {t("添加合约")}
+                <input
+                  aria-label={t("新增可交易合约")}
+                  list={catalogListId}
+                  spellCheck={false}
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  placeholder="SHFE.rb / SHFE.rb2610"
+                  value={choice}
+                  onChange={event => setChoice(event.target.value)}
+                />
+              </label>
+              <datalist id={catalogListId}>
+                {selectable.map(item => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </datalist>
+              <button
+                type="button"
+                disabled={!matchedChoice || contracts.length >= 64}
+                onClick={() => {
+                  if (!matchedChoice) return;
+                  setContracts([...contracts, matchedChoice.id]);
+                  setChoice("");
+                  setConfirmed(false);
+                }}
+              >
+                {t("添加")}
+              </button>
+              {!catalogReady && <p className="subtle">{t("合约目录未就绪，暂不能新增合约")}</p>}
+            </div>
+          </section>
+          <footer className="policy-apply">
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={confirmed}
+                onChange={event => setConfirmed(event.target.checked)}
+              />
+              {t("我确认应用上述风控设置并重新登录")}
+            </label>
+            <p className="subtle">{t("保存后断开柜台连接，需重新允许下单")}</p>
+            <button
+              type="button"
+              onClick={() => {
+                setLimits(currentLimits(live.policy));
+                setContracts(allowed.map(item => contractKey(item.instrument)));
+                setChoice("");
+                setConfirmed(false);
+              }}
+            >
+              {t("恢复当前设置")}
+            </button>
+            <button type="submit" className="primary" disabled={!confirmed || !contracts.length}>
+              {t("应用新风控设置")}
+            </button>
+          </footer>
         </fieldset>
       </form>
     </section>

@@ -1,5 +1,5 @@
 import { listSeparator } from "../../src/i18n";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { clone, create } from "@bufbuild/protobuf";
 import { Period } from "../../src/generated/asterion/common_pb";
 import { InstanceSchema, type Instance } from "../../src/generated/asterion/strategy_pb";
@@ -34,6 +34,7 @@ export function StrategyInstance({
   account,
   available,
   busy,
+  published = "",
   start,
 }: {
   connection?: string;
@@ -41,6 +42,8 @@ export function StrategyInstance({
   account?: Account;
   available: boolean;
   busy: boolean;
+  // The `name/version` just published here, which the form then starts from.
+  published?: string;
   start: (configuration: Instance) => Promise<boolean>;
 }) {
   const { error, attempt } = useActionError();
@@ -120,6 +123,14 @@ export function StrategyInstance({
   };
   const update = (id: number, change: Partial<ParameterInput>) =>
     setRows(current => current.map(row => (row.id === id ? { ...row, ...change } : row)));
+  const taken = useRef("");
+  useEffect(() => {
+    if (published === taken.current) return;
+    if (!state.packages.some(item => `${item.name}/${item.version}` === published)) return;
+    taken.current = published;
+    choosePackage(published);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [published, state.packages]);
 
   if (running || !state.packages.length) return null;
   return (
@@ -338,7 +349,7 @@ export function StrategyInstance({
                       key={`${item.name}/${item.version}`}
                       value={`${item.name}/${item.version}`}
                     >
-                      {item.name} · {item.version}
+                      {item.name.split(".").at(-1)} · {item.version}
                     </option>
                   ))}
                 </select>
@@ -349,9 +360,9 @@ export function StrategyInstance({
                   value={period}
                   onChange={event => setPeriod(Number(event.target.value) as Period)}
                 >
-                  {strategyPeriods.map(([value, label]) => (
+                  {strategyPeriods.map(value => (
                     <option key={value} value={value}>
-                      {label}
+                      {periodText(value)}
                     </option>
                   ))}
                 </select>
@@ -578,7 +589,7 @@ export function StrategyInstance({
                 </label>
               </div>
             )}
-            <button type="submit" disabled={!usable || busy || preparing}>
+            <button type="submit" className="primary" disabled={!usable || busy || preparing}>
               {t(preparing ? "正在准备预热数据…" : "核对启动配置")}
             </button>
             <ActionError error={error} namespace="asterion.terminal.trading" />

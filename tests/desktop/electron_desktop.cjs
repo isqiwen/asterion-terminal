@@ -126,6 +126,21 @@ async function closeDesktop(application) {
     // A package's first launch downloads the Python runtime (about 200 MB).
     await enterWorkbench(page, process.env.ASTERION_TEST_ELECTRON ? 600000 : undefined);
     await capture(page, "native-startup");
+    if (process.platform !== "darwin") {
+      // F11 fills the screen and gives the window back.
+      const window = await application.browserWindow(page);
+      const pressF11 = () =>
+        window.evaluate(win => {
+          win.focus();
+          win.webContents.focus();
+          win.webContents.sendInputEvent({ type: "keyDown", keyCode: "F11" });
+          win.webContents.sendInputEvent({ type: "keyUp", keyCode: "F11" });
+        });
+      await pressF11();
+      await expect.poll(() => window.evaluate(win => win.isFullScreen())).toBe(true);
+      await pressF11();
+      await expect.poll(() => window.evaluate(win => win.isFullScreen())).toBe(false);
+    }
     const call = async (method, params = {}) => {
       const reply = JSON.parse(
         await page.evaluate(
