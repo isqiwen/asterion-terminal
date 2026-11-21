@@ -102,31 +102,23 @@ test(
       const bytes = response.request().postDataBuffer();
       return !!bytes && fromBinary(RequestSchema, bytes).call.case === "buildPackage";
     });
-    await packages.getByRole("button", { name: "生成版本", exact: true }).click();
+    await packages.getByRole("button", { name: "部署", exact: true }).click();
     const preparation = fromBinary(ResponseSchema, await (await prepared).body()).result;
     expect(preparation.case).toBe("buildPackage");
     if (preparation.case !== "buildPackage") throw new Error("Lab did not prepare the package");
     const code = preparation.value.files.find(file => file.path === strategySource.path);
     expect(code).toBeDefined();
     expect(new TextDecoder().decode(code!.content)).toBe(original);
-    await expect(
-      packages.getByText(/^deployment_probe\.DeploymentProbe · \d{8}-\d{6}$/),
-    ).toBeVisible();
-    await expect(packages.getByText(/strategies\/deployment_probe\.py/)).toBeVisible();
-    await packages.getByRole("button", { name: "发布到此交易主机", exact: true }).click();
-    await expect(packages.getByRole("table", { name: "已发布的版本" })).toContainText(
+    await expect(packages.getByRole("table", { name: "已部署的版本" })).toContainText(
       "strategies.deployment_probe:DeploymentProbe",
     );
     await expect(
-      packages.getByRole("table", { name: "已发布的版本" }).getByRole("button", { name: run.id }),
+      packages.getByRole("table", { name: "已部署的版本" }).getByRole("button", { name: run.id }),
     ).toBeInViewport({ ratio: 1 });
     expect(await packages.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
-    await expect(
-      packages.getByRole("button", { name: "发布到此交易主机", exact: true }),
-    ).toHaveCount(0);
     await tradingHost.restart();
     await packages.getByRole("button", { name: "刷新版本", exact: true }).click();
-    await expect(packages.getByRole("table", { name: "已发布的版本" })).toContainText(
+    await expect(packages.getByRole("table", { name: "已部署的版本" })).toContainText(
       "deployment_probe.DeploymentProbe",
     );
     const account = tradingHost.connection;
@@ -148,24 +140,13 @@ test(
     const configure = async (id: string) => {
       await form.getByLabel("实例 ID", { exact: true }).fill(id);
       await form
-        .getByRole("combobox", { name: "已发布版本", exact: true })
+        .getByRole("combobox", { name: "已部署版本", exact: true })
         .selectOption(`${published.name}/${published.version}`);
       await expect(form.getByRole("combobox", { name: "K 线周期", exact: true })).toHaveValue(
         String(Period.DAY),
       );
-      const parameters = form.locator(".strategy-parameter");
-      const names = await parameters.getByRole("textbox", { name: /^参数名/ }).all();
-      const parameterNames = await Promise.all(names.map(input => input.inputValue()));
-      for (const [name, value] of [
-        ["fast", "2"],
-        ["slow", "4"],
-      ]) {
-        const index = parameterNames.indexOf(name);
-        expect(index).toBeGreaterThanOrEqual(0);
-        await expect(parameters.nth(index).getByRole("textbox", { name: /^参数值/ })).toHaveValue(
-          value,
-        );
-      }
+      await expect(form.getByLabel("fast", { exact: true })).toHaveValue("2");
+      await expect(form.getByLabel("slow", { exact: true })).toHaveValue("4");
       await expect(form.getByLabel("总绝对权重预算", { exact: true })).toHaveValue("0.4");
       await expect(form.getByLabel("净权重绝对值预算", { exact: true })).toHaveValue("0.2");
       await expect(form.getByLabel("SHFE.rb2610", { exact: true })).not.toBeChecked();

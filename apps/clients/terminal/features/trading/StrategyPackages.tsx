@@ -1,5 +1,4 @@
-import { listSeparator } from "../../src/i18n";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Package } from "../../src/generated/asterion/strategy_pb";
 import { lab } from "../../src/bridge/lab";
 import { ActionError } from "../../src/host/action-error";
@@ -7,7 +6,7 @@ import { notify, useErrorNotification } from "../../src/host/notifications";
 import { t } from "./live-shared";
 import type { StrategyHost } from "../../src/host/trading-accounts";
 
-// Packages of the account's host: prepare from research and publish.
+// The versions on the account's host; deploying builds one from research and installs it.
 export function StrategyPackages({
   host,
   repository,
@@ -28,14 +27,29 @@ export function StrategyPackages({
   const [strategies, setStrategies] = useState<string[]>([]);
   const [strategy, setStrategy] = useState(initialStrategy ?? "");
   const [run, setRun] = useState(initialRun ?? "");
-  const [preparation, setPreparation] = useState<{ repository: string; value: Package }>();
-  const prepared = preparation?.repository === repository ? preparation.value : undefined;
   useEffect(() => {
-    if (initialStrategy) {
-      setStrategy(initialStrategy);
-      setPreparation(undefined);
-    }
+    if (initialStrategy) setStrategy(initialStrategy);
   }, [initialStrategy]);
+  // A build asked for under another directory, or a closed page, installs nothing.
+  const openDirectory = useRef<string | null>(repository);
+  useEffect(() => {
+    openDirectory.current = repository;
+    return () => {
+      openDirectory.current = null;
+    };
+  }, [repository]);
+  const deploy = async (source: { runId: string } | { repository: string; strategy: string }) => {
+    let built: Package | undefined;
+    await perform(async () => {
+      built = await lab({ case: "buildPackage", value: source });
+    });
+    if (!built || openDirectory.current !== repository) return;
+    const { name, version } = built.manifest!;
+    if (await mutate({ case: "publishStrategy", value: built })) published?.(`${name}/${version}`);
+  };
+  const unavailable = busy || stopping || !fresh;
+  // A backtest's source is frozen, so deploying it again would only add a copy.
+  const deployed = !!run && !!state?.packages.some(item => item.research?.runId === run);
   useEffect(() => {
     if (!repository || run) return;
     let current = true;
@@ -71,22 +85,16 @@ export function StrategyPackages({
           </p>
           <div className="strategy-package-actions">
             <button
-              disabled={busy}
-              onClick={() =>
-                void perform(async () => {
-                  setPreparation(undefined);
-                  const value = await lab({ case: "buildPackage", value: { runId: run } });
-                  setPreparation({ repository, value });
-                })
-              }
+              className={deployed ? undefined : "primary"}
+              disabled={unavailable || deployed}
+              onClick={() => void deploy({ runId: run })}
             >
-              {t("生成版本")}
+              {t(deployed ? "已部署" : "部署")}
             </button>
             <button
               disabled={busy}
               onClick={() => {
                 setRun("");
-                setPreparation(undefined);
               }}
             >
               {t("改用当前源码")}
@@ -102,10 +110,7 @@ export function StrategyPackages({
             <select
               value={strategy}
               disabled={busy}
-              onChange={event => {
-                setStrategy(event.target.value);
-                setPreparation(undefined);
-              }}
+              onChange={event => setStrategy(event.target.value)}
             >
               <option value="">{t("选择策略")}</option>
               {strategies.map(id => (
@@ -116,47 +121,18 @@ export function StrategyPackages({
             </select>
           </label>
           <button
-            disabled={busy || !strategy}
-            onClick={() =>
-              void perform(async () => {
-                setPreparation(undefined);
-                const value = await lab({ case: "buildPackage", value: { repository, strategy } });
-                setPreparation({ repository, value });
-              })
-            }
-          >
-            {t("生成版本")}
-          </button>
-        </div>
-      )}
-      {prepared?.manifest && (
-        <div>
-          <p>
-            <strong>
-              {prepared.manifest.name} · {prepared.manifest.version}
-            </strong>{" "}
-            · {prepared.manifest.entry}
-          </p>
-          <p>{prepared.manifest.files.join(listSeparator())}</p>
-          <button
             className="primary"
-            disabled={busy || stopping || !fresh}
-            onClick={() =>
-              void mutate({ case: "publishStrategy", value: prepared }).then(done => {
-                if (!done) return;
-                setPreparation(undefined);
-                published?.(`${prepared.manifest!.name}/${prepared.manifest!.version}`);
-              })
-            }
+            disabled={unavailable || !strategy}
+            onClick={() => void deploy({ repository, strategy })}
           >
-            {t("发布到此交易主机")}
+            {t("部署")}
           </button>
         </div>
       )}
       {state && (
         <>
           {state.packages.length ? (
-            <table aria-label={t("已发布的版本")}>
+            <table aria-label={t("已部署的版本")}>
               <thead>
                 <tr>
                   <th scope="col">{t("名称")}</th>
@@ -186,7 +162,7 @@ export function StrategyPackages({
               </tbody>
             </table>
           ) : (
-            <p>{t("此账户还没有发布过策略版本。")}</p>
+            <p>{t("此账户还没有部署过策略。")}</p>
           )}
         </>
       )}

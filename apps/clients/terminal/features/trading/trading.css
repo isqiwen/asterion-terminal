@@ -60,16 +60,6 @@
   margin: 0;
   color: var(--muted);
 }
-.strategy-parameter {
-  display: grid;
-  grid-template-columns: 1fr 120px 1fr auto;
-  align-items: end;
-  gap: var(--space-3);
-  margin: var(--space-3) 0;
-}
-.strategy-parameter > label {
-  min-width: 0;
-}
 .strategy-monitor table {
   width: 100%;
   border-collapse: collapse;
@@ -137,11 +127,6 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-}
-@media (max-width: 900px) {
-  .strategy-parameter {
-    grid-template-columns: 1fr 1fr;
-  }
 }
 .strategy-actions {
   display: flex;

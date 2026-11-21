@@ -68,7 +68,7 @@ export function StrategyMonitor({
         </p>
       )}
       <dl>
-        <dt>{t("已发布版本")}</dt>
+        <dt>{t("已部署版本")}</dt>
         <dd>
           {configuration.packageName} · {configuration.packageVersion}
         </dd>

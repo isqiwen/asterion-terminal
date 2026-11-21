@@ -2,7 +2,12 @@ import { listSeparator } from "../../src/i18n";
 import { useEffect, useRef, useState } from "react";
 import { clone, create } from "@bufbuild/protobuf";
 import { Period } from "../../src/generated/asterion/common_pb";
-import { InstanceSchema, type Instance } from "../../src/generated/asterion/strategy_pb";
+import {
+  InstanceSchema,
+  type Instance,
+  type ParameterValue,
+} from "../../src/generated/asterion/strategy_pb";
+import type { StrategyEntry } from "../../src/generated/asterion/lab_pb";
 import {
   BrokerState,
   type Account,
@@ -28,8 +33,14 @@ import {
   type ParameterInput,
 } from "./strategy-instance";
 
+const parameterKind = (value?: ParameterValue) =>
+  (value?.value.case ?? "text") as ParameterInput["kind"];
+const shownValue = (value?: ParameterValue) =>
+  value?.value.case === undefined ? "" : String(value.value.value);
+
 export function StrategyInstance({
   connection,
+  repository,
   state,
   account,
   available,
@@ -38,6 +49,8 @@ export function StrategyInstance({
   start,
 }: {
   connection?: string;
+  // Where Lab reads the parameters each strategy declares.
+  repository?: string;
   state: Strategies;
   account?: Account;
   available: boolean;
@@ -51,7 +64,9 @@ export function StrategyInstance({
   const [packageKey, setPackage] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [period, setPeriod] = useState(Period.MINUTES_1);
-  const [rows, setRows] = useState<ParameterInput[]>([]);
+  const [declared, setDeclared] = useState<readonly StrategyEntry[]>([]);
+  // What was typed for each parameter; a blank one keeps its default.
+  const [values, setValues] = useState<Record<string, string>>({});
   const [budget, setBudget] = useState(false);
   const [gross, setGross] = useState("");
   const [net, setNet] = useState("");
@@ -106,13 +121,10 @@ export function StrategyInstance({
     setPackage(value);
     const source = state.packages.find(item => `${item.name}/${item.version}` === value)?.research;
     setPeriod(source?.period ?? Period.MINUTES_1);
-    setRows(
-      Object.entries(source?.params ?? {}).map(([name, parameter], index) => ({
-        id: index + 1,
-        name,
-        kind: parameter.value.case!,
-        value: String(parameter.value.value),
-      })),
+    setValues(
+      Object.fromEntries(
+        Object.entries(source?.params ?? {}).map(([name, value]) => [name, shownValue(value)]),
+      ),
     );
     setBudget(!!source?.weightLimits);
     setGross(source?.weightLimits?.gross?.text ?? "");
@@ -121,8 +133,38 @@ export function StrategyInstance({
     setMinRebalanceWeight(source?.weightLimits?.minRebalanceWeight?.text ?? "");
     setSelected([]);
   };
-  const update = (id: number, change: Partial<ParameterInput>) =>
-    setRows(current => current.map(row => (row.id === id ? { ...row, ...change } : row)));
+  useEffect(() => {
+    if (!repository) return;
+    let current = true;
+    // Without Lab the version's own backtest values are still listed.
+    void lab({ case: "listStrategies", value: { path: repository } })
+      .then(listed => current && setDeclared(listed.strategies))
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [repository, published]);
+  // A version from a backtest brings its own full set of values.
+  const resumed =
+    ended && !research && (!installed || installed.name === ended.packageName) ? ended : undefined;
+  const parameters = new Map<string, { kind: ParameterInput["kind"]; placeholder: string }>();
+  const strategyName = installed?.name ?? ended?.packageName;
+  for (const item of declared.find(entry => entry.id === strategyName)?.parameters ?? [])
+    parameters.set(item.name, {
+      kind: parameterKind(item.default),
+      placeholder: shownValue(item.default),
+    });
+  for (const [name, value] of Object.entries(research?.params ?? {}))
+    if (!parameters.has(name))
+      parameters.set(name, { kind: parameterKind(value), placeholder: "" });
+  for (const [name, value] of Object.entries(resumed?.params ?? {}))
+    parameters.set(name, { kind: parameterKind(value), placeholder: shownValue(value) });
+  const typedParameters = () =>
+    parameterValues(
+      [...parameters]
+        .filter(([name]) => values[name]?.trim())
+        .map(([name, { kind }]) => ({ name, kind, value: values[name]!.trim() })),
+    );
   const taken = useRef("");
   useEffect(() => {
     if (published === taken.current) return;
@@ -170,7 +212,7 @@ export function StrategyInstance({
                 </dd>
               </>
             )}
-            <dt>{t("已发布版本")}</dt>
+            <dt>{t("已部署版本")}</dt>
             <dd>
               {review.configuration.packageName} · {review.configuration.packageVersion}
             </dd>
@@ -183,7 +225,7 @@ export function StrategyInstance({
             </dd>
             <dt>{t("K 线周期")}</dt>
             <dd>{periodText(review.configuration.period)}</dd>
-            <dt>{t("参数覆盖")}</dt>
+            <dt>{t("参数")}</dt>
             <dd>
               {Object.entries(review.configuration.params)
                 .map(([name, value]) => `${name} = ${parameterText(value)}`)
@@ -240,7 +282,7 @@ export function StrategyInstance({
             preparingRef.current = true;
             setPreparing(true);
             void attempt(async () => {
-              if (!installed) throw new Error(t("请选择主机上已发布的版本。"));
+              if (!installed) throw new Error(t("请选择已部署的版本。"));
               if (
                 !selected.length ||
                 selected.length > 64 ||
@@ -300,7 +342,7 @@ export function StrategyInstance({
                   instruments,
                   series,
                   period,
-                  params: parameterValues(rows),
+                  params: typedParameters(),
                   weightLimits: budget
                     ? {
                         gross: decimal(gross),
@@ -337,7 +379,7 @@ export function StrategyInstance({
                 />
               </label>
               <label>
-                {t("已发布版本")}
+                {t("已部署版本")}
                 <select
                   required
                   value={packageKey}
@@ -407,7 +449,9 @@ export function StrategyInstance({
                         item.name === ended.packageName,
                     );
                     if (installed) configuration.packageVersion = installed.version;
-                    if (rows.length > 0) configuration.params = parameterValues(rows);
+                    configuration.params = research
+                      ? typedParameters()
+                      : { ...ended.params, ...typedParameters() };
                     if (budget)
                       configuration.weightLimits = create(InstanceSchema, {
                         weightLimits: {
@@ -468,81 +512,45 @@ export function StrategyInstance({
                 </label>
               ))}
             </fieldset>
-            <fieldset>
-              <legend>{t("参数覆盖")}</legend>
-              {rows.map((row, index) => (
-                <div className="strategy-parameter" key={row.id}>
-                  <label>
-                    {t("参数名 {n}", { n: index + 1 })}
-                    <input
-                      required
-                      spellCheck={false}
-                      autoCorrect="off"
-                      autoCapitalize="none"
-                      value={row.name}
-                      onChange={event => update(row.id, { name: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    {t("参数类型 {n}", { n: index + 1 })}
-                    <select
-                      value={row.kind}
-                      onChange={event =>
-                        update(row.id, {
-                          kind: event.target.value as ParameterInput["kind"],
-                          value: event.target.value === "flag" ? "false" : "",
-                        })
-                      }
-                    >
-                      <option value="integer">{t("整数")}</option>
-                      <option value="number">{t("小数")}</option>
-                      <option value="flag">{t("布尔")}</option>
-                      <option value="text">{t("文本")}</option>
-                    </select>
-                  </label>
-                  <label>
-                    {t("参数值 {n}", { n: index + 1 })}
-                    {row.kind === "flag" ? (
-                      <select
-                        value={row.value}
-                        onChange={event => update(row.id, { value: event.target.value })}
-                      >
-                        <option value="false">{t("否")}</option>
-                        <option value="true">{t("是")}</option>
-                      </select>
-                    ) : (
-                      <input
-                        required={row.kind !== "text"}
-                        value={row.value}
-                        onChange={event => update(row.id, { value: event.target.value })}
-                      />
-                    )}
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setRows(current => current.filter(item => item.id !== row.id))}
-                  >
-                    {t("删除参数 {n}", { n: index + 1 })}
-                  </button>
+            {parameters.size > 0 && (
+              <fieldset>
+                <legend>{t("参数")}</legend>
+                <div className="futures-fields">
+                  {[...parameters].map(([name, { kind, placeholder }]) => (
+                    <label key={name}>
+                      {name}
+                      {kind === "flag" ? (
+                        <select
+                          value={values[name] ?? ""}
+                          onChange={event =>
+                            setValues(current => ({ ...current, [name]: event.target.value }))
+                          }
+                        >
+                          <option value="">
+                            {t("默认")}
+                            {placeholder && ` (${t(placeholder === "true" ? "是" : "否")})`}
+                          </option>
+                          <option value="true">{t("是")}</option>
+                          <option value="false">{t("否")}</option>
+                        </select>
+                      ) : (
+                        <input
+                          inputMode={kind === "text" ? undefined : "decimal"}
+                          spellCheck={false}
+                          autoCorrect="off"
+                          autoCapitalize="none"
+                          placeholder={placeholder}
+                          value={values[name] ?? ""}
+                          onChange={event =>
+                            setValues(current => ({ ...current, [name]: event.target.value }))
+                          }
+                        />
+                      )}
+                    </label>
+                  ))}
                 </div>
-              ))}
-              <button
-                type="button"
-                onClick={() =>
-                  setRows(current => [
-                    ...current,
-                    {
-                      id: Math.max(0, ...current.map(item => item.id)) + 1,
-                      name: "",
-                      kind: "integer",
-                      value: "",
-                    },
-                  ])
-                }
-              >
-                {t("添加参数")}
-              </button>
-            </fieldset>
+              </fieldset>
+            )}
             <label className="checkbox">
               <input
                 type="checkbox"

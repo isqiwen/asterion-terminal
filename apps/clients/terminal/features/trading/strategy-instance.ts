@@ -13,7 +13,6 @@ import { decimalText } from "../../src/bridge/decimal";
 import { key, t } from "./live-shared";
 
 export type ParameterInput = {
-  id: number;
   name: string;
   kind: "integer" | "number" | "flag" | "text";
   value: string;
@@ -38,11 +37,7 @@ export const periodText = (period: Period) =>
 
 export function parameterValues(rows: ParameterInput[]): Record<string, ParameterValue> {
   const entries: [string, ParameterValue][] = [];
-  const names = new Set<string>();
   for (const row of rows) {
-    const name = row.name.trim();
-    if (!name || names.has(name)) throw new Error(t("参数名不能为空或重复。"));
-    names.add(name);
     let value: ParameterValue["value"];
     if (row.kind === "integer") {
       if (!/^-?\d+$/.test(row.value)) throw new Error(t("整数参数必须是完整的十进制整数。"));
@@ -59,7 +54,7 @@ export function parameterValues(rows: ParameterInput[]): Record<string, Paramete
     } else {
       value = { case: "text", value: row.value };
     }
-    entries.push([name, create(ParameterValueSchema, { value })]);
+    entries.push([row.name, create(ParameterValueSchema, { value })]);
   }
   return Object.fromEntries(entries);
 }

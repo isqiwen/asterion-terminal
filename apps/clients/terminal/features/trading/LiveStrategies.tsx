@@ -144,6 +144,7 @@ function AccountStrategies({
         {host.state && (
           <StrategyInstance
             connection={account.id}
+            repository={repository}
             state={host.state}
             account={view?.account}
             available={host.fresh && !!view && !view.failed}

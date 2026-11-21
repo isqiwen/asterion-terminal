@@ -37,6 +37,8 @@ type Props = {
   record?: Account;
   connected?: boolean;
   initialRun?: string;
+  // Lets the start form ask Lab what the strategy declares.
+  listParameters?: boolean;
 };
 // The strategy view's parts, sharing one host as the view does.
 function Packages(props: Props) {
@@ -60,6 +62,7 @@ function AccountPackages({ account, ...rest }: Props) {
       )}
       {host.state && (
         <StrategyInstance
+          repository={rest.listParameters ? rest.repository : undefined}
           state={host.state}
           account={rest.record}
           available={host.fresh && !!rest.connected}
@@ -127,21 +130,18 @@ const record = create(AccountSchema, {
   },
 });
 
-test("the prepared files are reviewed and published only to the selected account, without starting", async () => {
+test("deploying builds and installs on the selected account, without starting", async () => {
   labAnswers(async () => code);
   vi.mocked(strategyRequest).mockResolvedValue(
     create(HostStrategiesSchema, { packages: [code.manifest!] }),
   );
   render(<Packages account="account-a" repository="/strategies" />);
   await choose();
-  await act(async () => fireEvent.click(screen.getByText("生成版本")));
+  await click("部署");
   expect(lab).toHaveBeenCalledWith({
     case: "buildPackage",
     value: { repository: "/strategies", strategy: "rule.Example" },
   });
-  expect(screen.getByText("rule.py")).toBeDefined();
-  expect(writes()).toEqual([]);
-  await act(async () => fireEvent.click(screen.getByText("发布到此交易主机")));
   expect(writes()).toEqual([
     [
       "account-a",
@@ -151,10 +151,9 @@ test("the prepared files are reviewed and published only to the selected account
       },
     ],
   ]);
-  expect(screen.queryByText("发布到此交易主机")).toBeNull();
 });
 
-test("a repository change discards a late preparation; publishing an uncertain outcome is not retried", async () => {
+test("a repository change discards a late build; an uncertain install is not retried", async () => {
   let finish: (value: typeof code) => void = () => {};
   labAnswers(
     () =>
@@ -169,7 +168,7 @@ test("a repository change discards a late preparation; publishing an uncertain o
     </>,
   );
   await choose();
-  fireEvent.click(screen.getByText("生成版本"));
+  fireEvent.click(screen.getByRole("button", { name: "部署" }));
   view.rerender(
     <>
       <Packages account="account-a" repository="/new" />
@@ -177,16 +176,15 @@ test("a repository change discards a late preparation; publishing an uncertain o
     </>,
   );
   await act(async () => finish(code));
-  expect(screen.queryByText("发布到此交易主机")).toBeNull();
+  expect(writes()).toEqual([]);
   labAnswers(async () => code);
-  await act(async () => fireEvent.click(screen.getByText("生成版本")));
   vi.mocked(strategyRequest).mockRejectedValue(new Error("connection lost"));
-  await act(async () => fireEvent.click(screen.getByText("发布到此交易主机")));
+  await click("部署");
   expect(writes()).toHaveLength(1);
   expect(screen.getByText(/connection lost/)).toBeDefined();
 });
 
-test("deploying a backtest prepares its frozen package and loads its settings before contract confirmation", async () => {
+test("deploying a backtest installs its frozen package and loads its settings before contract confirmation", async () => {
   const frozen = create(PackageSchema, {
     ...code,
     manifest: {
@@ -216,17 +214,22 @@ test("deploying a backtest prepares its frozen package and loads its settings be
       connected
     />,
   );
-  await click("生成版本");
+  await waitFor(() =>
+    expect((screen.getByRole("button", { name: "部署" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    ),
+  );
+  await click("部署");
   expect(lab).toHaveBeenCalledWith({ case: "buildPackage", value: { runId: "chosen" } });
   expect(vi.mocked(lab).mock.calls.some(([operation]) => operation.case === "listStrategies")).toBe(
     false,
   );
-  await click("发布到此交易主机");
-  fireEvent.change(screen.getByLabelText("已发布版本"), { target: { value: "example/one" } });
+  expect((screen.getByRole("button", { name: "已部署" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText("已部署版本"), { target: { value: "example/one" } });
   expect((screen.getByLabelText("K 线周期") as HTMLSelectElement).value).toBe(
     String(Period.MINUTES_5),
   );
-  expect((screen.getByLabelText("参数值 1") as HTMLInputElement).value).toBe("9007199254740993");
+  expect((screen.getByLabelText("window") as HTMLInputElement).value).toBe("9007199254740993");
   expect((screen.getByLabelText("总绝对权重预算") as HTMLInputElement).value).toBe("0.8");
   expect((screen.getByLabelText("SHFE.rb2610") as HTMLInputElement).checked).toBe(false);
   fireEvent.change(screen.getByLabelText("实例 ID"), { target: { value: "from-backtest" } });
@@ -254,17 +257,40 @@ test("review sends explicit configuration and exact values only on confirmation,
         })
       : installed(),
   );
-  render(<Packages account="account-a" repository="" record={record} connected />);
+  vi.mocked(lab).mockResolvedValue(
+    create(StrategiesSchema, {
+      strategies: [
+        {
+          id: "example",
+          parameters: [
+            { name: "window", default: { value: { case: "integer", value: 5n } } },
+            { name: "lots", default: { value: { case: "integer", value: 1n } } },
+          ],
+        },
+      ],
+    }) as never,
+  );
+  render(
+    <Packages
+      account="account-a"
+      repository="/strategies"
+      listParameters
+      record={record}
+      connected
+    />,
+  );
   await waitFor(() => expect(screen.getByLabelText("实例 ID")).toBeDefined());
   fireEvent.change(screen.getByLabelText("实例 ID"), { target: { value: "new-run" } });
-  fireEvent.change(screen.getByLabelText("已发布版本"), { target: { value: "example/one" } });
+  fireEvent.change(screen.getByLabelText("已部署版本"), { target: { value: "example/one" } });
   fireEvent.click(screen.getByLabelText("SHFE.rb2610"));
   fireEvent.change(screen.getByLabelText("K 线周期"), {
     target: { value: String(Period.MINUTES_5) },
   });
-  await click("添加参数");
-  fireEvent.change(screen.getByLabelText("参数名 1"), { target: { value: "window" } });
-  fireEvent.change(screen.getByLabelText("参数值 1"), { target: { value: "9007199254740993" } });
+  // The strategy's own parameters are listed; one left blank keeps its default.
+  const window = (await screen.findByLabelText("window")) as HTMLInputElement;
+  expect(window.placeholder).toBe("5");
+  expect((screen.getByLabelText("lots") as HTMLInputElement).placeholder).toBe("1");
+  fireEvent.change(window, { target: { value: "9007199254740993" } });
   fireEvent.click(screen.getByLabelText("设置策略权重预算"));
   fireEvent.change(screen.getByLabelText("总绝对权重预算"), { target: { value: "1.00000001" } });
   fireEvent.change(screen.getByLabelText("净权重绝对值预算"), { target: { value: "0" } });
@@ -283,17 +309,33 @@ test("review sends explicit configuration and exact values only on confirmation,
     weightLimits: { gross: { text: "1.00000001" }, net: { text: "0" } },
     params: { window: { value: { case: "integer", value: 9007199254740993n } } },
   });
+  expect(Object.keys(operation.value.params!)).toEqual(["window"]);
   expect(screen.getByText("正在现场预热")).toBeDefined();
 });
 
 test("an ended instance resumes from its record under a new id after review", async () => {
-  vi.mocked(strategyRequest).mockResolvedValue(runtime(InstanceState.INTERRUPTED));
+  const ended = create(InstanceSchema, {
+    id: "run-a",
+    packageName: "example",
+    packageVersion: "one",
+    instruments: [rb],
+    period: Period.MINUTES_1,
+    params: {
+      lots: { value: { case: "integer", value: 2n } },
+      fast: { value: { case: "integer", value: 7n } },
+    },
+  });
+  vi.mocked(strategyRequest).mockResolvedValue(
+    create(HostStrategiesSchema, {
+      packages: [code.manifest!],
+      instance: { instance: ended, state: InstanceState.INTERRUPTED, completedSteps: 2n },
+    }),
+  );
   render(<Packages account="account-a" repository="" record={record} connected />);
   await waitFor(() => expect(screen.getByLabelText("实例 ID")).toBeDefined());
   fireEvent.change(screen.getByLabelText("实例 ID"), { target: { value: "run-b" } });
-  await click("添加参数");
-  fireEvent.change(screen.getByLabelText("参数名 1"), { target: { value: "lots" } });
-  fireEvent.change(screen.getByLabelText("参数值 1"), { target: { value: "4" } });
+  expect((screen.getByLabelText("lots") as HTMLInputElement).placeholder).toBe("2");
+  fireEvent.change(screen.getByLabelText("lots"), { target: { value: "4" } });
   await click("从实例 run-a 的记录恢复");
   expect(screen.getByText("实例 run-a 的记录")).toBeDefined();
   expect(writes()).toEqual([]);
@@ -304,7 +346,10 @@ test("an ended instance resumes from its record under a new id after review", as
     ...configuration,
     id: "run-b",
     resumeFrom: "run-a",
-    params: { lots: { value: { case: "integer", value: 4n } } },
+    params: {
+      lots: { value: { case: "integer", value: 4n } },
+      fast: { value: { case: "integer", value: 7n } },
+    },
   });
   expect(configuration.resumeFrom).toBe("");
 });
@@ -355,7 +400,7 @@ test("a changed account policy requires reviewing the configuration again before
   const view = render(<Packages {...props} record={record} />);
   await waitFor(() => expect(screen.getByLabelText("实例 ID")).toBeDefined());
   fireEvent.change(screen.getByLabelText("实例 ID"), { target: { value: "new-run" } });
-  fireEvent.change(screen.getByLabelText("已发布版本"), { target: { value: "example/one" } });
+  fireEvent.change(screen.getByLabelText("已部署版本"), { target: { value: "example/one" } });
   fireEvent.click(screen.getByLabelText("SHFE.rb2610"));
   await click("核对启动配置");
   view.rerender(
@@ -464,7 +509,7 @@ test("preparing historical warmup disables the start form until Lab responds", a
   render(<Packages account="account-a" repository="" record={record} connected />);
   await waitFor(() => expect(screen.getByLabelText("实例 ID")).toBeDefined());
   fireEvent.change(screen.getByLabelText("实例 ID"), { target: { value: "warm-run" } });
-  fireEvent.change(screen.getByLabelText("已发布版本"), { target: { value: "example/one" } });
+  fireEvent.change(screen.getByLabelText("已部署版本"), { target: { value: "example/one" } });
   fireEvent.click(screen.getByLabelText("SHFE.rb2610"));
   fireEvent.change(screen.getByLabelText("历史预热 K 线数"), { target: { value: "20" } });
   fireEvent.click(screen.getByRole("button", { name: "核对启动配置" }));
