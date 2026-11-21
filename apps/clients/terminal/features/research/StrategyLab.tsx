@@ -40,7 +40,7 @@ import {
   useStoredCatalog,
 } from "./LabParts";
 import { RunResult, SweepResult, metric, runTones, signed, states } from "./ResearchResult";
-import { StrategyLibrary } from "./StrategyLibrary";
+import { type LibraryScope, StrategyLibrary, useStrategyBatch } from "./StrategyLibrary";
 import { StrategyLifecycle } from "./StrategyLifecycle";
 
 const t = (key: string, values?: MessageValues) =>
@@ -131,6 +131,10 @@ export function StrategyLab(context: TerminalContext) {
     refresh: refreshReport,
   } = useLabActiveReport(report, refreshRecentRuns);
 
+  const [batchId, setBatchId] = useWorkspaceDraft("strategy-batch", "");
+  const [scope, setScope] = useWorkspaceDraft<LibraryScope>("strategy-library-scope", "all");
+  const [selected, setSelected] = useState<string[]>([]);
+  const batch = useStrategyBatch(batchId, refreshRecentRuns);
   const [saved, setSaved] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const submitted = useActionError();
@@ -139,7 +143,7 @@ export function StrategyLab(context: TerminalContext) {
   const strategy = strategies?.strategies.find(item => item.id === chosen);
   const enteredSymbols = symbolsOf(form.symbols);
   const effectiveMode = form.multiSymbolMode ?? (strategy?.portfolio ? "portfolio" : "separate");
-  const separateMulti = enteredSymbols.length > 1 && effectiveMode === "separate";
+  const separateMulti = !library && enteredSymbols.length > 1 && effectiveMode === "separate";
   const catalog = useStoredCatalog(context, form.minutes !== "0");
   const [beginPlaceholder, endPlaceholder] = datePlaceholders(
     catalog,
@@ -244,6 +248,102 @@ export function StrategyLab(context: TerminalContext) {
       void readStrategies();
     },
   });
+  const activeSelected = selected.filter(id => strategies?.strategies.some(item => item.id === id));
+  const startBatch = async () => {
+    const targets = (strategies?.strategies ?? []).filter(item => activeSelected.includes(item.id));
+    setBusy(true);
+    setSaved([]);
+    await submitted.attempt(async () => {
+      const written = await source.save();
+      setSaved(written);
+      if (written.length) await readStrategies();
+      const id = identity("batch");
+      const settings: RunForm = {
+        ...form,
+        params: {},
+        validation: form.holdoutDay ? "holdout" : "none",
+      };
+      const members = targets.map(
+        entry => runRequest(settings, repository, entry.id, entry.parameters, id).run,
+      );
+      await lab({
+        case: "startSweep",
+        value: {
+          id,
+          base: members[0],
+          strategies: members.map(run => ({ strategy: run.strategy, params: run.params })),
+          processes: Number(form.processes) || 0,
+        },
+      });
+      setBatchId(id);
+      setScope("batch");
+      setSelected([]);
+    });
+    setBusy(false);
+  };
+  const marketSection = (
+    <Section title={t("品种与区间")} open>
+      <SymbolField
+        context={context}
+        value={form.symbols}
+        minutes={form.minutes !== "0"}
+        catalog={catalog}
+        onChange={symbols => change({ symbols })}
+      />
+      {!library && enteredSymbols.length > 1 && (
+        <fieldset className="wide lab-segmented">
+          <legend className="sr-only">{t("多品种运行方式")}</legend>
+          {(["separate", "portfolio"] as const).map(item => (
+            <label key={item}>
+              <input
+                type="radio"
+                name={modeGroup}
+                checked={effectiveMode === item}
+                onChange={() => change({ multiSymbolMode: item })}
+              />
+              {t(item === "separate" ? "分别回测" : "组合合跑")}
+            </label>
+          ))}
+        </fieldset>
+      )}
+      {dateField("开始日", "begin", beginPlaceholder)}
+      {dateField("结束日", "end", endPlaceholder)}
+      <label className="wide">
+        <span>{t("周期")}</span>
+        <select value={form.minutes} onChange={event => change({ minutes: event.target.value })}>
+          <option value="0">{t("日线")}</option>
+          {[1, 5, 10, 15, 30, 60].map(value => (
+            <option key={value} value={String(value)}>
+              {t("{count} 分钟", { count: value })}
+            </option>
+          ))}
+        </select>
+      </label>
+    </Section>
+  );
+  const riskSection = (
+    <Section title={t("资金与风控")}>
+      {field("初始资金", "deposit")}
+      {field("滑点（跳）", "slippage")}
+      {field("单笔手数", "maxOrderLots")}
+      {field("单合约持仓手数", "maxContractLots")}
+      {field("账户总持仓手数", "maxGrossLots")}
+      {field("在途委托数", "maxWorkingOrders")}
+      {field("总权重上限", "maxGrossWeight")}
+      {field("净权重上限", "maxNetWeight")}
+      {field("保证金率上限", "maxMarginRatio")}
+      {field("最小调仓偏离", "minRebalanceWeight")}
+      {field("每年期数", "annualPeriods")}
+      <label className="lab-check wide">
+        <input
+          type="checkbox"
+          checked={form.zeroRiskFree}
+          onChange={event => change({ zeroRiskFree: event.target.checked })}
+        />
+        {t("无风险利率为零")}
+      </label>
+    </Section>
+  );
   const singleRuns = runs.filter(run => !run.sweepId || run.id !== `${run.sweepId}-rolling`);
   const items: ModuleItem[] = (strategies?.strategies ?? []).map(item => {
     const [module, name] = item.id.split(".");
@@ -364,6 +464,16 @@ export function StrategyLab(context: TerminalContext) {
           runs={singleRuns}
           views={views}
           chosen={chosen}
+          selected={activeSelected}
+          setSelected={setSelected}
+          batch={batch}
+          scope={scope}
+          setScope={setScope}
+          cancelBatch={() =>
+            void submitted.attempt(async () => {
+              await lab({ case: "cancelSweep", value: { id: batchId } });
+            })
+          }
           open={choose}
           openRun={(item, id) => {
             choose(item);
@@ -477,6 +587,35 @@ export function StrategyLab(context: TerminalContext) {
           onDelete={path => menu.remove(path)}
         />
       )}
+      {library && activeSelected.length > 0 && (
+        <aside className="lab-config" aria-label={t("批量回测")}>
+          <h2>
+            {!folded && t("批量回测")}
+            <ConfigFold folded={folded} fold={setFolded} />
+          </h2>
+          {!folded && (
+            <>
+              {marketSection}
+              {riskSection}
+              <Section title={t("扫描与验证")} open>
+                {dateField("留出日", "holdoutDay")}
+                {field("并行进程数", "processes", { placeholder: defaultProcesses() })}
+              </Section>
+              <footer className="lab-submit">
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={busy || context.busy || activeSelected.length < 2}
+                  onClick={() => void startBatch()}
+                >
+                  {t("批量回测（{count}）", { count: activeSelected.length })}
+                </button>
+                <ActionError error={submitted.error} namespace="asterion.terminal.research" />
+              </footer>
+            </>
+          )}
+        </aside>
+      )}
       {strategy && !library && (
         <aside className="lab-config" aria-label={t("运行配置")}>
           <h2>
@@ -485,47 +624,7 @@ export function StrategyLab(context: TerminalContext) {
           </h2>
           {!folded && (
             <>
-              <Section title={t("品种与区间")} open>
-                <SymbolField
-                  context={context}
-                  value={form.symbols}
-                  minutes={form.minutes !== "0"}
-                  catalog={catalog}
-                  onChange={symbols => change({ symbols })}
-                />
-                {enteredSymbols.length > 1 && (
-                  <fieldset className="wide lab-segmented">
-                    <legend className="sr-only">{t("多品种运行方式")}</legend>
-                    {(["separate", "portfolio"] as const).map(item => (
-                      <label key={item}>
-                        <input
-                          type="radio"
-                          name={modeGroup}
-                          checked={effectiveMode === item}
-                          onChange={() => change({ multiSymbolMode: item })}
-                        />
-                        {t(item === "separate" ? "分别回测" : "组合合跑")}
-                      </label>
-                    ))}
-                  </fieldset>
-                )}
-                {dateField("开始日", "begin", beginPlaceholder)}
-                {dateField("结束日", "end", endPlaceholder)}
-                <label className="wide">
-                  <span>{t("周期")}</span>
-                  <select
-                    value={form.minutes}
-                    onChange={event => change({ minutes: event.target.value })}
-                  >
-                    <option value="0">{t("日线")}</option>
-                    {[1, 5, 10, 15, 30, 60].map(value => (
-                      <option key={value} value={String(value)}>
-                        {t("{count} 分钟", { count: value })}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </Section>
+              {marketSection}
               <Section title={t("参数")} open>
                 {strategy.parameters.map(parameter => (
                   <label
@@ -550,27 +649,7 @@ export function StrategyLab(context: TerminalContext) {
                   </label>
                 ))}
               </Section>
-              <Section title={t("资金与风控")}>
-                {field("初始资金", "deposit")}
-                {field("滑点（跳）", "slippage")}
-                {field("单笔手数", "maxOrderLots")}
-                {field("单合约持仓手数", "maxContractLots")}
-                {field("账户总持仓手数", "maxGrossLots")}
-                {field("在途委托数", "maxWorkingOrders")}
-                {field("总权重上限", "maxGrossWeight")}
-                {field("净权重上限", "maxNetWeight")}
-                {field("保证金率上限", "maxMarginRatio")}
-                {field("最小调仓偏离", "minRebalanceWeight")}
-                {field("每年期数", "annualPeriods")}
-                <label className="lab-check wide">
-                  <input
-                    type="checkbox"
-                    checked={form.zeroRiskFree}
-                    onChange={event => change({ zeroRiskFree: event.target.checked })}
-                  />
-                  {t("无风险利率为零")}
-                </label>
-              </Section>
+              {riskSection}
               <Section title={t("扫描与验证")}>
                 <fieldset className="wide lab-segmented">
                   <legend className="sr-only">{t("扫描与验证")}</legend>
@@ -618,7 +697,7 @@ export function StrategyLab(context: TerminalContext) {
                 )}
                 <ActionError error={submitted.error} namespace="asterion.terminal.research" />
                 <RecentRuns
-                  runs={runs.filter(run => run.strategy === strategy.id && !run.sweepId)}
+                  runs={singleRuns.filter(run => run.strategy === strategy.id)}
                   open={id => setReport({ kind: "run", id })}
                   openAll={() => context.navigate("workspace.lab-runs", {})}
                 />

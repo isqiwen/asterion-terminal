@@ -97,6 +97,9 @@ button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
 .lab-library-view > .lab-toolbar {
   justify-content: flex-start;
 }
+.lab-library-view > .lab-toolbar label.lab-inline {
+  min-width: 0;
+}
 .lab-library-scroll {
   flex: 1;
   min-height: 0;

@@ -15,6 +15,7 @@ import type {
   Parameter,
   RunDay,
   RunDetail,
+  RunSummary,
 } from "../../src/generated/asterion/lab_pb";
 
 import type { ParameterValueSchema } from "../../src/generated/asterion/strategy_pb";
@@ -140,6 +141,10 @@ export function defaultText(parameter: Parameter) {
 export function parameterText(value: { value: { case?: string; value?: unknown } } | undefined) {
   return value?.value.case === undefined ? "" : String(value.value.value);
 }
+
+// A batch's run names its strategy among its swept values, before it has started.
+export const batchKey = "__strategy__";
+export const batchStrategy = (run: RunSummary) => parameterText(run.params[batchKey]);
 
 export function formFromRun(detail: RunDetail): { strategy: string; form: RunForm } {
   const base = defaultForm();

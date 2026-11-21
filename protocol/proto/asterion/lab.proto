@@ -403,6 +403,8 @@ message RunSummary {
   uint32 sweep_size = 16;
   uint32 sweep_succeeded = 17;
   bool sweep_running = 18;
+  // How many strategies a batch compares; 0 for other sweeps.
+  uint32 sweep_strategies = 19;
 }
 
 message RunDetail {
@@ -461,6 +463,14 @@ message Sweep {
   // Rolling validation once every run succeeded, as <sweep id>-rolling.
   WalkForward walk_forward = 5;
   repeated string symbols = 6;
+  // A batch: these strategies on the base's settings, one data version and source.
+  repeated SweepStrategy strategies = 7;
+}
+
+message SweepStrategy {
+  // module.Class
+  string strategy = 1;
+  map<string, strategy.ParameterValue> params = 2;
 }
 
 message ParameterValues {

@@ -18,7 +18,7 @@ const item = (name: string, group: string): ModuleItem => ({
   group,
   description: "",
 });
-const run = (id: string, name: string, state: RunState, sharpe: number) =>
+const run = (id: string, name: string, state: RunState, sharpe: number, fills = 3) =>
   create(RunSummarySchema, {
     id,
     strategy: `m.${name}`,
@@ -26,15 +26,21 @@ const run = (id: string, name: string, state: RunState, sharpe: number) =>
     symbols: ["SHFE/rb"],
     firstDay: "2026-01-05",
     lastDay: "2026-02-13",
-    metrics: { sharpe, total_return: sharpe / 10 },
+    metrics: { sharpe, total_return: sharpe / 10, fills },
   });
 
 test("strategies rank by their latest success and show how far they reached", () => {
-  const items = [item("Alpha", "单品种"), item("Beta", "组合"), item("Gamma", "组合")];
+  const items = [
+    item("Alpha", "单品种"),
+    item("Beta", "组合"),
+    item("Gamma", "组合"),
+    item("Delta", "单品种"),
+  ];
   const runs = [
     run("alpha-failed", "Alpha", RunState.FAILED, 9),
     run("beta", "Beta", RunState.SUCCEEDED, 2),
     run("alpha", "Alpha", RunState.SUCCEEDED, 1),
+    run("delta", "Delta", RunState.SUCCEEDED, 0, 0),
   ];
   const views = {
     sim: {
@@ -50,10 +56,16 @@ test("strategies rank by their latest success and show how far they reached", ()
   render(
     <StrategyLibrary
       items={items}
-      total={3}
+      total={4}
       runs={runs}
       views={views}
       chosen=""
+      selected={[]}
+      setSelected={vi.fn()}
+      batch={null}
+      scope="all"
+      setScope={vi.fn()}
+      cancelBatch={vi.fn()}
       open={open}
       openRun={openRun}
     />,
@@ -63,10 +75,12 @@ test("strategies rank by their latest success and show how far they reached", ()
     within(table)
       .getAllByRole("rowheader")
       .map(header => header.textContent);
-  expect(order()).toEqual(["Beta", "Alpha", "Gamma"]);
-  const beta = within(table).getByRole("row", { name: /^Beta/ });
+  expect(order()).toEqual(["Beta", "Alpha", "Delta", "Gamma"]);
+  const delta = within(table).getByRole("row", { name: /m\.Delta/ });
+  expect(within(delta).getByText("无成交")).toBeTruthy();
+  const beta = within(table).getByRole("row", { name: /m\.Beta/ });
   expect(within(beta).getByText("仿真")).toBeTruthy();
-  const alpha = within(table).getByRole("row", { name: /^Alpha/ });
+  const alpha = within(table).getByRole("row", { name: /m\.Alpha/ });
   expect(within(alpha).getByText("已回测")).toBeTruthy();
   expect(within(alpha).getByText("1.000")).toBeTruthy();
 

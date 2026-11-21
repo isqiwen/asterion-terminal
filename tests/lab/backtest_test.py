@@ -1694,6 +1694,39 @@ builtins.print = delayed_print
 
         asyncio.run(scenario())
 
+    def test_a_strategy_batch_compares_strategies_on_one_version_and_each_can_deploy(self):
+        class Log:
+            def write(self, *args, **kwargs):
+                pass
+
+        async def scenario():
+            service = Service("lab", self.directory, Log())
+            request = self.sweep_request("batch", [2], [4], 2)
+            sweep = request.start_sweep
+            del sweep.values[:]
+            first = sweep.strategies.add(strategy="ma_cross.MaCross")
+            first.params["fast"].integer, first.params["slow"].integer = 2, 4
+            second = sweep.strategies.add(strategy="momentum.Momentum")
+            second.params["lookback"].integer = 3
+            version = Dataset(self.directory).current().identity
+            reply = await service.reply(request)
+            self.assertEqual(reply.WhichOneof("result"), "start_sweep", reply.error)
+            deadline = time.monotonic() + 60
+            while (service.backtests or service.waiting) and time.monotonic() < deadline:
+                await asyncio.sleep(0.1)
+            runs = (await service.reply(Request(id=1, get_sweep={"id": "batch"}))).get_sweep.runs
+            self.assertEqual([run.strategy for run in runs], ["ma_cross.MaCross", "momentum.Momentum"])
+            self.assertEqual({run.state for run in runs}, {SUCCEEDED})
+            self.assertEqual({run.pinned.dataset_version for run in runs}, {version})
+            recent = (await service.reply(Request(id=1, list_recent_runs={}))).list_recent_runs.runs
+            self.assertEqual({run.id for run in recent}, {"batch-0", "batch-1"})
+            listed = (await service.reply(Request(id=1, list_runs={}))).list_runs.runs
+            self.assertEqual([run.sweep_strategies for run in listed], [2])
+            built = await service.reply(Request(id=1, build_package={"run_id": "batch-1"}))
+            self.assertEqual(built.WhichOneof("result"), "build_package", built.error)
+
+        asyncio.run(scenario())
+
     def test_cancelling_a_sweep_stops_its_running_rolling_validation(self):
         (self.repository / "strategies/slow.py").write_text(
             "import time\nfrom strategies.ma_cross import MaCross\n\n\n"

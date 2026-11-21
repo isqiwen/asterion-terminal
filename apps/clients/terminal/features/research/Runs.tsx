@@ -20,7 +20,7 @@ import {
   signed,
   states,
 } from "./ResearchResult";
-import { parameterText, recordName, runState } from "./research-lab";
+import { batchKey, parameterText, recordName, runState } from "./research-lab";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
@@ -214,7 +214,11 @@ export function Runs(context: TerminalContext) {
           <button type="button" className="lab-link" onClick={back}>
             {t("← 回测记录")}
           </button>
-          <h2>{t("扫描 {id}", { id: recordName(shown.id) })}</h2>
+          <h2>
+            {t(sweep?.runs[0]?.params[batchKey] ? "批量回测 {id}" : "扫描 {id}", {
+              id: recordName(shown.id),
+            })}
+          </h2>
         </header>
         {sweep?.id === shown.id ? (
           <SweepResult
@@ -377,14 +381,19 @@ export function Runs(context: TerminalContext) {
                         }
                       >
                         {group
-                          ? t("扫描 {id}（{count} 组）", {
-                              id: recordName(group),
-                              count: run.sweepSize,
-                            })
+                          ? run.sweepStrategies
+                            ? t("批量 {id}（{count} 个策略）", {
+                                id: recordName(group),
+                                count: run.sweepStrategies,
+                              })
+                            : t("扫描 {id}（{count} 组）", {
+                                id: recordName(group),
+                                count: run.sweepSize,
+                              })
                           : runName(run)}
                       </button>
                       <small className="lab-id">
-                        {run.strategy}
+                        {run.sweepStrategies ? "" : run.strategy}
                         {!group && run.label ? ` · ${run.id}` : ""}
                       </small>
                     </td>

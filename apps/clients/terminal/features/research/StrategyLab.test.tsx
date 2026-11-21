@@ -527,3 +527,74 @@ test("non-rolling sweep runs advance strategy lifecycle while rolling summaries 
     params: { run: "sweep-1-0" },
   });
 });
+
+test("selected strategies run as one batch and compare on the same settings", async () => {
+  const started: { strategies?: { strategy?: string; params?: Record<string, unknown> }[] }[] = [];
+  const member = (id: string, strategy: string, state: RunState, sharpe?: number) => ({
+    id,
+    strategy,
+    state,
+    symbols: ["SHFE/rb"],
+    firstDay: "2026-01-05",
+    lastDay: "2026-02-13",
+    error: state === RunState.FAILED ? "no data" : "",
+    params: { __strategy__: { value: { case: "text" as const, value: strategy } } },
+    metrics: (sharpe === undefined ? {} : { sharpe }) as Record<string, number>,
+  });
+  vi.mocked(lab).mockReset();
+  vi.mocked(lab).mockImplementation(async operation => {
+    switch (operation?.case) {
+      case "listStrategies":
+        return create(StrategiesSchema, {
+          strategies: [
+            {
+              id: "a.Alpha",
+              parameters: [{ name: "fast", default: { value: { case: "integer", value: 2n } } }],
+            },
+            { id: "b.Beta", portfolio: true },
+          ],
+        }) as never;
+      case "listRecentRuns":
+        return create(RunsSchema, {}) as never;
+      case "readSource":
+        return create(SourceSchema, { content: "x = 1\n" }) as never;
+      case "startSweep":
+        started.push(operation.value as never);
+        return {} as never;
+      case "getSweep":
+        return create(SweepRunsSchema, {
+          active: false,
+          runs: [
+            member("batch-0", "a.Alpha", RunState.SUCCEEDED, 1.5),
+            member("batch-1", "b.Beta", RunState.FAILED),
+          ],
+        }) as never;
+    }
+    return new Promise(() => {}) as never;
+  });
+  const context = {
+    snapshot: { research_directory: "/research" },
+    navigate: vi.fn(),
+  } as unknown as TerminalContext;
+  render(
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.lab-strategies">
+      <StrategyLab {...context} />
+    </WorkspaceDraftScope>,
+  );
+  await screen.findByText("strategies/a.py");
+  fireEvent.click(screen.getByRole("button", { name: /^策略库/ }));
+  fireEvent.click(await screen.findByLabelText("选择 {name} a.Alpha"));
+  fireEvent.click(screen.getByLabelText("选择 {name} b.Beta"));
+  fireEvent.change(screen.getByPlaceholderText("选择品种或合约…"), {
+    target: { value: "SHFE/rb," },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "批量回测（{count}） 2" }));
+  await waitFor(() => expect(started).toHaveLength(1));
+  expect(started[0]!.strategies!.map(item => item.strategy)).toEqual(["a.Alpha", "b.Beta"]);
+  expect(started[0]!.strategies![0]!.params!.fast).toEqual({
+    value: { case: "integer", value: 2n },
+  });
+  expect(await screen.findByText("1.500")).toBeTruthy();
+  expect(screen.getByText("失败")).toBeTruthy();
+  expect(screen.queryByRole("complementary", { name: "批量回测" })).toBeNull();
+});

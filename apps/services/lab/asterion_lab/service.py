@@ -22,7 +22,7 @@ from asterion.lab_pb2 import (AdmittedFactor, AdmittedRun, FactorResult, Request
 from asterion.strategy_pb2 import Bar, Warmup
 
 from asterion_lab import backtest, chart, dominant, repository, package, rolling, worker
-from asterion_lab.runs import IDENTITY, Runs
+from asterion_lab.runs import BATCH_STRATEGY, IDENTITY, Runs
 from asterion_lab.warehouse import write_durably
 from asterion_lab.warehouse_client import Client, Dataset, WarehouseError
 
@@ -117,6 +117,7 @@ def summary(item, row):
     item.sweep_size = row.get("sweep_size", 0)
     item.sweep_succeeded = row.get("sweep_succeeded", 0)
     item.sweep_running = row.get("sweep_running", False)
+    item.sweep_strategies = row.get("sweep_strategies", 0)
     # A sweep's run that has not started has no record yet.
     if "symbols" in row:
         item.label = row["label"]
@@ -732,11 +733,14 @@ class Service:
         destination = Path(tempfile.mkdtemp(prefix=f"{name}-", dir=self.directory / "sources"))
         return str(destination), repository.snapshot(Path(root), destination, entry)
 
-    def with_source(self, admitted, name):
-        """The run with its strategy's code copied for it alone."""
+    def with_source(self, admitted, name, others=()):
+        """The run with its strategy's code, and that of `others`, copied for it alone."""
         module = admitted.backtest.strategy.partition(".")[0]
         admitted.source, taken = self.copy_source(admitted.backtest.repository, name,
                                                   f"strategies/{module}.py")
+        for other in others:
+            repository.snapshot(Path(admitted.backtest.repository), Path(admitted.source),
+                                f"strategies/{other.partition('.')[0]}.py")
         admitted.pinned.commit, admitted.pinned.changes = taken.commit, taken.changes
         return admitted
 
@@ -826,7 +830,12 @@ class Service:
         names = [item.name for item in request.values]
         if len(set(names)) != len(names) or any(not item.values for item in request.values):
             raise ValueError("a sweep gives each of its parameters one or more values")
-        if not names and len(symbols) < 2:
+        batch = list(request.strategies)
+        if batch and (names or symbols or request.HasField("walk_forward")):
+            raise ValueError("a strategy batch varies only the strategy")
+        if batch and (len(batch) < 2 or len({item.strategy for item in batch}) != len(batch)):
+            raise ValueError("a strategy batch runs two or more distinct strategies")
+        if not batch and not names and len(symbols) < 2:
             raise ValueError("a sweep varies parameters or two or more symbols")
         symbol_items = symbols or [None]
         count = len(symbol_items) * math.prod(len(item.values) for item in request.values)
@@ -853,7 +862,8 @@ class Service:
                 not is_minutes,
                 False,
             )
-        base = await asyncio.to_thread(self.with_source, base, f"sweep-{request.id}")
+        base = await asyncio.to_thread(self.with_source, base, f"sweep-{request.id}",
+                                       [item.strategy for item in batch])
         runs, planned = [], []
         for symbol in symbol_items:
             span = (
@@ -861,7 +871,7 @@ class Service:
                 if symbol and found is not None
                 else None
             )
-            for values in combinations:
+            for values, choice in itertools.product(combinations, batch or [None]):
                 n = len(runs)
                 run = AdmittedRun()
                 run.CopyFrom(base)
@@ -876,9 +886,16 @@ class Service:
                             run.backtest.last_day = span[1]
                 for name, value in zip(names, values):
                     run.backtest.params[name].CopyFrom(value)
+                swept = {name: getattr(value, value.WhichOneof("value"))
+                         for name, value in zip(names, values)}
+                if choice:
+                    run.backtest.strategy = choice.strategy
+                    run.backtest.params.clear()
+                    for name, value in choice.params.items():
+                        run.backtest.params[name].CopyFrom(value)
+                    swept[BATCH_STRATEGY] = choice.strategy
                 runs.append(run)
-                planned.append((run.backtest.id, {name: getattr(value, value.WhichOneof("value"))
-                                                  for name, value in zip(names, values)}))
+                planned.append((run.backtest.id, swept))
         await self.checked_run(runs[0].backtest)
         for run in runs[1:]:
             self.check_run_id(run.backtest.id)

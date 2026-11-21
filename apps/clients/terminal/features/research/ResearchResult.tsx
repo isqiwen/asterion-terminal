@@ -21,7 +21,15 @@ import { protocolPeriod } from "../../src/ui/periods";
 import type { Tone } from "../../src/ui/StatusBadge";
 import { useVirtualRows } from "../../src/ui/virtual-rows";
 import { Offset, Period, Side } from "../../src/generated/asterion/common_pb";
-import { heatmap, monthlyReturns, parameterText, recordName, runState } from "./research-lab";
+import {
+  batchKey,
+  batchStrategy,
+  heatmap,
+  monthlyReturns,
+  parameterText,
+  recordName,
+  runState,
+} from "./research-lab";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
@@ -919,7 +927,10 @@ export function SweepResult({
     metrics: run.metrics,
     params: Object.fromEntries([
       ...(hasSymbols ? [[symbolAxis, formatSymbols(run.symbols)]] : []),
-      ...names.map(name => [name, parameterText(run.params[name])]),
+      ...names.map(name => [
+        name,
+        name === batchKey ? batchStrategy(run).split(".")[1] : parameterText(run.params[name]),
+      ]),
     ]),
     metric: run.metrics[measure] ?? null,
   }));
@@ -931,13 +942,14 @@ export function SweepResult({
   });
   const sweptParams = names.filter(name => new Set(rows.map(row => row.params[name])).size > 1);
   const sweptAxes = [...(hasSymbols ? [symbolAxis] : []), ...sweptParams];
-  const axisLabel = (axis: string) => (axis === symbolAxis ? t("品种") : axis);
+  const axisLabel = (axis: string) =>
+    axis === symbolAxis ? t("品种") : axis === batchKey ? t("策略") : axis;
   const grid = sweptAxes.length === 2 ? heatmap(rows, sweptAxes[0]!, sweptAxes[1]!) : null;
   const values = rows.flatMap(row => (row.metric === null ? [] : [row.metric]));
   const low = Math.min(...values),
     high = Math.max(...values);
   const percent = percentMetric(measure);
-  const pureMultiSymbol = hasSymbols && names.length === 0;
+  const pureMultiSymbol = (hasSymbols && names.length === 0) || names[0] === batchKey;
   const extraMeasure =
     pureMultiSymbol && !["total_return", "sharpe", "max_drawdown"].includes(measure);
   return (
@@ -1013,12 +1025,12 @@ export function SweepResult({
           <tr>
             <th scope="col">{t("排名")}</th>
             {hasSymbols && <th scope="col">{t("品种")}</th>}
-            {pureMultiSymbol && <th scope="col">{t("区间")}</th>}
             {names.map(name => (
               <th scope="col" key={name}>
-                {name}
+                {axisLabel(name)}
               </th>
             ))}
+            {pureMultiSymbol && <th scope="col">{t("区间")}</th>}
             {pureMultiSymbol ? (
               <>
                 <th scope="col" className="numeric">
@@ -1049,10 +1061,10 @@ export function SweepResult({
           <tr key={row.id} className={row.id === selected ? "selected" : undefined}>
             <td>{index + 1}</td>
             {hasSymbols && <td>{row.symbols}</td>}
-            {pureMultiSymbol && <td className="subtle">{row.span || "—"}</td>}
             {names.map(name => (
               <td key={name}>{row.params[name]}</td>
             ))}
+            {pureMultiSymbol && <td className="subtle">{row.span || "—"}</td>}
             {pureMultiSymbol ? (
               <>
                 <td className={`numeric ${signed(row.metrics.total_return)}`}>

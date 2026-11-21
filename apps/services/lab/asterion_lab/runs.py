@@ -68,6 +68,10 @@ class Plan:
     bars: dict = field(default_factory=lambda: {"period": "day"})
 
 
+# A batch's run names its strategy here among its swept values.
+BATCH_STRATEGY = "__strategy__"
+
+
 class Runs:
     def __init__(self, directory: Path):
         self.root = directory / "runs"
@@ -253,15 +257,16 @@ class Runs:
         return next(iter(self.list([identity])), None)
 
     def recent(self):
-        """Each strategy's last three single runs and its latest success."""
-        identities = [row[0] for row in self.index.execute("""
+        """Each strategy's last three runs outside parameter sweeps and its latest success."""
+        identities = [row[0] for row in self.index.execute(f"""
             select id from (
                 select id, state,
                     row_number() over (partition by strategy order by started_ns desc, id desc) place,
                     row_number() over (partition by strategy, state = 'succeeded'
                                        order by started_ns desc, id desc) state_place
                 from runs
-                where id not in (select run from sweeps)
+                where id not in (select run from sweeps
+                                 where json_extract(params, '$.{BATCH_STRATEGY}') is null)
                     and id not in (select sweep || '-rolling' from sweeps))
             where place <= 3 or (state = 'succeeded' and state_place = 1)""")]
         return self.list(identities)
@@ -302,8 +307,9 @@ class Runs:
         rows = [listed[identity] for identity in identities[:limit] if identity in listed]
         for row in rows:
             if row["sweep"]:
-                count, succeeded, running = self.index.execute("""
-                    select count(*), sum(r.state = 'succeeded'), sum(r.state = 'running')
+                count, succeeded, running, compared = self.index.execute(f"""
+                    select count(*), sum(r.state = 'succeeded'), sum(r.state = 'running'),
+                        count(json_extract(s.params, '$.{BATCH_STRATEGY}'))
                     from sweeps s left join runs r on r.id = s.run where s.sweep = ?
                     """, (row["sweep"],)).fetchone()
                 member_ids = [
@@ -323,7 +329,8 @@ class Runs:
                     row["symbols"] = seen
                     row["begin_day"] = min(member["begin_day"] for member in members)
                     row["end_day"] = max(member["end_day"] for member in members)
-                row.update(sweep_size=count, sweep_succeeded=succeeded or 0, sweep_running=bool(running))
+                row.update(sweep_size=count, sweep_succeeded=succeeded or 0,
+                           sweep_running=bool(running), sweep_strategies=compared)
         strategies = [row[0] for row in self.index.execute("select distinct strategy from runs order by strategy")]
         return rows, len(identities) > limit, strategies
 
