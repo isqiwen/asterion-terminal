@@ -324,8 +324,9 @@ html[lang="en-US"] .col-act-metric {
   font-size: var(--font-size-aux);
   color: var(--muted);
 }
-.data-metric {
+.data-activity-table td.data-metric {
   font-variant-numeric: tabular-nums;
+  white-space: normal;
 }
 .data-progress {
   width: 56px;

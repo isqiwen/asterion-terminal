@@ -1,5 +1,5 @@
 import { create } from "@bufbuild/protobuf";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 import { ErrorCode } from "../../src/generated/asterion/common_pb";
 import { AcquisitionTaskSchema, Table, TaskState } from "../../src/generated/asterion/warehouse_pb";
@@ -44,5 +44,42 @@ test("a recorded failed acquisition retains its error details when activity is o
   expect(details.open).toBe(false);
   expect(details.querySelector("[title]")?.getAttribute("title")).toBe(
     "operation_failed: supplier request denied",
+  );
+});
+
+test("weekly report dates do not become missing daily partitions, including in mixed updates", () => {
+  render(
+    <Activity
+      tasks={[
+        ...["acq-weekly", "update-2-inventory"].map(id =>
+          create(AcquisitionTaskSchema, {
+            request: { id, table: Table.INVENTORY },
+            state: TaskState.SUCCEEDED,
+            items: 20n,
+            itemsDone: 20n,
+            itemsEmpty: 16n,
+          }),
+        ),
+        create(AcquisitionTaskSchema, {
+          request: { id: "update-2-daily", table: Table.DAILY },
+          state: TaskState.SUCCEEDED,
+          items: 10n,
+          itemsDone: 10n,
+          itemsEmpty: 2n,
+        }),
+      ]}
+      versions={[]}
+      shown={20}
+      refresh={vi.fn()}
+      openVersion={vi.fn()}
+    />,
+  );
+  openPopover(screen.getByRole("button", { name: "最近活动" }));
+  const weekly = screen.getByText("采集 库存周报").closest("tr")!;
+  expect(within(weekly).getByText("已完成")).toBeTruthy();
+  expect(weekly.textContent).toContain("100% · 20 / 20 个分区 · 周报按报告日提供");
+  const update = screen.getByText("更新到最新").closest("tr")!;
+  expect(update.textContent).toContain(
+    "100% · 30 / 30 个分区 · 2 个分区暂无数据 · 周报按报告日提供",
   );
 });

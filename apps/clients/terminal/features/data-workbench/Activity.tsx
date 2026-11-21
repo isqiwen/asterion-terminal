@@ -55,7 +55,6 @@ export type TaskBatch = {
   activeIds: string[];
   itemsDone: bigint;
   items: bigint;
-  itemsEmpty: bigint;
   requestsSent: bigint;
 };
 
@@ -91,7 +90,6 @@ export function groupTasks(tasks: readonly AcquisitionTask[]): TaskBatch[] {
       activeIds: members.filter(activeTask).map(item => item.request!.id),
       itemsDone: members.reduce((sum, item) => sum + item.itemsDone, 0n),
       items: members.reduce((sum, item) => sum + item.items, 0n),
-      itemsEmpty: members.reduce((sum, item) => sum + item.itemsEmpty, 0n),
       requestsSent: members.reduce((sum, item) => sum + item.requestsSent, 0n),
     };
   });
@@ -273,6 +271,13 @@ function TaskRow({
 }) {
   const request = batch.primary.request!;
   const running = batch.activeIds.length > 0;
+  const dailyEmpty = batch.members.reduce(
+    (sum, item) => (item.request!.table === Table.INVENTORY ? sum : sum + item.itemsEmpty),
+    0n,
+  );
+  const weeklyEmpty = batch.members.some(
+    item => item.request!.table === Table.INVENTORY && item.itemsEmpty > 0n,
+  );
   const targets =
     [
       ...new Set(
@@ -350,8 +355,8 @@ function TaskRow({
             : batch.requestsSent > 0n
               ? t("已请求 {count} 次", { count: batch.requestsSent.toString() })
               : "—"}
-          {batch.itemsEmpty > 0n &&
-            ` · ${t("{count} 天尚无数据", { count: Number(batch.itemsEmpty) })}`}
+          {dailyEmpty > 0n && ` · ${t("{count} 个分区暂无数据", { count: dailyEmpty.toString() })}`}
+          {weeklyEmpty && ` · ${t("周报按报告日提供")}`}
         </span>
         {running && (
           <progress
