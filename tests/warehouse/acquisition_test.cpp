@@ -174,6 +174,7 @@ struct Vendor
             Json record{
                 {"trade_date", p.at("trade_date")},
                 {"symbol", product},
+                {"fut_name", "测试品种"},
                 {"ts_code", product},
                 {"exchange", "SHFE"},
                 {"warehouse", "中金圣源"},
@@ -489,6 +490,56 @@ TEST_F(Acquisition, FundamentalCapabilitiesAndIneReportsKeepTheirExchangeScope)
     ASSERT_EQ(receipts.size(), 2);
     EXPECT_EQ(receipts[0].exchange, "INE");
     EXPECT_EQ(receipts[0].product, "sc");
+}
+
+TEST_F(Acquisition, CopperReceiptsKeepShfeAndIneWarehousesSeparate)
+{
+    Vendor vendor;
+    ac::Tushare source(
+        token,
+        std::make_shared<ac::Budget>(500),
+        {},
+        [&](const auto& body, auto stop) {
+            const auto query = Json::parse(body);
+            const auto& params = query.at("params");
+            if (query.at("api_name") == "fut_basic") {
+                const bool ine = params.at("exchange") == "INE";
+                return table(
+                    contract_fields,
+                    {contract(
+                        ine ? "BC2701.INE" : "CU2701.SHF",
+                        ine ? "INE" : "SHFE",
+                        ine ? "BC" : "CU",
+                        "202701",
+                        "20260101",
+                        "20270115")});
+            }
+            EXPECT_EQ(params.at("exchange"), "SHFE");
+            EXPECT_EQ(params.at("symbol"), "CU");
+            auto reply = Json::parse(vendor(body, stop));
+            auto& data = reply.at("data");
+            const auto& fields = data.at("fields");
+            const auto set = [&](int row, const std::string& name, const Json& value) {
+                const auto column = std::find(fields.begin(), fields.end(), name) - fields.begin();
+                data.at("items").at(row).at(column) = value;
+            };
+            for (int row = 0; row != 2; ++row) {
+                set(row, "warehouse", "世天威外高桥");
+                set(row, "fut_name", row == 0 ? "铜" : "铜(BC)");
+                set(row, "vol", row == 0 ? 523 : 50);
+            }
+            return reply.dump();
+        });
+    const auto shfe = source.warehouse_receipts("SHFE", "2026-11-20");
+    const auto ine = source.warehouse_receipts("INE", "2026-11-20");
+    ASSERT_EQ(shfe.size(), 1);
+    ASSERT_EQ(ine.size(), 1);
+    EXPECT_EQ(shfe[0].exchange, "SHFE");
+    EXPECT_EQ(shfe[0].product, "cu");
+    EXPECT_EQ(shfe[0].volume, wh::Cell{std::string("523")});
+    EXPECT_EQ(ine[0].exchange, "INE");
+    EXPECT_EQ(ine[0].product, "bc");
+    EXPECT_EQ(ine[0].volume, wh::Cell{std::string("50")});
 }
 
 TEST_F(Acquisition, FundamentalProviderRepliesCannotMixReportDatesOrTruncateAProduct)

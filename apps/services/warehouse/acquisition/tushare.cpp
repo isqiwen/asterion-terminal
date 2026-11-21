@@ -244,21 +244,25 @@ Tushare::warehouse_receipts(const std::string& exchange, const std::string& day)
     std::vector<WarehouseReceipt> rows;
     // One product per request keeps large exchange reports below the API's 1000-row ceiling.
     for (const auto& product : products(exchange, day)) {
+        const auto symbol = exchange == "INE" && product == "bc" ? "CU" : upper(product);
         const auto table = ask(
             "fut_wsr",
-            {{"exchange", reporting_exchange}, {"trade_date", compact}, {"symbol", upper(product)}},
-            "trade_date,symbol,warehouse,wh_id,pre_vol,vol,vol_chg,area,year,grade,brand,place,pd,is_ct,unit,exchange,fore_vol",
+            {{"exchange", reporting_exchange}, {"trade_date", compact}, {"symbol", symbol}},
+            "trade_date,symbol,fut_name,warehouse,wh_id,pre_vol,vol,vol_chg,area,year,grade,brand,place,pd,is_ct,unit,exchange,fore_vol",
             1000);
         const auto observed = observation_time();
         for (const auto& item : table.rows) {
             const auto at = [&](const char* field) -> const Json& {
                 return table.at(item, field);
             };
-            if (at("trade_date") != compact || upper(text(at("symbol"))) != upper(product)
+            if (at("trade_date") != compact || upper(text(at("symbol"))) != symbol
                 || (at("exchange") != exchange && at("exchange") != reporting_exchange))
                 throw SourceError(
                     "invalid_data",
                     "fut_wsr returned a foreign day, product or exchange");
+            // Tushare labels both copper reports CU; the name identifies INE bonded copper.
+            if (symbol == "CU" && (at("fut_name") == "铜(BC)") != (product == "bc"))
+                continue;
             rows.push_back(
                 {.exchange = exchange,
                     .product = product,
