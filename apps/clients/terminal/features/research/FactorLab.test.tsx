@@ -126,7 +126,6 @@ test("opens the first factor by default, and the factor library ranks, filters, 
   expect(within(library).getByText("0.180")).toBeTruthy();
   expect(within(library).getByText("50.00%")).toBeTruthy();
   expect(within(library).getByText("20.00%")).toBeTruthy();
-  expect(within(library).getAllByText("2")).toHaveLength(2);
   // Never evaluated goes last.
   expect(order()).toEqual(["reversal", "momentum", "interest_change"]);
 
@@ -340,6 +339,7 @@ test("a factor lists the strategies that import its module and opens one's code"
   );
   const sidebar = screen.getByRole("complementary", { name: "因子" });
   fireEvent.click(await within(sidebar).findByRole("button", { name: /^momentum/ }));
+  fireEvent.click(await screen.findByText("导入本模块的策略（1）"));
   const users = await screen.findByRole("list", { name: "导入本模块的策略" });
   expect(within(users).getAllByRole("button")).toHaveLength(1);
   fireEvent.click(within(users).getByRole("button", { name: "MomentumRank" }));

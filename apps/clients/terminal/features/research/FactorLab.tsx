@@ -1,7 +1,7 @@
 import { DateInput } from "../../src/ui/DateInput";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { lab } from "../../src/bridge/lab";
-import type { FactorResult, StrategyEntry } from "../../src/generated/asterion/lab_pb";
+import type { FactorResult } from "../../src/generated/asterion/lab_pb";
 import { ActionError, useActionError } from "../../src/host/action-error";
 import { notify, useErrorNotification } from "../../src/host/notifications";
 import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
@@ -68,12 +68,9 @@ export function FactorLab(context: TerminalContext) {
   const [selected, setSelected] = useState<string[]>([]);
 
   const factor = modules?.factors.find(item => item.id === chosen);
-  const strategyUsers = useCallback(
-    (id: string): readonly StrategyEntry[] =>
-      (modules?.strategies ?? []).filter(item => item.factorModules.includes(id.split(".")[0])),
-    [modules],
+  const users = (modules?.strategies ?? []).filter(item =>
+    item.factorModules.includes(chosen.split(".")[0]),
   );
-  const users = chosen ? strategyUsers(chosen) : [];
   const [library, setLibrary] = useWorkspaceDraft("factor-library", false);
   const [search] = useWorkspaceDraft("modules-search:factors", "");
   // Kept evaluations, newest first: each factor's latest beside it in the list
@@ -386,7 +383,6 @@ export function FactorLab(context: TerminalContext) {
           selected={activeSelected}
           setSelected={setSelected}
           latest={latest}
-          strategyUsers={strategyUsers}
           busy={busy || Boolean(context.busy)}
           batchProgress={batchProgress}
           error={error}
@@ -507,26 +503,6 @@ export function FactorLab(context: TerminalContext) {
                     {combinationField}
                   </ExtraFactors>
                 )}
-                {users.length > 0 && (
-                  <Section title={t("导入本模块的策略")} open>
-                    <ul className="lab-evaluations" aria-label={t("导入本模块的策略")}>
-                      {users.map(item => (
-                        <li key={item.id}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setLibrary(false);
-                              setReport("");
-                              source.jump(`strategies/${item.id.split(".")[0]}.py`);
-                            }}
-                          >
-                            {item.id.split(".")[1]}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </Section>
-                )}
                 {evaluations.length > 0 && (
                   <Section title={t("评价记录")} open>
                     <ul className="lab-evaluations" aria-label={t("评价记录")}>
@@ -554,6 +530,26 @@ export function FactorLab(context: TerminalContext) {
                           </li>
                         );
                       })}
+                    </ul>
+                  </Section>
+                )}
+                {users.length > 0 && (
+                  <Section title={t("导入本模块的策略（{count}）", { count: users.length })}>
+                    <ul className="lab-evaluations" aria-label={t("导入本模块的策略")}>
+                      {users.map(item => (
+                        <li key={item.id}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLibrary(false);
+                              setReport("");
+                              source.jump(`strategies/${item.id.split(".")[0]}.py`);
+                            }}
+                          >
+                            {item.id.split(".")[1]}
+                          </button>
+                        </li>
+                      ))}
                     </ul>
                   </Section>
                 )}
@@ -629,10 +625,10 @@ function ExtraFactors({
   );
 }
 
-type LibraryKey = "ic" | "holdoutIc" | "ir" | "t" | "turnover" | "strategies" | "evaluated";
+type LibraryKey = "ic" | "holdoutIc" | "ir" | "t" | "turnover" | "evaluated";
 
 // Every factor with its latest evaluation, multi-select batch & composite actions,
-// and sortable figures (IC, holdout IC, ICIR, t, turnover, strategy references).
+// and sortable figures (IC, holdout IC, ICIR, t, turnover).
 function FactorLibrary({
   items: searched,
   total,
@@ -640,7 +636,6 @@ function FactorLibrary({
   selected,
   setSelected,
   latest,
-  strategyUsers,
   busy,
   batchProgress,
   error,
@@ -654,7 +649,6 @@ function FactorLibrary({
   selected: readonly string[];
   setSelected: (next: string[] | ((previous: string[]) => string[])) => void;
   latest: (id: string) => FactorResult | undefined;
-  strategyUsers: (id: string) => readonly StrategyEntry[];
   busy: boolean;
   batchProgress: { done: number; total: number } | null;
   error: DisplayError;
@@ -686,7 +680,6 @@ function FactorLibrary({
       ir: first?.ir,
       t: first?.t,
       turnover: factorTurnover(result),
-      strategies: strategyUsers(item.id).length,
       evaluated: result ? Number(result.evaluatedMs) : undefined,
     }[key];
   });
@@ -779,7 +772,6 @@ function FactorLibrary({
                 {heading("ir", "ICIR")}
                 {heading("t", t("t 值"))}
                 {heading("turnover", t("换手率"), t("各分组日均换手率均值"))}
-                {heading("strategies", t("引用策略"), t("引用该因子模块的策略数量"))}
                 {heading("evaluated", t("评价时间"))}
               </tr>
             </thead>
@@ -789,7 +781,6 @@ function FactorLibrary({
                 const first = result?.horizons[0];
                 const holdoutIc = result?.holdoutHorizons[0]?.mean;
                 const turnover = factorTurnover(result);
-                const refs = strategyUsers(item.id);
                 const checked = selected.includes(item.id);
                 return (
                   <tr
@@ -828,12 +819,6 @@ function FactorLibrary({
                     <td className="numeric">{metric(first?.ir, false)}</td>
                     <td className="numeric">{metric(first?.t, false)}</td>
                     <td className="numeric">{metric(turnover, true)}</td>
-                    <td
-                      className={`numeric${refs.length === 0 ? " subtle" : ""}`}
-                      title={refs.map(entry => entry.id.split(".")[1] ?? entry.id).join(", ")}
-                    >
-                      {refs.length}
-                    </td>
                     <td className="subtle numeric">
                       {result ? shortTime(result.evaluatedMs) : "—"}
                     </td>

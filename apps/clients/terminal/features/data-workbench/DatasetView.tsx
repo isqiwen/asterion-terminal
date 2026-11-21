@@ -89,10 +89,30 @@ function cellOf(
 function cellText(cell: Month | undefined, state: Cell, interactive: boolean) {
   if (state === "missing") return interactive ? "+" : "—";
   if (state === "delisted") return "—";
-  if (state === "future") return "·";
+  if (state === "future") return "";
   if (!cell) return state === "unacquired" && interactive ? "+" : "";
   if (state === "partial" || state === "pending") return `${cell.days}/${cell.open}`;
   return String(cell.days);
+}
+
+// The states worth a key: months not acquired or not yet here stay blank.
+const legend = [
+  ["full", "齐全"],
+  ["pending", "待更新"],
+  ["partial", "有缺口"],
+  ["missing", "整月缺失"],
+  ["empty", "来源无数据"],
+  ["delisted", "已摘牌"],
+] as const;
+
+function statesIn(rows: readonly Row[], months: readonly string[]) {
+  const latestMonth = beijingDay(-1).slice(0, 7);
+  return new Set<Cell>(
+    rows.flatMap(row => {
+      const held = [...row.months.keys()].sort();
+      return months.map(month => cellOf(row, month, held[0], held.at(-1), latestMonth));
+    }),
+  );
 }
 
 function rowsOf(coverage: DatasetCoverage, minutes: boolean): Row[] {
@@ -395,6 +415,9 @@ function DatasetBody({ context }: { context: TerminalContext }) {
       (!exchange || row.exchange === exchange) &&
       (!query || `${row.id} ${row.name ?? ""}`.toUpperCase().includes(query)),
   );
+  const matrixRows = minutes && !query ? shownRows.slice(0, 200) : shownRows;
+  const matrixMonths = monthsOf(year);
+  const shownStates = statesIn(matrixRows, matrixMonths);
 
   const error = state.error || options.error || (!viewed ? versionError : "");
   useErrorNotification(error, "asterion.terminal.data-workbench");
@@ -545,34 +568,13 @@ function DatasetBody({ context }: { context: TerminalContext }) {
               )}
             </search>
             <span className="data-legend" aria-hidden="true">
-              <span>
-                <i data-cell="full" /> {t("齐全")}
-              </span>
-              <span>
-                <i data-cell="pending" /> {t("待更新")}
-              </span>
-              <span>
-                <i data-cell="partial" /> {t("有缺口")}
-              </span>
-              <span>
-                <i data-cell="missing" /> {t("整月缺失")}
-              </span>
-              {acquires && (
-                <span>
-                  <i data-cell="unacquired" /> {t("未采集")}
-                </span>
-              )}
-              <span>
-                <i data-cell="empty" /> {t("来源无数据")}
-              </span>
-              {minutes && (
-                <span>
-                  <i data-cell="delisted" /> {t("已摘牌")}
-                </span>
-              )}
-              <span>
-                <i data-cell="future" /> {t("未到来")}
-              </span>
+              {legend
+                .filter(([state]) => shownStates.has(state))
+                .map(([state, label]) => (
+                  <span key={state}>
+                    <i data-cell={state} /> {t(label)}
+                  </span>
+                ))}
             </span>
             {!viewed && (
               <div className="data-toolbar-actions">
@@ -615,8 +617,8 @@ function DatasetBody({ context }: { context: TerminalContext }) {
           ) : (
             <>
               <Matrix
-                rows={minutes && !query ? shownRows.slice(0, 200) : shownRows}
-                months={monthsOf(year)}
+                rows={matrixRows}
+                months={matrixMonths}
                 label={minutes ? t("分钟线覆盖") : t("日线覆盖")}
                 heading={minutes ? t("合约") : t("品种")}
                 onFill={

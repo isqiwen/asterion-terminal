@@ -689,20 +689,18 @@ button.picker-chip small {
   border: 1px solid var(--line-strong);
   color: var(--text);
 }
-:is(.coverage-matrix td, .data-legend i)[data-cell="unacquired"] {
-  background: color-mix(in oklab, var(--raised) 70%, var(--panel));
-  border: 1px dashed color-mix(in oklab, var(--muted) 42%, var(--line-strong));
-  color: var(--muted);
+/* Months with nothing to act on stay blank; a past one offers its + on hover. */
+.coverage-matrix td[data-cell="unacquired"] > button > span {
+  opacity: 0;
+}
+.coverage-matrix td[data-cell="unacquired"]:hover > button > span,
+.coverage-matrix td[data-cell="unacquired"] > button:focus-visible > span {
+  opacity: 1;
 }
 :is(.coverage-matrix td, .data-legend i)[data-cell="delisted"] {
   background: color-mix(in oklab, var(--muted) 14%, var(--panel));
   border: 1px solid var(--line-strong);
   color: var(--muted);
-}
-:is(.coverage-matrix td, .data-legend i)[data-cell="future"] {
-  background: var(--field);
-  border: 1px solid var(--line);
-  color: var(--subtle);
 }
 .coverage-matrix td[data-cell="held"] {
   background: var(--accent-surface);

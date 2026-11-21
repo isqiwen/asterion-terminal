@@ -220,6 +220,9 @@ test("monthly coverage shows localized product names and gaps submit a single ba
   expect(cells[5]!.getAttribute("data-cell")).toBe("unacquired");
   expect(cells[10]!.getAttribute("data-cell")).toBe("unacquired");
   expect(cells[11]!.getAttribute("data-cell")).toBe("future");
+  const key = document.querySelector(".data-legend")!.textContent;
+  expect(key).toContain("有缺口");
+  expect(key).not.toMatch(/未采集|未到来/);
   expect(screen.queryByRole("button", { name: /^补采 SHFE\/rb 2026-12/ })).toBeNull();
   expect(screen.queryByRole("button", { name: /^补采 SHFE\/au 2026-10/ })).toBeNull();
   const silver = within(within(matrix).getByRole("row", { name: /SHFE\/ag/ })).getAllByRole("cell");
@@ -310,7 +313,7 @@ test("minute acquisition submits one task, prerequisite requests show live progr
     within(minuteMatrix).getByRole("row", { name: /SHFE\/rb\/2027-01/ }),
   ).getAllByRole("cell");
   expect(activeCells[11]!.getAttribute("data-cell")).toBe("future");
-  expect(activeCells[11]!.textContent).toBe("·");
+  expect(activeCells[11]!.textContent).toBe("");
   expect(activeCells[11]!.getAttribute("title")).toBe("未到来");
 
   fireEvent.click(screen.getByRole("button", { name: /^补采 SHFE\/cu\/2026-12 2026-10/ }));
