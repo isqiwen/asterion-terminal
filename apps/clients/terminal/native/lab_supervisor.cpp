@@ -170,7 +170,6 @@ struct LabSupervisor::Impl
             } catch (const std::exception& failure) {
                 if (!answered && Clock::now() - started < 10s) {
                     probe = Clock::now() + 250ms;
-                    error = std::string("waiting for the first heartbeat: ") + failure.what();
                 } else {
                     unresponsive = true;
                     error = "lab heartbeat unavailable";

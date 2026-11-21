@@ -879,3 +879,38 @@ TEST(TerminalApplication, StopIsIdempotentAndRejectsSubsequentRequests)
         (void)app.request(request("runtime.snapshot").dump(), [](Payload, std::exception_ptr) {}),
         Error);
 }
+
+TEST(LabSupervisor, StartupHeartbeatProbesDoNotReportAnError)
+{
+    namespace fs = std::filesystem;
+    const auto logging = terminal::program_directory("lab") / "config" / "logging.json";
+    fs::create_directories(logging.parent_path());
+    std::ofstream(logging) << "{}\n";
+    const auto script = terminal::asterion_root() / ("slow-lab-" + unique_process_id() + ".sh");
+    {
+        std::ofstream output(script);
+        output << "#!/bin/sh\nexec sleep 30\n";
+    }
+    fs::permissions(script, fs::perms::owner_all, fs::perm_options::replace);
+
+    terminal::LabSupervisor supervisor([&]() -> std::optional<fs::path> {
+        return script;
+    });
+    auto pending = supervisor.serving();
+    const auto deadline = std::chrono::steady_clock::now() + testing_support::bound(3s);
+    while (std::chrono::steady_clock::now() < deadline) {
+        const auto current = supervisor.view();
+        if (current.is_object() && current.at("state") == "starting"
+            && current.at("pid").get<int>() > 0)
+            break;
+        std::this_thread::sleep_for(20ms);
+    }
+    std::this_thread::sleep_for(600ms);
+    const auto view = supervisor.view();
+    EXPECT_EQ(view.at("state"), "starting");
+    EXPECT_EQ(view.at("error"), "");
+    EXPECT_EQ(pending.wait_for(0ms), std::future_status::timeout);
+    supervisor.stop();
+    EXPECT_THROW((void)pending.get(), Error);
+    fs::remove(script);
+}
