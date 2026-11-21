@@ -382,6 +382,20 @@ message Runs {
   repeated string strategies = 3;
 }
 
+// What a run was measured under, beside its symbols, days and period.
+message RunSettings {
+  common.Decimal deposit = 1;
+  uint32 slippage_ticks = 2;
+  common.RiskLimits limits = 3;
+  common.Decimal max_gross_weight = 4;
+  common.Decimal max_net_weight = 5;
+  common.Decimal max_margin_ratio = 6;
+  common.Decimal min_rebalance_weight = 7;
+  double periods_per_year = 8;
+  bool zero_risk_free_rate = 9;
+  string holdout_day = 10;
+}
+
 message RunSummary {
   string id = 1;
   string strategy = 2;
@@ -405,6 +419,7 @@ message RunSummary {
   bool sweep_running = 18;
   // How many strategies a batch compares; 0 for other sweeps.
   uint32 sweep_strategies = 19;
+  RunSettings settings = 20;
 }
 
 message RunDetail {

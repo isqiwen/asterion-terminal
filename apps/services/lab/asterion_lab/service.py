@@ -126,7 +126,22 @@ def summary(item, row):
         item.period = next(key for key, value in PERIODS.items()
                            if value == ("day" if row["period"] == "day" else int(row["period"][:-1])))
         parameters(item.params, row["params"])
+        run_settings(item.settings, row["settings"])
     return item
+
+
+def run_settings(item, settings: dict):
+    costs, risk, statistics = settings["costs"], settings["risk"], settings["statistics"]
+    item.deposit.text = costs["deposit"]
+    item.slippage_ticks = costs["slippage_ticks"]
+    for name in ("max_order_lots", "max_gross_lots", "max_contract_lots"):
+        getattr(item.limits, name).text = risk[name]
+    item.limits.max_working_orders = risk["max_working_orders"]
+    for name in ("max_gross_weight", "max_net_weight", "max_margin_ratio", "min_rebalance_weight"):
+        getattr(item, name).text = risk.get(name, "0")
+    item.periods_per_year = statistics["annual_periods"] or 0
+    item.zero_risk_free_rate = statistics["zero_risk_free"]
+    item.holdout_day = statistics["holdout_day"]
 
 
 def parameters(target, values: dict):

@@ -257,19 +257,32 @@ class Runs:
         return next(iter(self.list([identity])), None)
 
     def recent(self):
-        """Each strategy's last three runs outside parameter sweeps and its latest success."""
-        identities = [row[0] for row in self.index.execute(f"""
-            select id from (
-                select id, state,
-                    row_number() over (partition by strategy order by started_ns desc, id desc) place,
-                    row_number() over (partition by strategy, state = 'succeeded'
-                                       order by started_ns desc, id desc) state_place
-                from runs
+        """Each strategy's last three runs outside parameter sweeps and its latest
+        success under each settings, so a ranking can return to earlier settings."""
+        places, measured, kept = {}, set(), []
+        for identity, strategy, state in self.index.execute(f"""
+                select id, strategy, state from runs
                 where id not in (select run from sweeps
                                  where json_extract(params, '$.{BATCH_STRATEGY}') is null)
-                    and id not in (select sweep || '-rolling' from sweeps))
-            where place <= 3 or (state = 'succeeded' and state_place = 1)""")]
-        return self.list(identities)
+                    and id not in (select sweep || '-rolling' from sweeps)
+                order by started_ns desc, id desc""").fetchall():
+            places[strategy] = places.get(strategy, 0) + 1
+            latest = places[strategy] <= 3
+            if state == "succeeded":
+                try:
+                    record = self.record(identity)
+                except FileNotFoundError:
+                    # An old result that lost its record must not prevent the page.
+                    continue
+                data = record["data"]
+                settings = json.dumps([strategy, sorted(data["symbols"]), data["begin_day"],
+                                       data["end_day"], data["bars"]["period"], record["costs"],
+                                       record["risk"], record["statistics"]], sort_keys=True)
+                latest = latest or settings not in measured
+                measured.add(settings)
+            if latest:
+                kept.append(identity)
+        return self.list(kept)
 
     def page(self, limit, offset, strategy, search, order_by, ascending):
         direction = "asc" if ascending else "desc"
@@ -366,5 +379,7 @@ class Runs:
                            "sweep": sweeps.get(row[0], ""), "label": labels.get(row[0], ""),
                            "params": record["params"], "symbols": data["symbols"],
                            "begin_day": data["begin_day"], "end_day": data["end_day"],
-                           "period": data["bars"]["period"]})
+                           "period": data["bars"]["period"],
+                           "settings": {"costs": record["costs"], "risk": record["risk"],
+                                        "statistics": record["statistics"]}})
         return result

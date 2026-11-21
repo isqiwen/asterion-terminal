@@ -1720,6 +1720,7 @@ builtins.print = delayed_print
             self.assertEqual({run.pinned.dataset_version for run in runs}, {version})
             recent = (await service.reply(Request(id=1, list_recent_runs={}))).list_recent_runs.runs
             self.assertEqual({run.id for run in recent}, {"batch-0", "batch-1"})
+            self.assertEqual({run.settings.deposit.text for run in recent}, {sweep.base.deposit.text})
             listed = (await service.reply(Request(id=1, list_runs={}))).list_runs.runs
             self.assertEqual([run.sweep_strategies for run in listed], [2])
             built = await service.reply(Request(id=1, build_package={"run_id": "batch-1"}))
