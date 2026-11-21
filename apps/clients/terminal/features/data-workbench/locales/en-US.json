@@ -222,5 +222,9 @@
   "发布时间（北京时间）": "Published (Asia/Shanghai)",
   "采集时间（北京时间）": "Observed (Asia/Shanghai)",
   "报告日期": "Report date",
-  "仓单数量": "Receipt volume"
+  "仓单数量": "Receipt volume",
+  "行情": "Market",
+  "基本面": "Fundamentals",
+  "交易参数": "Trading terms",
+  "数据分类": "Data categories"
 }

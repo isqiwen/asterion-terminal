@@ -136,6 +136,26 @@ button.data-series-card[aria-pressed="true"] {
 .data-browse .tabs {
   flex-wrap: wrap;
 }
+.data-browse-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  min-width: 0;
+}
+/* The tables of the chosen group: a lighter level than the groups. */
+.data-browse .data-browse-tables {
+  padding-left: var(--space-4);
+  border-left: 1px solid var(--line);
+}
+.data-browse .data-browse-tables > button {
+  border-bottom: 0;
+  border-radius: var(--control-radius);
+}
+.data-browse .data-browse-tables > button[aria-pressed="true"] {
+  background: var(--accent-surface);
+  color: var(--text-strong);
+}
 .data-browse > .data-fields {
   padding: var(--space-3) var(--space-page);
   border-bottom: 1px solid var(--line);

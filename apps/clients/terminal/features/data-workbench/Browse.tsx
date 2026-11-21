@@ -9,7 +9,18 @@ import { VersionBanner, WarehousePage, WarehouseUnavailable } from "./Page";
 import { ReferenceTable } from "./ReferenceTable";
 import { StoredContracts } from "./StoredContracts";
 import { Acquisition } from "./Acquisition";
-import { exchanges, referenceTables, t, tableName } from "./dataset";
+import { exchanges, t, tableName } from "./dataset";
+
+type BrowseTab = "contracts" | Table;
+// What a user comes for: prices, the fundamentals behind them, or what governs trading.
+const groups: readonly { name: string; tabs: readonly BrowseTab[] }[] = [
+  { name: "行情", tabs: ["contracts"] },
+  { name: "基本面", tabs: [Table.WAREHOUSE_RECEIPTS, Table.MEMBER_POSITIONS, Table.INVENTORY] },
+  {
+    name: "交易参数",
+    tabs: [Table.SETTLEMENT, Table.PRICE_TICKS, Table.CONTRACTS, Table.CALENDAR],
+  },
+];
 
 // The stored contracts with their charts, and the reference tables behind them,
 // in the version current when the view opened or the one opened from a run.
@@ -25,7 +36,7 @@ function BrowseBody({ context }: { context: TerminalContext }) {
   const paramVersion = context.workspaceParams?.version ?? "";
   const paramTable = context.workspaceParams?.table ?? "";
   const [viewed, setViewed] = useState(paramVersion);
-  const [tab, setTab] = useWorkspaceDraft<"contracts" | Table>("browse-tab", "contracts");
+  const [tab, setTab] = useWorkspaceDraft<BrowseTab>("browse-tab", "contracts");
   const [acquiring, setAcquiring] = useState<Table>();
   const options = useWarehousePoll(
     () => warehouseData({ case: "getAcquisitionOptions", value: {} }),
@@ -36,7 +47,7 @@ function BrowseBody({ context }: { context: TerminalContext }) {
     if (!paramVersion && !paramTable) return;
     if (paramVersion) setViewed(paramVersion);
     const parsed = Number(paramTable);
-    if ((referenceTables as readonly Table[]).includes(parsed as Table)) setTab(parsed as Table);
+    if (parsed && groups.some(item => item.tabs.includes(parsed as Table))) setTab(parsed as Table);
     context.navigate("workspace.data-browse", {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paramVersion, paramTable]);
@@ -70,6 +81,7 @@ function BrowseBody({ context }: { context: TerminalContext }) {
   useErrorNotification(state.error, "asterion.terminal.data-workbench");
   useErrorNotification(options.error, "asterion.terminal.data-workbench");
   const latest = state.value?.latest ?? "";
+  const group = groups.find(item => item.tabs.includes(tab)) ?? groups[0]!;
   return (
     <>
       <VersionBanner
@@ -82,24 +94,33 @@ function BrowseBody({ context }: { context: TerminalContext }) {
       />
       <div className="data-browse">
         <div className="data-toolbar">
-          <div className="tabs" role="group" aria-label={t("浏览")}>
-            <button
-              type="button"
-              aria-pressed={tab === "contracts"}
-              onClick={() => setTab("contracts")}
-            >
-              {t("已采集合约")}
-            </button>
-            {referenceTables.map(item => (
-              <button
-                key={item}
-                type="button"
-                aria-pressed={tab === item}
-                onClick={() => setTab(item)}
-              >
-                {tableName(item)}
-              </button>
-            ))}
+          <div className="data-browse-nav">
+            <div className="tabs" role="group" aria-label={t("数据分类")}>
+              {groups.map(item => (
+                <button
+                  key={item.name}
+                  type="button"
+                  aria-pressed={item === group}
+                  onClick={() => item !== group && setTab(item.tabs[0]!)}
+                >
+                  {t(item.name)}
+                </button>
+              ))}
+            </div>
+            {group.tabs.length > 1 && (
+              <div className="tabs data-browse-tables" role="group" aria-label={t(group.name)}>
+                {group.tabs.map(item => (
+                  <button
+                    key={item}
+                    type="button"
+                    aria-pressed={tab === item}
+                    onClick={() => setTab(item)}
+                  >
+                    {tableName(item as Table)}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           {!viewed && options.value?.tables.some(item => item.table === tab) && (
             <button type="button" onClick={() => setAcquiring(tab as Table)}>

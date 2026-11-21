@@ -81,3 +81,30 @@ test("opening an earlier report version keeps its reads fixed and hides acquisit
     value: expect.objectContaining({ table: Table.INVENTORY, dataset: { version: "earlier" } }),
   });
 });
+
+test("tables are grouped by what they are for, and a table opened by link shows its group", async () => {
+  view();
+  await screen.findByRole("table", { name: "库存周报" });
+  const categories = within(screen.getByRole("group", { name: "数据分类" }));
+  expect(categories.getAllByRole("button").map(button => button.textContent)).toEqual([
+    "行情",
+    "基本面",
+    "交易参数",
+  ]);
+  expect(categories.getByRole("button", { name: "基本面" }).getAttribute("aria-pressed")).toBe(
+    "true",
+  );
+  expect(
+    within(screen.getByRole("group", { name: "基本面" }))
+      .getAllByRole("button")
+      .map(button => button.textContent),
+  ).toEqual(["仓单", "会员持仓", "库存周报"]);
+
+  // Pressing the open group keeps the table; another group opens on its first.
+  fireEvent.click(categories.getByRole("button", { name: "基本面" }));
+  expect(screen.getByRole("table", { name: "库存周报" })).toBeTruthy();
+  fireEvent.click(categories.getByRole("button", { name: "交易参数" }));
+  expect(await screen.findByRole("table", { name: "结算参数" })).toBeTruthy();
+  fireEvent.click(categories.getByRole("button", { name: "行情" }));
+  expect(screen.queryByRole("group", { name: "行情" })).toBeNull();
+});

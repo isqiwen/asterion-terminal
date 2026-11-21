@@ -34,13 +34,17 @@ test(
     await expect(chart.getByText("1–30 / 30")).toBeVisible();
     await chart.getByRole("button", { name: "周线" }).click();
     await expect(chart.getByText("1–6 / 6")).toBeVisible();
+    await page
+      .getByRole("group", { name: "数据分类", exact: true })
+      .getByRole("button", { name: "基本面", exact: true })
+      .click();
     for (const [name, value] of [
       ["仓单", "353.123456"],
       ["会员持仓", "测试会员"],
       ["库存周报", "428.000000"],
     ]) {
       await page
-        .getByRole("group", { name: "浏览", exact: true })
+        .getByRole("group", { name: "基本面", exact: true })
         .getByRole("button", { name, exact: true })
         .click();
       const report = page.getByRole("table", { name, exact: true });

@@ -16,15 +16,6 @@ const names: Partial<Record<Table, string>> = {
   [Table.MEMBER_POSITIONS]: "会员持仓",
   [Table.INVENTORY]: "库存周报",
 };
-export const referenceTables = [
-  Table.WAREHOUSE_RECEIPTS,
-  Table.MEMBER_POSITIONS,
-  Table.INVENTORY,
-  Table.SETTLEMENT,
-  Table.PRICE_TICKS,
-  Table.CONTRACTS,
-  Table.CALENDAR,
-] as const;
 export const tableName = (table: Table) => (names[table] ? t(names[table]!) : t("未知"));
 export const exchanges = ["SHFE", "INE", "DCE", "CZCE", "CFFEX", "GFEX"];
 
