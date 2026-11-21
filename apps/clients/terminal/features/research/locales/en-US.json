@@ -290,7 +290,6 @@
   "口径不同": "Other settings",
   "修改": "Edit",
   "完成": "Done",
-  "未选品种": "No symbols",
   "{names} 等 {count} 个品种": "{names} and more, {count} symbols",
   "滑点 {count} 跳": "Slippage {count} ticks",
   "留出 {day}": "Holdout {day}",
@@ -298,5 +297,9 @@
   "切换策略": "Switch strategy",
   "未回测": "Not tested",
   "还没有回测": "No backtest yet",
-  "回测失败": "Failed"
+  "回测失败": "Failed",
+  "选择品种": "Choose symbols",
+  "全部区间": "All dates",
+  "{day} 起": "From {day}",
+  "至 {day}": "To {day}"
 }

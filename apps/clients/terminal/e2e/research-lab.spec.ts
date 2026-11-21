@@ -39,7 +39,7 @@ test(
     await expect(
       page.getByRole("button", { name: "RandomFeatureForecast", exact: true }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "修改", exact: true }).click();
+    await page.getByRole("button", { name: "选择品种", exact: true }).click();
     const scope = page.getByRole("dialog", { name: "回测口径" });
     await scope.getByRole("combobox", { name: "品种" }).fill("SHFE/rb");
     await scope.getByRole("combobox", { name: "品种" }).press("Escape");

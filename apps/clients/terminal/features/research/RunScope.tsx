@@ -35,14 +35,22 @@ type ScopeProps = {
 
 function summary({ form, begin, end }: Pick<ScopeProps, "form" | "begin" | "end">) {
   const names = symbolsOf(form.symbols).map(symbol => warehouseName(symbol) ?? symbol);
+  if (!names.length) return "";
   const shown = names.slice(0, 3).join(listSeparator());
-  const day = (value: string, stored: string) => value || (stored === "YYYY-MM-DD" ? "…" : stored);
+  const day = (value: string, stored: string) => value || (/^\d/.test(stored) ? stored : "");
+  const [first, last] = [day(form.begin, begin), day(form.end, end)];
   const deposit = Number(form.deposit);
   return [
     names.length > 3
       ? t("{names} 等 {count} 个品种", { names: shown, count: names.length })
-      : shown || t("未选品种"),
-    `${day(form.begin, begin)} – ${day(form.end, end)}`,
+      : shown,
+    first && last
+      ? `${first} – ${last}`
+      : first
+        ? t("{day} 起", { day: first })
+        : last
+          ? t("至 {day}", { day: last })
+          : t("全部区间"),
     form.minutes === "0" ? t("日线") : t("{count} 分钟", { count: form.minutes }),
     Number.isFinite(deposit)
       ? new Intl.NumberFormat(getLocale(), { notation: "compact" }).format(deposit)
@@ -59,9 +67,9 @@ export function RunScope(props: ScopeProps) {
   return (
     <div className="lab-scope">
       <span>{t("口径")}</span>
-      <p title={text}>{text}</p>
+      {text && <p title={text}>{text}</p>}
       <button type="button" className="lab-link" onClick={() => setEditing(true)}>
-        {t("修改")}
+        {t(text ? "修改" : "选择品种")}
       </button>
       {editing && <ScopeDialog {...props} close={() => setEditing(false)} />}
     </div>

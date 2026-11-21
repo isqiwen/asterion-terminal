@@ -30,7 +30,7 @@ vi.mock("@asterion/terminal/charts/PriceChart", () => ({ PriceChart: () => null 
 beforeEach(() => localStorage.clear());
 
 const editScope = (edit: () => void) => {
-  fireEvent.click(screen.getByRole("button", { name: "修改" }));
+  fireEvent.click(screen.getByRole("button", { name: /^(修改|选择品种)$/ }));
   edit();
   fireEvent.click(screen.getByRole("button", { name: "完成" }));
 };
