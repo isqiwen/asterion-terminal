@@ -52,6 +52,16 @@ test(
     await page.getByRole("button", { name: "MaCross", exact: true }).click();
 
     await backtest(page, "2", "4");
+    // Leaving full screen keeps the whole equity curve in view.
+    const equity = page.locator(".price-chart-cursor", { hasText: "权益（逐日结算）" });
+    const windowed = page.viewportSize()!;
+    for (const size of [{ width: 3008, height: 1692 }, windowed]) {
+      await page.setViewportSize(size);
+      await page.evaluate(
+        () => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))),
+      );
+      await expect(equity).toContainText("2026-02-13");
+    }
     await expect(page.getByText(/^成交（[1-9]\d* 笔）$/)).toBeVisible();
     await expect(page.getByText("K 线与买卖点")).toBeVisible();
     await page.getByText("QuantStats 指标").click();
