@@ -231,7 +231,7 @@ jobs:
       - run: cmake --build --preset conan-debug
       # Python loads an uninstrumented interpreter; Lab and runtime installation
       # are covered by the desktop jobs.
-      - run: ctest --preset conan-debug --output-on-failure -E '^(lab_(strategy|sessions|dominant|service)$|PythonRuntime[.])'
+      - run: ctest --preset conan-debug --output-on-failure -E '^(lab_(strategy|catalog|dominant|service)$|PythonRuntime[.])'
         env:
           ASTERION_TIMING_SCALE: "20"
           # Uninstrumented protobuf poisons its own arena memory and annotates
