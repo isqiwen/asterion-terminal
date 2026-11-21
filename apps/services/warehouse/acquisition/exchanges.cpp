@@ -7,6 +7,7 @@
 #include <tinyxml2.h>
 #include <algorithm>
 #include <cctype>
+#include <regex>
 #include <set>
 
 namespace asterion::warehouse::acquisition {
@@ -210,6 +211,67 @@ czce_price_ticks(const std::string& day, const std::string& raw, const std::stri
     return result;
 }
 
+std::vector<MemberPosition>
+shanghai_members(const std::string& exchange, const std::string& day, const Json& root)
+{
+    Cell published;
+    if (root.contains("update_date")) {
+        const auto label = text(root.at("update_date"));
+        static const std::regex clock("[0-9]{8} [0-9]{2}:[0-9]{2}:[0-9]{2}");
+        if (!std::regex_match(label, clock))
+            throw std::invalid_argument("invalid exchange report update time");
+        const auto hour = std::stoi(label.substr(9, 2)), minute = std::stoi(label.substr(12, 2)),
+                   second = std::stoi(label.substr(15, 2));
+        if (hour > 23 || minute > 59 || second > 59)
+            throw std::invalid_argument("invalid exchange report update time");
+        const auto date = label.substr(0, 4) + "-" + label.substr(4, 2) + "-" + label.substr(6, 2);
+        published = std::chrono::duration_cast<std::chrono::milliseconds>(
+            (day_of(date) + std::chrono::hours(hour - 8) + std::chrono::minutes(minute)
+                + std::chrono::seconds(second))
+                .time_since_epoch())
+                        .count();
+    }
+    const auto observed = observation_time();
+    const std::pair<Cell MemberPosition::*, Cell MemberPosition::*> metrics[] = {
+        {&MemberPosition::volume, &MemberPosition::volume_change},
+        {&MemberPosition::long_position, &MemberPosition::long_change},
+        {&MemberPosition::short_position, &MemberPosition::short_change}
+    };
+    std::map<std::pair<std::string, std::string>, MemberPosition> members;
+    for (const auto& row : root.at("o_cursor")) {
+        const auto contract = contract_of(exchange, text(row.at("INSTRUMENTID")), day);
+        if (!contract || values::numeric(row.at("RANK")) == "999")
+            continue;
+        for (std::size_t i = 0; i < std::size(metrics); ++i) {
+            const auto suffix = std::to_string(i + 1);
+            const auto name = text(row.at("PARTICIPANTABBR" + suffix));
+            if (name.empty())
+                continue;
+            auto [at, inserted] = members.try_emplace(
+                std::pair{*contract, name},
+                MemberPosition{
+                    .exchange = exchange,
+                    .product = product_of(*contract),
+                    .contract = *contract,
+                    .day = day,
+                    .member = name,
+                    .published_ms = published,
+                    .observed_ms = observed
+                });
+            auto& member = at->second;
+            const auto [quantity, change] = metrics[i];
+            if (member.*quantity != Cell{})
+                throw std::invalid_argument("duplicate member in exchange ranking");
+            member.*quantity = number(row.at("CJ" + suffix));
+            member.*change = number(row.at("CJ" + suffix + "_CHG"));
+        }
+    }
+    std::vector<MemberPosition> result;
+    for (auto& [key, member] : members)
+        result.push_back(std::move(member));
+    return result;
+}
+
 Parsed shanghai(
     const std::string& exchange,
     const std::string& day,
@@ -220,13 +282,21 @@ Parsed shanghai(
     // Until 2024-03-20 the status is the number 0, then the text "0000".
     const auto& code = root.at("o_code");
     const auto status = code.is_string() ? text(code) : values::numeric(code);
-    if (text(root.at("report_date")) != compact(day) || (status != "0000" && status != "0"))
-        throw std::invalid_argument("wrong date or refused exchange file");
+    if (status != "0000" && status != "0")
+        throw std::invalid_argument("refused exchange file");
     Parsed result;
     std::set<std::string> seen;
     const auto& rows = root.at(table == "daily" ? "o_curinstrument" : "o_cursor");
     if (!rows.is_array())
         throw std::invalid_argument("expected exchange rows");
+    if (table == "member_positions" && rows.empty() && !root.contains("report_date"))
+        return {};
+    if (text(root.at("report_date")) != compact(day))
+        throw std::invalid_argument("wrong exchange report date");
+    if (table == "member_positions") {
+        result.member_positions = shanghai_members(exchange, day, root);
+        return result;
+    }
     for (const auto& row : rows) {
         std::string code;
         if (table == "daily") {
@@ -526,6 +596,7 @@ bool Exchange::supports(std::string_view table, std::string_view exchange) const
 {
     return exchange == exchange_
         && (table == "daily" || (table == "price_ticks" && exchange == "CZCE")
+            || (table == "member_positions" && exchange == "INE")
             || (table == "settlement"
                 && (exchange == "SHFE" || exchange == "INE" || exchange == "CZCE"
                     || exchange == "GFEX")));
@@ -544,6 +615,12 @@ std::vector<Settlement> Exchange::settlement(const std::string& exchange, const 
 std::vector<PriceTick> Exchange::price_ticks(const std::string& exchange, const std::string& day)
 {
     return read("price_ticks", exchange, day).price_ticks;
+}
+
+std::vector<MemberPosition>
+Exchange::member_positions(const std::string& exchange, const std::string& day)
+{
+    return read("member_positions", exchange, day).member_positions;
 }
 
 Exchange::Parsed
@@ -568,7 +645,11 @@ Exchange::read(const std::string& table, const std::string& exchange, const std:
     if (exchange == "SHFE" || exchange == "INE") {
         request.origin = exchange == "SHFE" ? "https://www.shfe.com.cn" : "https://www.ine.cn";
         request.path = "/data/tradedata/future/dailydata/"
-            + std::string(table == "daily" ? "kx" : "js") + date + ".dat";
+            + std::string(
+                table == "daily"                  ? "kx"
+                    : table == "member_positions" ? "pm"
+                                                  : "js")
+            + date + ".dat";
     } else if (exchange == "CZCE") {
         request.origin = "https://www.czce.com.cn";
         if (archived)

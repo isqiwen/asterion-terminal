@@ -219,7 +219,8 @@ bool Tushare::supports(std::string_view table, std::string_view exchange) const
 {
     require_exchange(exchange);
     return table == "calendar" || table == "contracts" || table == "daily" || table == "minutes"
-        || table == "member_positions" || (table == "warehouse_receipts" && exchange != "CFFEX")
+        || (table == "member_positions" && exchange != "INE")
+        || (table == "warehouse_receipts" && exchange != "CFFEX")
         || (table == "inventory" && (exchange == "SHFE" || exchange == "INE"))
         || (table == "settlement" && exchange != "GFEX");
 }
@@ -293,27 +294,40 @@ Tushare::member_positions(const std::string& exchange, const std::string& day)
 {
     auto compact = day;
     std::erase(compact, '-');
-    const auto reporting_exchange = exchange == "INE" ? "SHFE" : exchange;
+    std::vector<std::string> symbols;
+    for (const auto& product : products(exchange, day))
+        symbols.push_back(upper(product));
+    for (const auto& contract : contracts(exchange))
+        if (contract.list_date <= day && day <= contract.delist_date)
+            symbols.push_back(
+                upper(contract.product) + contract.delivery_month.substr(2, 2)
+                + contract.delivery_month.substr(5, 2));
     std::vector<MemberPosition> rows;
-    for (const auto& product : products(exchange, day)) {
+    for (const auto& symbol : symbols) {
         const auto table = ask(
             "fut_holding",
-            {{"exchange", reporting_exchange}, {"trade_date", compact}, {"symbol", upper(product)}},
+            {{"exchange", exchange},
+                {"trade_date", compact},
+                {"symbol", exchange == "CZCE" && symbol == "TA" ? "PTA" : symbol}},
             "trade_date,symbol,broker,vol,vol_chg,long_hld,long_chg,short_hld,short_chg,exchange",
             2000);
         const auto observed = observation_time();
-        std::set<std::pair<std::string, std::string>> seen;
+        std::set<std::string> seen;
         for (const auto& item : table.rows) {
             const auto at = [&](const char* field) -> const Json& {
                 return table.at(item, field);
             };
-            const auto code = upper(text(at("symbol")));
+            auto code = upper(text(at("symbol")));
+            if (exchange == "CZCE" && code == "PTA")
+                code = "TA";
             const auto contract = contract_of(exchange, code, day);
+            auto product = contract ? product_of(*contract) : code;
+            std::transform(product.begin(), product.end(), product.begin(), [](unsigned char c) {
+                return std::tolower(c);
+            });
             const auto member = text(at("broker"));
-            if (at("trade_date") != compact
-                || (at("exchange") != exchange && at("exchange") != reporting_exchange)
-                || (contract ? product_of(*contract) != product : code != upper(product))
-                || !seen.emplace(code, member).second)
+            if (at("trade_date") != compact || at("exchange") != exchange || code != symbol
+                || !seen.insert(member).second)
                 throw SourceError(
                     "invalid_data",
                     "fut_holding returned inconsistent member positions");

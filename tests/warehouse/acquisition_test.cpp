@@ -214,13 +214,11 @@ struct Vendor
                 rows.push_back(std::move(row));
             };
             add();
-            if (api == "fut_holding")
-                record["symbol"] = product.get<std::string>() + "2605";
-            else {
+            if (api != "fut_holding") {
                 record["warehouse"] = "总计";
                 record["year"] = "2025/2026";
+                add();
             }
-            add();
             return table(request.at("fields"), rows);
         }
         if (api == "fut_settle") {
@@ -467,7 +465,7 @@ TEST_F(Acquisition, FundamentalReportsAreAcquiredAndBrowsedInFixedVersions)
         }
 }
 
-TEST_F(Acquisition, FundamentalCapabilitiesAndIneReportsKeepTheirExchangeScope)
+TEST_F(Acquisition, FundamentalCapabilitiesAndIneReceiptsKeepTheirExchangeScope)
 {
     auto vendor = std::make_shared<Vendor>();
     ac::Manager manager(root, {{"tushare", factory(vendor)}});
@@ -478,14 +476,10 @@ TEST_F(Acquisition, FundamentalCapabilitiesAndIneReportsKeepTheirExchangeScope)
             EXPECT_EQ(exchanges, (std::set<std::string>{"SHFE", "INE"}));
         if (item.table() == ::warehouse::TABLE_WAREHOUSE_RECEIPTS)
             EXPECT_FALSE(exchanges.contains("CFFEX"));
+        if (item.table() == ::warehouse::TABLE_MEMBER_POSITIONS)
+            EXPECT_FALSE(exchanges.contains("INE"));
     }
     auto source = factory(vendor)({});
-    const auto rows = source->member_positions("INE", "2026-01-05");
-    ASSERT_EQ(rows.size(), 2);
-    EXPECT_EQ(rows[0].exchange, "INE");
-    EXPECT_EQ(rows[0].product, "sc");
-    EXPECT_EQ(rows[0].contract, wh::Cell{});
-    EXPECT_EQ(rows[1].contract, wh::Cell{std::string("INE/sc/2026-05")});
     const auto receipts = source->warehouse_receipts("INE", "2026-01-05");
     ASSERT_EQ(receipts.size(), 2);
     EXPECT_EQ(receipts[0].exchange, "INE");
@@ -540,6 +534,54 @@ TEST_F(Acquisition, CopperReceiptsKeepShfeAndIneWarehousesSeparate)
     EXPECT_EQ(ine[0].exchange, "INE");
     EXPECT_EQ(ine[0].product, "bc");
     EXPECT_EQ(ine[0].volume, wh::Cell{std::string("50")});
+}
+
+TEST_F(Acquisition, CzceMemberPositionsKeepContractRanksAndProductSummaries)
+{
+    ac::Tushare source(token, std::make_shared<ac::Budget>(500), {}, [&](const auto& body, auto) {
+        const auto query = Json::parse(body);
+        if (query.at("api_name") == "fut_basic")
+            return table(
+                contract_fields,
+                {contract("TA701.ZCE", "CZCE", "TA", "202701", "20260101", "20270115")});
+        const auto symbol = query.at("params").at("symbol").template get<std::string>();
+        EXPECT_TRUE(symbol == "PTA" || symbol == "TA2701");
+        return table(
+            query.at("fields"),
+            {{"20261120", symbol, "会员", "123.25", 1, 100, 2, nullptr, nullptr, "CZCE"}});
+    });
+    const auto rows = source.member_positions("CZCE", "2026-11-20");
+    ASSERT_EQ(rows.size(), 2);
+    EXPECT_EQ(rows.front().product, "ta");
+    EXPECT_EQ(rows.front().contract, wh::Cell{});
+    EXPECT_EQ(rows.front().volume, wh::Cell{std::string("123.25")});
+    EXPECT_EQ(rows.front().short_position, wh::Cell{});
+    EXPECT_EQ(rows.back().contract, wh::Cell{std::string("CZCE/ta/2027-01")});
+}
+
+TEST_F(Acquisition, DceMemberPositionsIncludeEveryListedContractWithoutExchangePagination)
+{
+    ac::Tushare source(token, std::make_shared<ac::Budget>(500), {}, [&](const auto& body, auto) {
+        const auto query = Json::parse(body);
+        if (query.at("api_name") == "fut_basic")
+            return table(
+                contract_fields,
+                {contract("M2701.DCE", "DCE", "M", "202701", "20260101", "20270115"),
+                    contract("M2705.DCE", "DCE", "M", "202705", "20260501", "20270515"),
+                    contract("M2609.DCE", "DCE", "M", "202609", "20250901", "20260915")});
+        const auto symbol = query.at("params").at("symbol").template get<std::string>();
+        if (symbol == "M")
+            return table(query.at("fields"), Json::array());
+        return table(
+            query.at("fields"),
+            {{"20261120", symbol, "同一会员", 100, 1, 200, 2, 300, 3, "DCE"}});
+    });
+    const auto rows = source.member_positions("DCE", "2026-11-20");
+    ASSERT_EQ(rows.size(), 2);
+    EXPECT_EQ(rows[0].contract, wh::Cell{std::string("DCE/m/2027-01")});
+    EXPECT_EQ(rows[1].contract, wh::Cell{std::string("DCE/m/2027-05")});
+    EXPECT_EQ(rows[0].long_position, wh::Cell{std::string("200")});
+    EXPECT_EQ(rows[1].short_position, wh::Cell{std::string("300")});
 }
 
 TEST_F(Acquisition, FundamentalProviderRepliesCannotMixReportDatesOrTruncateAProduct)

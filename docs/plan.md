@@ -86,6 +86,7 @@ flowchart LR
 - 组合策略目前只记录合成后的目标，需确定子策略就绪状态、原始权重与合成贡献的展示范围。
 - `LivePanel.test.tsx` 的“a split close keeps only remaining lots…”在 2026-11-21 偶发失败一次，随后完整单元测试连续 8 次、该文件单独 10 次通过；需在复现时定位时序原因。
 - macOS 的 `Acquisition.ADayByDayTaskPublishesVersionsInBatches` 在串行运行时仍超过 40 秒等待上限，Linux Release 同例通过；需定位本机批量采集耗时。
+- macOS 的 `cross_session_portfolio_process` 在完整回归与单独复测中均未在 20 秒内达到预期组合持仓，分别停在分钟和日线组合场景；需定位跨时段调仓的时序原因。
 - 上期所 `SHFE/rb/2027-01` 在 2026-11-16 的交易所日线与独立 Tushare 分钟合计均为 659,809 手，新浪 345 条分钟记录合计 663,970 手；需定位新浪多出的 4,161 手并核实补缺源的取舍。
 - Tushare 的集合竞价记录被分钟聚合标为不完整周期：`SHFE/rb/2027-01` 与 `CFFEX/ic/2026-12` 在 2026-11-16～20 每日分别出现 21:00、09:30 结束的一个不完整周期，连续交易时段没有分钟缺口且全日成交量相符；需统一集合竞价记录的归属和验收口径。
 - 部署仓库的旧日线分区缺少 `lower_limit` / `upper_limit`，Lab 读取会失败；SHFE、CFFEX 在 2026-08-17 以前及其余交易所的旧分区仍需重采并核对列结构。

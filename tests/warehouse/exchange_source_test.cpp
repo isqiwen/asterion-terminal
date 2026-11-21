@@ -56,6 +56,50 @@ protected:
     std::shared_ptr<ac::Budget> budget = std::make_shared<ac::Budget>(500);
 };
 
+TEST_F(ExchangeSources, IneMemberRanksMergeByContractAndKeepUnrankedSidesMissing)
+{
+    const std::string raw = R"({"report_date":"20261120","o_code":"0000",
+"update_date":"20261120 15:20:45","o_cursor":[
+{"INSTRUMENTID":"lu2612","RANK":1,"PARTICIPANTABBR1":"甲会员","CJ1":418,"CJ1_CHG":166,
+ "PARTICIPANTABBR2":"乙会员","CJ2":1612,"CJ2_CHG":-58,
+ "PARTICIPANTABBR3":"丙会员","CJ3":1000,"CJ3_CHG":0},
+{"INSTRUMENTID":"lu2612","RANK":2,"PARTICIPANTABBR1":"乙会员","CJ1":300,"CJ1_CHG":20,
+ "PARTICIPANTABBR2":"甲会员","CJ2":500,"CJ2_CHG":10,
+ "PARTICIPANTABBR3":"甲会员","CJ3":120,"CJ3_CHG":-5},
+{"INSTRUMENTID":"nr2701","RANK":1,"PARTICIPANTABBR1":"甲会员","CJ1":10,"CJ1_CHG":1,
+ "PARTICIPANTABBR2":"甲会员","CJ2":20,"CJ2_CHG":2,
+ "PARTICIPANTABBR3":"甲会员","CJ3":30,"CJ3_CHG":3},
+{"INSTRUMENTID":"lu2612","RANK":999}]})";
+    ac::Exchange source("INE", budget, {}, [&](const ac::HttpRequest& request, auto) {
+        EXPECT_EQ(request.origin, "https://www.ine.cn");
+        EXPECT_EQ(request.path, "/data/tradedata/future/dailydata/pm20261120.dat");
+        return ac::HttpReply{200, raw};
+    });
+    const auto before = ac::observation_time();
+    const auto rows = source.member_positions("INE", "2026-11-20");
+    ASSERT_EQ(rows.size(), 4);
+    for (const auto& row : rows) {
+        EXPECT_EQ(row.exchange, "INE");
+        EXPECT_EQ(row.published_ms, wh::Cell{std::int64_t{1795159245000}});
+        EXPECT_GE(row.observed_ms, before);
+        if (row.product == "nr") {
+            EXPECT_EQ(row.contract, wh::Cell{std::string("INE/nr/2027-01")});
+            EXPECT_EQ(row.volume, wh::Cell{std::string("10")});
+        } else if (row.member == "甲会员") {
+            EXPECT_EQ(row.contract, wh::Cell{std::string("INE/lu/2026-12")});
+            EXPECT_EQ(row.volume, wh::Cell{std::string("418")});
+            EXPECT_EQ(row.long_position, wh::Cell{std::string("500")});
+            EXPECT_EQ(row.short_position, wh::Cell{std::string("120")});
+            EXPECT_EQ(row.short_change, wh::Cell{std::string("-5")});
+        } else if (row.member == "乙会员")
+            EXPECT_EQ(row.short_position, wh::Cell{});
+        else {
+            EXPECT_EQ(row.volume, wh::Cell{});
+            EXPECT_EQ(row.long_position, wh::Cell{});
+        }
+    }
+}
+
 TEST_F(ExchangeSources, ExactDecimalsMissingPricesAndFeeBasesReachParquet)
 {
     for (const auto* exchange : {"SHFE", "INE"}) {
@@ -605,7 +649,7 @@ TEST_F(ExchangeSources, PublicFilesPublishThroughNativeTaskManager)
           }}});
     const auto* selected_table = std::getenv("ASTERION_EXCHANGE_ACCEPTANCE_TABLE");
     bool checked = false;
-    for (const auto* table : {"daily", "settlement", "price_ticks"}) {
+    for (const auto* table : {"daily", "settlement", "price_ticks", "member_positions"}) {
         if (selected_table && std::string_view(selected_table) != table)
             continue;
         if (!ac::Exchange(exchange, online_budget, {}).supports(table, exchange))
