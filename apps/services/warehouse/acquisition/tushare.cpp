@@ -219,7 +219,7 @@ bool Tushare::supports(std::string_view table, std::string_view exchange) const
 {
     require_exchange(exchange);
     return table == "calendar" || table == "contracts" || table == "daily" || table == "minutes"
-        || (table == "member_positions" && exchange != "INE")
+        || (table == "member_positions" && exchange != "SHFE" && exchange != "INE")
         || (table == "warehouse_receipts" && exchange != "CFFEX")
         || (table == "inventory" && (exchange == "SHFE" || exchange == "INE"))
         || (table == "settlement" && exchange != "GFEX");

@@ -239,8 +239,14 @@ shanghai_members(const std::string& exchange, const std::string& day, const Json
     };
     std::map<std::pair<std::string, std::string>, MemberPosition> members;
     for (const auto& row : root.at("o_cursor")) {
-        const auto contract = contract_of(exchange, text(row.at("INSTRUMENTID")), day);
-        if (!contract || values::numeric(row.at("RANK")) == "999")
+        const auto code = text(row.at("INSTRUMENTID"));
+        const auto contract = contract_of(exchange, code, day);
+        if ((!contract && !code.ends_with("all")) || values::numeric(row.at("RANK")) == "999")
+            continue;
+        const auto product = contract ? product_of(*contract) : code.substr(0, code.size() - 3);
+        // 上期所排名文件同时列出能源中心品种。
+        static const std::set<std::string> ine_products{"bc", "ec", "lu", "nr", "sc"};
+        if (exchange == "SHFE" && ine_products.contains(product))
             continue;
         for (std::size_t i = 0; i < std::size(metrics); ++i) {
             const auto suffix = std::to_string(i + 1);
@@ -248,11 +254,11 @@ shanghai_members(const std::string& exchange, const std::string& day, const Json
             if (name.empty())
                 continue;
             auto [at, inserted] = members.try_emplace(
-                std::pair{*contract, name},
+                std::pair{code, name},
                 MemberPosition{
                     .exchange = exchange,
-                    .product = product_of(*contract),
-                    .contract = *contract,
+                    .product = product,
+                    .contract = contract ? Cell{*contract} : Cell{},
                     .day = day,
                     .member = name,
                     .published_ms = published,
@@ -596,7 +602,7 @@ bool Exchange::supports(std::string_view table, std::string_view exchange) const
 {
     return exchange == exchange_
         && (table == "daily" || (table == "price_ticks" && exchange == "CZCE")
-            || (table == "member_positions" && exchange == "INE")
+            || (table == "member_positions" && (exchange == "SHFE" || exchange == "INE"))
             || (table == "settlement"
                 && (exchange == "SHFE" || exchange == "INE" || exchange == "CZCE"
                     || exchange == "GFEX")));

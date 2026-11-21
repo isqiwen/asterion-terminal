@@ -100,6 +100,36 @@ TEST_F(ExchangeSources, IneMemberRanksMergeByContractAndKeepUnrankedSidesMissing
     }
 }
 
+TEST_F(ExchangeSources, ShfeMemberRanksKeepSummaryScopeAndDistinguishMissingFromZero)
+{
+    const std::string raw = R"({"report_date":"20261120","o_code":"0000","o_cursor":[
+{"INSTRUMENTID":"rb2701","RANK":1,"PARTICIPANTABBR1":"甲会员","CJ1":10,"CJ1_CHG":1,
+ "PARTICIPANTABBR2":"乙会员","CJ2":20,"CJ2_CHG":2,
+ "PARTICIPANTABBR3":"甲会员","CJ3":30,"CJ3_CHG":3},
+{"INSTRUMENTID":"rball","RANK":0,"PARTICIPANTABBR1":"非期货公司会员","CJ1":50,"CJ1_CHG":5,
+ "PARTICIPANTABBR2":"非期货公司会员","CJ2":0,"CJ2_CHG":0,
+ "PARTICIPANTABBR3":"非期货公司会员","CJ3":40,"CJ3_CHG":4},
+{"INSTRUMENTID":"lu2612","RANK":1}]})";
+    ac::Exchange source("SHFE", budget, {}, [&](const ac::HttpRequest& request, auto) {
+        EXPECT_EQ(request.origin, "https://www.shfe.com.cn");
+        return ac::HttpReply{200, raw};
+    });
+    const auto rows = source.member_positions("SHFE", "2026-11-20");
+    ASSERT_EQ(rows.size(), 3);
+    for (const auto& row : rows) {
+        EXPECT_EQ(row.product, "rb");
+        if (row.member == "非期货公司会员") {
+            EXPECT_EQ(row.contract, wh::Cell{});
+            EXPECT_EQ(row.long_position, wh::Cell{std::string("0")});
+        } else if (row.member == "甲会员") {
+            EXPECT_EQ(row.contract, wh::Cell{std::string("SHFE/rb/2027-01")});
+            EXPECT_EQ(row.volume, wh::Cell{std::string("10")});
+            EXPECT_EQ(row.long_position, wh::Cell{});
+        } else
+            EXPECT_EQ(row.volume, wh::Cell{});
+    }
+}
+
 TEST_F(ExchangeSources, ExactDecimalsMissingPricesAndFeeBasesReachParquet)
 {
     for (const auto* exchange : {"SHFE", "INE"}) {

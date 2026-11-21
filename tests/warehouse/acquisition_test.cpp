@@ -100,6 +100,8 @@ struct Vendor
                 };
             else if (exchange == "INE")
                 rows = {contract("SC2605.INE", "INE", "SC", "202605", "20250801", "20260515")};
+            else if (exchange == "DCE")
+                rows = {contract("M2605.DCE", "DCE", "M", "202605", "20250501", "20260515")};
             return table(contract_fields, rows);
         }
         if (api == "fut_trade_cal") {
@@ -176,7 +178,7 @@ struct Vendor
                 {"symbol", product},
                 {"fut_name", "测试品种"},
                 {"ts_code", product},
-                {"exchange", "SHFE"},
+                {"exchange", api == "fut_holding" ? p.at("exchange") : Json("SHFE")},
                 {"warehouse", "中金圣源"},
                 {"wh_id", "001"},
                 {"pre_vol", 428},
@@ -403,8 +405,10 @@ TEST_F(Acquisition, FundamentalReportsAreAcquiredAndBrowsedInFixedVersions)
             std::tuple{::warehouse::TABLE_INVENTORY, "inventory", "total"}}) {
         SCOPED_TRACE(name);
         vendor->fundamental_value = "353.123456";
+        const auto exchange = table == ::warehouse::TABLE_MEMBER_POSITIONS ? "DCE" : "SHFE";
         auto query = request(name);
         query.set_table(table);
+        query.set_exchanges(0, exchange);
         query.set_first_day("2026-01-05");
         query.set_last_day("2026-01-05");
         const auto before = ac::observation_time();
@@ -416,7 +420,7 @@ TEST_F(Acquisition, FundamentalReportsAreAcquiredAndBrowsedInFixedVersions)
         ::warehouse::GetTableRows browse;
         browse.mutable_dataset()->set_version(version);
         browse.set_table(table);
-        browse.set_exchange("SHFE");
+        browse.set_exchange(exchange);
         browse.set_first_day("2026-01-05");
         browse.set_last_day("2026-01-05");
         const auto rows = reader.rows(browse);
@@ -425,13 +429,13 @@ TEST_F(Acquisition, FundamentalReportsAreAcquiredAndBrowsedInFixedVersions)
             const auto at = std::find(rows.columns().begin(), rows.columns().end(), field);
             return rows.rows(row).values(static_cast<int>(at - rows.columns().begin()));
         };
-        EXPECT_EQ(cell(0, "product"), "rb");
+        EXPECT_EQ(cell(0, "product"), table == ::warehouse::TABLE_MEMBER_POSITIONS ? "m" : "rb");
         EXPECT_EQ(cell(0, value), "353.123456");
         EXPECT_TRUE(cell(0, "published_ms").empty());
         EXPECT_GE(std::stoll(cell(0, "observed_ms")), before);
         EXPECT_LE(std::stoll(cell(0, "observed_ms")), observed);
         if (table == ::warehouse::TABLE_MEMBER_POSITIONS) {
-            EXPECT_EQ(cell(0, "contract"), "SHFE/rb/2026-05");
+            EXPECT_EQ(cell(0, "contract"), "DCE/m/2026-05");
             EXPECT_TRUE(cell(1, "contract").empty());
             EXPECT_TRUE(cell(0, "short_position").empty());
         } else {
@@ -476,8 +480,10 @@ TEST_F(Acquisition, FundamentalCapabilitiesAndIneReceiptsKeepTheirExchangeScope)
             EXPECT_EQ(exchanges, (std::set<std::string>{"SHFE", "INE"}));
         if (item.table() == ::warehouse::TABLE_WAREHOUSE_RECEIPTS)
             EXPECT_FALSE(exchanges.contains("CFFEX"));
-        if (item.table() == ::warehouse::TABLE_MEMBER_POSITIONS)
+        if (item.table() == ::warehouse::TABLE_MEMBER_POSITIONS) {
+            EXPECT_FALSE(exchanges.contains("SHFE"));
             EXPECT_FALSE(exchanges.contains("INE"));
+        }
     }
     auto source = factory(vendor)({});
     const auto receipts = source->warehouse_receipts("INE", "2026-01-05");
