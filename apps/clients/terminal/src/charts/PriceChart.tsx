@@ -104,7 +104,9 @@ const valueAt = (point: PricePoint | Candle) => {
   const raw = "close" in point ? point.close : point.price;
   return raw === "" ? null : raw;
 };
-const numberText = (value: number) => Number(value.toPrecision(8)).toString();
+// The axis steps in 1e-8, and its tick at zero can carry a floating-point residue.
+export const numberText = (value: number) =>
+  Math.abs(value) < 5e-9 ? "0" : Number(value.toPrecision(8)).toString();
 const withAlpha = (hex: string, alpha: string) =>
   /^#[0-9a-f]{6}$/i.test(hex) ? `${hex}${alpha}` : hex;
 

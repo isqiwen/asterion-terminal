@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { chartRuns, defaultVisibleCount, minimumTickSpan } from "./PriceChart";
+import { chartRuns, defaultVisibleCount, minimumTickSpan, numberText } from "./PriceChart";
 
 test("gaps remain separate line segments and retain their observation positions", () => {
   expect(chartRuns([null, 10, 12, null, 15, null])).toEqual([
@@ -28,4 +28,12 @@ test("minimum tick span expands quiet ranges and tolerates series without visibl
   const empty = { priceRange: null };
   expect(minimumTickSpan(empty, 1)).toBe(empty);
   expect(minimumTickSpan(null, 1)).toBeNull();
+});
+
+test("axis numbers show zero without a floating-point residue and keep real values", () => {
+  expect(numberText(5.5511151231257827e-17)).toBe("0");
+  expect(numberText(-2.7755575615628914e-16)).toBe("0");
+  expect(numberText(0.00000002)).toBe("2e-8");
+  expect(numberText(3512.5)).toBe("3512.5");
+  expect(numberText(0.123456789)).toBe("0.12345679");
 });
