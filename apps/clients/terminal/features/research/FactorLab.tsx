@@ -1,5 +1,5 @@
 import { DateInput } from "../../src/ui/DateInput";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { lab } from "../../src/bridge/lab";
 import type { FactorResult, StrategyEntry } from "../../src/generated/asterion/lab_pb";
 import { ActionError, useActionError } from "../../src/host/action-error";
@@ -394,6 +394,7 @@ export function FactorLab(context: TerminalContext) {
           source={source}
           repository={repository}
           modules={modules}
+          focus={chosen}
           changed={() => void read()}
           onDelete={path => menu.remove(path)}
         />
@@ -488,34 +489,16 @@ export function FactorLab(context: TerminalContext) {
                 )}
                 <Section title={t("评价设置")} open>
                   {evaluationFields}
-                  {(modules?.factors.length ?? 0) > 1 && (
-                    <>
-                      {combinationField}
-                      {(modules?.factors ?? [])
-                        .filter(other => other.id !== factor.id)
-                        .map(other => {
-                          const checked = (form.extraFactors ?? []).includes(other.id);
-                          return (
-                            <label key={other.id} className="checkbox wide">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={event => {
-                                  const current = form.extraFactors ?? [];
-                                  change({
-                                    extraFactors: event.target.checked
-                                      ? [...current, other.id]
-                                      : current.filter(id => id !== other.id),
-                                  });
-                                }}
-                              />
-                              {other.id}
-                            </label>
-                          );
-                        })}
-                    </>
-                  )}
                 </Section>
+                {items.length > 1 && (
+                  <ExtraFactors
+                    items={items.filter(item => item.id !== factor.id)}
+                    value={form.extraFactors ?? []}
+                    onChange={extraFactors => change({ extraFactors })}
+                  >
+                    {combinationField}
+                  </ExtraFactors>
+                )}
                 {users.length > 0 && (
                   <Section title={t("导入本模块的策略")} open>
                     <ul className="lab-evaluations" aria-label={t("导入本模块的策略")}>
@@ -591,12 +574,59 @@ export function FactorLab(context: TerminalContext) {
   );
 }
 
+// The factors combined with the chosen one, found by search.
+function ExtraFactors({
+  items,
+  value,
+  onChange,
+  children,
+}: {
+  items: readonly ModuleItem[];
+  value: readonly string[];
+  onChange: (next: string[]) => void;
+  children: ReactNode;
+}) {
+  const [search, setSearch] = useState("");
+  const count = items.filter(item => value.includes(item.id)).length;
+  return (
+    <Section title={t("合成因子（{count}）", { count })}>
+      {children}
+      <input
+        type="search"
+        className="wide"
+        aria-label={t("搜索合成因子")}
+        placeholder={t("搜索因子")}
+        spellCheck={false}
+        value={search}
+        onChange={event => setSearch(event.target.value)}
+      />
+      <div className="lab-factor-picker wide">
+        {filterModuleItems(items, search).map(item => (
+          <label key={item.id} className="checkbox" title={item.description}>
+            <input
+              type="checkbox"
+              checked={value.includes(item.id)}
+              onChange={event =>
+                onChange(
+                  event.target.checked ? [...value, item.id] : value.filter(id => id !== item.id),
+                )
+              }
+            />
+            <span>{item.name}</span>
+            <small>{item.module}</small>
+          </label>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
 type LibraryKey = "ic" | "holdoutIc" | "ir" | "t" | "turnover" | "strategies" | "evaluated";
 
 // Every factor with its latest evaluation, multi-select batch & composite actions,
 // and sortable figures (IC, holdout IC, ICIR, t, turnover, strategy references).
 function FactorLibrary({
-  items,
+  items: searched,
   total,
   chosen,
   selected,
@@ -629,6 +659,11 @@ function FactorLibrary({
     descending: true,
   });
   const [announcement, setAnnouncement] = useState("");
+  const [moduleFilter, setModuleFilter] = useState("");
+  const moduleNames = [...new Set(searched.map(item => item.module))].sort();
+  // A search can leave the filtered module with no rows, and so without its option.
+  const activeModule = moduleNames.includes(moduleFilter) ? moduleFilter : "";
+  const items = activeModule ? searched.filter(item => item.module === activeModule) : searched;
   const selectAllRef = useRef<HTMLInputElement>(null);
   const shownIds = items.map(item => item.id);
   const selectedShown = shownIds.filter(id => selected.includes(id));
@@ -724,6 +759,18 @@ function FactorLibrary({
             {t("清空选择")}
           </button>
         )}
+        <span className="lab-spacer" />
+        <label className="lab-inline">
+          <span>{t("模块")}</span>
+          <select value={activeModule} onChange={event => setModuleFilter(event.target.value)}>
+            <option value="">{t("全部")}</option>
+            {moduleNames.map(name => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
       <ActionError error={error} namespace="asterion.terminal.research" />
       <p className="lab-sr-only" role="status">
@@ -753,8 +800,6 @@ function FactorLibrary({
                 </th>
                 <th scope="col">{t("因子")}</th>
                 <th scope="col">{t("模块")}</th>
-                <th scope="col">{t("行情字段")}</th>
-                <th scope="col">{t("说明")}</th>
                 {heading("ic", t("IC 均值"), t("最近一次评价的第一个持有期"))}
                 {heading("holdoutIc", t("留出期 IC"), t("最近一次评价的留出期第一个持有期"))}
                 {heading("ir", "ICIR")}
@@ -776,7 +821,9 @@ function FactorLibrary({
                   <tr
                     key={item.id}
                     className={checked ? "selected" : item.id === chosen ? "current" : undefined}
-                    title={item.description}
+                    title={[item.description, item.inputs?.join(listSeparator())]
+                      .filter(Boolean)
+                      .join("\n")}
                     onClick={() => open(item.id)}
                   >
                     <td className="lab-check-col" onClick={event => event.stopPropagation()}>
@@ -800,8 +847,6 @@ function FactorLibrary({
                       </button>
                     </th>
                     <td className="subtle">{item.module}</td>
-                    <td className="subtle">{item.inputs?.join(listSeparator())}</td>
-                    <td className="subtle lab-factor-desc">{item.description || "—"}</td>
                     <td className={`numeric ${signed(first?.mean)}`}>
                       {metric(first?.mean, false)}
                     </td>
@@ -817,10 +862,9 @@ function FactorLibrary({
                     </td>
                     <td className="subtle numeric">
                       {result
-                        ? new Date(Number(result.evaluatedMs)).toLocaleString("sv-SE", {
-                            timeZone: "Asia/Shanghai",
-                            hour12: false,
-                          })
+                        ? new Date(Number(result.evaluatedMs))
+                            .toLocaleString("sv-SE", { timeZone: "Asia/Shanghai", hour12: false })
+                            .slice(5, 16)
                         : "—"}
                     </td>
                   </tr>

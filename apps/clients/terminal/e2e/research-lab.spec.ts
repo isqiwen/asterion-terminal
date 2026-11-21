@@ -81,13 +81,13 @@ test(
     prepare();
     await page.goto("/");
     await openView(page, "factors");
+    const modules = page.locator(".lab-modules");
+    await modules.getByRole("button", { name: /^risk\s*\d+$/ }).click();
     await expect(
-      page.getByRole("button", { name: "expected_shortfall", exact: true }),
+      modules.getByRole("button", { name: "expected_shortfall", exact: true }),
     ).toBeVisible();
-    await page
-      .locator(".lab-modules")
-      .getByRole("button", { name: /^momentum(?:\s|$)/ })
-      .click();
+    await modules.getByRole("button", { name: /^price\s*\d+$/ }).click();
+    await modules.getByRole("button", { name: /^momentum(?:\s|$)/ }).click();
     const form = page.locator(".lab-config");
     await form
       .getByLabel("品种", { exact: true })

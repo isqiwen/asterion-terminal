@@ -449,6 +449,7 @@ test("editor indents four spaces on Tab, saves on Ctrl+S, and duplicates or dele
   expect(editor().state.doc.toString()).toBe(
     "from strategies._common import helper\nclass Aaaaa(Strategy):\n    pass\n",
   );
+  editor().dispatch({ selection: { anchor: 0 } });
   fireEvent.keyDown(editor().contentDOM, { key: "Tab" });
   expect(editor().state.doc.toString()).toBe(
     "    from strategies._common import helper\nclass Aaaaa(Strategy):\n    pass\n",

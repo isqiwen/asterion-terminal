@@ -218,6 +218,17 @@ function importLinks(currentPath: string) {
   );
 }
 
+// Puts the caret on a module's class or function, at the top of the editor.
+function reveal(editor: EditorView, symbol: string | undefined) {
+  if (!symbol) return;
+  const at = editor.state.doc.toString().search(new RegExp(`^(?:class|def) ${symbol}\\b`, "m"));
+  if (at < 0) return;
+  editor.dispatch({
+    selection: { anchor: at },
+    effects: EditorView.scrollIntoView(at, { y: "start" }),
+  });
+}
+
 // One module of the strategy directory, opened on its unsaved `draft` if it
 // has one. A built-in module opens read only, without save.
 export function SourceEditor({
@@ -225,6 +236,7 @@ export function SourceEditor({
   path,
   draft,
   traceback,
+  symbol,
   edited,
   saved,
   changed,
@@ -237,6 +249,7 @@ export function SourceEditor({
   path: string;
   draft: string | undefined;
   traceback?: string;
+  symbol?: string;
   edited: (content: string | null) => void;
   saved: (content: string) => void;
   changed: () => void;
@@ -249,11 +262,13 @@ export function SourceEditor({
   const view = useRef<EditorView | null>(null);
   const stateRef = useRef<{
     draft: string | undefined;
+    symbol?: string;
     edited: (content: string | null) => void;
     opened?: (path: string) => void;
     save: () => Promise<unknown>;
-  }>({ draft, edited, opened, save: () => Promise.resolve() });
+  }>({ draft, symbol, edited, opened, save: () => Promise.resolve() });
   stateRef.current.draft = draft;
+  stateRef.current.symbol = symbol;
   stateRef.current.edited = edited;
   stateRef.current.opened = opened;
   const loadedRef = useRef("");
@@ -353,6 +368,7 @@ export function SourceEditor({
           ],
         }),
       });
+      reveal(view.current, stateRef.current.symbol);
     });
     const reload = () => {
       if (!active || savingRef.current || stateRef.current.draft !== undefined || !view.current)
@@ -388,6 +404,9 @@ export function SourceEditor({
       view.current = null;
     };
   }, [repository, path, attempt]);
+  useEffect(() => {
+    if (view.current) reveal(view.current, symbol);
+  }, [symbol]);
   useEffect(() => {
     const editor = view.current;
     if (!editor) return;

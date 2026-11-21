@@ -60,6 +60,28 @@ test("manual save acknowledges its text while newer editor changes survive switc
   expect(screen.getByRole("status").textContent).toContain('"strategies/a.py":"original = 0"');
 });
 
+test("choosing a symbol puts the caret on its definition", async () => {
+  const content = "class First:\n    pass\n\nclass Second:\n    pass\n";
+  vi.mocked(lab).mockResolvedValue(create(SourceSchema, { content }) as never);
+  const editor = (symbol: string) => (
+    <SourceEditor
+      repository="/research"
+      path="strategies/a.py"
+      draft={undefined}
+      symbol={symbol}
+      edited={() => {}}
+      saved={() => {}}
+      changed={() => {}}
+    />
+  );
+  const { rerender } = render(editor("Second"));
+  await waitFor(() => expect(document.querySelector(".cm-editor")).not.toBeNull());
+  const view = EditorView.findFromDOM(document.querySelector(".cm-editor") as HTMLElement)!;
+  expect(view.state.selection.main.head).toBe(content.indexOf("class Second"));
+  rerender(editor("First"));
+  expect(view.state.selection.main.head).toBe(0);
+});
+
 test("Tab leaves a read-only source without intercepting keyboard navigation", async () => {
   vi.mocked(lab).mockResolvedValue(
     create(SourceSchema, { content: "builtin = 1", readOnly: true }) as never,

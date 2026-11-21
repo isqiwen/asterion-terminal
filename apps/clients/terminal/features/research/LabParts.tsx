@@ -1,4 +1,5 @@
 import {
+  Fragment,
   lazy,
   Suspense,
   useCallback,
@@ -314,15 +315,19 @@ export function LabCentre({
   source,
   repository,
   modules,
+  focus = "",
   changed,
   onDelete,
 }: {
   source: ReturnType<typeof useSource>;
   repository: string;
   modules?: Strategies | null;
+  // The chosen `<module>.<symbol>`, shown when its module is open.
+  focus?: string;
   changed: () => void;
   onDelete?: (path: string) => void;
 }) {
+  const [focusModule, symbol] = focus.split(".");
   const traceback = modules?.errors.find(
     item =>
       (item.module.startsWith("factors/")
@@ -339,6 +344,7 @@ export function LabCentre({
             path={source.path}
             draft={source.drafts[source.path]}
             traceback={traceback}
+            symbol={source.path.endsWith(`/${focusModule}.py`) ? symbol : undefined}
             edited={content => source.draft(source.path, content)}
             saved={content => source.saved(source.path, content)}
             changed={changed}
@@ -420,6 +426,8 @@ export type ModuleItem = {
   id: string;
   name: string;
   module: string;
+  // Its heading in a long list; its module unless set.
+  group?: string;
   description: string;
   // Bar fields a factor takes, shown in the library and searchable.
   inputs?: readonly string[];
@@ -441,6 +449,9 @@ export function filterModuleItems(items: readonly ModuleItem[], search: string) 
     .sort((a, b) => a.name.localeCompare(b.name) || a.module.localeCompare(b.module));
 }
 
+// From this many rows a list folds into groups.
+const GROUPED_FROM = 16;
+
 // Strategies or factors, one line each, searchable.
 export function ModuleList({
   folder,
@@ -461,6 +472,55 @@ export function ModuleList({
   const counts = new Map<string, number>();
   for (const item of items) counts.set(item.name, (counts.get(item.name) ?? 0) + 1);
   const shown = filterModuleItems(items, search);
+  const [opened, setOpened] = useWorkspaceDraft<Record<string, boolean>>(
+    `modules-open:${folder}`,
+    {},
+  );
+  const groupOf = (item: ModuleItem) => item.group ?? item.module;
+  const chosenItem = items.find(item => item.id === chosen);
+  const chosenGroup = chosenItem && groupOf(chosenItem);
+  useEffect(() => {
+    if (chosenGroup)
+      setOpened(previous =>
+        previous[chosenGroup] === false ? { ...previous, [chosenGroup]: true } : previous,
+      );
+  }, [chosen, chosenGroup, setOpened]);
+  const row = (item: ModuleItem) => (
+    <button
+      key={item.id}
+      type="button"
+      className="lab-module-item"
+      aria-pressed={item.id === chosen}
+      data-context={contextTarget === item.id || undefined}
+      title={item.description}
+      onClick={() => choose(item)}
+      onContextMenu={
+        onMenu
+          ? event => {
+              event.preventDefault();
+              onMenu(
+                `${folder}/${item.module}.py`,
+                event.clientX,
+                event.clientY,
+                item.name,
+                item.id,
+              );
+            }
+          : undefined
+      }
+    >
+      <span>{item.name}</span>
+      {(counts.get(item.name) ?? 0) > 1 && (
+        <small className="lab-module-origin">{item.module}</small>
+      )}
+      {item.figure && (
+        <small className={item.figure.className} title={item.figure.title}>
+          {item.figure.text}
+        </small>
+      )}
+    </button>
+  );
+  const groups = [...new Set(shown.map(groupOf))].sort();
   return (
     <div className="lab-module-list">
       <input
@@ -474,41 +534,26 @@ export function ModuleList({
         onChange={event => setSearch(event.target.value)}
       />
       {!shown.length && items.length > 0 && <p className="subtle">{t("没有匹配的模块")}</p>}
-      {shown.map(item => (
-        <button
-          key={item.id}
-          type="button"
-          className="lab-module-item"
-          aria-pressed={item.id === chosen}
-          data-context={contextTarget === item.id || undefined}
-          title={item.description}
-          onClick={() => choose(item)}
-          onContextMenu={
-            onMenu
-              ? event => {
-                  event.preventDefault();
-                  onMenu(
-                    `${folder}/${item.module}.py`,
-                    event.clientX,
-                    event.clientY,
-                    item.name,
-                    item.id,
-                  );
-                }
-              : undefined
-          }
-        >
-          <span>{item.name}</span>
-          {(counts.get(item.name) ?? 0) > 1 && (
-            <small className="lab-module-origin">{item.module}</small>
-          )}
-          {item.figure && (
-            <small className={item.figure.className} title={item.figure.title}>
-              {item.figure.text}
-            </small>
-          )}
-        </button>
-      ))}
+      {search.trim() || items.length < GROUPED_FROM
+        ? shown.map(row)
+        : groups.map(group => {
+            const members = shown.filter(item => groupOf(item) === group);
+            const open = opened[group] ?? group === chosenGroup;
+            return (
+              <Fragment key={group}>
+                <button
+                  type="button"
+                  className="lab-module-group"
+                  aria-expanded={open}
+                  onClick={() => setOpened(previous => ({ ...previous, [group]: !open }))}
+                >
+                  <span>{group}</span>
+                  <small>{members.length}</small>
+                </button>
+                {open && <div className="lab-module-members">{members.map(row)}</div>}
+              </Fragment>
+            );
+          })}
     </div>
   );
 }

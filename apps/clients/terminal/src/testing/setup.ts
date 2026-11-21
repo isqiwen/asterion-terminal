@@ -4,6 +4,7 @@ import { setLocale } from "../i18n";
 
 // jsdom has no layout or modal dialog support.
 Element.prototype.scrollIntoView = () => {};
+Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
 if (!HTMLDialogElement.prototype.showModal) {
   HTMLDialogElement.prototype.showModal = function () {
     this.setAttribute("open", "");

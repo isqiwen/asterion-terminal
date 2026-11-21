@@ -145,7 +145,7 @@ test("opens the first factor by default, and the factor library ranks, filters, 
   expect(order()).toEqual(["momentum", "reversal"]);
 
   // Clicking a factor row opens its code and restores the evaluation panel.
-  fireEvent.click(within(library).getByText("Return over lookback"));
+  fireEvent.click(within(library).getByRole("button", { name: "momentum" }));
   expect(screen.queryByRole("table", { name: "因子库" })).toBeNull();
   await screen.findByText("factors/price.py");
   expect(screen.getByRole("button", { name: "评价" })).toBeTruthy();

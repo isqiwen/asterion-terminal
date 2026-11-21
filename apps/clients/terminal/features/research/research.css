@@ -140,10 +140,33 @@ button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   width: 28px;
   padding-inline: var(--space-1) var(--space-2);
 }
-.lab-factor-desc {
-  max-width: 32ch;
+.lab-factor-picker {
+  display: flex;
+  flex-direction: column;
+  max-height: 240px;
+  overflow: auto;
+}
+.lab-form .lab-factor-picker label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+}
+.lab-form .lab-factor-picker input {
+  flex: none;
+  width: auto;
+}
+.lab-form .lab-factor-picker label > span {
   overflow: hidden;
+  color: var(--text-strong);
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lab-factor-picker small {
+  flex: none;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
 }
 .lab-sr-only {
   position: absolute;
@@ -178,6 +201,41 @@ button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   min-width: 0;
   box-sizing: border-box;
   margin-bottom: var(--space-2);
+}
+button.lab-module-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--control-height);
+  padding: 0 var(--space-2);
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: var(--font-size-body);
+  text-align: left;
+}
+button.lab-module-group::before {
+  content: "▸" / "";
+}
+button.lab-module-group[aria-expanded="true"]::before {
+  content: "▾" / "";
+}
+button.lab-module-group:enabled:not([aria-disabled="true"]):is(:hover, :active) {
+  background: var(--hover);
+  border-color: transparent;
+  color: var(--text-strong);
+}
+button.lab-module-group small {
+  margin-left: auto;
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-xs);
+}
+.lab-module-members {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: var(--space-2);
 }
 button.lab-module-item,
 .lab-evaluations li button {

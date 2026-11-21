@@ -120,6 +120,28 @@ test("items list flat in name order, disambiguate duplicate names, search and fi
   expect(screen.getByRole("button", { name: "interest" })).toBeTruthy();
 });
 
+test("a long list folds into groups and opens the chosen item's group", () => {
+  const items = Array.from({ length: 16 }, (_, index) => ({
+    id: `${index < 8 ? "price" : "risk"}.factor_${index}`,
+    name: `factor_${index}`,
+    module: index < 8 ? "price" : "risk",
+    description: "",
+  }));
+  render(
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.lab-factors">
+      <ModuleList folder="factors" items={items} chosen="risk.factor_9" choose={vi.fn()} />
+    </WorkspaceDraftScope>,
+  );
+  expect(screen.queryByRole("button", { name: "factor_0" })).toBeNull();
+  expect(screen.getByRole("button", { name: "factor_9" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: /^price/ }));
+  expect(screen.getByRole("button", { name: "factor_0" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: /^price/ }));
+  fireEvent.change(screen.getByLabelText("搜索因子"), { target: { value: "factor_1" } });
+  expect(screen.getByRole("button", { name: "factor_1" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /^price/ })).toBeNull();
+});
+
 test("edits made while saving remain an unsaved draft after navigation", async () => {
   let finish!: () => void;
   vi.mocked(lab).mockImplementation(

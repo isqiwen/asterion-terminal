@@ -262,6 +262,7 @@ export function StrategyLab(context: TerminalContext) {
               id: item.id,
               name,
               module,
+              group: t(item.portfolio ? "组合" : "单品种"),
               description: item.description.replace(/`/g, ""),
               figure:
                 value === undefined
@@ -435,6 +436,7 @@ export function StrategyLab(context: TerminalContext) {
           source={source}
           repository={repository}
           modules={strategies}
+          focus={chosen}
           changed={() => void readStrategies()}
           onDelete={path => menu.remove(path)}
         />
