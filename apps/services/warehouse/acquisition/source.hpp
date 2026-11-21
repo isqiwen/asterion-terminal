@@ -46,7 +46,7 @@ contract_of(const std::string& exchange, const std::string& code, const std::str
 class Budget
 {
 public:
-    explicit Budget(unsigned per_minute);
+    explicit Budget(unsigned capacity, std::chrono::milliseconds window = std::chrono::minutes(1));
     void acquire(std::stop_token);
 
 private:
@@ -54,6 +54,7 @@ private:
     std::mutex mutex_;
     std::condition_variable_any changed_;
     std::deque<std::chrono::steady_clock::time_point> sent_;
+    std::chrono::milliseconds window_;
 };
 
 // Task-local provider state; the service shares the provider's request budget.

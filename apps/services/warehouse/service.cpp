@@ -122,7 +122,9 @@ std::map<std::string, acquisition::Factory> sources(const Settings& settings)
         std::transform(id.begin(), id.end(), id.begin(), [](unsigned char c) {
             return std::tolower(c);
         });
-        auto budget = std::make_shared<acquisition::Budget>(45);
+        // GFEX rejects bursts even when they fit the per-minute limit.
+        auto budget = exchange == "GFEX" ? std::make_shared<acquisition::Budget>(1, 2s)
+                                         : std::make_shared<acquisition::Budget>(45);
         result[id] = [exchange, budget](std::stop_token stop) {
             return std::make_unique<acquisition::Exchange>(exchange, budget, stop);
         };

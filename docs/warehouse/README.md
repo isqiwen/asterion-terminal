@@ -77,7 +77,7 @@ flowchart LR
 | 来源 | 内容 | 限速 | 特殊边界 |
 | --- | --- | --- | --- |
 | `tushare` | 合约表（[`fut_basic`](https://tushare.pro/document/2?doc_id=135)）、日历（[`fut_trade_cal`](https://tushare.pro/document/2?doc_id=467)）、日线（[`fut_daily`](https://tushare.pro/document/2?doc_id=138)）、涨跌停价（[`ft_limit`](https://tushare.pro/document/2?doc_id=368)）、1 分钟线（[`ft_mins`](https://tushare.pro/document/2?doc_id=313)）、结算参数（[`fut_settle`](https://tushare.pro/document/2?doc_id=141)）、[仓单、会员持仓与库存周报](#仓单会员持仓与库存周报) | 1–500 次/分（全局共享） | 分钟线按合约与交易日分区，夜盘归入下一开市日；日线按 7 日窗口缓存 `ft_limit` 写入 `lower_limit`/`upper_limit`（触达 4000 行上限时自动缩为单日请求，账户无 `ft_limit` 权限时保留为空）；不自动重试；达返回上限时拒收防截断 |
-| `shfe`、`ine`、`czce`、`gfex` | 各自交易所日线与结算参数，`shfe` 与 `ine` 另供会员持仓，`czce` 另供历史报价单位 | 各 45 次/分 | `shfe` / `ine` / `czce` 用 HTTPS，`gfex` 用 HTTP；早年郑商所为 GB18030 年度 ZIP |
+| `shfe`、`ine`、`czce`、`gfex` | 各自交易所日线与结算参数，`shfe` 与 `ine` 另供会员持仓，`czce` 另供历史报价单位 | `gfex` 跨任务共享 2 秒请求间隔，其余各 45 次/分 | `shfe` / `ine` / `czce` 用 HTTPS，`gfex` 用 HTTP；广期所短时连发会被拒绝，需均匀请求；早年郑商所为 GB18030 年度 ZIP |
 | `dce`、`cffex` | 各自交易所日线 | 各 45 次/分 | HTTP 公开接口；高频请求会被门户拦截或断开 |
 | `gtja` | 上期所、能源中心、大商所、中金所、广期所历史报价单位 | 45 次/分 | 连续约 60 次请求会被断开连接 |
 | `sina` | 日线与 1 分钟线（最后补缺源，不含中金所） | 60 次/分 | 按 Tushare 合约表逐合约读（无合约表不取）；无成交零值入库为缺失；分钟线仅回溯约 2 个交易日，首日标 `partial` 不再重取；夜盘归下一工作日 |

@@ -97,11 +97,12 @@ contract_of(const std::string& exchange, const std::string& code, const std::str
     return identity;
 }
 
-Budget::Budget(unsigned per_minute)
-    : capacity_(per_minute)
+Budget::Budget(unsigned capacity, std::chrono::milliseconds window)
+    : capacity_(capacity),
+      window_(window)
 {
-    if (!per_minute || per_minute > 500)
-        throw std::invalid_argument("requests per minute must be 1 to 500");
+    if (!capacity || capacity > 500)
+        throw std::invalid_argument("request limit must be 1 to 500");
 }
 
 void Budget::acquire(std::stop_token stop)
@@ -110,13 +111,13 @@ void Budget::acquire(std::stop_token stop)
     for (;;) {
         check_stop(stop);
         const auto now = std::chrono::steady_clock::now();
-        while (!sent_.empty() && now - sent_.front() >= std::chrono::seconds(60))
+        while (!sent_.empty() && now - sent_.front() >= window_)
             sent_.pop_front();
         if (sent_.size() < capacity_) {
             sent_.push_back(now);
             return;
         }
-        changed_.wait_until(lock, stop, sent_.front() + std::chrono::seconds(60), [] {
+        changed_.wait_until(lock, stop, sent_.front() + window_, [] {
             return false;
         });
     }

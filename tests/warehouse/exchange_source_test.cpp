@@ -257,6 +257,25 @@ TEST_F(ExchangeSources, CffexEncodingAndCzceDailyColumnsExcludeOptions)
     EXPECT_EQ(std::get<std::string>(daily[0].volume), "3000");
 }
 
+TEST_F(ExchangeSources, GfexTasksShareRequestSpacing)
+{
+    auto paced = std::make_shared<ac::Budget>(1, 20ms);
+    std::vector<std::chrono::steady_clock::time_point> sent;
+    const auto fetch = [&](const auto&, auto) {
+        sent.push_back(std::chrono::steady_clock::now());
+        return ac::HttpReply{200, R"({"code":"0","param":{"trade_date":["20261030"]},"data":[
+            {"variety":"工业硅","contractId":"si2701","openFee":3,"offsetFee":3,"shortOpenFee":3,
+            "shortOffsetFee":1.5,"specBuyRate":0.1,"specSellRate":0.1,"style":"绝对值"}]})"};
+    };
+    ac::Exchange first("GFEX", paced, {}, fetch), second("GFEX", paced, {}, fetch);
+    EXPECT_EQ(first.settlement("GFEX", "2026-10-30").size(), 1);
+    EXPECT_EQ(second.settlement("GFEX", "2026-10-30").size(), 1);
+    EXPECT_EQ(first.settlement("GFEX", "2026-10-30").size(), 1);
+    ASSERT_EQ(sent.size(), 3);
+    EXPECT_GE(sent[1] - sent[0], 10ms);
+    EXPECT_GE(sent[2] - sent[1], 10ms);
+}
+
 TEST_F(ExchangeSources, PortalsKeepSourceIdentityAndDoNotRequestUnsupportedTables)
 {
     for (const auto* exchange : {"DCE", "GFEX"}) {

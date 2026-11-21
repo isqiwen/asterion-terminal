@@ -42,7 +42,7 @@ flowchart LR
 
 ### 研究数据权限、覆盖与报告口径（使用者）
 
-- 广期所结算参数接口在连续读取时返回 HTTP 567；需恢复稳定采集、补齐缺口，再验自动更新全批完成。
+- 部署广期所请求间隔修复，补齐结算参数缺口，再验自动更新全批完成。
 - 核定仓单、会员持仓和库存周报的历史起点与缺失区间，入口见[真实研究数据验收](acceptance/research-data.md#仓单会员持仓与库存)。
 
 ### 数据仓库与多年真实回测验收（使用者）
@@ -85,7 +85,8 @@ flowchart LR
 - `LivePanel.test.tsx` 的“a split close keeps only remaining lots…”在 2026-11-21 偶发失败一次，随后完整单元测试连续 8 次、该文件单独 10 次通过；需在复现时定位时序原因。
 - UI 全量单测在默认并行下，`DatasetView.test.tsx` 的分钟采集用例及 `StrategyLab.test.tsx` 的保存后运行、多品种用例在 2026-11-22 超过 5 秒；相关数据页单测单独通过，全量限定 2 个 worker 后 211 项通过，需定位并行运行超时。
 - macOS 的 `Acquisition.ADayByDayTaskPublishesVersionsInBatches` 在串行运行时仍超过 40 秒等待上限，Linux Release 同例通过；需定位本机批量采集耗时。
-- macOS 的 `cross_session_portfolio_process` 在完整回归与单独复测中均未在 20 秒内达到预期组合持仓，分别停在分钟和日线组合场景；需定位跨时段调仓的时序原因。
+- macOS 的 `cross_session_portfolio_process` 在分钟和日线组合场景存在偶发的持仓等待超时，需定位跨时段调仓的时序原因。
+- `TerminalMarket.RequestsAndTheWatchUseSavedTlsWithoutStartingLab` 的能力列表预期遗漏上期所会员持仓，需同步已有采集能力。
 - 上期所 `SHFE/rb/2027-01` 在 2026-11-16 的交易所日线与独立 Tushare 分钟合计均为 659,809 手，新浪 345 条分钟记录合计 663,970 手；需定位新浪多出的 4,161 手并核实补缺源的取舍。
 - Tushare 的集合竞价记录被分钟聚合标为不完整周期：`SHFE/rb/2027-01` 与 `CFFEX/ic/2026-12` 在 2026-11-16～20 每日分别出现 21:00、09:30 结束的一个不完整周期，连续交易时段没有分钟缺口且全日成交量相符；需统一集合竞价记录的归属和验收口径。
 - 部署仓库的旧日线分区缺少 `lower_limit` / `upper_limit`，Lab 读取会失败；SHFE、CFFEX 在 2026-08-17 以前及其余交易所的旧分区仍需重采并核对列结构。
