@@ -443,17 +443,25 @@
 }
 
 /* The account at a glance: four figures, the broker's details, the risk in use. */
+/* One line: the account's figures, then the use of its limits. */
 .account-summary {
-  display: grid;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-page);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-5);
+  padding: var(--space-2) var(--space-page);
   border-bottom: 1px solid var(--line);
 }
 .account-headline {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 300px));
-  gap: var(--space-4);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-5);
   margin: 0;
+}
+.account-headline > div {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
 }
 .account-headline dt,
 .account-details dt,
@@ -462,17 +470,22 @@
   font-size: var(--font-size-aux);
 }
 .account-headline dd {
-  margin: var(--space-1) 0 0;
+  margin: 0;
   color: var(--text-strong);
   font-family: var(--font-terminal);
-  font-size: var(--font-size-2xl);
+  font-size: var(--font-size-lg);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.account-details[open] {
+  flex-basis: 100%;
 }
 .account-details summary {
   width: fit-content;
   padding: 0;
   color: var(--muted);
   font-size: var(--font-size-aux);
+  white-space: nowrap;
   cursor: pointer;
 }
 .account-details > dl {
@@ -494,21 +507,24 @@
   font-variant-numeric: tabular-nums;
 }
 .risk-usage {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-  gap: var(--space-2) var(--space-4);
+  display: flex;
+  flex: 1 1 320px;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 .risk-usage li {
   display: grid;
+  flex: 0 0 auto;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 3px var(--space-2);
+  gap: 2px var(--space-2);
+  min-width: 140px;
 }
 .risk-bar {
   grid-column: 1 / -1;
-  height: 4px;
+  height: 3px;
   overflow: hidden;
   border-radius: 2px;
   background: var(--grid);
@@ -527,12 +543,6 @@
 .risk-usage li[data-tone="danger"] .risk-value {
   color: var(--danger);
 }
-@media (max-width: 1100px) {
-  .account-headline {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
 /* A limit's unit sits inside its field. */
 .unit-input {
   position: relative;

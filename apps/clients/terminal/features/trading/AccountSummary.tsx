@@ -129,39 +129,26 @@ export function AccountSummary({ live }: { live: Session }) {
   return (
     <section className="account-summary" aria-label={t("账户概览")}>
       {funds && (
-        <>
-          <dl className="account-headline">
-            <div>
-              <dt>{t("盯市净值")}</dt>
-              <dd>{groupedText(funds.dynamicEquity)}</dd>
-            </div>
-            <div>
-              <dt>{t("当日盈亏")}</dt>
-              <dd className={daily > 0 ? "ctp-up" : daily < 0 ? "ctp-down" : undefined}>
-                {money(daily)}
-              </dd>
-            </div>
-            <div>
-              <dt>{t("可用资金")}</dt>
-              <dd>{groupedText(funds.available)}</dd>
-            </div>
-            <div>
-              <dt>{t("保证金占用率")}</dt>
-              <dd>{equity > 0 ? percent(number(funds.margin) / equity) : "—"}</dd>
-            </div>
-          </dl>
-          <details className="account-details">
-            <summary>{t("资金明细")}</summary>
-            <dl>
-              {detailFields.map(([field, label]) => (
-                <div key={field}>
-                  <dt>{t(label)}</dt>
-                  <dd>{groupedText(funds[field])}</dd>
-                </div>
-              ))}
-            </dl>
-          </details>
-        </>
+        <dl className="account-headline">
+          <div>
+            <dt>{t("盯市净值")}</dt>
+            <dd>{groupedText(funds.dynamicEquity)}</dd>
+          </div>
+          <div>
+            <dt>{t("当日盈亏")}</dt>
+            <dd className={daily > 0 ? "ctp-up" : daily < 0 ? "ctp-down" : undefined}>
+              {money(daily)}
+            </dd>
+          </div>
+          <div>
+            <dt>{t("可用资金")}</dt>
+            <dd>{groupedText(funds.available)}</dd>
+          </div>
+          <div>
+            <dt>{t("保证金占用率")}</dt>
+            <dd>{equity > 0 ? percent(number(funds.margin) / equity) : "—"}</dd>
+          </div>
+        </dl>
       )}
       <ul className="risk-usage" aria-label={t("风控占用")}>
         {riskMeters(live).map(meter => {
@@ -186,6 +173,19 @@ export function AccountSummary({ live }: { live: Session }) {
           );
         })}
       </ul>
+      {funds && (
+        <details className="account-details">
+          <summary>{t("资金明细")}</summary>
+          <dl>
+            {detailFields.map(([field, label]) => (
+              <div key={field}>
+                <dt>{t(label)}</dt>
+                <dd>{groupedText(funds[field])}</dd>
+              </div>
+            ))}
+          </dl>
+        </details>
+      )}
     </section>
   );
 }
