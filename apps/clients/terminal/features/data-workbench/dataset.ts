@@ -12,8 +12,14 @@ const names: Partial<Record<Table, string>> = {
   [Table.PRICE_TICKS]: "历史报价单位",
   [Table.CONTRACTS]: "合约表",
   [Table.CALENDAR]: "交易日历",
+  [Table.WAREHOUSE_RECEIPTS]: "仓单",
+  [Table.MEMBER_POSITIONS]: "会员持仓",
+  [Table.INVENTORY]: "库存周报",
 };
 export const referenceTables = [
+  Table.WAREHOUSE_RECEIPTS,
+  Table.MEMBER_POSITIONS,
+  Table.INVENTORY,
   Table.SETTLEMENT,
   Table.PRICE_TICKS,
   Table.CONTRACTS,

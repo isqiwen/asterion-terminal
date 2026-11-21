@@ -12,6 +12,13 @@ void check_stop(std::stop_token stop)
         throw SourceError("cancelled", "acquisition cancelled");
 }
 
+std::int64_t observation_time()
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch())
+        .count();
+}
+
 std::chrono::sys_days day_of(std::string_view text)
 {
     const std::string value(text);
@@ -143,6 +150,21 @@ std::vector<Settlement> Source::settlement(const std::string&, const std::string
 std::vector<PriceTick> Source::price_ticks(const std::string&, const std::string&)
 {
     throw SourceError("unsupported", "source does not provide historical price ticks");
+}
+
+std::vector<WarehouseReceipt> Source::warehouse_receipts(const std::string&, const std::string&)
+{
+    throw SourceError("unsupported", "source does not provide warehouse receipts");
+}
+
+std::vector<MemberPosition> Source::member_positions(const std::string&, const std::string&)
+{
+    throw SourceError("unsupported", "source does not provide member positions");
+}
+
+std::vector<Inventory> Source::inventory(const std::string&, const std::string&)
+{
+    throw SourceError("unsupported", "source does not provide inventories");
 }
 
 } // namespace asterion::warehouse::acquisition

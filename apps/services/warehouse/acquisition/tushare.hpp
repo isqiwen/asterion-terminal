@@ -2,6 +2,7 @@
 #include "exchange_rules.hpp"
 #include "source.hpp"
 #include <nlohmann/json.hpp>
+#include <set>
 
 namespace asterion::warehouse::acquisition {
 
@@ -25,6 +26,10 @@ public:
     std::vector<DailyBar> daily(const std::string&, const std::string&) override;
     std::vector<MinuteBar> minutes(const std::string&, const std::string&) override;
     std::vector<Settlement> settlement(const std::string&, const std::string&) override;
+    std::vector<WarehouseReceipt>
+    warehouse_receipts(const std::string&, const std::string&) override;
+    std::vector<MemberPosition> member_positions(const std::string&, const std::string&) override;
+    std::vector<Inventory> inventory(const std::string&, const std::string&) override;
 
 private:
     struct Table;
@@ -46,6 +51,7 @@ private:
         const nlohmann::json& parameters,
         const std::string& fields,
         std::size_t limit);
+    std::set<std::string> products(const std::string& exchange, const std::string& day);
     const std::map<std::string, std::pair<Cell, Cell>>& daily_limits(const std::string& day);
     const CalendarDay& calendar_day(const std::string& exchange, const std::string& day);
     std::string trading_day(const std::string& exchange, std::chrono::sys_seconds end);

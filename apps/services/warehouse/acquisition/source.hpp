@@ -17,6 +17,9 @@ using warehouse::DailyBar;
 using warehouse::MinuteBar;
 using warehouse::PriceTick;
 using warehouse::Settlement;
+using warehouse::WarehouseReceipt;
+using warehouse::MemberPosition;
+using warehouse::Inventory;
 
 struct SourceError : std::runtime_error
 {
@@ -29,6 +32,7 @@ struct SourceError : std::runtime_error
 };
 
 void check_stop(std::stop_token);
+std::int64_t observation_time();
 std::chrono::sys_days day_of(std::string_view);
 std::string day_text(std::chrono::sys_days);
 void require_exchange(std::string_view);
@@ -66,6 +70,10 @@ public:
     virtual std::vector<MinuteBar> minutes(const std::string& contract, const std::string& day);
     virtual std::vector<Settlement> settlement(const std::string& exchange, const std::string& day);
     virtual std::vector<PriceTick> price_ticks(const std::string& exchange, const std::string& day);
+    virtual std::vector<WarehouseReceipt>
+    warehouse_receipts(const std::string&, const std::string&);
+    virtual std::vector<MemberPosition> member_positions(const std::string&, const std::string&);
+    virtual std::vector<Inventory> inventory(const std::string&, const std::string&);
 
     std::uint64_t requests() const
     {

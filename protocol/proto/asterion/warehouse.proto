@@ -72,6 +72,9 @@ enum Table {
   TABLE_MINUTES = 4;
   TABLE_SETTLEMENT = 5;
   TABLE_PRICE_TICKS = 6;
+  TABLE_WAREHOUSE_RECEIPTS = 7;
+  TABLE_MEMBER_POSITIONS = 8;
+  TABLE_INVENTORY = 9;
 }
 
 // An empty version names the current one.
@@ -130,7 +133,7 @@ message TableSummary {
   uint64 rows = 3;
   string first_day = 4;
   string last_day = 5;
-  // Daily, minutes, settlement and price ticks, by the version's calendar: the
+  // Daily, minutes, settlement, receipts and member positions, by the calendar: the
   // last day the table should hold through yesterday (Beijing), and the open
   // days each exchange (each contract, for minutes) lacks from its first day
   // through then. Empty and 0 for the other tables and without a calendar.
@@ -236,7 +239,11 @@ message MinuteMonth {
 
 // What Warehouse can acquire.
 message AcquisitionOptions {
-  repeated Table tables = 1;
+  repeated AcquisitionTable tables = 1;
+}
+
+message AcquisitionTable {
+  Table table = 1;
   repeated string exchanges = 2;
 }
 
@@ -244,7 +251,7 @@ message AcquisitionOptions {
 // of priority. A task names exchanges (none means all of them) and both days, or
 // instruments: products (EXCHANGE/product) and contracts (EXCHANGE/product/YYYY-MM),
 // where a missing day means each contract's listing or delisting day. Daily,
-// settlement and price ticks of instruments cover their exchanges' whole days.
+// settlement, price ticks and fundamental reports cover their exchanges' whole days.
 // Minutes take instruments only; calendar and contracts take exchanges only.
 message StartAcquisition {
   string id = 1;

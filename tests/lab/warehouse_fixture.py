@@ -12,6 +12,7 @@ import sys
 if __name__ == "__main__":
     sys.path[:0] = [sys.argv.pop(1), str(Path(__file__).parent)]
 from warehouse_writer import Warehouse  # noqa: E402
+from asterion_lab.warehouse import SCHEMAS  # noqa: E402
 
 FIRST = datetime.date(2026, 1, 5)
 
@@ -81,7 +82,7 @@ def closes(count):
     return result
 
 
-def warehouse(directory: Path):
+def warehouse(directory: Path, *, fundamentals=False):
     """SHFE/rb with two months: 2605 most held until day 15, then 2610."""
     rows = []
     for i, (day, close) in enumerate(zip(DAYS, closes(len(DAYS)))):
@@ -105,10 +106,19 @@ def warehouse(directory: Path):
                     [day.isoformat() for day in DAYS if day.isoformat() < "2026-02"])
     writer.add_days("SHFE", "2026-02", [row for row in rows if row["day"] >= "2026-02"],
                     [day.isoformat() for day in DAYS if day.isoformat() >= "2026-02"])
+    if fundamentals:
+        for table, values in (
+                ('warehouse_receipts', dict(warehouse='测试仓库', unit='吨', volume=Decimal('353.123456'))),
+                ('member_positions', dict(member='测试会员', long_position=Decimal('100'))),
+                ('inventory', dict(warehouse='总计', unit='吨', total=Decimal('428')))):
+            row = dict.fromkeys(SCHEMAS[table])
+            row.update(exchange='SHFE', product='rb', day='2026-01-09',
+                       observed_ms=1767960000000, **values)
+            writer.put_rows(f'{table}/SHFE/2026-01-09', table, [row], days=['2026-01-09'])
     writer.commit()
 
 
 if __name__ == "__main__":
     target = Path(sys.argv[1])
     target.mkdir(parents=True, exist_ok=True)
-    warehouse(target)
+    warehouse(target, fundamentals='--fundamentals' in sys.argv[2:])

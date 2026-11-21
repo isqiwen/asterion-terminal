@@ -67,7 +67,8 @@ std::vector<wire::StartAcquisition> update_requests(
         }
     std::string daily_first;
     std::set<std::string> daily_exchanges;
-    for (const std::string table : {"daily", "minutes"}) {
+    for (const std::string table :
+        {"daily", "minutes", "warehouse_receipts", "member_positions", "inventory"}) {
         const auto empty_table = empty_keys(directory, table);
         std::string first;
         std::set<std::string> due;
@@ -92,8 +93,10 @@ std::vector<wire::StartAcquisition> update_requests(
             for (const auto& contract : due)
                 out.add_instruments(contract);
         else {
-            daily_first = first;
-            daily_exchanges.insert(due.begin(), due.end());
+            if (table == "daily") {
+                daily_first = first;
+                daily_exchanges.insert(due.begin(), due.end());
+            }
             out.set_last_day(yesterday);
             for (const auto& exchange : due)
                 out.add_exchanges(exchange);

@@ -746,10 +746,11 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
         terminal::ApplicationTestAccess::submit(app, call({{"getDatasetVersion", Json::object()}}));
     const auto catalog = first.get();
     const auto& options = catalog.at("warehouse").at("getAcquisitionOptions");
-    EXPECT_EQ(
-        options.at("tables"),
-        Json::array({"TABLE_DAILY", "TABLE_MINUTES", "TABLE_SETTLEMENT", "TABLE_PRICE_TICKS"}));
-    EXPECT_EQ(options.at("exchanges"), Json::array({"SHFE", "GFEX"}));
+    Json tables = Json::array();
+    for (const auto* name :
+        {"TABLE_DAILY", "TABLE_MINUTES", "TABLE_SETTLEMENT", "TABLE_PRICE_TICKS"})
+        tables.push_back({{"table", name}, {"exchanges", Json::array({"SHFE", "GFEX"})}});
+    EXPECT_EQ(options.at("tables"), tables);
     EXPECT_TRUE(second.get().at("warehouse").contains("getDatasetVersion"));
     EXPECT_THROW(
         app.dispatch(request("market.call", {{"request", {{"streamQuotes", Json::object()}}}})),

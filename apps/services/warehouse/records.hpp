@@ -81,12 +81,44 @@ struct PriceTick
     std::string source_url;
 };
 
+struct WarehouseReceipt
+{
+    std::string exchange, product, day;
+    Cell warehouse, warehouse_id, area, crop_year, grade, brand, origin, unit, converted;
+    Cell previous_volume, volume, volume_change, forecast_volume, premium;
+    Cell published_ms;
+    std::int64_t observed_ms = 0;
+};
+
+struct MemberPosition
+{
+    std::string exchange, product;
+    Cell contract;
+    std::string day, member;
+    Cell volume, volume_change, long_position, long_change, short_position, short_change;
+    Cell published_ms;
+    std::int64_t observed_ms = 0;
+};
+
+struct Inventory
+{
+    std::string exchange, product, day;
+    Cell area, warehouse, grade, unit;
+    Cell previous_total, previous_receipts, total, receipts, total_change, receipts_change;
+    Cell previous_capacity, capacity, capacity_change;
+    Cell published_ms;
+    std::int64_t observed_ms = 0;
+};
+
 Row row(const CalendarDay&);
 Row row(const Contract&);
 Row row(const DailyBar&);
 Row row(const MinuteBar&);
 Row row(const Settlement&);
 Row row(const PriceTick&);
+Row row(const WarehouseReceipt&);
+Row row(const MemberPosition&);
+Row row(const Inventory&);
 
 template <class Record>
 std::vector<Row> rows(const std::vector<Record>& records)

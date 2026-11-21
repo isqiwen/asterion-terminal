@@ -8,6 +8,7 @@ import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { VersionBanner, WarehousePage, WarehouseUnavailable } from "./Page";
 import { ReferenceTable } from "./ReferenceTable";
 import { StoredContracts } from "./StoredContracts";
+import { Acquisition } from "./Acquisition";
 import { exchanges, referenceTables, t, tableName } from "./dataset";
 
 // The stored contracts with their charts, and the reference tables behind them,
@@ -25,6 +26,12 @@ function BrowseBody({ context }: { context: TerminalContext }) {
   const paramTable = context.workspaceParams?.table ?? "";
   const [viewed, setViewed] = useState(paramVersion);
   const [tab, setTab] = useWorkspaceDraft<"contracts" | Table>("browse-tab", "contracts");
+  const [acquiring, setAcquiring] = useState<Table>();
+  const options = useWarehousePoll(
+    () => warehouseData({ case: "getAcquisitionOptions", value: {} }),
+    [],
+    true,
+  );
   useEffect(() => {
     if (!paramVersion && !paramTable) return;
     if (paramVersion) setViewed(paramVersion);
@@ -61,6 +68,7 @@ function BrowseBody({ context }: { context: TerminalContext }) {
     true,
   );
   useErrorNotification(state.error, "asterion.terminal.data-workbench");
+  useErrorNotification(options.error, "asterion.terminal.data-workbench");
   const latest = state.value?.latest ?? "";
   return (
     <>
@@ -93,6 +101,11 @@ function BrowseBody({ context }: { context: TerminalContext }) {
               </button>
             ))}
           </div>
+          {!viewed && options.value?.tables.some(item => item.table === tab) && (
+            <button type="button" onClick={() => setAcquiring(tab as Table)}>
+              {t("采集")}
+            </button>
+          )}
         </div>
         {!state.value ? (
           state.error ? (
@@ -124,6 +137,21 @@ function BrowseBody({ context }: { context: TerminalContext }) {
           />
         )}
       </div>
+      {acquiring !== undefined && options.value && (
+        <Acquisition
+          table={acquiring}
+          name={tableName(acquiring)}
+          options={options.value}
+          products={[]}
+          known={[]}
+          preset={{}}
+          close={() => setAcquiring(undefined)}
+          started={() => {
+            setAcquiring(undefined);
+            void state.refresh();
+          }}
+        />
+      )}
     </>
   );
 }

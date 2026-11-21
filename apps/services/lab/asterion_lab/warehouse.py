@@ -38,6 +38,20 @@ SCHEMAS["minutes"] = {"exchange": pl.String, "product": pl.String, "contract": p
 SCHEMAS["settlement"] = {"exchange": pl.String, "product": pl.String, "contract": pl.String,
     "day": pl.Date, **{name: NUMBER for name in ("long_margin_rate", "short_margin_rate",
         "fee_rate", "fee_per_lot", "close_today_fee_rate", "close_today_fee_per_lot")}}
+SCHEMAS["warehouse_receipts"] = {"exchange": pl.String, "product": pl.String, "day": pl.Date,
+    **{name: pl.String for name in ("warehouse", "warehouse_id", "area", "crop_year", "grade",
+        "brand", "origin", "unit", "converted")},
+    **{name: NUMBER for name in ("previous_volume", "volume", "volume_change", "forecast_volume", "premium")},
+    "published_ms": pl.Int64, "observed_ms": pl.Int64}
+SCHEMAS["member_positions"] = {"exchange": pl.String, "product": pl.String, "contract": pl.String,
+    "day": pl.Date, "member": pl.String,
+    **{name: NUMBER for name in ("volume", "volume_change", "long_position", "long_change", "short_position", "short_change")},
+    "published_ms": pl.Int64, "observed_ms": pl.Int64}
+SCHEMAS["inventory"] = {"exchange": pl.String, "product": pl.String, "day": pl.Date,
+    **{name: pl.String for name in ("area", "warehouse", "grade", "unit")},
+    **{name: NUMBER for name in ("previous_total", "previous_receipts", "total", "receipts",
+        "total_change", "receipts_change", "previous_capacity", "capacity", "capacity_change")},
+    "published_ms": pl.Int64, "observed_ms": pl.Int64}
 
 SQL_TYPES = {pl.Int64: "bigint", pl.String: "varchar", pl.Date: "date", pl.Boolean: "boolean",
              NUMBER: "decimal(28, 6)", PRICE_TICK: "decimal(28, 8)"}
@@ -76,7 +90,7 @@ class Version:
             parts = key.split("/")
             if parts[0] != table or (exchange and parts[1] != exchange):
                 continue
-            if table in ("daily", "minutes", "settlement"):
+            if table in ("daily", "minutes", "settlement", "warehouse_receipts", "member_positions", "inventory"):
                 date = parts[2]
                 if (begin and date < begin[:len(date)]) or (end and date > end[:len(date)]):
                     continue

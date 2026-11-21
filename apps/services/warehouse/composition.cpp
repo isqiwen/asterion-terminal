@@ -34,6 +34,9 @@ const std::vector<std::string>& sources_of(std::string_view table)
         {"minutes", {"tushare", "sina"}},
         {"settlement", {"shfe", "ine", "czce", "gfex", "tushare"}},
         {"price_ticks", {"verified", "czce", "gtja"}},
+        {"warehouse_receipts", {"tushare"}},
+        {"member_positions", {"tushare"}},
+        {"inventory", {"tushare"}},
     };
     return order.at(table);
 }
@@ -42,7 +45,15 @@ SourceVersions source_versions(const std::filesystem::path& data)
 {
     SourceVersions versions;
     for (const auto* table :
-        {"contracts", "calendar", "daily", "minutes", "settlement", "price_ticks"})
+        {"contracts",
+            "calendar",
+            "daily",
+            "minutes",
+            "settlement",
+            "price_ticks",
+            "warehouse_receipts",
+            "member_positions",
+            "inventory"})
         for (const auto& provider : sources_of(table))
             if (!versions.contains(provider))
                 versions[provider] =
@@ -56,7 +67,15 @@ Version compose(const std::filesystem::path& data, Store& unified, const SourceV
     writer.clear();
     std::map<std::string, std::pair<std::unique_ptr<Store>, Version>> sources;
     for (const auto* table :
-        {"contracts", "calendar", "daily", "minutes", "settlement", "price_ticks"}) {
+        {"contracts",
+            "calendar",
+            "daily",
+            "minutes",
+            "settlement",
+            "price_ticks",
+            "warehouse_receipts",
+            "member_positions",
+            "inventory"}) {
         std::set<std::string> taken;
         const auto prefix = std::string(table) + "/";
         for (const auto& provider : sources_of(table)) {

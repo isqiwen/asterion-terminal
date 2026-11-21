@@ -138,7 +138,15 @@ TEST_F(Warehouse, EveryTablePreservesTypesPrecisionNullsAndText)
     wh::Store store(wh::source_directory(root, "research"), "research");
     auto writer = store.writer();
     for (const auto* table :
-        {"daily", "calendar", "contracts", "minutes", "settlement", "price_ticks"}) {
+        {"daily",
+            "calendar",
+            "contracts",
+            "minutes",
+            "settlement",
+            "price_ticks",
+            "warehouse_receipts",
+            "member_positions",
+            "inventory"}) {
         const std::vector<wh::Row> rows{row(table), wh::Row(wh::columns(table).size())};
         writer.put(std::string(table) + "/SHFE/all", rows);
     }
@@ -447,7 +455,7 @@ TEST_F(Warehouse, SourcesAndSummaryAreReadOnlyAndVersioned)
     summary.set_version(version.identity);
     publish(first, "daily/SHFE/202610", 3);
     const auto coverage = reader.summary(summary);
-    ASSERT_EQ(coverage.tables_size(), 6);
+    ASSERT_EQ(coverage.tables_size(), 9);
     EXPECT_EQ(coverage.tables(0).table(), wire::TABLE_DAILY);
     EXPECT_EQ(coverage.tables(0).rows(), 2);
     EXPECT_EQ(coverage.tables(0).first_day(), "2026-10-30");

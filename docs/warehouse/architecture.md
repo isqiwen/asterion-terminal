@@ -50,6 +50,9 @@ classDiagram
         minutes()
         settlement()
         price_ticks()
+        warehouse_receipts()
+        member_positions()
+        inventory()
     }
     class Tushare
     class Exchange

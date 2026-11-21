@@ -16,6 +16,7 @@ test(
       join(source, "tests/lab/warehouse_fixture.py"),
       join(source, "apps/services/lab"),
       join(process.env.ASTERION_TEST_WAREHOUSE_TLS!, "../../data"),
+      "--fundamentals",
     ]);
     await page.goto("/");
     await openView(page, "browse");
@@ -33,5 +34,20 @@ test(
     await expect(chart.getByText("1–30 / 30")).toBeVisible();
     await chart.getByRole("button", { name: "周线" }).click();
     await expect(chart.getByText("1–6 / 6")).toBeVisible();
+    for (const [name, value] of [
+      ["仓单", "353.123456"],
+      ["会员持仓", "测试会员"],
+      ["库存周报", "428.000000"],
+    ]) {
+      await page
+        .getByRole("group", { name: "浏览", exact: true })
+        .getByRole("button", { name, exact: true })
+        .click();
+      const report = page.getByRole("table", { name, exact: true });
+      await expect(report.getByRole("cell", { name: value, exact: true })).toBeVisible();
+      await expect(
+        report.getByRole("columnheader", { name: "采集时间（北京时间）" }),
+      ).toBeAttached();
+    }
   },
 );

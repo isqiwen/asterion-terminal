@@ -65,7 +65,7 @@ function serve({
     async (body: { case: string; value: { version?: string; afterId?: string } }) => {
       switch (body.case) {
         case "getAcquisitionOptions":
-          return { tables, exchanges: ["CFFEX", "SHFE"] };
+          return { tables: tables.map(table => ({ table, exchanges: ["CFFEX", "SHFE"] })) };
         case "getDatasetSummary":
           return {
             dataset: { version: body.value.version || current, createdMs: 3n },
@@ -418,7 +418,12 @@ test("an empty warehouse offers exchanges, continuous years, and clickable rows 
   request.mockImplementation(async (body: { case: string }) => {
     switch (body.case) {
       case "getAcquisitionOptions":
-        return { tables: [Table.DAILY, Table.MINUTES], exchanges: ["CFFEX", "SHFE"] };
+        return {
+          tables: [Table.DAILY, Table.MINUTES].map(table => ({
+            table,
+            exchanges: ["CFFEX", "SHFE"],
+          })),
+        };
       case "getDatasetSummary":
         return { tables: [] };
       case "listAcquisitionTasks":

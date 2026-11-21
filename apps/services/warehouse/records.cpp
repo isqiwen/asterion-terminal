@@ -85,6 +85,62 @@ constexpr Column price_ticks[] = {
     {"price_tick", K::price},
     {"source_url", K::text}
 };
+constexpr Column warehouse_receipts[] = {
+    {"exchange", K::text},
+    {"product", K::text},
+    {"day", K::date},
+    {"warehouse", K::text},
+    {"warehouse_id", K::text},
+    {"area", K::text},
+    {"crop_year", K::text},
+    {"grade", K::text},
+    {"brand", K::text},
+    {"origin", K::text},
+    {"unit", K::text},
+    {"converted", K::text},
+    {"previous_volume", K::number},
+    {"volume", K::number},
+    {"volume_change", K::number},
+    {"forecast_volume", K::number},
+    {"premium", K::number},
+    {"published_ms", K::integer},
+    {"observed_ms", K::integer}
+};
+constexpr Column member_positions[] = {
+    {"exchange", K::text},
+    {"product", K::text},
+    {"contract", K::text},
+    {"day", K::date},
+    {"member", K::text},
+    {"volume", K::number},
+    {"volume_change", K::number},
+    {"long_position", K::number},
+    {"long_change", K::number},
+    {"short_position", K::number},
+    {"short_change", K::number},
+    {"published_ms", K::integer},
+    {"observed_ms", K::integer}
+};
+constexpr Column inventory[] = {
+    {"exchange", K::text},
+    {"product", K::text},
+    {"day", K::date},
+    {"area", K::text},
+    {"warehouse", K::text},
+    {"grade", K::text},
+    {"unit", K::text},
+    {"previous_total", K::number},
+    {"previous_receipts", K::number},
+    {"total", K::number},
+    {"receipts", K::number},
+    {"total_change", K::number},
+    {"receipts_change", K::number},
+    {"previous_capacity", K::number},
+    {"capacity", K::number},
+    {"capacity_change", K::number},
+    {"published_ms", K::integer},
+    {"observed_ms", K::integer}
+};
 
 } // namespace
 
@@ -102,6 +158,12 @@ std::span<const Column> columns(std::string_view table)
         return settlement;
     if (table == "price_ticks")
         return price_ticks;
+    if (table == "warehouse_receipts")
+        return warehouse_receipts;
+    if (table == "member_positions")
+        return member_positions;
+    if (table == "inventory")
+        return inventory;
     throw std::invalid_argument("unknown warehouse table");
 }
 
@@ -201,6 +263,74 @@ Row row(const PriceTick& r)
         r.effective_until,
         r.price_tick,
         r.source_url
+    };
+}
+
+Row row(const WarehouseReceipt& r)
+{
+    return {
+        r.exchange,
+        r.product,
+        r.day,
+        r.warehouse,
+        r.warehouse_id,
+        r.area,
+        r.crop_year,
+        r.grade,
+        r.brand,
+        r.origin,
+        r.unit,
+        r.converted,
+        r.previous_volume,
+        r.volume,
+        r.volume_change,
+        r.forecast_volume,
+        r.premium,
+        r.published_ms,
+        r.observed_ms
+    };
+}
+
+Row row(const MemberPosition& r)
+{
+    return {
+        r.exchange,
+        r.product,
+        r.contract,
+        r.day,
+        r.member,
+        r.volume,
+        r.volume_change,
+        r.long_position,
+        r.long_change,
+        r.short_position,
+        r.short_change,
+        r.published_ms,
+        r.observed_ms
+    };
+}
+
+Row row(const Inventory& r)
+{
+    return {
+        r.exchange,
+        r.product,
+        r.day,
+        r.area,
+        r.warehouse,
+        r.grade,
+        r.unit,
+        r.previous_total,
+        r.previous_receipts,
+        r.total,
+        r.receipts,
+        r.total_change,
+        r.receipts_change,
+        r.previous_capacity,
+        r.capacity,
+        r.capacity_change,
+        r.published_ms,
+        r.observed_ms
     };
 }
 

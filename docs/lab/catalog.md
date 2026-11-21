@@ -99,4 +99,4 @@ RSI 和 ATR 使用有限窗口的简单统计，便于研究评价与交易短�
 
 近年的研究也涉及当前接口之外的数据或模型：例如 [Commodity Futures Characteristics and Asset Pricing Models](https://doi.org/10.1002/fut.22559)（JFM 2025）的 IPCA 特征面板模型，以及 [Risk premia in commodity markets](https://doi.org/10.1016/j.jbankfin.2026.107760)（JBF 2026）的多类可交易与不可交易风险因素。库中的动量、偏度和预期短缺是可供研究的输入；这些论文的完整面板模型另需明确训练样本与估计流程。
 
-严格的 [Basis-Momentum](https://doi.org/10.1111/jofi.12738)（JF 2019）需要分别跟踪同一组近远月合约收益；当前 `roll_yield_momentum` 只是展期收益率变化。库存、现货基差、套保压力、订单流与盘口因子分别需要发布时点明确的库存、现货、分类持仓和逐笔盘口数据。这些字段应先纳入固定版本数据与 Trading 预热契约，再增加相应策略。
+严格的 [Basis-Momentum](https://doi.org/10.1111/jofi.12738)（JF 2019）需要分别跟踪同一组近远月合约收益；当前 `roll_yield_momentum` 只是展期收益率变化。Warehouse 已接入[仓单、会员持仓与库存周报](../warehouse/README.md#仓单会员持仓与库存周报)，Lab 可查询固定版本；下一步是明确可用时点与策略输入。现货基差、套保压力、订单流与盘口因子还分别需要现货、商业套保者分类持仓和逐笔盘口数据，进入 Trading 的字段需同时纳入预热契约。

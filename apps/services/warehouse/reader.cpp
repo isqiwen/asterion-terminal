@@ -132,7 +132,15 @@ wire::DatasetSummary Reader::summary(const wire::DatasetRef& query) const
     *result.mutable_dataset() = dataset_of(version);
     const auto open = open_days(store, version, yesterday());
     for (const auto* table :
-        {"daily", "calendar", "contracts", "minutes", "settlement", "price_ticks"}) {
+        {"daily",
+            "calendar",
+            "contracts",
+            "minutes",
+            "settlement",
+            "price_ticks",
+            "warehouse_receipts",
+            "member_positions",
+            "inventory"}) {
         auto* item = result.add_tables();
         item->set_table(protocol::table_of(table));
         std::string files;
@@ -165,7 +173,7 @@ wire::DatasetSummary Reader::summary(const wire::DatasetRef& query) const
             item->set_last_day(*days.rbegin());
         }
         if (std::string_view(table) == "calendar" || std::string_view(table) == "contracts"
-            || std::string_view(table) == "price_ticks")
+            || std::string_view(table) == "price_ticks" || std::string_view(table) == "inventory")
             continue;
         for (const auto& [holder, holding] :
             holdings(store, version, table, open, empty_keys(directory_, table))) {
@@ -205,7 +213,8 @@ wire::TableRows Reader::rows(const wire::GetTableRows& query) const
 {
     const auto table = protocol::table_name(query.table());
     if (table != "contracts" && table != "calendar" && table != "settlement"
-        && table != "price_ticks")
+        && table != "price_ticks" && table != "warehouse_receipts" && table != "member_positions"
+        && table != "inventory")
         throw std::invalid_argument("only reference tables can be browsed");
     const bool dated = table != "contracts";
     if (dated) {
@@ -249,8 +258,13 @@ wire::TableRows Reader::rows(const wire::GetTableRows& query) const
         + (table == "price_ticks" ? "effective_from, product, "
                 : dated           ? "day, "
                                   : "")
-        + (table == "calendar" ? "exchange" : "contract") + " LIMIT 100 OFFSET "
-        + std::to_string(query.offset()));
+        + (table == "calendar" ? "exchange"
+                : table == "warehouse_receipts"
+                ? "product, warehouse, warehouse_id, area, crop_year, grade, brand, origin, converted, unit"
+                : table == "member_positions" ? "product, contract, member"
+                : table == "inventory"        ? "product, area, warehouse, grade, unit"
+                                              : "contract")
+        + " LIMIT 100 OFFSET " + std::to_string(query.offset()));
     for (duckdb::idx_t row = 0; row < rows->RowCount(); ++row) {
         auto* out = result.add_rows();
         for (duckdb::idx_t column = 0; column < rows->ColumnCount(); ++column) {

@@ -1,5 +1,6 @@
 #include "acquisition/tushare.hpp"
 #include "composition.hpp"
+#include "reader.hpp"
 #include "acquisition/manager.hpp"
 #include "acquisition/update.hpp"
 #include "freshness.hpp"
@@ -97,6 +98,8 @@ struct Vendor
                     contract("AP003.ZCE", "CZCE", "AP", "202003", "20190301", "20200316"),
                     contract("AP1003.ZCE", "CZCE", "AP", "201003", "20090301", "20100316")
                 };
+            else if (exchange == "INE")
+                rows = {contract("SC2605.INE", "INE", "SC", "202605", "20250801", "20260515")};
             return table(contract_fields, rows);
         }
         if (api == "fut_trade_cal") {
@@ -164,6 +167,57 @@ struct Vendor
             }
             return table("ts_code,trade_date,up_limit,down_limit", std::move(rows));
         }
+        if (api == "fut_wsr" || api == "fut_holding" || api == "fut_inv_weekly") {
+            const auto product = p.at(api == "fut_inv_weekly" ? "ts_code" : "symbol");
+            Json record{
+                {"trade_date", p.at("trade_date")},
+                {"symbol", product},
+                {"ts_code", product},
+                {"exchange", "SHFE"},
+                {"warehouse", "中金圣源"},
+                {"wh_id", "001"},
+                {"pre_vol", 428},
+                {"vol", fundamental_value},
+                {"vol_chg", -75},
+                {"area", "上海"},
+                {"year", nullptr},
+                {"grade", nullptr},
+                {"brand", nullptr},
+                {"place", nullptr},
+                {"pd", nullptr},
+                {"is_ct", nullptr},
+                {"unit", "吨"},
+                {"fore_vol", "12.5"},
+                {"broker", "测试会员"},
+                {"long_hld", 100},
+                {"long_chg", 0},
+                {"short_hld", nullptr},
+                {"short_chg", nullptr},
+                {"pre_total", 428},
+                {"pre_futures", 300},
+                {"cur_total", fundamental_value},
+                {"cur_futures", 250},
+                {"chg_total", -75},
+                {"chg_futures", -50},
+                {"pre_capacity", nullptr},
+                {"cur_capacity", nullptr},
+                {"chg_capacity", nullptr}
+            };
+            Json rows = Json::array();
+            const auto add = [&] {
+                Json row = Json::array();
+                for (const auto& field : names(request.at("fields")))
+                    row.push_back(record.at(field.get<std::string>()));
+                rows.push_back(std::move(row));
+            };
+            add();
+            if (api == "fut_holding")
+                record["symbol"] = product.get<std::string>() + "2605";
+            else
+                record["warehouse"] = "总计";
+            add();
+            return table(request.at("fields"), rows);
+        }
         if (api == "fut_settle") {
             if (p.at("exchange") == "CZCE")
                 return table(
@@ -211,6 +265,7 @@ struct Vendor
 
     std::vector<std::string> calls, days;
     std::string close = "1.5e3", amount = "1234567890123456.123456";
+    std::string fundamental_value = "353.123456";
     double settle_margin = 0.07;
     std::set<std::string> empty;
     Json minutes = Json::array();
@@ -331,6 +386,134 @@ TEST_F(Acquisition, ExactProviderNumbersAndDeliveryIdentitiesReachParquet)
     auto bad_limits = std::make_shared<Vendor>();
     bad_limits->limit_rows = Json::array({{"RB2605.SHF", "20260105", 2800.0, 2900.0}});
     EXPECT_THROW(factory(bad_limits)({})->daily("SHFE", "2026-01-05"), ac::SourceError);
+}
+
+TEST_F(Acquisition, FundamentalReportsAreAcquiredAndBrowsedInFixedVersions)
+{
+    auto vendor = std::make_shared<Vendor>();
+    ac::Manager manager(root, {{"tushare", factory(vendor)}});
+    wh::Reader reader(root);
+    wh::Store research(wh::source_directory(root, "research"), "research");
+    for (const auto& [table, name, value] :
+        {std::tuple{::warehouse::TABLE_WAREHOUSE_RECEIPTS, "warehouse_receipts", "volume"},
+            std::tuple{::warehouse::TABLE_MEMBER_POSITIONS, "member_positions", "volume"},
+            std::tuple{::warehouse::TABLE_INVENTORY, "inventory", "total"}}) {
+        SCOPED_TRACE(name);
+        vendor->fundamental_value = "353.123456";
+        auto query = request(name);
+        query.set_table(table);
+        query.set_first_day("2026-01-05");
+        query.set_last_day("2026-01-05");
+        const auto before = ac::observation_time();
+        manager.submit(query);
+        const auto task = finished(manager, name);
+        ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
+        const auto version = wh::compose(root, research, wh::source_versions(root)).identity;
+        const auto observed = ac::observation_time();
+        ::warehouse::GetTableRows browse;
+        browse.mutable_dataset()->set_version(version);
+        browse.set_table(table);
+        browse.set_exchange("SHFE");
+        browse.set_first_day("2026-01-05");
+        browse.set_last_day("2026-01-05");
+        const auto rows = reader.rows(browse);
+        ASSERT_EQ(rows.total(), 2);
+        const auto cell = [&](int row, const std::string& field) {
+            const auto at = std::find(rows.columns().begin(), rows.columns().end(), field);
+            return rows.rows(row).values(static_cast<int>(at - rows.columns().begin()));
+        };
+        EXPECT_EQ(cell(0, "product"), "rb");
+        EXPECT_EQ(cell(0, value), "353.123456");
+        EXPECT_TRUE(cell(0, "published_ms").empty());
+        EXPECT_GE(std::stoll(cell(0, "observed_ms")), before);
+        EXPECT_LE(std::stoll(cell(0, "observed_ms")), observed);
+        if (table == ::warehouse::TABLE_MEMBER_POSITIONS) {
+            EXPECT_EQ(cell(0, "contract"), "SHFE/rb/2026-05");
+            EXPECT_TRUE(cell(1, "contract").empty());
+            EXPECT_TRUE(cell(0, "short_position").empty());
+        } else {
+            EXPECT_EQ(cell(0, "unit"), "吨");
+            EXPECT_EQ(cell(1, "warehouse"), "总计");
+            if (table == ::warehouse::TABLE_WAREHOUSE_RECEIPTS)
+                EXPECT_EQ(cell(0, "forecast_volume"), "12.500000");
+        }
+        vendor->fundamental_value = "400";
+        query.set_id(std::string(name) + "-revised");
+        query.set_refetch(true);
+        manager.submit(query);
+        const auto revised = finished(manager, query.id());
+        ASSERT_EQ(revised.state(), ac::wire::TASK_STATE_SUCCEEDED) << revised.error().message();
+        const auto changed = wh::compose(root, research, wh::source_versions(root)).identity;
+        EXPECT_NE(changed, version);
+        EXPECT_EQ(reader.rows(browse).SerializeAsString(), rows.SerializeAsString());
+        browse.mutable_dataset()->set_version(changed);
+        EXPECT_NE(reader.rows(browse).SerializeAsString(), rows.SerializeAsString());
+    }
+    const auto summary = reader.summary({});
+    for (const auto& table : summary.tables())
+        if (table.table() == ::warehouse::TABLE_INVENTORY) {
+            EXPECT_EQ(table.last_day(), "2026-01-05");
+            EXPECT_TRUE(table.expected_last_day().empty());
+            EXPECT_EQ(table.missing(), 0);
+        }
+}
+
+TEST_F(Acquisition, FundamentalCapabilitiesAndIneMemberReportsKeepTheirExchangeScope)
+{
+    auto vendor = std::make_shared<Vendor>();
+    ac::Manager manager(root, {{"tushare", factory(vendor)}});
+    const auto options = manager.options();
+    for (const auto& item : options.tables()) {
+        const std::set<std::string> exchanges(item.exchanges().begin(), item.exchanges().end());
+        if (item.table() == ::warehouse::TABLE_INVENTORY)
+            EXPECT_EQ(exchanges, (std::set<std::string>{"SHFE", "INE"}));
+        if (item.table() == ::warehouse::TABLE_WAREHOUSE_RECEIPTS)
+            EXPECT_FALSE(exchanges.contains("CFFEX"));
+    }
+    auto source = factory(vendor)({});
+    const auto rows = source->member_positions("INE", "2026-01-05");
+    ASSERT_EQ(rows.size(), 2);
+    EXPECT_EQ(rows[0].exchange, "INE");
+    EXPECT_EQ(rows[0].product, "sc");
+    EXPECT_EQ(rows[0].contract, wh::Cell{});
+    EXPECT_EQ(rows[1].contract, wh::Cell{std::string("INE/sc/2026-05")});
+}
+
+TEST_F(Acquisition, FundamentalProviderRepliesCannotMixReportDatesOrTruncateAProduct)
+{
+    Vendor vendor;
+    for (const auto& api : {"fut_wsr", "fut_holding", "fut_inv_weekly"})
+        for (bool truncated : {false, true}) {
+            SCOPED_TRACE(std::string(api) + (truncated ? " truncated" : " foreign date"));
+            ac::Tushare source(
+                token,
+                std::make_shared<ac::Budget>(500),
+                {},
+                [&](const auto& body, auto stop) {
+                    auto reply = Json::parse(vendor(body, stop));
+                    if (Json::parse(body).at("api_name") == api) {
+                        auto& data = reply.at("data");
+                        if (truncated) {
+                            const int count = std::string(api) == "fut_wsr" ? 1000
+                                : std::string(api) == "fut_holding"         ? 2000
+                                                                            : 3000;
+                            const auto row = data.at("items").at(0);
+                            data["items"] = std::vector<Json>(count, row);
+                        } else {
+                            const auto& fields = data.at("fields");
+                            const auto at = std::find(fields.begin(), fields.end(), "trade_date");
+                            data.at("items").at(0).at(at - fields.begin()) = "20260106";
+                        }
+                    }
+                    return reply.dump();
+                });
+            if (std::string(api) == "fut_wsr")
+                EXPECT_THROW(source.warehouse_receipts("SHFE", "2026-01-05"), ac::SourceError);
+            else if (std::string(api) == "fut_holding")
+                EXPECT_THROW(source.member_positions("SHFE", "2026-01-05"), ac::SourceError);
+            else
+                EXPECT_THROW(source.inventory("SHFE", "2026-01-05"), ac::SourceError);
+        }
 }
 
 TEST_F(Acquisition, SettlementFeesKeepTheirUnitsAndCloseTodayFeesStayMissing)
@@ -1356,6 +1539,50 @@ TEST_F(Acquisition, AnUpdateBringsEachAcquiredTableToYesterday)
     EXPECT_EQ(requests[3].last_day(), "2027-01-04");
 }
 
+TEST_F(Acquisition, FundamentalUpdatesContinueOnlyTheTablesAlreadyAcquired)
+{
+    wh::Store research(wh::source_directory(root, "research"), "research");
+    auto writer = research.writer();
+    writer.put(
+        "calendar/SHFE/2026",
+        wh::rows(
+            std::vector<wh::CalendarDay>{
+                {"SHFE", "2026-01-05", true, {}},
+                {"SHFE", "2026-01-06", true, {}}
+            }));
+    writer.put(
+        "warehouse_receipts/SHFE/2026-01-05",
+        wh::rows(
+            std::vector<wh::WarehouseReceipt>{
+                {.exchange = "SHFE", .product = "rb", .day = "2026-01-05"}
+            }),
+        {"2026-01-05"});
+    writer.commit();
+    auto requests = ac::update_requests(root, "2026-01-06", "update-1");
+    ASSERT_EQ(requests.size(), 1);
+    EXPECT_EQ(requests[0].table(), ac::wire::TABLE_WAREHOUSE_RECEIPTS);
+    EXPECT_EQ(requests[0].first_day(), "2026-01-06");
+    EXPECT_EQ(requests[0].last_day(), "2026-01-06");
+    writer.put(
+        "member_positions/SHFE/2026-01-05",
+        wh::rows(
+            std::vector<wh::MemberPosition>{
+                {.exchange = "SHFE", .product = "rb", .day = "2026-01-05", .member = "测试会员"}
+            }),
+        {"2026-01-05"});
+    writer.put(
+        "inventory/SHFE/2026-01-05",
+        wh::rows(
+            std::vector<wh::Inventory>{{.exchange = "SHFE", .product = "rb", .day = "2026-01-05"}}),
+        {"2026-01-05"});
+    writer.commit();
+    requests = ac::update_requests(root, "2026-01-06", "update-2");
+    ASSERT_EQ(requests.size(), 3);
+    EXPECT_EQ(requests[1].table(), ac::wire::TABLE_MEMBER_POSITIONS);
+    EXPECT_EQ(requests[2].table(), ac::wire::TABLE_INVENTORY);
+    EXPECT_EQ(requests[2].exchanges(0), "SHFE");
+}
+
 TEST_F(Acquisition, AnUpdateBackfillsInteriorGapsAndFollowsRolledDominantMinutes)
 {
     wh::Store research(wh::source_directory(root, "research"), "research");
@@ -1566,8 +1793,8 @@ TEST_F(Acquisition, RemoteTasksAreSharedByRegisteredClientsAndSurviveDisconnect)
     query.mutable_get_acquisition_options();
     const auto catalog = call("reader", query);
     ASSERT_TRUE(catalog.has_get_acquisition_options()) << catalog.DebugString();
-    EXPECT_EQ(catalog.get_acquisition_options().tables_size(), 5);
-    EXPECT_EQ(catalog.get_acquisition_options().exchanges(0), "SHFE");
+    EXPECT_EQ(catalog.get_acquisition_options().tables_size(), 8);
+    EXPECT_EQ(catalog.get_acquisition_options().tables(0).exchanges(0), "SHFE");
     auto* start = query.mutable_start_acquisition();
     *start = request("remote");
     // Future dates exercise real admission and persistence without provider traffic.

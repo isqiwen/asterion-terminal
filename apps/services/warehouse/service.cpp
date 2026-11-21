@@ -188,7 +188,11 @@ wire::AcquisitionTasks update(const std::filesystem::path& directory, acquisitio
     const auto& tables = configured.tables();
     wire::AcquisitionTasks result;
     for (auto& request : acquisition::update_requests(directory, yesterday(), prefix))
-        if (std::find(tables.begin(), tables.end(), request.table()) != tables.end()
+        if (std::ranges::any_of(
+                tables,
+                [&](const auto& table) {
+                    return table.table() == request.table();
+                })
             && !tasks.busy(request.table()))
             *result.add_tasks() = tasks.submit(std::move(request));
     return result;

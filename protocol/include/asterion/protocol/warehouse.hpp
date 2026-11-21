@@ -5,7 +5,6 @@
 
 namespace asterion::protocol {
 
-// The warehouse's names: calendar, contracts, daily, minutes, settlement, price_ticks.
 std::string table_name(::warehouse::Table table);
 ::warehouse::Table table_of(std::string_view name);
 

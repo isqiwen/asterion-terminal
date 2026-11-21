@@ -78,6 +78,21 @@ std::string czce_code(const std::string& code)
     return code.substr(0, at) + code.substr(code.size() - 7, 3);
 }
 
+std::string upper(std::string value)
+{
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return std::toupper(c);
+    });
+    return value;
+}
+
+Cell reported_number(const Json& value)
+{
+    if (value == "")
+        return {};
+    return number(value.is_string() ? values::parse(text(value)) : value);
+}
+
 } // namespace
 
 std::string tushare_post(const std::string& body, std::stop_token stop)
@@ -204,7 +219,160 @@ bool Tushare::supports(std::string_view table, std::string_view exchange) const
 {
     require_exchange(exchange);
     return table == "calendar" || table == "contracts" || table == "daily" || table == "minutes"
+        || table == "member_positions" || (table == "warehouse_receipts" && exchange != "CFFEX")
+        || (table == "inventory" && (exchange == "SHFE" || exchange == "INE"))
         || (table == "settlement" && exchange != "GFEX");
+}
+
+std::set<std::string> Tushare::products(const std::string& exchange, const std::string& day)
+{
+    day_of(day);
+    std::set<std::string> result;
+    for (const auto& contract : contracts(exchange))
+        if (contract.list_date <= day && day <= contract.delist_date)
+            result.insert(contract.product);
+    return result;
+}
+
+// https://tushare.pro/document/2?doc_id=140
+std::vector<WarehouseReceipt>
+Tushare::warehouse_receipts(const std::string& exchange, const std::string& day)
+{
+    auto compact = day;
+    std::erase(compact, '-');
+    std::vector<WarehouseReceipt> rows;
+    // One product per request keeps large exchange reports below the API's 1000-row ceiling.
+    for (const auto& product : products(exchange, day)) {
+        const auto table = ask(
+            "fut_wsr",
+            {{"exchange", exchange}, {"trade_date", compact}, {"symbol", upper(product)}},
+            "trade_date,symbol,warehouse,wh_id,pre_vol,vol,vol_chg,area,year,grade,brand,place,pd,is_ct,unit,exchange,fore_vol",
+            1000);
+        const auto observed = observation_time();
+        for (const auto& item : table.rows) {
+            const auto at = [&](const char* field) -> const Json& {
+                return table.at(item, field);
+            };
+            if (at("trade_date") != compact || upper(text(at("symbol"))) != upper(product)
+                || at("exchange") != exchange)
+                throw SourceError(
+                    "invalid_data",
+                    "fut_wsr returned a foreign day, product or exchange");
+            rows.push_back(
+                {.exchange = exchange,
+                    .product = product,
+                    .day = day,
+                    .warehouse = label(at("warehouse")),
+                    .warehouse_id = label(at("wh_id")),
+                    .area = label(at("area")),
+                    .crop_year = label(at("year")),
+                    .grade = label(at("grade")),
+                    .brand = label(at("brand")),
+                    .origin = label(at("place")),
+                    .unit = label(at("unit")),
+                    .converted = label(at("is_ct")),
+                    .previous_volume = reported_number(at("pre_vol")),
+                    .volume = reported_number(at("vol")),
+                    .volume_change = reported_number(at("vol_chg")),
+                    .forecast_volume = reported_number(at("fore_vol")),
+                    .premium = reported_number(at("pd")),
+                    .observed_ms = observed});
+        }
+    }
+    return rows;
+}
+
+// https://tushare.pro/document/2?doc_id=139
+std::vector<MemberPosition>
+Tushare::member_positions(const std::string& exchange, const std::string& day)
+{
+    auto compact = day;
+    std::erase(compact, '-');
+    const auto reporting_exchange = exchange == "INE" ? "SHFE" : exchange;
+    std::vector<MemberPosition> rows;
+    for (const auto& product : products(exchange, day)) {
+        const auto table = ask(
+            "fut_holding",
+            {{"exchange", reporting_exchange}, {"trade_date", compact}, {"symbol", upper(product)}},
+            "trade_date,symbol,broker,vol,vol_chg,long_hld,long_chg,short_hld,short_chg,exchange",
+            2000);
+        const auto observed = observation_time();
+        std::set<std::pair<std::string, std::string>> seen;
+        for (const auto& item : table.rows) {
+            const auto at = [&](const char* field) -> const Json& {
+                return table.at(item, field);
+            };
+            const auto code = upper(text(at("symbol")));
+            const auto contract = contract_of(exchange, code, day);
+            const auto member = text(at("broker"));
+            if (at("trade_date") != compact
+                || (at("exchange") != exchange && at("exchange") != reporting_exchange)
+                || (contract ? product_of(*contract) != product : code != upper(product))
+                || !seen.emplace(code, member).second)
+                throw SourceError(
+                    "invalid_data",
+                    "fut_holding returned inconsistent member positions");
+            rows.push_back(
+                {.exchange = exchange,
+                    .product = product,
+                    .contract = contract ? Cell{*contract} : Cell{},
+                    .day = day,
+                    .member = member,
+                    .volume = reported_number(at("vol")),
+                    .volume_change = reported_number(at("vol_chg")),
+                    .long_position = reported_number(at("long_hld")),
+                    .long_change = reported_number(at("long_chg")),
+                    .short_position = reported_number(at("short_hld")),
+                    .short_change = reported_number(at("short_chg")),
+                    .observed_ms = observed});
+        }
+    }
+    return rows;
+}
+
+// https://tushare.pro/document/2?doc_id=495
+std::vector<Inventory> Tushare::inventory(const std::string& exchange, const std::string& day)
+{
+    auto compact = day;
+    std::erase(compact, '-');
+    std::vector<Inventory> rows;
+    for (const auto& product : products(exchange, day)) {
+        const auto table = ask(
+            "fut_inv_weekly",
+            {{"trade_date", compact}, {"ts_code", upper(product)}},
+            "ts_code,trade_date,exchange,area,warehouse,grade,pre_total,pre_futures,cur_total,cur_futures,chg_total,chg_futures,pre_capacity,cur_capacity,chg_capacity,unit",
+            3000);
+        const auto observed = observation_time();
+        for (const auto& item : table.rows) {
+            const auto at = [&](const char* field) -> const Json& {
+                return table.at(item, field);
+            };
+            if (at("trade_date") != compact || upper(text(at("ts_code"))) != upper(product)
+                || (at("exchange") != exchange && !(exchange == "INE" && at("exchange") == "SHFE")))
+                throw SourceError(
+                    "invalid_data",
+                    "fut_inv_weekly returned a foreign day, product or exchange");
+            rows.push_back(
+                {.exchange = exchange,
+                    .product = product,
+                    .day = day,
+                    .area = label(at("area")),
+                    .warehouse = label(at("warehouse")),
+                    .grade = label(at("grade")),
+                    .unit = label(at("unit")),
+                    .previous_total = reported_number(at("pre_total")),
+                    .previous_receipts = reported_number(at("pre_futures")),
+                    .total = reported_number(at("cur_total")),
+                    .receipts = reported_number(at("cur_futures")),
+                    .total_change = reported_number(at("chg_total")),
+                    .receipts_change = reported_number(at("chg_futures")),
+                    .previous_capacity = reported_number(at("pre_capacity")),
+                    .capacity = reported_number(at("cur_capacity")),
+                    .capacity_change = reported_number(at("chg_capacity")),
+                    .observed_ms = observed});
+        }
+    }
+    return rows;
 }
 
 std::vector<Settlement> Tushare::settlement(const std::string& exchange, const std::string& day)

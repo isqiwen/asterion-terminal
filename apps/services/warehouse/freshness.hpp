@@ -21,8 +21,7 @@ OpenDays open_days(const Store&, const Version&, const std::string& through);
 std::filesystem::path empty_file(const std::filesystem::path& directory, const std::string& table);
 std::set<std::string> empty_keys(const std::filesystem::path& directory, const std::string& table);
 
-// What one exchange holds of a day-partitioned table (daily, settlement,
-// price_ticks), or one contract (EXCHANGE/product/YYYY-MM) of minutes.
+// Holdings belong to an exchange, or to one delivery contract for minutes.
 struct Holding
 {
     std::string last;

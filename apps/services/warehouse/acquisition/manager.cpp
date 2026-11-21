@@ -89,10 +89,17 @@ constexpr const char* all_exchanges[] = {"SHFE", "INE", "DCE", "CZCE", "CFFEX", 
 wire::AcquisitionOptions Manager::options() const
 {
     wire::AcquisitionOptions result;
-    std::set<std::string> exchanges;
     for (const auto* name :
-        {"daily", "minutes", "settlement", "price_ticks", "calendar", "contracts"}) {
-        bool offered = false;
+        {"daily",
+            "minutes",
+            "settlement",
+            "price_ticks",
+            "calendar",
+            "contracts",
+            "warehouse_receipts",
+            "member_positions",
+            "inventory"}) {
+        std::set<std::string> exchanges;
         for (const auto& provider : warehouse::sources_of(name)) {
             if (!sources_.contains(provider))
                 continue;
@@ -100,15 +107,16 @@ wire::AcquisitionOptions Manager::options() const
             for (const auto* exchange : all_exchanges)
                 if (source->supports(name, exchange)) {
                     exchanges.insert(exchange);
-                    offered = true;
                 }
         }
-        if (offered)
-            result.add_tables(protocol::table_of(name));
+        if (!exchanges.empty()) {
+            auto* item = result.add_tables();
+            item->set_table(protocol::table_of(name));
+            for (const auto* exchange : all_exchanges)
+                if (exchanges.contains(exchange))
+                    item->add_exchanges(exchange);
+        }
     }
-    for (const auto* exchange : all_exchanges)
-        if (exchanges.contains(exchange))
-            result.add_exchanges(exchange);
     return result;
 }
 
@@ -257,6 +265,9 @@ void Manager::work(Active& active, const wire::StartAcquisition& request)
             ? std::vector<std::string>{"calendar", "contracts", "settlement", "daily"}
             : target == "minutes"
             ? std::vector<std::string>{"calendar", "contracts", "settlement", "daily", "minutes"}
+            : target == "warehouse_receipts" || target == "member_positions"
+                || target == "inventory"
+            ? std::vector<std::string>{"calendar", "contracts", target}
             : std::vector<std::string>{target};
         // Provider trading dates use Beijing's civil day, independent of host TZ.
         const auto today = std::chrono::floor<std::chrono::days>(
@@ -855,7 +866,11 @@ void Manager::run(
                     const auto fetched = name == "minutes" ? rows(source.minutes(contract, day))
                         : name == "settlement"             ? rows(source.settlement(exchange, day))
                         : name == "price_ticks"            ? rows(source.price_ticks(exchange, day))
-                                                           : rows(source.daily(exchange, day));
+                        : name == "warehouse_receipts"
+                        ? rows(source.warehouse_receipts(exchange, day))
+                        : name == "member_positions" ? rows(source.member_positions(exchange, day))
+                        : name == "inventory"        ? rows(source.inventory(exchange, day))
+                                                     : rows(source.daily(exchange, day));
                     check_stop(stop);
                     if (fetched.empty()) {
                         empty.insert(key);

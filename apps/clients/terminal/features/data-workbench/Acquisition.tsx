@@ -40,9 +40,10 @@ export function Acquisition({
   started: () => void;
 }) {
   const minutes = table === Table.MINUTES;
+  const supported = options.tables.find(item => item.table === table)?.exchanges ?? [];
   const offeredExchanges = [
-    ...exchanges.filter(item => options.exchanges.includes(item)),
-    ...options.exchanges.filter(item => !exchanges.includes(item)),
+    ...exchanges.filter(item => supported.includes(item)),
+    ...supported.filter(item => !exchanges.includes(item)),
   ];
   const initialExchanges = preset.exchanges?.filter(item => offeredExchanges.includes(item));
   const [chosenExchanges, setExchanges] = useState(

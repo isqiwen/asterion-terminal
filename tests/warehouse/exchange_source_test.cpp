@@ -378,7 +378,12 @@ TEST_F(ExchangeSources, PriceTickTasksDiscoverAndPublishOnlyObservedTradingDays)
     const auto options = manager.options();
     const auto& tables = options.tables();
     EXPECT_NE(
-        std::find(tables.begin(), tables.end(), ::warehouse::TABLE_PRICE_TICKS),
+        std::find_if(
+            tables.begin(),
+            tables.end(),
+            [](const auto& table) {
+                return table.table() == ::warehouse::TABLE_PRICE_TICKS;
+            }),
         tables.end());
     ac::wire::StartAcquisition request;
     request.set_id("ticks");

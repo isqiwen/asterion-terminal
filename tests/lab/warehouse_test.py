@@ -20,6 +20,7 @@ sys.path[:0] = [str(source / 'apps/services/lab'), str(build / 'generated-python
 from asterion.lab_pb2 import Request
 from asterion.common_pb2 import Period
 from asterion_lab.warehouse_client import Client, Dataset, Endpoint, WarehouseError
+from asterion_lab.warehouse import SCHEMAS
 from asterion_lab.service import Service
 from asterion_lab.runs import Runs
 from warehouse_installation import warehouse_host
@@ -101,6 +102,32 @@ class RemoteResearch(unittest.TestCase):
         # A new cache also downloads the old version after a new one becomes current.
         cold = Dataset(self.node / 'cold-lab', history=self.warehouse)
         self.assertEqual(cold.query(cold.version(identity), sql, ('price_ticks',)), expected)
+
+    def test_fundamental_reports_keep_observation_times_and_fixed_date_scopes_over_tls(self):
+        for table, value in (('warehouse_receipts', 'volume'),
+                             ('member_positions', 'long_position'), ('inventory', 'total')):
+            with self.subTest(table=table):
+                row = dict.fromkeys(SCHEMAS[table])
+                row.update(exchange='SHFE', product='rb', day='2026-01-05',
+                           observed_ms=1795248000000, **{value: Decimal('353.123456')})
+                writer = Warehouse(self.data).writer()
+                writer.put_rows(f'{table}/SHFE/2026-01-05', table, [row], days=['2026-01-05'])
+                writer.put_rows(f'{table}/SHFE/2026-01-06', table, [{**row, 'day': '2026-01-06'}],
+                                days=['2026-01-06'])
+                original = self.dataset.version(writer.commit().identity)
+                sql = f'select product, {value}, published_ms, observed_ms from {table}'
+                scope = dict(exchange='SHFE', begin='2026-01-05', end='2026-01-05')
+                expected = [('rb', Decimal('353.123456'), None, 1795248000000)]
+                self.assertEqual(self.dataset.query(original, sql, (table,), **scope), expected)
+                frame = self.dataset.read(original, f'{table}/SHFE/2026-01-05')
+                self.assertEqual(frame.schema, SCHEMAS[table])
+                writer.put_rows(f'{table}/SHFE/2026-01-05', table,
+                                [{**row, value: Decimal('400'), 'observed_ms': 1795334400000}],
+                                days=['2026-01-05'])
+                changed = self.dataset.version(writer.commit().identity)
+                self.assertEqual(self.dataset.query(original, sql, (table,), **scope), expected)
+                self.assertEqual(self.dataset.query(changed, sql, (table,), **scope),
+                                 [('rb', Decimal('400'), None, 1795334400000)])
 
     def test_research_never_falls_back_to_a_local_warehouse(self):
         warehouse(self.lab)

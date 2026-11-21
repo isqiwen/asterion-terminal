@@ -266,10 +266,10 @@ function DatasetBody({ context }: { context: TerminalContext }) {
   const minutes = kind === "minutes";
   const table = minutes ? Table.MINUTES : Table.DAILY;
   const coverage = state.value?.coverage;
-  const offered = options.value?.tables ?? [];
+  const offered = options.value?.tables.map(item => item.table) ?? [];
   const offeredExchanges = useMemo(
-    () => options.value?.exchanges ?? [],
-    [options.value?.exchanges],
+    () => options.value?.tables.find(item => item.table === table)?.exchanges ?? [],
+    [options.value?.tables, table],
   );
   const acquires = !viewed && offered.includes(table);
   const locale = getLocale();
