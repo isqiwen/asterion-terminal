@@ -365,8 +365,11 @@
 }
 .trading-switch[data-state="on"] {
   border-color: color-mix(in oklab, var(--success) 55%, transparent);
-  background: color-mix(in oklab, var(--success) 12%, transparent);
-  color: var(--success);
+  background: color-mix(in oklab, var(--success) 10%, transparent);
+  color: var(--text-strong);
+}
+.trading-switch[data-state="on"]::before {
+  background: var(--success);
 }
 .trading-switch[data-state="waiting"] {
   border-color: color-mix(in oklab, var(--warning) 55%, transparent);

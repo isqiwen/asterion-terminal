@@ -54,6 +54,11 @@ const show = (
   );
 };
 
+// An indicator by its whole text: its light is an element of its own.
+const matches = (text: string) => (_: string, element: Element | null) =>
+  element?.matches(".status-item") === true && element.textContent === text;
+const indicator = (text: string) => screen.getByText(matches(text));
+
 test("indicators follow the sidebar: market, research, warehouse, then each trading connection", () => {
   const snapshot = readySnapshot();
   snapshot.trading_connections = [
@@ -73,12 +78,12 @@ test("indicators follow the sidebar: market, research, warehouse, then each trad
     "● 数据 连接中",
     "● 交易·simnow 连接中",
   ]);
-  expect(screen.getByText("● 研究").dataset.tone).toBe("ok");
+  expect(indicator("● 研究").dataset.tone).toBe("ok");
   expect(screen.getByRole("button", { name: "● 交易·simnow 连接中" })).toBeTruthy();
 
   snapshot.lab = { ...snapshot.lab!, state: "restarting" };
   view.rerender(show(structuredClone(snapshot)));
-  expect(screen.getByText("● 研究 重启中").dataset.tone).toBe("danger");
+  expect(indicator("● 研究 重启中").dataset.tone).toBe("danger");
 });
 
 test("an unset Market opens its settings; no trading connection says so", () => {
@@ -96,51 +101,51 @@ test("the market indicator shows the service's own link to the broker and why it
     ({ online, error, board: { feed: { state } } }) as unknown as MarketView;
   vi.mocked(useMarket).mockReturnValue(market(FeedState.FAILED));
   const view = render(show());
-  expect(screen.getByText("● 行情 柜台未连接").dataset.tone).toBe("danger");
+  expect(indicator("● 行情 柜台未连接").dataset.tone).toBe("danger");
 
   vi.mocked(useMarket).mockReturnValue(market(FeedState.LOGGING_IN));
   view.rerender(show());
-  expect(screen.getByText("● 行情 登录柜台中")).toBeTruthy();
+  expect(indicator("● 行情 登录柜台中")).toBeTruthy();
 
   vi.mocked(useMarket).mockReturnValue(market(FeedState.CONNECTING));
   view.rerender(show());
-  expect(screen.getByText("● 行情 连接柜台中")).toBeTruthy();
+  expect(indicator("● 行情 连接柜台中")).toBeTruthy();
 
   vi.mocked(useMarket).mockReturnValue(market(FeedState.RECONNECTING));
   view.rerender(show());
-  expect(screen.getByText("● 行情 柜台重连中")).toBeTruthy();
+  expect(indicator("● 行情 柜台重连中")).toBeTruthy();
 
   const timeout = market(FeedState.FAILED);
   timeout.board.feed!.error = "CTP market front connection timed out";
   vi.mocked(useMarket).mockReturnValue(timeout);
   view.rerender(show());
-  expect(screen.getByText("● 行情 柜台未连接").title).toContain("超过 30 秒未响应");
+  expect(indicator("● 行情 柜台未连接").title).toContain("超过 30 秒未响应");
 
   const inactive = market(FeedState.FAILED);
   inactive.board.feed!.ctpError = 8;
   vi.mocked(useMarket).mockReturnValue(inactive);
   view.rerender(show());
-  expect(screen.getByText("● 行情 柜台未连接").title).toContain("柜台前置未就绪");
+  expect(indicator("● 行情 柜台未连接").title).toContain("柜台前置未就绪");
 
   vi.mocked(useMarket).mockReturnValue(market(FeedState.CONNECTED));
   view.rerender(show());
-  expect(screen.getByText("● 行情").dataset.tone).toBe("ok");
+  expect(indicator("● 行情").dataset.tone).toBe("ok");
 
   vi.mocked(useMarket).mockReturnValue(market(FeedState.CONNECTED, false, "connection refused"));
   view.rerender(show());
-  expect(screen.getByText("● 行情 中断").title).toBe("connection refused");
+  expect(indicator("● 行情 中断").title).toBe("connection refused");
   vi.mocked(useMarket).mockReturnValue(null);
 });
 
 test("the warehouse indicator reads the service and says why it failed", async () => {
   vi.mocked(warehouseData).mockResolvedValueOnce({} as never);
   const view = render(show());
-  await waitFor(() => expect(screen.getByText("● 数据").dataset.tone).toBe("ok"));
+  await waitFor(() => expect(indicator("● 数据").dataset.tone).toBe("ok"));
   view.unmount();
 
   vi.mocked(warehouseData).mockRejectedValueOnce(new Error("connection refused"));
   render(show());
-  await waitFor(() => expect(screen.getByText("● 数据 中断").title).toBe("connection refused"));
+  await waitFor(() => expect(indicator("● 数据 中断").title).toBe("connection refused"));
 });
 
 test("failed initial connections have the same danger state for Market and Warehouse", async () => {
@@ -151,19 +156,19 @@ test("failed initial connections have the same danger state for Market and Wareh
     new BackendError("conflict", "warehouse protocol differs from this Terminal"),
   );
   const view = render(show());
-  expect(screen.getByText("● 行情 中断").dataset.tone).toBe("danger");
-  expect(screen.getByText("● 行情 中断").title).toBe(
+  expect(indicator("● 行情 中断").dataset.tone).toBe("danger");
+  expect(indicator("● 行情 中断").title).toBe(
     "行情服务与 Terminal 的通信协议不一致，请将两边更新到同一版本。",
   );
-  await waitFor(() => expect(screen.getByText("● 数据 中断").dataset.tone).toBe("danger"));
-  expect(screen.getByText("● 数据 中断").title).toBe(
+  await waitFor(() => expect(indicator("● 数据 中断").dataset.tone).toBe("danger"));
+  expect(indicator("● 数据 中断").title).toBe(
     "数据服务与 Terminal 的通信协议不一致，请将两边更新到同一版本。",
   );
 
   vi.mocked(useMarketOpenError).mockReturnValue("");
   view.rerender(show());
-  expect(screen.getByText("● 行情 连接中").dataset.tone).toBeUndefined();
-  expect(screen.getByText("● 行情 连接中").title).toBe("");
+  expect(indicator("● 行情 连接中").dataset.tone).toBeUndefined();
+  expect(indicator("● 行情 连接中").title).toBe("");
 });
 
 test("an unset Warehouse opens its settings", () => {

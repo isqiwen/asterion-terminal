@@ -509,6 +509,9 @@ tbody tr:hover {
   min-block-size: 26px;
 }
 .status-bar [data-tone="ok"] {
+  color: var(--text);
+}
+.status-bar [data-tone="ok"] .status-dot {
   color: var(--success);
 }
 .status-bar [data-tone="danger"] {
@@ -519,6 +522,10 @@ tbody tr:hover {
 }
 .status-bar > :where(.status-item) {
   flex-shrink: 0;
+  gap: 0;
+}
+.status-dot {
+  margin-right: var(--space-1);
 }
 .status-bar > :where(.status-task) {
   gap: var(--space-2);
@@ -845,8 +852,11 @@ h2,
   background: currentcolor;
 }
 .status-badge[data-tone="ok"] {
-  color: var(--success);
+  color: var(--text);
   border-color: color-mix(in oklab, var(--success) 38%, transparent);
+}
+.status-badge[data-tone="ok"]::before {
+  background: var(--success);
 }
 .status-badge[data-tone="attention"] {
   color: var(--warning);

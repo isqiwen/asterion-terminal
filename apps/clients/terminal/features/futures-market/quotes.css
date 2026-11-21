@@ -493,6 +493,11 @@
   white-space: nowrap;
 }
 .market-phase[data-live] {
+  color: var(--text);
+}
+.market-phase[data-live]::before {
+  content: "●" / "";
+  margin-right: var(--space-1);
   color: var(--success);
 }
 

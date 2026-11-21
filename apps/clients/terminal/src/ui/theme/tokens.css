@@ -41,8 +41,9 @@
   --accent-line: color-mix(in oklab, var(--accent) 46%, transparent);
   --accent-glow: 0 0 0 1px rgb(56 214 242 / 35%), 0 0 14px rgb(56 214 242 / 18%);
 
-  /* States. Red and green are kept for prices, sides and profit. */
-  --success: #8cc8dc;
+  /* States. A healthy state is a green light beside neutral text, so that
+     coloured figures always mean a price, a side or a profit. */
+  --success: #3fcf6e;
   --warning: #e5b45a;
   --danger: #ff8a3d;
   --danger-surface: color-mix(in oklab, var(--danger) 10%, transparent);

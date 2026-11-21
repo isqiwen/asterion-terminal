@@ -8,7 +8,12 @@ import { FeedState, Subscription } from "../../generated/asterion/market_pb";
 import { BrokerState } from "../../generated/asterion/trading_pb";
 
 const th = (key: string, values?: MessageValues) => translate("host", key, values);
-const label = (name: string, state: string) => `● ${name}${state && ` ${th(state)}`}`;
+const label = (name: string, state: string) => (
+  <>
+    <span className="status-dot">●</span> {name}
+    {state && ` ${th(state)}`}
+  </>
+);
 const lowDiskBytes = 5n * 1024n ** 3n;
 const formatGib = (bytes: bigint) => {
   const gib = Number(bytes) / 1024 ** 3;
