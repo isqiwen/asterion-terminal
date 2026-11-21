@@ -4,6 +4,8 @@ from asterion_strategy import Strategy
 from strategies._common import lots
 
 
+# Moskowitz, Ooi & Pedersen (2012), "Time Series Momentum": https://doi.org/10.1016/j.jfineco.2011.11.003
+# Adaptation: cumulative futures-price return mapped to fixed lots.
 class Momentum(Strategy):
     """Long while the close is above the close `lookback` bars earlier, short
     while it is below."""

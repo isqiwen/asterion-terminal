@@ -14,6 +14,7 @@ def upside_volatility(close, window: int = 20):
     return np.sqrt(_apply(np.maximum(_returns(close), 0) ** 2, window, lambda x: x.mean(axis=1)))
 
 
+# Signal source: Fernandez-Perez et al. (2018), "The Skewness of Commodity Futures Returns": https://doi.org/10.1016/j.jbankfin.2017.06.015
 def realized_skewness(close, window: int = 60):
     """Standardized third central moment of simple returns; needs window + 1 bars."""
     def skew(x):
@@ -46,12 +47,15 @@ def semivariance_balance(close, window: int = 20):
     return _ratio(signed, total, neutral=0.0)
 
 
+# Parkinson (1980), "The Extreme Value Method for Estimating the Variance of the Rate of Return": https://doi.org/10.1086/296071
 def parkinson_volatility(high, low, window: int = 20):
     """Parkinson high-low log-range volatility; needs window bars."""
     variance = (_log(high) - _log(low)) ** 2 / (4 * np.log(2))
     return np.sqrt(_apply(variance, window, lambda x: x.mean(axis=1)))
 
 
+# Garman & Klass (1980), "On the Estimation of Security Price Volatilities from Historical Data": https://doi.org/10.1086/296072
+# Uses the paper's simplified range/open-close estimator.
 def garman_klass_volatility(open, high, low, close, window: int = 20):
     """Garman-Klass OHLC volatility, excluding overnight gaps; needs window bars."""
     variance = 0.5 * (_log(high) - _log(low)) ** 2 \
@@ -59,6 +63,8 @@ def garman_klass_volatility(open, high, low, close, window: int = 20):
     return np.sqrt(_apply(variance, window, lambda x: x.mean(axis=1)))
 
 
+# Rogers & Satchell (1991), "Estimating Variance From High, Low and Closing Prices": https://doi.org/10.1214/aoap/1177005835
+# Uses the continuous-path base estimator.
 def rogers_satchell_volatility(open, high, low, close, window: int = 20):
     """Rogers-Satchell drift-independent OHLC volatility; needs window bars."""
     log_high, log_low, log_open, log_close = _log(high), _log(low), _log(open), _log(close)

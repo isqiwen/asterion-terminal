@@ -6,6 +6,8 @@ from factors.price import volatility as _volatility
 from factors.technical import price_zscore as _price_zscore
 
 
+# Koijen et al. (2018), "Carry": https://doi.org/10.1016/j.jfineco.2017.11.002
+# Adaptation: annualized log carry between dominant and next-dominant delivery months.
 def roll_yield_carry(roll_yield, window: int = 5):
     """Mean annualized roll yield over the last `window` bars."""
     if window < 1:

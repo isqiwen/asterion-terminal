@@ -9,6 +9,7 @@ from factors.technical import efficiency_ratio, price_zscore, rsi
 from strategies._common import SIDES, lots
 
 
+# Linear control for RandomFeatureForecast, with the same inputs, labels and rolling fit.
 class RidgeForecast(Strategy):
     """Linear ridge on six price features, predicting next-open to next-rebalance-open returns.
 
@@ -73,6 +74,8 @@ class RidgeForecast(Strategy):
         ctx.target(bar.symbol, lots(side, p))
 
 
+# Kelly, Malamud & Zhou (2024), "The Virtue of Complexity in Return Prediction", Eq. (20): https://doi.org/10.1111/jofi.13298
+# Adaptation: six futures-price features, next-open holding returns and an unpenalized intercept.
 class RandomFeatureForecast(RidgeForecast):
     """Random Fourier features + ridge (Kelly-Malamud-Zhou, JF 2024), adapted to futures prices.
 

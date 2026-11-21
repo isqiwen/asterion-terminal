@@ -55,6 +55,8 @@ def momentum_strength(close, window: int = 60):
     return _ratio(mean, error)
 
 
+# Goulding, Harvey & Mazzoleni (2023), "Momentum Turning Points", Eq. (11): https://doi.org/10.1016/j.jfineco.2023.05.007
+# Adaptation: static blending of futures-bar mean-return signs with configurable windows.
 def blended_momentum(close, fast: int = 21, slow: int = 252, fast_share: float = 0.5):
     """Goulding-Harvey-Mazzoleni (2023) slow/fast sign blend; needs slow + 1 bars."""
     if not 0 < fast < slow or not 0 <= fast_share <= 1:

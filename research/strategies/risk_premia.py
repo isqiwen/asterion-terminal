@@ -53,6 +53,8 @@ class _Ranked(AlignedPortfolio):
         return target
 
 
+# Koijen et al. (2018), "Carry": https://doi.org/10.1016/j.jfineco.2017.11.002
+# Adaptation: dominant/next-dominant log carry, configurable tails and inverse-volatility side weights.
 class CarryRank(_Ranked):
     """Long high annualized roll yield, short low carry; inverse-volatility weights per tail.
 
@@ -66,6 +68,8 @@ class CarryRank(_Ranked):
                 for s, row in data.items()}
 
 
+# Fernandez-Perez et al. (2018), "The Skewness of Commodity Futures Returns": https://doi.org/10.1016/j.jbankfin.2017.06.015
+# Adaptation: configurable return window and tail count, with inverse-volatility side weights.
 class SkewnessRank(_Ranked):
     """Long negative-skew futures, short positive-skew futures (Fernandez-Perez et al., 2018)."""
     params = {**_Ranked.params, "window": 126}
@@ -109,6 +113,8 @@ class DualMomentum(_Ranked):
         return {s: momentum(row["close"], self.params["window"])[-1] for s, row in data.items()}
 
 
+# Carry source: Koijen et al. (2018), "Carry": https://doi.org/10.1016/j.jfineco.2017.11.002
+# Project-specific blend of momentum and carry ranks, using dominant/next-dominant log carry.
 class TrendCarryRank(_Ranked):
     """Blend cross-sectional ranks of momentum and actual roll yield, then hold the two tails."""
     params = {**_Ranked.params, "trend_share": 0.5}

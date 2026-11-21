@@ -5,6 +5,8 @@ from factors.price import blended_momentum, momentum, volatility
 from strategies._portfolio import AlignedPortfolio, risk_weights
 
 
+# Moskowitz, Ooi & Pedersen (2012), "Time Series Momentum": https://doi.org/10.1016/j.jfineco.2011.11.003
+# Adaptation: roll-adjusted futures returns, sample volatility and explicit per-symbol/gross caps.
 class VolatilityTargetMomentum(AlignedPortfolio):
     """Time-series momentum scaled by trailing volatility (Moskowitz-Ooi-Pedersen, 2012).
 
@@ -29,6 +31,8 @@ class VolatilityTargetMomentum(AlignedPortfolio):
         return risk_weights(signals, risks, p["gross_weight"], p["target_volatility"], p["max_weight"])
 
 
+# Goulding, Harvey & Mazzoleni (2023), "Momentum Turning Points", Eq. (11): https://doi.org/10.1016/j.jfineco.2023.05.007
+# Adaptation: the static fast/slow blend on futures bars, scaled by a fixed per-symbol weight.
 class TurningPointMomentum(AlignedPortfolio):
     """Static slow/fast sign blend from Momentum Turning Points (JFE 2023), adapted to futures bars.
 

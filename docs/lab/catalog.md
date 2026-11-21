@@ -82,6 +82,9 @@ RSI 和 ATR 使用有限窗口的简单统计，便于研究评价与交易短�
 
 | 论文 | 对应实现 | 适配范围 |
 | --- | --- | --- |
+| Parkinson，[The Extreme Value Method for Estimating the Variance of the Rate of Return](https://doi.org/10.1086/296071)，Journal of Business 1980 | `parkinson_volatility` | 高低价对数范围估计，按 K 线窗口平均方差后开方 |
+| Garman、Klass，[On the Estimation of Security Price Volatilities from Historical Data](https://doi.org/10.1086/296072)，Journal of Business 1980 | `garman_klass_volatility` | 使用高低价范围与开收盘收益的简化二次估计式 |
+| Rogers、Satchell，[Estimating Variance From High, Low and Closing Prices](https://doi.org/10.1214/aoap/1177005835)，Annals of Applied Probability 1991 | `rogers_satchell_volatility` | 使用允许非零漂移的基础估计式，按 K 线窗口平均方差后开方 |
 | Moskowitz、Ooi、Pedersen，[Time Series Momentum](https://doi.org/10.1016/j.jfineco.2011.11.003)，JFE 2012 | `Momentum`、`VolatilityTargetMomentum` | 使用本项目当时复权的期货收盘收益、有限窗口样本波动和显式权重上限；原研究使用多资产期货和远期样本 |
 | Koijen 等，[Carry](https://doi.org/10.1016/j.jfineco.2017.11.002)，JFE 2018 | `CarryRank`、`TrendCarryRank` | 使用主力与后续次主力交割月的年化对数价差；合约选择与数据缺测规则见 Lab |
 | Fernandez-Perez 等，[The Skewness of Commodity Futures Returns](https://doi.org/10.1016/j.jbankfin.2017.06.015)，JBF 2018 | `realized_skewness`、`SkewnessRank` | 保留多负偏度、空正偏度方向，使用可调窗口、尾部数量及侧内逆波动权重 |
