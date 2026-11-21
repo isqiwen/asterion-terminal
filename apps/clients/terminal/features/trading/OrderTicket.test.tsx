@@ -155,9 +155,13 @@ test("an unavailable requested contract is not replaced by the first allowed one
   );
   const contract = screen.getByRole("combobox", { name: "委托合约" }) as HTMLSelectElement;
   expect(contract.value).toBe("");
-  expect(contract.textContent).toContain("合约 SHFE.rb2701 不在此账户的可交易合约中");
+  expect(screen.getByRole("alert").textContent).toContain(
+    "合约 SHFE.rb2701 不在此账户的可交易合约中",
+  );
   fireEvent.change(screen.getByRole("textbox", { name: "限价" }), { target: { value: "3000" } });
-  fireEvent.click(screen.getByRole("button", { name: /买入/ }));
+  const buy = screen.getByRole("button", { name: /买入/ }) as HTMLButtonElement;
+  expect(buy.disabled).toBe(true);
+  fireEvent.click(buy);
   expect(run).not.toHaveBeenCalled();
 });
 
@@ -236,4 +240,91 @@ test("the ticket shows how many lots may open and how many each position may clo
   );
   // The contract limit leaves 4 of 6; a working close of today's lots takes one long lot.
   expect(screen.getByLabelText("可开与可平手数").textContent).toBe("可开 4 · 可平多 1 · 可平空 0");
+});
+
+test("a contract chosen beside the ticket moves it, clears the price and names it on the buttons", () => {
+  const record = create(AccountSchema, {
+    id: "sim",
+    session: {
+      policyRevision: "p1",
+      policy: {
+        contracts: [
+          { instrument: { exchange: "SHFE", symbol: "rb2610" } },
+          { instrument: { exchange: "DCE", symbol: "i2701" } },
+        ],
+        limits: { maxOrderLots: { text: "5" } },
+      },
+    },
+  });
+  const run = vi.fn(async () => true);
+  const onContract = vi.fn();
+  const props = {
+    record,
+    snapshot: null,
+    busy: false,
+    accountName: "sim",
+    confirm: false,
+    run,
+    onSent: () => {},
+    onContract,
+  };
+  const page = render(<OrderTicket {...props} initialContract="SHFE.rb2610" />);
+  const price = screen.getByRole("textbox", { name: "限价" }) as HTMLInputElement;
+  fireEvent.change(price, { target: { value: "3500" } });
+  expect(screen.getByRole("button", { name: "买入 rb2610 · sim" })).toBeTruthy();
+
+  page.rerender(<OrderTicket {...props} initialContract="DCE.i2701" />);
+  expect(price.value).toBe("");
+  expect(screen.getByRole("button", { name: "买入 i2701 · sim" })).toBeTruthy();
+  expect(onContract).toHaveBeenLastCalledWith("DCE.i2701");
+
+  // A contract the account may not trade leaves nothing to send.
+  page.rerender(<OrderTicket {...props} initialContract="CZCE.MA701" />);
+  fireEvent.change(price, { target: { value: "2400" } });
+  fireEvent.click(screen.getByRole("button", { name: "买入 sim" }));
+  expect(run).not.toHaveBeenCalled();
+});
+
+test("a split order still going out keeps its remaining lots off another contract", async () => {
+  const record = create(AccountSchema, {
+    id: "sim",
+    session: {
+      policyRevision: "p1",
+      policy: {
+        contracts: [
+          { instrument: { exchange: "SHFE", symbol: "rb2610" } },
+          { instrument: { exchange: "DCE", symbol: "i2701" } },
+        ],
+        limits: { maxOrderLots: { text: "2" } },
+      },
+    },
+  });
+  let release = (_: boolean) => {};
+  const run = vi
+    .fn()
+    .mockImplementationOnce(() => new Promise<boolean>(done => (release = done)))
+    .mockResolvedValue(false);
+  const preset = {
+    contract: "SHFE.rb2610",
+    offset: "close" as const,
+    quantity: "3",
+    side: Side.SELL,
+  };
+  const props = {
+    record,
+    snapshot: null,
+    busy: false,
+    accountName: "sim",
+    confirm: false,
+    run,
+    onSent: () => {},
+    preset,
+  };
+  const page = render(<OrderTicket {...props} initialContract="SHFE.rb2610" />);
+  fireEvent.change(screen.getByRole("textbox", { name: "限价" }), { target: { value: "3500" } });
+  fireEvent.click(screen.getByRole("button", { name: "卖出 rb2610 · sim" }));
+  page.rerender(<OrderTicket {...props} initialContract="DCE.i2701" />);
+  await act(async () => release(true));
+  await waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+  expect((screen.getByRole("textbox", { name: "委托手数" }) as HTMLInputElement).value).toBe("3");
 });

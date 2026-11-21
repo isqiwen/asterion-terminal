@@ -67,8 +67,9 @@ button.primary {
   color: #041016;
   font-weight: 600;
 }
+/* Opaque: what lies beneath must not lower the red text's contrast. */
 button.danger {
-  background: var(--danger-surface);
+  background: color-mix(in oklab, var(--danger) 10%, var(--canvas));
   border-color: color-mix(in oklab, var(--danger) 55%, transparent);
   color: var(--danger);
 }
@@ -618,7 +619,7 @@ button.primary:enabled:not([aria-disabled="true"]):hover {
 }
 button.danger-quiet:enabled:not([aria-disabled="true"]):hover,
 button.danger:enabled:not([aria-disabled="true"]):hover {
-  background: color-mix(in oklab, var(--danger) 16%, transparent);
+  background: color-mix(in oklab, var(--danger) 16%, var(--canvas));
   border-color: var(--danger);
   color: var(--danger);
 }

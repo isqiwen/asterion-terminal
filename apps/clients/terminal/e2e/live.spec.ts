@@ -71,7 +71,7 @@ test(
 
     await order.getByLabel("委托手数", { exact: true }).fill("1");
     await order.getByLabel("限价", { exact: true }).fill("3500.3");
-    await order.getByRole("button", { name: "买入 fixture", exact: true }).click();
+    await order.getByRole("button", { name: "买入 rb2610 · fixture", exact: true }).click();
     // A refused order says why in the account panel, where it was sent from.
     const refused = panel.locator(".action-error");
     await expect(refused).toBeVisible();
@@ -79,10 +79,10 @@ test(
       panel.getByRole("table", { includeHidden: true, name: "CTP 委托记录" }).locator("tbody tr"),
     ).toHaveCount(0);
     await order.getByLabel("限价", { exact: true }).fill("3600");
-    await order.getByRole("button", { name: "买入 fixture", exact: true }).click();
+    await order.getByRole("button", { name: "买入 rb2610 · fixture", exact: true }).click();
     await expect(refused).toContainText("限价偏离最新价超过本会话的上限，委托未发送。");
     await order.getByLabel("限价", { exact: true }).fill("3500.5");
-    await order.getByRole("button", { name: "买入 fixture", exact: true }).click();
+    await order.getByRole("button", { name: "买入 rb2610 · fixture", exact: true }).click();
     await expect(panel.getByRole("table", { includeHidden: true, name: "CTP 持仓" })).toContainText(
       "rb2610",
     );

@@ -77,7 +77,7 @@ export function LivePanel(context: TerminalContext) {
               account={account}
               view={view}
               send={send}
-              snapshot={snapshot}
+              context={context}
               initialContract={pendingContract}
               openStrategies={() =>
                 context.navigate("workspace.trading-strategies", {
@@ -98,14 +98,14 @@ function AccountColumn({
   account,
   view,
   send,
-  snapshot,
+  context,
   initialContract,
   openStrategies,
 }: {
   account: TradingConnection;
   view: TradingView | undefined;
   send: ReturnType<typeof useTradingAccounts>["send"];
-  snapshot: TerminalContext["snapshot"];
+  context: TerminalContext;
   initialContract?: string;
   openStrategies: () => void;
 }) {
@@ -148,7 +148,7 @@ function AccountColumn({
             account={account}
             record={view.account}
             stale={!!view.failed || view.live.recoveryRequired}
-            snapshot={snapshot}
+            context={context}
             busy={busy}
             run={runFor(true)}
             control={runFor(false)}

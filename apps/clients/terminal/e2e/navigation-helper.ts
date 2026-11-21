@@ -11,7 +11,7 @@ const destinations = {
   research: ["研究", "策略"],
   runs: ["研究", "回测"],
   factors: ["研究", "因子"],
-  trading: ["交易", "账户"],
+  trading: ["交易", "工作台"],
   tradingStrategies: ["交易", "策略"],
   dataset: ["数据", "数据覆盖"],
   browse: ["数据", "浏览"],

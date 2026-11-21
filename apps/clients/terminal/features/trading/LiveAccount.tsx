@@ -1,15 +1,18 @@
 import { listSeparator } from "../../src/i18n";
-import { useRef, useState } from "react";
-import type { TradingConnection, Snapshot } from "../../src/bridge/client";
+import { useEffect, useRef, useState } from "react";
+import type { TradingConnection } from "../../src/bridge/client";
 import { BrokerState, Environment, type Account } from "../../src/generated/asterion/trading_pb";
 import { FlowSteps } from "../../src/ui/FlowSteps";
 import { StatusBadge, type Tone } from "../../src/ui/StatusBadge";
 import { Tag } from "../../src/ui/Tag";
+import type { TerminalContext } from "../../src/host/feature-registry";
+import { useMarket } from "../../src/host/market";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { AccountRecords } from "./AccountRecords";
 import { AccountSummary } from "./AccountSummary";
 import { type Activity } from "./ActivityTabs";
 import { OrderTicket, type Preset } from "./OrderTicket";
+import { TradeMarket } from "./TradeMarket";
 import { explicitCloseBuckets } from "../../src/ui/closePolicy";
 import {
   t,
@@ -31,7 +34,7 @@ export function LiveAccount({
   account,
   record,
   stale,
-  snapshot,
+  context,
   busy,
   run,
   control,
@@ -42,7 +45,7 @@ export function LiveAccount({
   record: Account;
   // The service is unreachable or its record needs recovery.
   stale: boolean;
-  snapshot: Snapshot | null;
+  context: TerminalContext;
   busy: boolean;
   run: Run;
   control: Run;
@@ -50,6 +53,16 @@ export function LiveAccount({
 }) {
   const [activity, setActivity] = useState<Activity>("positions");
   const [preset, setPreset] = useState<Preset>();
+  const { snapshot } = context;
+  const market = useMarket();
+  // One contract across the list, the chart and the order ticket.
+  const [contract, setContract] = useWorkspaceDraft(
+    `trade-contract:${account.id}`,
+    initialContract ?? "",
+  );
+  useEffect(() => {
+    if (initialContract) setContract(initialContract);
+  }, [initialContract, setContract]);
   const live = record.session!;
   const broker = record.broker!;
   const identity = JSON.stringify([
@@ -230,7 +243,16 @@ export function LiveAccount({
         </section>
       )}
       <AccountSummary live={live} />
-      <div className="ctp-trade-body">
+      <div className="ctp-trade-body" data-market={market ? true : undefined}>
+        {market && (
+          <TradeMarket
+            context={context}
+            market={market}
+            session={live}
+            contract={contract}
+            select={setContract}
+          />
+        )}
         <div className="ctp-trade-records">
           <AccountRecords
             connection={account.id}
@@ -327,7 +349,8 @@ export function LiveAccount({
               onSent={() => setActivity("orders")}
               preset={preset}
               onPresetApplied={() => setPreset(undefined)}
-              initialContract={initialContract}
+              initialContract={contract || initialContract}
+              onContract={setContract}
             />
           )}
         </aside>

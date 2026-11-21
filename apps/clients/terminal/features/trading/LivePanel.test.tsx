@@ -153,7 +153,7 @@ test("a buy order names the account, the reviewed policy and exact decimals", as
   fireEvent.change(screen.getByRole("textbox", { name: "限价" }), {
     target: { value: "3561.5" },
   });
-  fireEvent.click(button("买入 account-b"));
+  fireEvent.click(button("买入 rb2610 · account-b"));
   expect(commands()).toEqual([
     [
       "account",
@@ -193,14 +193,14 @@ test("a real-money order is sent only after its summary is confirmed", async () 
   fireEvent.change(await screen.findByRole("textbox", { name: "限价" }), {
     target: { value: "3561" },
   });
-  fireEvent.click(button("买入 account-b"));
+  fireEvent.click(button("买入 rb2610 · account-b"));
   const summary = screen.getByRole("alertdialog", { name: "确认委托" });
   expect(summary.textContent).toContain("SHFE · rb2610");
   expect(commands()).toEqual([]);
   fireEvent.click(button("取消"));
   expect(screen.queryByRole("alertdialog")).toBeNull();
   expect(commands()).toEqual([]);
-  fireEvent.click(button("买入 account-b"));
+  fireEvent.click(button("买入 rb2610 · account-b"));
   fireEvent.click(button("确认发送"));
   expect(commands()).toHaveLength(1);
   expect(commands()[0][1]).toMatchObject({
@@ -351,7 +351,7 @@ test("a position shows the broker's amounts and its close fills the ticket witho
   expect((screen.getByRole("combobox", { name: "开平仓" }) as HTMLSelectElement).value).toBe(
     "close_today",
   );
-  expect(button("卖出 account-b").hasAttribute("data-suggested")).toBe(true);
+  expect(button("卖出 rb2610 · account-b").hasAttribute("data-suggested")).toBe(true);
   expect(commands()).toHaveLength(sent);
 });
 
@@ -466,7 +466,7 @@ test("a close order above maxOrderLots splits into maxOrderLots legs", async () 
   fireEvent.change(screen.getByRole("textbox", { name: "限价" }), {
     target: { value: "3560" },
   });
-  fireEvent.click(button("卖出 account-b"));
+  fireEvent.click(button("卖出 rb2610 · account-b"));
   await waitFor(() => expect(commands()).toHaveLength(1));
   await act(async () => answer(live(session)));
   await waitFor(() => expect(commands()).toHaveLength(2));
@@ -554,7 +554,7 @@ test("a split close keeps only remaining lots when a middle leg fails, and switc
   fireEvent.change(screen.getByRole("textbox", { name: "限价" }), {
     target: { value: "3560" },
   });
-  fireEvent.click(button("卖出 account-b"));
+  fireEvent.click(button("卖出 rb2610 · account-b"));
   await waitFor(() =>
     expect((screen.getByRole("textbox", { name: "委托手数" }) as HTMLInputElement).value).toBe("7"),
   );

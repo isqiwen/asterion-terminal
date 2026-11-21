@@ -16,7 +16,7 @@ export const feature: TerminalFeature = {
     {
       id: "workspace.trading",
       get title() {
-        return t("账户");
+        return t("工作台");
       },
       component: context => <LivePanel {...context} />,
     },

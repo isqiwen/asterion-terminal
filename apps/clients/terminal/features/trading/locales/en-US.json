@@ -320,5 +320,7 @@
   "从回测带入": "From a backtest",
   "选择回测": "Choose a backtest",
   "账户连接并同步后可修改风控设置": "Connect and sync the account to edit risk settings",
-  "正在准备预热数据…": "Preparing warmup data…"
+  "正在准备预热数据…": "Preparing warmup data…",
+  "工作台": "Workbench",
+  "还没有自选合约": "No watchlist contracts yet"
 }

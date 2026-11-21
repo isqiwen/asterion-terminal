@@ -62,6 +62,7 @@ export function OrderTicket({
   preset,
   onPresetApplied,
   initialContract,
+  onContract,
 }: Pick<TerminalContext, "snapshot" | "busy"> & {
   connection?: string;
   record: Account;
@@ -72,6 +73,8 @@ export function OrderTicket({
   preset?: Preset;
   onPresetApplied?: () => void;
   initialContract?: string;
+  // Told which contract the ticket is on, so the chart beside it can follow.
+  onContract?: (contract: string) => void;
 }) {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
@@ -152,6 +155,10 @@ export function OrderTicket({
     : contracts[0];
   const exchange = traded?.instrument?.exchange ?? "";
   const symbol = traded?.instrument?.symbol ?? "";
+  const tradedKey = traded ? key(traded.instrument) : "";
+  useEffect(() => {
+    if (tradedKey) onContract?.(tradedKey);
+  }, [tradedKey, onContract]);
   const explicitBuckets = explicitCloseBuckets(snapshot, exchange);
   const session = record.session;
   // Lots of the contract's long or short position free to close now.
@@ -207,6 +214,7 @@ export function OrderTicket({
     setPending(undefined);
     setSuggested(undefined);
     const contractInstrument = traded.instrument;
+    const sentContract = key(contractInstrument);
     const targetOffset = offsetValues[offset];
     const limitPrice = order.price;
     let remaining = totalLots;
@@ -229,8 +237,13 @@ export function OrderTicket({
           }));
           if (!sent) return;
           remaining -= leg;
+          // A row chosen beside the ticket may have moved it to another contract meanwhile.
           if (count > 1n && remaining > 0n)
-            setOrder(current => ({ ...current, quantity: String(remaining) }));
+            setOrder(current =>
+              (current.contract || sentContract) === sentContract
+                ? { ...current, quantity: String(remaining) }
+                : current,
+            );
         }
         onSent();
       } finally {
@@ -269,9 +282,7 @@ export function OrderTicket({
             >
               {!traded && (
                 <option value="" disabled>
-                  {order.contract
-                    ? t("合约 {contract} 不在此账户的可交易合约中", { contract: order.contract })
-                    : t("请选择合约")}
+                  {order.contract ? order.contract.replace(".", " · ") : t("请选择合约")}
                 </option>
               )}
               {contracts.map(item => (
@@ -327,6 +338,11 @@ export function OrderTicket({
             />
           </label>
         </div>
+        {!traded && order.contract && (
+          <p className="alert" role="alert">
+            {t("合约 {contract} 不在此账户的可交易合约中", { contract: order.contract })}
+          </p>
+        )}
         {traded && session && (
           <p className="ticket-capacity" aria-label={t("可开与可平手数")}>
             {[
@@ -409,9 +425,11 @@ export function OrderTicket({
               type="button"
               className={side === Side.BUY ? "order-buy" : "order-sell"}
               data-suggested={suggested === side || undefined}
+              disabled={!traded}
               onClick={event => submit(side, event.currentTarget.form)}
             >
-              {t(side === Side.BUY ? "买入" : "卖出")} <small>{accountName}</small>
+              {t(side === Side.BUY ? "买入" : "卖出")}{" "}
+              <small>{symbol ? `${symbol} · ${accountName}` : accountName}</small>
             </button>
           ))}
         </div>

@@ -164,6 +164,59 @@
     grid-template-columns: minmax(0, 1fr) 420px;
   }
 }
+/* With a market feed: the list, the chart over the records, and the ticket. */
+.ctp-account-panel > .ctp-trade-body[data-market] {
+  --trade-watch: 260px;
+  grid-template-columns: var(--trade-watch) minmax(0, 1fr) 340px;
+  grid-template-rows: minmax(0, 3fr) minmax(0, 2fr);
+  grid-template-areas:
+    "watch chart side"
+    "watch records side";
+}
+.ctp-account-column .ctp-trade-body[data-market] {
+  flex: 1 1 480px;
+  min-height: 480px;
+}
+.ctp-trade-body[data-market] > .ctp-trade-records {
+  grid-area: records;
+  min-height: 0;
+  overflow: auto;
+}
+.ctp-trade-body[data-market] > .ctp-trade-side {
+  grid-area: side;
+  min-height: 0;
+  overflow: auto;
+}
+.ctp-trade-body > .trade-watch {
+  grid-area: watch;
+  display: block;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: var(--pane);
+  border-right: 1px solid var(--line);
+}
+.trade-watch > .subtle {
+  margin: 0;
+  padding: var(--space-3);
+}
+.trade-chart {
+  grid-area: chart;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-bottom: 1px solid var(--line);
+}
+.trade-chart > .quote-pane {
+  flex: 1;
+}
+@media (min-width: 2200px) and (min-height: 1200px) {
+  .ctp-account-panel > .ctp-trade-body[data-market] {
+    --trade-watch: 340px;
+    grid-template-columns: var(--trade-watch) minmax(0, 1fr) 420px;
+  }
+}
 .ctp-trade-records {
   min-width: 0;
   padding: var(--space-3) var(--space-page);
@@ -200,8 +253,21 @@
   }
 }
 @media (max-width: 1100px) {
-  .ctp-account-panel > .ctp-trade-body {
+  .ctp-account-panel > .ctp-trade-body,
+  .ctp-account-panel > .ctp-trade-body[data-market] {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    grid-template-areas:
+      "records"
+      "side";
+  }
+  .ctp-account-column .ctp-trade-body[data-market] {
+    flex: 1 0 auto;
+    min-height: 0;
+  }
+  .ctp-trade-body > .trade-watch,
+  .trade-chart {
+    display: none;
   }
   .ctp-trade-side {
     border-left: 0;
