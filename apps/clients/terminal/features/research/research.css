@@ -105,6 +105,19 @@ button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   border-collapse: separate;
   border-spacing: 0;
 }
+.lab-table.lab-library-table :is(th, td) {
+  padding-inline: var(--space-2);
+}
+.lab-library-table tbody tr[data-empty] td {
+  color: var(--subtle);
+}
+.lab-library-table button.lab-sort {
+  padding-inline: var(--space-2);
+}
+.lab-library-table td button.lab-link {
+  padding: 0;
+  color: inherit;
+}
 .lab-library-table thead {
   position: sticky;
   inset-block-start: 0;
@@ -115,7 +128,7 @@ button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   border-bottom: 0;
   box-shadow: inset 0 -1px 0 var(--line);
 }
-.lab-library-table thead th:nth-child(2) {
+.lab-library-table thead th.lab-name-col {
   position: sticky;
   inset-inline-start: 0;
   z-index: 3;

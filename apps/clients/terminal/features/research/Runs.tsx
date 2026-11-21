@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { lab } from "../../src/bridge/lab";
-import { Period } from "../../src/generated/asterion/common_pb";
 import { RunState, type RunSummary } from "../../src/generated/asterion/lab_pb";
 import { ActionError, useActionError } from "../../src/host/action-error";
 import type { TerminalContext } from "../../src/host/feature-registry";
@@ -15,7 +14,9 @@ import {
   RunResult,
   SweepResult,
   metric,
+  periodText,
   runTones,
+  shortTime,
   signed,
   states,
 } from "./ResearchResult";
@@ -37,22 +38,11 @@ const columns = [
 type SortKey = "started" | "fills" | (typeof columns)[number][0];
 type Shown = { kind: "run" | "sweep"; id: string } | { kind: "compare"; ids: string[] } | null;
 
-const periodText = (period: Period) =>
-  period === Period.DAY
-    ? t("日线")
-    : t("{count} 分钟", { count: Period[period]?.replace("MINUTES_", "") ?? "?" });
 const paramsText = (run: RunSummary) =>
   Object.entries(run.params)
     .map(([name, value]) => `${name}=${parameterText(value)}`)
     .join(" ");
 export const runName = (run: RunSummary) => run.label || recordName(run.id);
-
-// When a run started, as month-day and time in Beijing time.
-function started(ms: bigint) {
-  return new Date(Number(ms))
-    .toLocaleString("sv-SE", { timeZone: "Asia/Shanghai", hour12: false })
-    .slice(5, 16);
-}
 
 // Every run and sweep so far: a table to find, rank and compare them, and
 // each one's report. The strategy view opens a new one: param `run` or `sweep`.
@@ -428,7 +418,7 @@ export function Runs(context: TerminalContext) {
                         </StatusBadge>
                       )}
                     </td>
-                    <td className="subtle numeric">{started(run.startedMs)}</td>
+                    <td className="subtle numeric">{shortTime(run.startedMs)}</td>
                     <td>
                       {active ? (
                         <button type="button" className="lab-link" onClick={() => cancel(run)}>

@@ -20,7 +20,7 @@ import { warehouseName } from "../../src/ui/contract-names";
 import { protocolPeriod } from "../../src/ui/periods";
 import type { Tone } from "../../src/ui/StatusBadge";
 import { useVirtualRows } from "../../src/ui/virtual-rows";
-import { Offset, Side } from "../../src/generated/asterion/common_pb";
+import { Offset, Period, Side } from "../../src/generated/asterion/common_pb";
 import { heatmap, monthlyReturns, parameterText, recordName, runState } from "./research-lab";
 
 const t = (key: string, values?: MessageValues) =>
@@ -62,6 +62,18 @@ export function signed(value: number | undefined | null) {
 export function metric(value: number | undefined, percent: boolean) {
   if (value === undefined) return "—";
   return percent ? `${(value * 100).toFixed(2)}%` : value.toFixed(3);
+}
+
+export const periodText = (period: Period) =>
+  period === Period.DAY
+    ? t("日线")
+    : t("{count} 分钟", { count: Period[period]?.replace("MINUTES_", "") ?? "?" });
+
+// A moment as month-day and time in Beijing time.
+export function shortTime(ms: bigint) {
+  return new Date(Number(ms))
+    .toLocaleString("sv-SE", { timeZone: "Asia/Shanghai", hour12: false })
+    .slice(5, 16);
 }
 
 // When a minute bar ended, Beijing time.

@@ -8,6 +8,7 @@ import type { RunSummary } from "../../src/generated/asterion/lab_pb";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { notify } from "../../src/host/notifications";
 import { useLabActiveReport } from "../../src/host/lab";
+import { useTradingAccounts } from "../../src/host/trading-accounts";
 import { type MessageValues, translate, listSeparator } from "../../src/i18n";
 import {
   defaultForm,
@@ -24,9 +25,11 @@ import {
 import {
   ConfigFold,
   datePlaceholders,
+  filterModuleItems,
   LabCentre,
   ModuleErrors,
   ModuleList,
+  type ModuleItem,
   NewModule,
   Section,
   SymbolField,
@@ -37,6 +40,7 @@ import {
   useStoredCatalog,
 } from "./LabParts";
 import { RunResult, SweepResult, metric, runTones, signed, states } from "./ResearchResult";
+import { StrategyLibrary } from "./StrategyLibrary";
 import { StrategyLifecycle } from "./StrategyLifecycle";
 
 const t = (key: string, values?: MessageValues) =>
@@ -61,6 +65,9 @@ export function StrategyLab(context: TerminalContext) {
     null,
   );
   const [form, setForm] = useWorkspaceDraft<RunForm>("run-form", defaultForm);
+  const [library, setLibrary] = useWorkspaceDraft("strategy-library", false);
+  const [search] = useWorkspaceDraft("modules-search:strategies", "");
+  const { views } = useTradingAccounts();
   const source = useSource(repository);
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const readRecentRuns = useCallback(async () => {
@@ -103,6 +110,7 @@ export function StrategyLab(context: TerminalContext) {
           setChosen(loaded.strategy);
           source.open(`strategies/${loaded.strategy.split(".")[0]}.py`);
         }
+        setLibrary(false);
         setReport(null);
         setForm(loaded.form);
         context.navigate("workspace.lab-strategies", {});
@@ -236,6 +244,39 @@ export function StrategyLab(context: TerminalContext) {
       void readStrategies();
     },
   });
+  const singleRuns = runs.filter(run => !run.sweepId || run.id !== `${run.sweepId}-rolling`);
+  const items: ModuleItem[] = (strategies?.strategies ?? []).map(item => {
+    const [module, name] = item.id.split(".");
+    const value = singleRuns.find(run => run.strategy === item.id)?.metrics.total_return;
+    return {
+      id: item.id,
+      name,
+      module,
+      group: t(item.portfolio ? "组合" : "单品种"),
+      description: item.description.replace(/`/g, ""),
+      figure:
+        value === undefined
+          ? undefined
+          : {
+              text: metric(value, true),
+              className: signed(value),
+              title: t("最近一次总收益"),
+            },
+    };
+  });
+  const choose = (item: ModuleItem) => {
+    const entry = strategies!.strategies.find(entry => entry.id === item.id)!;
+    setLibrary(false);
+    setChosen(item.id);
+    setReport(null);
+    source.open(`strategies/${item.module}.py`);
+    if (item.id !== chosen) {
+      change({
+        multiSymbolMode: undefined,
+        params: Object.fromEntries(entry.parameters.map(p => [p.name, defaultText(p)])),
+      });
+    }
+  };
   const activeState =
     report?.kind === "run" && activeRun?.id === report.id ? runState(activeRun.state) : "";
   const reportRunning =
@@ -247,45 +288,25 @@ export function StrategyLab(context: TerminalContext) {
     <section className="lab-research" data-folded={folded || undefined}>
       <aside className="lab-modules" aria-label={t("策略")}>
         <h2 className="sr-only">{t("策略")}</h2>
+        <button
+          type="button"
+          className="lab-module-item"
+          aria-pressed={library}
+          onClick={() => {
+            if (!library) setReport(null);
+            setLibrary(!library);
+          }}
+        >
+          <span>{t("策略库")}</span>
+          {items.length > 0 && <small>{items.length}</small>}
+        </button>
+        <hr className="lab-divider" />
         <ModuleList
           folder="strategies"
-          chosen={chosen}
+          chosen={library ? "" : chosen}
           contextTarget={menu.target}
-          items={(strategies?.strategies ?? []).map(item => {
-            const [module, name] = item.id.split(".");
-            const latest = runs.find(
-              run =>
-                run.strategy === item.id && (!run.sweepId || run.id !== `${run.sweepId}-rolling`),
-            );
-            const value = latest?.metrics.total_return;
-            return {
-              id: item.id,
-              name,
-              module,
-              group: t(item.portfolio ? "组合" : "单品种"),
-              description: item.description.replace(/`/g, ""),
-              figure:
-                value === undefined
-                  ? undefined
-                  : {
-                      text: metric(value, true),
-                      className: signed(value),
-                      title: t("最近一次总收益"),
-                    },
-            };
-          })}
-          choose={item => {
-            const entry = strategies!.strategies.find(entry => entry.id === item.id)!;
-            setChosen(item.id);
-            setReport(null);
-            source.open(`strategies/${item.module}.py`);
-            if (item.id !== chosen) {
-              change({
-                multiSymbolMode: undefined,
-                params: Object.fromEntries(entry.parameters.map(p => [p.name, defaultText(p)])),
-              });
-            }
-          }}
+          items={items}
+          choose={choose}
           onMenu={menu.open}
         />
         <NewModule
@@ -295,6 +316,7 @@ export function StrategyLab(context: TerminalContext) {
           copying={menu.copying}
           cancelCopy={menu.clearCopy}
           created={(path, id) => {
+            setLibrary(false);
             setReport(null);
             if (id) setChosen(id);
             source.open(path);
@@ -306,6 +328,7 @@ export function StrategyLab(context: TerminalContext) {
           modules={strategies}
           contextTarget={menu.target}
           open={path => {
+            setLibrary(false);
             setReport(null);
             source.open(path);
           }}
@@ -313,12 +336,12 @@ export function StrategyLab(context: TerminalContext) {
         />
         {menu.overlay}
       </aside>
-      {strategy && (
+      {strategy && !library && (
         <StrategyLifecycle
           strategy={strategy.id}
           path={strategyPath}
           unsaved={source.drafts[strategyPath] !== undefined}
-          runs={runs.filter(run => !run.sweepId || run.id !== `${run.sweepId}-rolling`)}
+          runs={singleRuns}
           openCode={() => {
             setReport(null);
             source.open(strategyPath);
@@ -334,7 +357,20 @@ export function StrategyLab(context: TerminalContext) {
           }
         />
       )}
-      {report ? (
+      {library ? (
+        <StrategyLibrary
+          items={filterModuleItems(items, search)}
+          total={items.length}
+          runs={singleRuns}
+          views={views}
+          chosen={chosen}
+          open={choose}
+          openRun={(item, id) => {
+            choose(item);
+            setReport({ kind: "run", id });
+          }}
+        />
+      ) : report ? (
         <div className="lab-center lab-runs-view">
           <header className="lab-report-header">
             <button type="button" className="lab-link" onClick={() => setReport(null)}>
@@ -441,7 +477,7 @@ export function StrategyLab(context: TerminalContext) {
           onDelete={path => menu.remove(path)}
         />
       )}
-      {strategy && (
+      {strategy && !library && (
         <aside className="lab-config" aria-label={t("运行配置")}>
           <h2>
             {!folded && t("运行配置")}

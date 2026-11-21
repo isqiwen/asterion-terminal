@@ -435,6 +435,52 @@ export type ModuleItem = {
   figure?: { text: string; className?: string; title: string };
 };
 
+// A library table's sortable figures: missing values last, each sort announced.
+export function useLibrarySort<Key extends string>(initial: Key) {
+  const [sort, setSort] = useState({ key: initial, descending: true });
+  const [announcement, setAnnouncement] = useState("");
+  const heading = (key: Key, label: string, title?: string) => (
+    <th
+      key={key}
+      scope="col"
+      className="numeric"
+      title={title}
+      aria-sort={sort.key === key ? (sort.descending ? "descending" : "ascending") : undefined}
+    >
+      <button
+        type="button"
+        className="lab-sort"
+        onClick={() => {
+          const descending = sort.key === key ? !sort.descending : true;
+          setSort({ key, descending });
+          setAnnouncement(
+            t("已按 {column}{direction}排序", {
+              column: label,
+              direction: descending ? t("降序") : t("升序"),
+            }),
+          );
+        }}
+      >
+        {label}
+        <span aria-hidden="true">{sort.key === key ? (sort.descending ? " ↓" : " ↑") : ""}</span>
+      </button>
+    </th>
+  );
+  const sorted = <Row,>(rows: readonly Row[], value: (row: Row, key: Key) => number | undefined) =>
+    [...rows].sort((a, b) => {
+      const [x, y] = [value(a, sort.key), value(b, sort.key)];
+      if (x === undefined || y === undefined)
+        return x === undefined ? (y === undefined ? 0 : 1) : -1;
+      return sort.descending ? y - x : x - y;
+    });
+  const status = (
+    <p className="lab-sr-only" role="status">
+      {announcement}
+    </p>
+  );
+  return { heading, sorted, status };
+}
+
 // Filter and sort strategies or factors consistently across sidebar and overview tables.
 export function filterModuleItems(items: readonly ModuleItem[], search: string) {
   const query = search.trim().toLowerCase();

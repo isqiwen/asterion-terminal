@@ -32,12 +32,13 @@ import {
   Section,
   SymbolField,
   useConfigFold,
+  useLibrarySort,
   useModuleMenu,
   useModules,
   useSource,
   useStoredCatalog,
 } from "./LabParts";
-import { metric, signed } from "./ResearchResult";
+import { metric, shortTime, signed } from "./ResearchResult";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
@@ -654,11 +655,7 @@ function FactorLibrary({
   onCompositeEvaluate: () => void;
   open: (id: string) => void;
 }) {
-  const [sort, setSort] = useState<{ key: LibraryKey; descending: boolean }>({
-    key: "ic",
-    descending: true,
-  });
-  const [announcement, setAnnouncement] = useState("");
+  const { heading, sorted, status } = useLibrarySort<LibraryKey>("ic");
   const [moduleFilter, setModuleFilter] = useState("");
   const moduleNames = [...new Set(searched.map(item => item.module))].sort();
   // A search can leave the filtered module with no rows, and so without its option.
@@ -673,8 +670,8 @@ function FactorLibrary({
     if (selectAllRef.current) selectAllRef.current.indeterminate = someShown;
   }, [someShown]);
 
-  const value = (id: string) => {
-    const result = latest(id);
+  const rows = sorted(items, (item, key) => {
+    const result = latest(item.id);
     const first = result?.horizons[0];
     return {
       ic: first?.mean,
@@ -682,14 +679,9 @@ function FactorLibrary({
       ir: first?.ir,
       t: first?.t,
       turnover: factorTurnover(result),
-      strategies: strategyUsers(id).length,
+      strategies: strategyUsers(item.id).length,
       evaluated: result ? Number(result.evaluatedMs) : undefined,
-    }[sort.key];
-  };
-  const rows = [...items].sort((a, b) => {
-    const [x, y] = [value(a.id), value(b.id)];
-    if (x === undefined || y === undefined) return x === undefined ? (y === undefined ? 0 : 1) : -1;
-    return sort.descending ? y - x : x - y;
+    }[key];
   });
   const toggleOne = (id: string, checked: boolean) =>
     setSelected(previous =>
@@ -705,32 +697,7 @@ function FactorLibrary({
         ? [...new Set([...previous, ...shownIds])]
         : previous.filter(id => !shownIds.includes(id)),
     );
-  const heading = (key: LibraryKey, label: string, title?: string) => (
-    <th
-      scope="col"
-      className="numeric"
-      title={title}
-      aria-sort={sort.key === key ? (sort.descending ? "descending" : "ascending") : undefined}
-    >
-      <button
-        type="button"
-        className="lab-sort"
-        onClick={() => {
-          const descending = sort.key === key ? !sort.descending : true;
-          setSort({ key, descending });
-          setAnnouncement(
-            t("已按 {column}{direction}排序", {
-              column: label,
-              direction: descending ? t("降序") : t("升序"),
-            }),
-          );
-        }}
-      >
-        {label}
-        <span aria-hidden="true">{sort.key === key ? (sort.descending ? " ↓" : " ↑") : ""}</span>
-      </button>
-    </th>
-  );
+  if (!total) return <div className="lab-center" />;
   return (
     <div className="lab-center lab-library-view">
       <div className="lab-toolbar">
@@ -773,9 +740,7 @@ function FactorLibrary({
         </label>
       </div>
       <ActionError error={error} namespace="asterion.terminal.research" />
-      <p className="lab-sr-only" role="status">
-        {announcement}
-      </p>
+      {status}
       {!rows.length && total > 0 ? (
         <p className="subtle">{t("没有匹配的模块")}</p>
       ) : (
@@ -798,7 +763,9 @@ function FactorLibrary({
                     onChange={event => toggleAll(event.target.checked)}
                   />
                 </th>
-                <th scope="col">{t("因子")}</th>
+                <th scope="col" className="lab-name-col">
+                  {t("因子")}
+                </th>
                 <th scope="col">{t("模块")}</th>
                 {heading("ic", t("IC 均值"), t("最近一次评价的第一个持有期"))}
                 {heading("holdoutIc", t("留出期 IC"), t("最近一次评价的留出期第一个持有期"))}
@@ -861,11 +828,7 @@ function FactorLibrary({
                       {refs.length}
                     </td>
                     <td className="subtle numeric">
-                      {result
-                        ? new Date(Number(result.evaluatedMs))
-                            .toLocaleString("sv-SE", { timeZone: "Asia/Shanghai", hour12: false })
-                            .slice(5, 16)
-                        : "—"}
+                      {result ? shortTime(result.evaluatedMs) : "—"}
                     </td>
                   </tr>
                 );

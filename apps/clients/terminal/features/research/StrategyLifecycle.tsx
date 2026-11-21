@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { translate, listSeparator, type MessageValues } from "../../src/i18n";
 import { RunState, type RunSummary } from "../../src/generated/asterion/lab_pb";
 import { Environment, InstanceState } from "../../src/generated/asterion/trading_pb";
-import { useTradingAccounts } from "../../src/host/trading-accounts";
+import { type TradingAccounts, useTradingAccounts } from "../../src/host/trading-accounts";
 import { metric, signed } from "./ResearchResult";
 
 const t = (key: string, values?: MessageValues) =>
@@ -24,6 +24,33 @@ function Link({ onClick, children }: { onClick: () => void; children: ReactNode 
       {children}
     </button>
   );
+}
+
+// Where a strategy is published and running, across the accounts read.
+export function strategyDeployment(views: TradingAccounts["views"], strategy: string) {
+  let version = "";
+  const published: { id: string; name: string }[] = [];
+  const publishedRuns = new Set<string>();
+  const simulating: { id: string; name: string }[] = [];
+  const live: { id: string; name: string }[] = [];
+  const realAccounts: string[] = [];
+  for (const [id, view] of Object.entries(views)) {
+    const name = view.instance || view.account?.id || id;
+    if (view.account?.environment === Environment.REAL) realAccounts.push(id);
+    for (const item of view.strategies?.packages ?? []) {
+      if (item.name !== strategy) continue;
+      if (item.research?.runId) publishedRuns.add(item.research.runId);
+      if (item.version > version) published.length = 0;
+      if (item.version >= version) {
+        version = item.version;
+        if (!published.some(entry => entry.id === id)) published.push({ id, name });
+      }
+    }
+    const instance = view.strategies?.instance;
+    if (instance?.instance?.packageName === strategy && running.has(instance.state))
+      (view.account?.environment === Environment.REAL ? live : simulating).push({ id, name });
+  }
+  return { version, published, publishedRuns, simulating, live, realAccounts };
 }
 
 // Where one strategy stands on its way to trading: its code, its latest
@@ -55,28 +82,10 @@ export function StrategyLifecycle({
   const run = runs
     .filter(item => item.strategy === strategy && item.state === RunState.SUCCEEDED)
     .sort((a, b) => Number(b.startedMs - a.startedMs))[0];
-  let version = "";
-  const published: { id: string; name: string }[] = [];
-  const publishedRuns = new Set<string>();
-  const simulating: { id: string; name: string }[] = [];
-  const live: { id: string; name: string }[] = [];
-  const realAccounts: string[] = [];
-  for (const [id, view] of Object.entries(views)) {
-    const name = view.instance || view.account?.id || id;
-    if (view.account?.environment === Environment.REAL) realAccounts.push(id);
-    for (const item of view.strategies?.packages ?? []) {
-      if (item.name !== strategy) continue;
-      if (item.research?.runId) publishedRuns.add(item.research.runId);
-      if (item.version > version) published.length = 0;
-      if (item.version >= version) {
-        version = item.version;
-        if (!published.some(entry => entry.id === id)) published.push({ id, name });
-      }
-    }
-    const instance = view.strategies?.instance;
-    if (instance?.instance?.packageName === strategy && running.has(instance.state))
-      (view.account?.environment === Environment.REAL ? live : simulating).push({ id, name });
-  }
+  const { version, published, publishedRuns, simulating, live, realAccounts } = strategyDeployment(
+    views,
+    strategy,
+  );
   const simulationTarget =
     published.find(item => views[item.id]?.account?.environment !== Environment.REAL)?.id ??
     published[0]?.id;

@@ -253,10 +253,17 @@ class Runs:
         return next(iter(self.list([identity])), None)
 
     def recent(self):
+        """Each strategy's last three single runs and its latest success."""
         identities = [row[0] for row in self.index.execute("""
             select id from (
-                select id, row_number() over (partition by strategy order by started_ns desc, id desc) place
-                from runs where id not in (select run from sweeps)) where place <= 3""")]
+                select id, state,
+                    row_number() over (partition by strategy order by started_ns desc, id desc) place,
+                    row_number() over (partition by strategy, state = 'succeeded'
+                                       order by started_ns desc, id desc) state_place
+                from runs
+                where id not in (select run from sweeps)
+                    and id not in (select sweep || '-rolling' from sweeps))
+            where place <= 3 or (state = 'succeeded' and state_place = 1)""")]
         return self.list(identities)
 
     def page(self, limit, offset, strategy, search, order_by, ascending):

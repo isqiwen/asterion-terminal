@@ -744,6 +744,16 @@ class Records(unittest.TestCase):
         self.assertEqual(len(runs.page(2, 0, "", "", "started", False)[0]), 2)
         runs.index.close()
 
+    def test_recent_runs_keep_the_latest_success_and_leave_out_rolling_results(self):
+        runs = Runs(self.directory)
+        for identity in ("good", "first", "second", "third", "scan-1", "scan-rolling"):
+            runs.start(identity, self.plan)
+            runs.end(identity, "stopped", "")
+        runs.index.execute("update runs set state = 'succeeded' where id in ('good', 'scan-rolling')")
+        runs.plan_sweep("scan", [("scan-1", {})])
+        self.assertEqual([row["id"] for row in runs.recent()], ["third", "second", "first", "good"])
+        runs.index.close()
+
     def test_a_run_from_start_to_success(self):
         runs = Runs(self.directory)
         runs.start("run-1", self.plan)
