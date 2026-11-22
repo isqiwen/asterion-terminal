@@ -122,7 +122,6 @@
   "行数": "Rows",
   "覆盖": "Coverage",
   "还没有数据": "No data yet",
-  "齐全": "Complete",
   "来源无数据": "No source data",
   "另有 {count} 个交易日来源无数据": "plus {count} trading days with no source data",
   "待更新": "Awaiting update",
@@ -221,10 +220,7 @@
   "日线按交易所整日采集，{exchange} 其他品种这些交易日的数据也会入库": "Daily bars are acquired per exchange and day, so other {exchange} products on these days are stored too",
   "没有匹配的品种或合约": "No matching products or contracts",
   "采集进度": "Progress",
-  "前段未采": "Early days missing",
   "未到期": "Not yet due",
-  "采全 {count}": "{count} complete",
-  "部分 {count}": "{count} partial",
   "部分采集": "Partly stored",
   "分钟线按合约逐日采集，约 {count} 次请求": "Minutes are requested per contract and day: about {count} requests",
   "数据到 {day}": "Data through {day}"

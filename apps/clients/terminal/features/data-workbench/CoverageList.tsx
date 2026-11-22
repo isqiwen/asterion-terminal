@@ -128,23 +128,21 @@ const covers = (task: AcquisitionTask, rule: Rule) => {
   );
 };
 
+// Only what the bar can hide: a gap or a late day may be a sliver of it.
 function StateText({ state, children }: { state: State; children: string }) {
-  return (
+  return children ? (
     <span className="coverage-state" data-state={state}>
       {children}
     </span>
-  );
+  ) : null;
 }
 
 const seriesText = (state: State, series: SeriesCoverage | undefined) =>
-  ({
-    none: t("未采集"),
-    full: t("齐全"),
-    gap: t("缺 {days} 天", { days: series?.gapDays ?? 0 }),
-    pending: t("待更新"),
-    early: t("前段未采"),
-    empty: t("来源无数据"),
-  })[state];
+  state === "gap"
+    ? t("缺 {days} 天", { days: series?.gapDays ?? 0 })
+    : state === "pending"
+      ? t("待更新")
+      : "";
 
 // A product or delivery year counted by its contracts.
 type Tally = { total: number; held: number; complete: number; gaps: number; pending: number };
@@ -173,17 +171,8 @@ const tallyState = ({ total, held, complete, gaps, pending }: Tally): State =>
 
 function tallyText(tally: Tally) {
   const state = tallyState(tally);
-  if (state === "none") return t("未采集");
   if (state === "gap") return t("缺 {count} 个合约", { count: tally.gaps });
-  if (state === "pending") return t("待更新");
-  if (state === "full") return t("齐全");
-  const part = tally.held - tally.complete;
-  return [
-    tally.complete > 0 && t("采全 {count}", { count: tally.complete }),
-    part > 0 && t("部分 {count}", { count: part }),
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  return state === "pending" ? t("待更新") : "";
 }
 
 const dayMs = 86_400_000;
@@ -292,7 +281,7 @@ function ContractRow({
           {code}
         </button>
       </th>
-      <td className="coverage-listed">{contract.listDay}</td>
+      <td />
       <td>
         <Progress pieces={lifePieces(contract, series)} />
       </td>
