@@ -205,12 +205,10 @@
   "历史合约": "Past contracts",
   "{count} 个": "{count}",
   "{year} 年交割": "Delivery {year}",
-  "采到这年": "Back to this year",
   "补全": "Complete",
   "查看 {code}": "View {code}",
   "补全 {name}": "Complete {name}",
   "采集 {name}": "Acquire {name}",
-  "采到 {name}": "Acquire back to {name}",
   "缺 {count} 个合约": "{count} contracts with gaps",
   "采集 {code} {years} 年交割的 {count} 个合约": "Acquire {count} {code} contracts delivering in {years}",
   "数据大约从 {month} 开始": "Data starts around {month}",
@@ -221,5 +219,7 @@
   "部分采集": "Partly stored",
   "分钟线按合约逐日采集，约 {count} 次请求": "Minutes are requested per contract and day: about {count} requests",
   "数据到 {day}": "Data through {day}",
-  "品种采集进度": "Product acquisition progress"
+  "品种采集进度": "Product acquisition progress",
+  "采集全部": "Acquire all",
+  "采集全部 {name}": "Acquire all {name}"
 }

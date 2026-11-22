@@ -339,7 +339,14 @@ test("going back to a year confirms how many contracts and from when", async () 
   view(context());
   await openRebar();
   fireEvent.click(screen.getByRole("button", { name: "历史合约" }));
-  fireEvent.click(screen.getByRole("button", { name: "采到 SHFE/rb 2024" }));
+  fireEvent.click(screen.getByRole("button", { name: "采集 SHFE/rb 2024" }));
+  fireEvent.click(
+    within(screen.getByRole("dialog", { name: "采集 rb 2024 年交割的 1 个合约" })).getByRole(
+      "button",
+      { name: "取消" },
+    ),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "采集全部 SHFE/rb" }));
   const dialog = screen.getByRole("dialog", { name: "采集 rb 2024–2025 年交割的 2 个合约" });
   expect(dialog.textContent).toContain("数据大约从 2023-10 开始");
   expect(dialog.textContent).toContain("SHFE 其他品种");
@@ -360,7 +367,7 @@ test("going back in minutes names every contract and the requests it takes", asy
   await openRebar();
   showKind("分钟线");
   fireEvent.click(screen.getByRole("button", { name: "历史合约" }));
-  fireEvent.click(screen.getByRole("button", { name: "采到 SHFE/rb 2024" }));
+  fireEvent.click(screen.getByRole("button", { name: "采集全部 SHFE/rb" }));
   const dialog = screen.getByRole("dialog", { name: "采集 rb 2024–2026 年交割的 3 个合约" });
   expect(dialog.textContent).toContain("次请求");
   startInDialog();

@@ -313,7 +313,7 @@ function ContractRow({
   );
 }
 
-type Confirm = { title: string; from: string; note: string; rule: Rule };
+type Confirm = { title: string; from: string; note: string; rules: Rule[] };
 
 // Products with their contracts for one kind of data: what is held of each,
 // from listing to delisting, and one action that takes what is missing.
@@ -392,7 +392,7 @@ export function CoverageList({
         note: t("分钟线按合约逐日采集，约 {count} 次请求", {
           count: requests.toLocaleString(getLocale()),
         }),
-        rule: merged(rules)[0]!,
+        rules: merged(rules),
       });
       return;
     }
@@ -403,12 +403,7 @@ export function CoverageList({
       note: t("日线按交易所整日采集，{exchange} 其他品种这些交易日的数据也会入库", {
         exchange: product.split("/")[0]!,
       }),
-      rule: {
-        ...rules[0]!,
-        refetch: rules.some(rule => rule.refetch),
-        firstDay,
-        lastDay: latest(rules.map(rule => rule.lastDay)),
-      },
+      rules: merged(rules),
     });
   };
 
@@ -461,7 +456,8 @@ export function CoverageList({
             ? new Set(history.filter(matches).map(item => deliveryYear(item.contract)))
             : undefined;
           const showHistory = !!searchedYears?.size || historyOpen === row.id;
-          const newest = years[0] ?? "";
+          const historyRules = history.flatMap(item => ruleOf(item, kind) ?? []);
+          const historyBusy = historyRules.some(rule => running.some(task => covers(task, rule)));
           return (
             <tbody key={row.id}>
               <tr data-kind="product" data-open={expanded || undefined}>
@@ -535,7 +531,20 @@ export function CoverageList({
                       {tallyText(historyTally)}
                     </StateText>
                   </td>
-                  <td />
+                  <td>
+                    {!acquires || !historyRules.length ? null : historyBusy ? (
+                      <span className="coverage-busy">{t("采集中")}</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="coverage-action"
+                        aria-label={t("采集全部 {name}", { name: row.id })}
+                        onClick={() => askHistory(row.id, history, years.at(-1)!, years[0]!)}
+                      >
+                        {t("采集全部")}
+                      </button>
+                    )}
+                  </td>
                 </tr>
               )}
               {showHistory &&
@@ -578,14 +587,12 @@ export function CoverageList({
                             <button
                               type="button"
                               className="coverage-action"
-                              aria-label={t(yearTally.held ? "补全 {name}" : "采到 {name}", {
+                              aria-label={t(yearTally.held ? "补全 {name}" : "采集 {name}", {
                                 name: `${row.id} ${year}`,
                               })}
-                              onClick={() =>
-                                askHistory(row.id, history, year, yearTally.held ? year : newest)
-                              }
+                              onClick={() => askHistory(row.id, history, year, year)}
                             >
-                              {yearTally.held ? t("补全") : t("采到这年")}
+                              {yearTally.held ? t("补全") : t("采集")}
                             </button>
                           )}
                         </td>
@@ -622,7 +629,7 @@ export function CoverageList({
               type="button"
               className="primary"
               onClick={() => {
-                start([confirm.rule]);
+                start(confirm.rules);
                 setConfirm(undefined);
               }}
             >
