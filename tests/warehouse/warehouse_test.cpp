@@ -645,6 +645,66 @@ TEST_F(Warehouse, CoverageSeparatesDaysAnUpdateBringsFromGaps)
     EXPECT_EQ(minutes.pending_days(), 3);
 }
 
+TEST_F(Warehouse, DailyCoverageCountsADayOnlyWhenEveryListedContractHasItsBar)
+{
+    wh::Store store(wh::source_directory(root, "research"), "research");
+    auto writer = store.writer();
+    std::vector<wh::Row> calendar;
+    for (const auto* day : {"2026-10-28", "2026-10-29", "2026-10-30"}) {
+        auto value = row("calendar");
+        value[0] = std::string("SHFE");
+        value[1] = std::string(day);
+        value[2] = true;
+        calendar.push_back(value);
+    }
+    writer.put("calendar/SHFE/2026", calendar);
+    const auto contract = [](const char* id, const char* listed, const char* delisted) {
+        auto value = row("contracts");
+        value[0] = std::string("SHFE");
+        value[1] = std::string(id);
+        value[2] = std::string("rb");
+        value[6] = std::string(listed);
+        value[7] = std::string(delisted);
+        return value;
+    };
+    // The second contract lists on the 29th, so the 28th needs only the first.
+    writer.put(
+        "contracts/SHFE",
+        std::vector<wh::Row>{
+            contract("SHFE/rb/2027-01", "2026-01-15", "2027-01-15"),
+            contract("SHFE/rb/2027-02", "2026-10-29", "2027-02-15")
+        });
+    const auto bar = [](const char* id, const char* day) {
+        auto value = row("daily");
+        value[0] = std::string("SHFE");
+        value[1] = std::string("rb");
+        value[2] = std::string(id);
+        value[3] = std::string(day);
+        return value;
+    };
+    writer.put(
+        "daily/SHFE/2026-10-28",
+        std::vector<wh::Row>{bar("SHFE/rb/2027-01", "2026-10-28")},
+        {"2026-10-28"});
+    writer.put(
+        "daily/SHFE/2026-10-29",
+        std::vector<wh::Row>{bar("SHFE/rb/2027-01", "2026-10-29")},
+        {"2026-10-29"});
+    writer.put(
+        "daily/SHFE/2026-10-30",
+        std::vector<wh::Row>{
+            bar("SHFE/rb/2027-01", "2026-10-30"),
+            bar("SHFE/rb/2027-02", "2026-10-30")
+        },
+        {"2026-10-30"});
+    wire::DatasetRef query;
+    query.set_version(writer.commit().identity);
+    const auto month = wh::Reader(root).coverage(query).products(0).months(0);
+    EXPECT_EQ(month.days(), 2);
+    EXPECT_EQ(month.open_days(), 3);
+    EXPECT_EQ(month.pending_days(), 0);
+}
+
 TEST_F(Warehouse, ProductCoverageStaysOnOneVersionAndMissingCalendarStaysUnknown)
 {
     wh::Store store(wh::source_directory(root, "research"), "research");

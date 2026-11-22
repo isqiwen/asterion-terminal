@@ -372,6 +372,8 @@ wire::DatasetCoverage Reader::coverage(const wire::DatasetRef& query) const
     std::map<std::string, std::map<std::string, wire::MonthCoverage>> products;
     std::map<std::string, std::set<std::string>> product_contracts;
     std::map<std::string, std::string> first, last;
+    // EXCHANGE/product -> month -> stored days lacking a contract listed on them.
+    std::map<std::string, std::map<std::string, std::set<std::string>>> incomplete;
     for (const auto& [group, files] : daily) {
         const auto rows = engine.run(
             "SELECT exchange, product, strftime(day, '%Y-%m'), count(DISTINCT day)," " strftime(min(day), '%Y-%m-%d'), strftime(max(day), '%Y-%m-%d')" " FROM read_parquet(["
@@ -392,6 +394,21 @@ wire::DatasetCoverage Reader::coverage(const wire::DatasetRef& query) const
         for (duckdb::idx_t row = 0; row < distinct->RowCount(); ++row)
             product_contracts[distinct->GetValue(0, row).ToString()].insert(
                 distinct->GetValue(1, row).ToString());
+        if (contracts.empty())
+            continue;
+        const auto lacking = engine.run(
+            "WITH bars AS (SELECT DISTINCT exchange, product, contract, day FROM read_parquet(["
+            + files
+            + "])) SELECT DISTINCT held.exchange, held.product, strftime(held.day, '%Y-%m-%d')" " FROM (SELECT DISTINCT exchange, product, day FROM bars) held" " JOIN read_parquet(["
+            + contracts
+            + "]) listed ON listed.exchange = held.exchange AND listed.product = held.product" " AND held.day BETWEEN listed.list_date AND listed.delist_date" " WHERE NOT EXISTS (SELECT 1 FROM bars" " WHERE bars.contract = listed.contract AND bars.day = held.day)");
+        for (duckdb::idx_t row = 0; row < lacking->RowCount(); ++row) {
+            const auto day = lacking->GetValue(2, row).ToString();
+            incomplete
+                [lacking->GetValue(0, row).ToString() + '/' + lacking->GetValue(1, row).ToString()]
+                [day.substr(0, 7)]
+                    .insert(day);
+        }
     }
     // A product is due only while one of its contracts is listed.
     std::map<std::string, std::string> delisted;
@@ -405,6 +422,10 @@ wire::DatasetCoverage Reader::coverage(const wire::DatasetRef& query) const
                     listed->GetValue(2, row).ToString();
     }
     for (auto& [key, months] : products) {
+        for (const auto& [name, short_days] : incomplete[key]) {
+            auto& month = months.at(name);
+            month.set_days(month.days() - short_days.size());
+        }
         const auto exchange = key.substr(0, key.find('/'));
         const auto days = open.find(exchange);
         if (days != open.end()) {
