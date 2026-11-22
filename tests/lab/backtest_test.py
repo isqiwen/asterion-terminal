@@ -74,7 +74,25 @@ class Chart(unittest.TestCase):
         bar, = chart.minute_bars([minute(slot) for slot in slots], 60, contract)
         self.assertEqual((bar["partial"], bar["volume"]), (False, 45))
         self.assertEqual([item["partial"] for item in chart.minute_bars([minute(539), minute(540)], 1, contract)],
-                         [True, False])
+                         [False])
+
+    def test_opening_auction_joins_the_first_period_without_replacing_its_minutes(self):
+        day = "2026-01-06"
+        midnight = int(datetime.datetime(2026, 1, 6, tzinfo=chart.BEIJING).timestamp()) * 1000
+        for contract, opening in (("SHFE/rb/2026-05", 21 * 60), ("CFFEX/ic/2026-06", 9 * 60 + 30)):
+            def minute(slot, price, volume):
+                return (day, midnight + slot * 60_000, False,
+                        *[Decimal(price)] * 4, Decimal(volume), Decimal(1000))
+            rows = [minute(opening - 1, 99, 3),
+                    *(minute(opening + n, 100 + n, 1) for n in range(5))]
+            with self.subTest(contract=contract):
+                bar, = chart.minute_bars(rows, 5, contract)
+                self.assertEqual((bar["open"], bar["high"], bar["low"], bar["close"], bar["volume"]),
+                                 (99, 104, 99, 104, 8))
+                self.assertFalse(bar["partial"])
+                self.assertEqual(bar["time_ms"], midnight + (opening + 5) * 60_000)
+                del rows[1]
+                self.assertTrue(chart.minute_bars(rows, 5, contract)[0]["partial"])
 
     def test_macd_waits_for_33_bars(self):
         values = chart.macd([Decimal(n) for n in range(40)])

@@ -43,13 +43,24 @@ def _observed_periods(rows, minutes, sessions):
             periods.setdefault(minute // minutes, set()).add(minute % minutes)
     full = set(range(minutes))
     span = minutes * 60_000
-    for (day, bucket), group in groupby(rows, lambda row: (row[0], row[1] // span)):
+    openings = [start for start, _ in sessions if start == sessions[0][0] or start >= 18 * 60]
+    def period(row):
+        start = row[1]
+        minute = (start // 60_000 + 8 * 60) % 1440
+        for opening in openings:
+            if opening - 5 <= minute < opening:
+                start += (opening - minute) * 60_000
+                break
+        return row[0], start // span
+    for (day, bucket), group in groupby(rows, period):
         end_ms = (bucket + 1) * span
         observed = set()
         bar = None
         partial = False
         for _, start, source_partial, open_, high, low, close, volume, *interest in group:
-            observed.add(start // 60_000 % minutes)
+            minute = (start // 60_000 + 8 * 60) % 1440
+            if not any(opening - 5 <= minute < opening for opening in openings):
+                observed.add(start // 60_000 % minutes)
             last_interest = interest[0] if interest else None
             partial = partial or bool(source_partial)
             if None in (open_, high, low, close):
