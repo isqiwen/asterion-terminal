@@ -636,7 +636,7 @@ function DatasetBody({ context }: { context: TerminalContext }) {
                                 ...monthRange(month),
                                 // Daily days are stored per exchange: one holding other
                                 // products is skipped unless refetched.
-                                refetch: state === "partial",
+                                refetch: state === "partial" || state === "missing",
                               },
                         })
                     : undefined

@@ -272,7 +272,7 @@ test("monthly coverage shows localized product names and gaps submit a single ba
   });
 });
 
-test("a daily month with gaps refetches days its exchange already holds", async () => {
+test("a daily month with gaps or missing whole refetches days its exchange already holds", async () => {
   serve();
   view(context());
   await screen.findByRole("table", { name: "日线覆盖" });
@@ -280,9 +280,15 @@ test("a daily month with gaps refetches days its exchange already holds", async 
     within(screen.getByRole("dialog")).getByRole<HTMLInputElement>("checkbox", {
       name: "重新采集已有分区",
     });
-  fireEvent.click(screen.getByRole("button", { name: "补采 SHFE/rb 2026-06" }));
-  expect(refetch().checked).toBe(false);
-  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "取消" }));
+  for (const [name, checked] of [
+    [/^补采 SHFE\/rb 2026-06/, false], // not acquired
+    [/^补采 SHFE\/ag 2026-10/, false], // awaiting update
+    [/^补采 SHFE\/rb 2026-08/, true], // whole month missing
+  ] as const) {
+    fireEvent.click(screen.getByRole("button", { name }));
+    expect(refetch().checked).toBe(checked);
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "取消" }));
+  }
 
   fireEvent.click(screen.getByRole("button", { name: /^补采 SHFE\/rb 2026-09/ }));
   expect(refetch().checked).toBe(true);
