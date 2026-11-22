@@ -72,7 +72,8 @@ test("indicators follow the sidebar: market, research, warehouse, then each trad
     },
   ];
   const view = render(show(snapshot));
-  expect([...view.container.children].map(item => item.textContent)).toEqual([
+  const services = view.container.querySelector(".status-services")!;
+  expect([...services.children].map(item => item.textContent)).toEqual([
     "● 行情 连接中",
     "● 研究",
     "● 数据 连接中",
@@ -294,14 +295,15 @@ test("active Warehouse acquisition renders centered after the service lights whi
   expect(bar.value).toBe(126);
   expect(bar.max).toBe(210);
   expect(screen.getByRole("button", { name: "● 数据" }).dataset.tone).toBe("ok");
-  expect([...view.container.children].slice(0, 4).map(item => item.textContent)).toEqual([
+  const services = view.container.querySelector(".status-services")!;
+  expect([...services.children].map(item => item.textContent)).toEqual([
     "● 行情 连接中",
     "● 研究",
     "● 数据",
     "● 交易·simnow 连接中",
   ]);
-  expect(view.container.children[4]?.className).toBe("panel-spacer");
   const button = bar.closest("button")!;
+  expect(services.nextElementSibling).toBe(button);
   expect(button.textContent).toContain("采集中 · 日线 SHFE");
   expect(button.textContent).toBe("采集中 · 日线 SHFE60%");
   expect(button.title).toContain("126 / 210 个分区");

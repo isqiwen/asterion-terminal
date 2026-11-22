@@ -414,13 +414,14 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                         )
                       }
                     />
-                    <span className="panel-spacer" />
-                    <NotificationCenter />
-                    {error && (
-                      <button type="button" disabled={busy} onClick={() => void refresh()}>
-                        {t("重试连接")}
-                      </button>
-                    )}
+                    <div className="status-actions">
+                      <NotificationCenter />
+                      {error && (
+                        <button type="button" disabled={busy} onClick={() => void refresh()}>
+                          {t("重试连接")}
+                        </button>
+                      )}
+                    </div>
                   </>
                 }
               />

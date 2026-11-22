@@ -125,7 +125,7 @@ export function StatusIndicators({
     </>
   );
   // The sidebar's order; trading last, since there is one light per account.
-  return (
+  const services = (
     <>
       {!(snapshot.market_endpoint && "host" in snapshot.market_endpoint) ? (
         <button type="button" className="status-item" onClick={openMarketSettings}>
@@ -254,25 +254,26 @@ export function StatusIndicators({
           </button>
         );
       })}
-      {activeTask && (
-        <>
-          <span className="panel-spacer" />
-          {openDataset ? (
-            <button
-              type="button"
-              className="status-task"
-              title={warehouseTitle}
-              onClick={openDataset}
-            >
-              {taskProgress}
-            </button>
-          ) : (
-            <span className="status-task" title={warehouseTitle}>
-              {taskProgress}
-            </span>
-          )}
-        </>
-      )}
+    </>
+  );
+  return (
+    <>
+      <div className="status-services">{services}</div>
+      {activeTask &&
+        (openDataset ? (
+          <button
+            type="button"
+            className="status-task"
+            title={warehouseTitle}
+            onClick={openDataset}
+          >
+            {taskProgress}
+          </button>
+        ) : (
+          <span className="status-task" title={warehouseTitle}>
+            {taskProgress}
+          </span>
+        ))}
     </>
   );
 }

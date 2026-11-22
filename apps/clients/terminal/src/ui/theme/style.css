@@ -487,7 +487,23 @@ tbody tr:hover {
   color: var(--muted);
   font-size: var(--font-size-body);
 }
-.status-bar > :where(button, .status-item, .status-task),
+/* Equal sides keep the task on the bar's centre until the services need more room. */
+.status-services,
+.status-actions {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: var(--space-1);
+}
+.status-services {
+  min-width: max-content;
+}
+.status-actions {
+  justify-content: flex-end;
+  min-width: 88px;
+}
+:is(.status-services, .status-actions) > :where(button, .status-item),
+.status-bar > :where(.status-task),
 .notification-center > :where(button) {
   display: inline-flex;
   align-items: center;
@@ -504,7 +520,8 @@ tbody tr:hover {
 }
 :root[data-density="comfortable"]
   :is(
-    .status-bar > :where(button, .status-item, .status-task),
+    :is(.status-services, .status-actions) > :where(button, .status-item),
+    .status-bar > :where(.status-task),
     .notification-center > :where(button)
   ) {
   min-block-size: 26px;
@@ -521,7 +538,7 @@ tbody tr:hover {
 .status-bar [data-tone="attention"] {
   color: var(--warning);
 }
-.status-bar > :where(.status-item) {
+.status-services > :where(.status-item) {
   flex-shrink: 0;
   gap: 0;
 }
