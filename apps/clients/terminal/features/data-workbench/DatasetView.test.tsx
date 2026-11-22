@@ -272,34 +272,31 @@ test("monthly coverage shows localized product names and gaps submit a single ba
   });
 });
 
-test("a daily month with gaps or missing whole refetches days its exchange already holds", async () => {
+test("a coverage cell decides the refetch and the acquire button leaves it to the user", async () => {
   serve();
   view(context());
   await screen.findByRole("table", { name: "日线覆盖" });
-  const refetch = () =>
-    within(screen.getByRole("dialog")).getByRole<HTMLInputElement>("checkbox", {
+  const option = () =>
+    within(screen.getByRole("dialog")).queryByRole<HTMLInputElement>("checkbox", {
       name: "重新采集已有分区",
     });
-  for (const [name, checked] of [
+  const cases = [
     [/^补采 SHFE\/rb 2026-06/, false], // not acquired
     [/^补采 SHFE\/ag 2026-10/, false], // awaiting update
     [/^补采 SHFE\/rb 2026-08/, true], // whole month missing
-  ] as const) {
+    [/^补采 SHFE\/rb 2026-09/, true], // gaps
+  ] as const;
+  for (const [index, [name, refetch]] of cases.entries()) {
     fireEvent.click(screen.getByRole("button", { name }));
-    expect(refetch().checked).toBe(checked);
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "取消" }));
+    expect(option()).toBeNull();
+    startInDialog();
+    await waitFor(() => expect(submitted()).toHaveLength(index + 1));
+    expect(submitted()[index]).toMatchObject({ exchanges: ["SHFE"], refetch });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   }
 
-  fireEvent.click(screen.getByRole("button", { name: /^补采 SHFE\/rb 2026-09/ }));
-  expect(refetch().checked).toBe(true);
-  startInDialog();
-  await waitFor(() => expect(submitted()).toHaveLength(1));
-  expect(submitted()[0]).toMatchObject({
-    exchanges: ["SHFE"],
-    refetch: true,
-    firstDay: "2026-09-01",
-    lastDay: "2026-09-30",
-  });
+  fireEvent.click(screen.getByRole("button", { name: "采集" }));
+  expect(option()!.checked).toBe(false);
 });
 
 test("the matrix lists the products held or watched until all products are asked for", async () => {

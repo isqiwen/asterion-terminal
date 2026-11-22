@@ -16,6 +16,7 @@ export type Preset = {
   instruments?: string[];
   first?: string;
   last?: string;
+  // Set by a coverage cell, whose state decides it; otherwise the user chooses.
   refetch?: boolean;
 };
 
@@ -143,14 +144,16 @@ export function Acquisition({
           </label>
         </div>
         {minutes && <p className="subtle data-dialog-hint">{t("日期留空即整个上市期")}</p>}
-        <label className="data-checkbox-line">
-          <input
-            type="checkbox"
-            checked={replace}
-            onChange={event => setReplace(event.target.checked)}
-          />
-          {t("重新采集已有分区")}
-        </label>
+        {preset.refetch === undefined && (
+          <label className="data-checkbox-line">
+            <input
+              type="checkbox"
+              checked={replace}
+              onChange={event => setReplace(event.target.checked)}
+            />
+            {t("重新采集已有分区")}
+          </label>
+        )}
         <ActionError error={failure.error} namespace="asterion.terminal.data-workbench" />
         <div className="data-actions">
           <button type="button" onClick={close}>

@@ -630,7 +630,7 @@ function DatasetBody({ context }: { context: TerminalContext }) {
                         setAcquiring({
                           table,
                           preset: minutes
-                            ? { instruments: [id], ...monthRange(month) }
+                            ? { instruments: [id], ...monthRange(month), refetch: false }
                             : {
                                 exchanges: [id.split("/")[0]!],
                                 ...monthRange(month),
