@@ -20,6 +20,18 @@
   background: var(--hover);
   color: var(--text-strong);
 }
+.notification-center > .notification-kept {
+  gap: var(--space-2);
+}
+.notification-center > button.error {
+  color: var(--danger);
+}
+.notification-center > button.warning {
+  color: var(--warning);
+}
+.notification-center > .warning > .notification-count {
+  background: var(--warning);
+}
 .notification-latest::before {
   content: "";
   flex-shrink: 0;

@@ -79,7 +79,7 @@ test("settings service failures stay in the main window notification center", as
 
   await settings.getByRole("button", { name: "偏好设置", exact: true }).click();
   await settings.getByLabel("语言", { exact: true }).selectOption("en-US");
-  await expect(page.getByRole("button", { name: "Notifications", exact: true })).toBeVisible();
+  await expect(page.locator(".notification-kept")).toContainText("Notifications");
   await expect(page.getByRole("region", { name: "Notifications", exact: true })).toContainText(
     "Warehouse and Terminal use different communication protocols",
   );

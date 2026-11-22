@@ -4,7 +4,7 @@ import { expect, test } from "vitest";
 import { BackendError } from "../i18n/errors";
 import { NotificationCenter, notify } from "./notifications";
 
-test("the status bar shows the latest unread message and collapses to 通知 once opened", () => {
+test("the status bar shows the latest unread message and collapses to 通知 with its count once opened", () => {
   render(<NotificationCenter />);
   act(() => {
     notify(new BackendError("invalid_request", "bad input"));
@@ -24,10 +24,10 @@ test("the status bar shows the latest unread message and collapses to 通知 onc
     "请求无效，请检查输入: bad input",
   ]);
   const trigger = screen.getByRole("button", { expanded: true });
-  expect(trigger.textContent).toBe("通知");
-  expect(trigger.className).toBe("notification-none");
+  expect(trigger.textContent).toBe("通知2");
+  expect(trigger.className).toBe("notification-kept error");
   fireEvent(panel, Object.assign(new Event("toggle"), { newState: "closed" }));
-  expect(screen.getByRole("button", { expanded: false }).textContent).toBe("通知");
+  expect(screen.getByRole("button", { expanded: false }).textContent).toBe("通知2");
   act(() => {
     notify(new BackendError("unavailable", "reconnecting"));
   });
@@ -37,6 +37,25 @@ test("the status bar shows the latest unread message and collapses to 通知 onc
   openPopover(screen.getByRole("button", { expanded: false }));
   fireEvent.click(screen.getByRole("button", { name: "清空" }));
   expect(screen.getByText("没有消息")).toBeDefined();
+});
+
+test("read messages keep 通知 yellow for warnings and red for errors until cleared", () => {
+  render(<NotificationCenter />);
+  act(() => {
+    notify("disk is low", { severity: "warning" });
+  });
+  openPopover(screen.getByRole("button", { expanded: false }));
+  const trigger = screen.getByRole("button", { expanded: true });
+  expect(trigger.className).toBe("notification-kept warning");
+  expect(trigger.textContent).toBe("通知1");
+  act(() => {
+    notify(new BackendError("unavailable", "Lab stopped"));
+  });
+  expect(trigger.className).toBe("notification-kept error");
+  expect(trigger.textContent).toBe("通知1");
+  fireEvent.click(screen.getByRole("button", { name: "清空" }));
+  expect(trigger.className).toBe("notification-none");
+  expect(trigger.textContent).toBe("通知");
 });
 
 test("the same message repeated in a row is one entry with its count", () => {

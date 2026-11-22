@@ -344,7 +344,9 @@ test("clearing a service while a background poll is in flight leaves notificatio
     </>,
   );
   expect(screen.getByRole("button", { name: "● 数据 未设置" })).toBeTruthy();
-  expect(screen.getByRole("button", { expanded: false }).textContent).toBe("通知");
+  expect(screen.getByRole("button", { expanded: false }).className).not.toContain(
+    "notification-latest",
+  );
   vi.mocked(warehouseData).mockImplementation(() => new Promise(() => {}));
 });
 

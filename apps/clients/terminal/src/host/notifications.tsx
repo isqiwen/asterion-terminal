@@ -117,9 +117,10 @@ function useEntries() {
   );
 }
 
-// The status bar shows the latest unread message and unread count, collapsing
-// back to "通知" once opened; the panel lists the session's messages and opens
-// the log directory. An unread trading error stays highlighted until opened.
+// The status bar shows the latest unread message and unread count; once read it
+// shows "通知" in red with the errors left, or in yellow with the warnings left,
+// until cleared. The panel lists the session's messages and opens the log
+// directory. An unread trading error stays highlighted until opened.
 export function NotificationCenter() {
   useLocale();
   useEffect(() => {
@@ -141,6 +142,8 @@ export function NotificationCenter() {
   const unread = all.filter(entry => entry.id > seen);
   const latestUnread = !open ? unread.at(-1) : undefined;
   const urgent = unread.some(entry => entry.source === "交易" && entry.severity === "error");
+  const errors = all.filter(entry => entry.severity === "error").length;
+  const tone = errors ? "error" : "warning";
   return (
     <div className="notification-center">
       <section
@@ -208,8 +211,10 @@ export function NotificationCenter() {
         type="button"
         className={
           latestUnread
-            ? `notification-latest ${latestUnread.severity}${urgent ? " urgent" : ""}`
-            : "notification-none"
+            ? `notification-latest ${tone}${urgent ? " urgent" : ""}`
+            : all.length
+              ? `notification-kept ${tone}`
+              : "notification-none"
         }
         style={{ anchorName: anchor }}
         {...{ commandfor: panelId, command: "toggle-popover" }}
@@ -223,7 +228,10 @@ export function NotificationCenter() {
             <span className="notification-count">{unread.length}</span>
           </>
         ) : (
-          translate("host", "通知")
+          <>
+            {translate("host", "通知")}
+            {all.length > 0 && <span className="notification-count">{errors || all.length}</span>}
+          </>
         )}
       </button>
     </div>
