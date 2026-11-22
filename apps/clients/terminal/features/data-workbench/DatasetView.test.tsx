@@ -238,7 +238,7 @@ test("the summary shows freshness, acquisition defaults to canonical exchange or
   const [daily, minutes] = summary.querySelectorAll<HTMLElement>(".data-summary-item");
   expect(daily!.textContent).toBe("日线缺 2 个交易日");
   expect(daily!.title).toBe("数据到 2026-11-10 · 应到 2026-11-12 · 另有 3 个交易日来源无数据");
-  expect(minutes!.textContent).toBe("分钟线未采集");
+  expect(minutes!.textContent).toBe("分钟线");
 
   fireEvent.click(screen.getByRole("button", { name: "更新到最新" }));
   await screen.findByText("已提交 2 个更新任务");

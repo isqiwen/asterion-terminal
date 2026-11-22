@@ -27,7 +27,7 @@ import {
   type Rule,
 } from "./CoverageList";
 import { VersionBanner, WarehousePage, WarehouseUnavailable } from "./Page";
-import { exchanges, freshness, startAcquisition, t, tableName } from "./dataset";
+import { exchanges, startAcquisition, t, tableName } from "./dataset";
 
 // What the research dataset holds for daily and minute bars, where any gaps sit
 // across products and months, and the acquisitions and versions behind it.
@@ -284,7 +284,6 @@ function DatasetBody({ context }: { context: TerminalContext }) {
           {(["daily", "minutes"] as const).map(item => {
             const itemTable = item === "minutes" ? Table.MINUTES : Table.DAILY;
             const entry = summary.tables.find(row => row.table === itemTable);
-            const status = freshness(entry);
             const detail = entry?.rows
               ? [
                   t("数据到 {day}", { day: entry.lastDay }),
@@ -306,7 +305,11 @@ function DatasetBody({ context }: { context: TerminalContext }) {
                 onClick={() => setKind(item)}
               >
                 <strong>{tableName(itemTable)}</strong>
-                {status && <StatusBadge tone={status.tone}>{status.text}</StatusBadge>}
+                {!!entry?.missing && (
+                  <StatusBadge tone="attention">
+                    {t("缺 {count} 个交易日", { count: Number(entry.missing) })}
+                  </StatusBadge>
+                )}
               </button>
             );
           })}
