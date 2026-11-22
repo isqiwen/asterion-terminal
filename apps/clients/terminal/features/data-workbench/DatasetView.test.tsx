@@ -117,7 +117,10 @@ function serve({
                     },
                     {
                       product: "SHFE/au",
-                      months: [{ month: "2026-10", days: 10, openDays: 16, emptyDays: 6 }],
+                      months: [
+                        { month: "2026-09", days: 18, openDays: 21, pendingDays: 2 },
+                        { month: "2026-10", days: 10, openDays: 16, emptyDays: 6 },
+                      ],
                     },
                     {
                       product: "SHFE/ag",
@@ -201,6 +204,29 @@ test("market series cards show freshness, acquisition defaults to canonical exch
   expect(request).toHaveBeenCalledWith({ case: "startUpdate", value: {} });
 });
 
+test("hovering shows detail only for months their number and colour cannot explain", async () => {
+  serve();
+  view(context());
+  const matrix = await screen.findByRole("table", { name: "日线覆盖" });
+  const cellsOf = (name: RegExp) =>
+    within(within(matrix).getByRole("row", { name })).getAllByRole("cell");
+  const gold = cellsOf(/SHFE\/au/);
+  const rebar = cellsOf(/SHFE\/rb/);
+  const tip = screen.getByRole("tooltip");
+  fireEvent.pointerOver(gold[8]!);
+  expect(tip.textContent).toBe("18 / 21 · 缺 1 天 · 2 天待更新");
+  fireEvent.pointerOver(gold[9]!);
+  expect(tip.textContent).toBe("10 / 16 · 6 天来源无数据");
+  // Complete, gap-only and blank months say nothing more on hover.
+  for (const index of [9, 8, 11]) {
+    fireEvent.pointerOver(rebar[index]!);
+    expect(tip.textContent).toBe("");
+  }
+  fireEvent.pointerOver(gold[9]!);
+  fireEvent.pointerLeave(screen.getByRole("region", { name: "日线覆盖" }));
+  expect(tip.textContent).toBe("");
+});
+
 test("monthly coverage shows localized product names and gaps submit a single bar acquisition", async () => {
   serve();
   view(context());
@@ -215,7 +241,6 @@ test("monthly coverage shows localized product names and gaps submit a single ba
     "partial",
     "full",
   ]);
-  expect(cells[9]!.getAttribute("title")).toBe("16 / 16");
   expect(cells[8]!.textContent).toBe("10/21");
   expect(cells[5]!.getAttribute("data-cell")).toBe("unacquired");
   expect(cells[10]!.getAttribute("data-cell")).toBe("unacquired");
@@ -308,13 +333,11 @@ test("minute acquisition submits one task, prerequisite requests show live progr
   ).getAllByRole("cell");
   expect(expiredCells[10]!.getAttribute("data-cell")).toBe("delisted");
   expect(expiredCells[10]!.textContent).toBe("—");
-  expect(expiredCells[10]!.getAttribute("title")).toBe("已摘牌（交割月 2026-10）");
   const activeCells = within(
     within(minuteMatrix).getByRole("row", { name: /SHFE\/rb\/2027-01/ }),
   ).getAllByRole("cell");
   expect(activeCells[11]!.getAttribute("data-cell")).toBe("future");
   expect(activeCells[11]!.textContent).toBe("");
-  expect(activeCells[11]!.getAttribute("title")).toBe("未到来");
 
   fireEvent.click(screen.getByRole("button", { name: /^补采 SHFE\/cu\/2026-12 2026-10/ }));
   let dialog = screen.getByRole("dialog", { name: "采集 分钟线" });

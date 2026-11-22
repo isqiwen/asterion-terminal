@@ -613,6 +613,22 @@ button.picker-chip small {
 .data-coverage-body > .coverage-matrix {
   padding: 0 var(--space-page) var(--space-3) 0;
 }
+.coverage-tip {
+  position: fixed;
+  z-index: 10;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--control-radius);
+  background: var(--raised);
+  box-shadow: var(--shadow-popover);
+  color: var(--text);
+  font-size: var(--font-size-aux);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.coverage-tip:empty {
+  display: none;
+}
 .coverage-name {
   display: block;
   font-weight: 400;

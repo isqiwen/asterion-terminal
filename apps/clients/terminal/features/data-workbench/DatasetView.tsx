@@ -147,12 +147,15 @@ function rowsOf(coverage: DatasetCoverage, minutes: boolean): Row[] {
       }));
 }
 
+// Only mixed causes or days the source never had need more than the number and colour.
 function describe(cell: Month) {
+  const missing = gaps(cell);
+  if (!cell.empty && !(missing && cell.pending)) return undefined;
   return [
-    cell.open ? `${cell.days} / ${cell.open}` : t("{days} 天", { days: cell.days }),
-    cell.open && gaps(cell) && t("缺 {days} 天", { days: gaps(cell) }),
-    cell.open && cell.pending && t("{days} 天待更新", { days: cell.pending }),
-    cell.open && cell.empty && t("{days} 天来源无数据", { days: cell.empty }),
+    `${cell.days} / ${cell.open}`,
+    missing && t("缺 {days} 天", { days: missing }),
+    cell.pending && t("{days} 天待更新", { days: cell.pending }),
+    cell.empty && t("{days} 天来源无数据", { days: cell.empty }),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -678,8 +681,46 @@ function Matrix({
   const groups = exchanges
     .map(exchange => ({ exchange, rows: rows.filter(row => row.exchange === exchange) }))
     .filter(group => group.rows.length);
+  // Set directly: a native title waits for the pointer to settle and often skips
+  // neighbours with the same text, and a state update would redraw the whole grid.
+  const tip = useRef<HTMLDivElement>(null);
+  const tipped = useRef<Element | null>(null);
+  const showTip = (cell: Element | null) => {
+    tipped.current = cell;
+    const box = tip.current!;
+    box.textContent = cell?.getAttribute("aria-description") ?? "";
+    if (!cell) return;
+    const at = cell.getBoundingClientRect();
+    const { width, height } = box.getBoundingClientRect();
+    box.style.left = `${Math.max(8, Math.min(at.left + (at.width - width) / 2, innerWidth - width - 8))}px`;
+    box.style.top = `${at.top - height - 6 < 8 ? at.bottom + 6 : at.top - height - 6}px`;
+  };
+  // A poll can change the month under the pointer or remove its row.
+  useEffect(() => {
+    if (tipped.current) showTip(tipped.current.isConnected ? tipped.current : null);
+  });
   return (
-    <div className="coverage-matrix" role="region" aria-label={label} tabIndex={0}>
+    <div
+      className="coverage-matrix"
+      role="region"
+      aria-label={label}
+      tabIndex={0}
+      onPointerOver={event => {
+        // The gaps between cells keep the current tip.
+        const cell = (event.target as Element).closest("td, th");
+        if (cell) showTip(cell.matches("td") ? cell : null);
+      }}
+      onPointerLeave={() => showTip(null)}
+      onScroll={() => showTip(tipped.current?.matches(":hover") ? tipped.current : null)}
+      onFocus={event => {
+        const cell = event.target.closest("td");
+        if (cell && event.target.matches(":focus-visible")) showTip(cell);
+      }}
+      onBlur={() => {
+        if (!tipped.current?.matches(":hover")) showTip(null);
+      }}
+    >
+      <div ref={tip} className="coverage-tip" role="tooltip" />
       <table className="data-table" aria-label={label}>
         <thead>
           <tr>
@@ -715,25 +756,8 @@ function Matrix({
                         state === "unacquired");
                     const text = cellText(cell, state, fillable);
                     const action = t("补采 {target} {month}", { target: row.id, month });
-                    const delivery = row.id.split("/")[2];
                     return (
-                      <td
-                        key={month}
-                        data-cell={state}
-                        title={
-                          cell
-                            ? describe(cell)
-                            : state === "missing"
-                              ? t("整月缺失")
-                              : state === "unacquired"
-                                ? t("未采集")
-                                : state === "delisted"
-                                  ? t("已摘牌（交割月 {month}）", { month: delivery ?? "" })
-                                  : state === "future"
-                                    ? t("未到来")
-                                    : undefined
-                        }
-                      >
+                      <td key={month} data-cell={state} aria-description={cell && describe(cell)}>
                         {fillable ? (
                           <button
                             type="button"
