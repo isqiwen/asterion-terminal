@@ -105,16 +105,6 @@ const legend = [
   ["delisted", "已摘牌"],
 ] as const;
 
-function statesIn(rows: readonly Row[], months: readonly string[]) {
-  const latestMonth = beijingDay(-1).slice(0, 7);
-  return new Set<Cell>(
-    rows.flatMap(row => {
-      const held = [...row.months.keys()].sort();
-      return months.map(month => cellOf(row, month, held[0], held.at(-1), latestMonth));
-    }),
-  );
-}
-
 function rowsOf(coverage: DatasetCoverage, minutes: boolean): Row[] {
   const month = (m: {
     month: string;
@@ -420,7 +410,6 @@ function DatasetBody({ context }: { context: TerminalContext }) {
   );
   const matrixRows = minutes && !query ? shownRows.slice(0, 200) : shownRows;
   const matrixMonths = monthsOf(year);
-  const shownStates = statesIn(matrixRows, matrixMonths);
 
   const error = state.error || options.error || (!viewed ? versionError : "");
   useErrorNotification(error, "asterion.terminal.data-workbench");
@@ -571,13 +560,15 @@ function DatasetBody({ context }: { context: TerminalContext }) {
               )}
             </search>
             <span className="data-legend" aria-hidden="true">
-              {legend
-                .filter(([state]) => shownStates.has(state))
-                .map(([state, label]) => (
-                  <span key={state}>
-                    <i data-cell={state} /> {t(label)}
-                  </span>
-                ))}
+              {matrixRows.length > 0 &&
+                legend
+                  // Only a contract has a delivery month to pass.
+                  .filter(([state]) => minutes || state !== "delisted")
+                  .map(([state, label]) => (
+                    <span key={state}>
+                      <i data-cell={state} /> {t(label)}
+                    </span>
+                  ))}
             </span>
             {!viewed && (
               <div className="data-toolbar-actions">

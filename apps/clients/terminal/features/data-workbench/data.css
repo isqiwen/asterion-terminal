@@ -711,6 +711,13 @@ button.picker-chip small {
   border: 1px solid color-mix(in oklab, var(--warning) 50%, var(--panel));
   color: var(--warning);
 }
+/* A 12px outline needs the full colour to be told apart. */
+.data-legend i[data-cell="pending"] {
+  border-color: var(--series-2);
+}
+.data-legend i[data-cell="partial"] {
+  border-color: var(--warning);
+}
 :is(.coverage-matrix td, .data-legend i)[data-cell="missing"] {
   background: color-mix(in oklab, var(--danger) 34%, var(--canvas));
   border: 1px solid color-mix(in oklab, var(--danger) 64%, var(--canvas));

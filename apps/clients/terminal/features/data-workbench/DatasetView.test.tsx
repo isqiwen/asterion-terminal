@@ -272,6 +272,20 @@ test("monthly coverage shows localized product names and gaps submit a single ba
   });
 });
 
+test("the key lists every state whatever is on screen, and delisted only for contracts", async () => {
+  serve();
+  view(context());
+  await screen.findByRole("table", { name: "日线覆盖" });
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "SHFE/rb" } });
+  const key = () =>
+    [...document.querySelectorAll(".data-legend > span")].map(item => item.textContent!.trim());
+  const daily = ["齐全", "待更新", "有缺口", "整月缺失", "来源无数据"];
+  expect(key()).toEqual(daily);
+  show("分钟线");
+  await screen.findByRole("table", { name: "分钟线覆盖" });
+  expect(key()).toEqual([...daily, "已摘牌"]);
+});
+
 test("a coverage cell decides the refetch and the acquire button leaves it to the user", async () => {
   serve();
   view(context());
