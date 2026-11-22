@@ -171,13 +171,15 @@ struct LabSupervisor::Impl
                 if (!answered && Clock::now() - started < 10s) {
                     probe = Clock::now() + 250ms;
                 } else {
-                    unresponsive = true;
-                    error = "lab heartbeat unavailable";
                     log::warn(
                         "lab heartbeat failed ({} in a row): {}",
                         failures + 1,
                         failure.what());
-                    if (++failures >= 3) {
+                    if (++failures >= 3 || !answered) {
+                        unresponsive = true;
+                        error = "lab heartbeat unavailable";
+                    }
+                    if (failures >= 3) {
                         stop();
                         retry = Clock::now() + 5s;
                     }

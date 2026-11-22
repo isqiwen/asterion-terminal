@@ -75,15 +75,38 @@ try:
                for line in path.read_text().splitlines()]
     assert any("[asterion_lab] [__main__.py:" in line and " lab-service service.started " in line for line in started), started
 
+    # One delayed heartbeat must not reject research requests or report a failure.
+    os.kill(first["pid"], signal.SIGSTOP)
+    try:
+        wait(process, lambda _: any(
+            "lab heartbeat failed (1 in a row)" in path.read_text()
+            for path in (root / "terminal" / "logs").glob("*.log")))
+        call(process, "lab.endpoint")
+        delayed = lab(process)
+        assert ready(delayed) and not delayed["error"] and delayed["restarts"] == 0, delayed
+    finally:
+        os.kill(first["pid"], signal.SIGCONT)
+
     # A process that dies is started again.
     os.kill(first["pid"], signal.SIGKILL)
     second = wait(process, lambda s: ready(s) and s["pid"] != first["pid"])
     assert second["restarts"] >= 1, second
+
+    # A process that remains alive but stops answering is also restarted.
+    os.kill(second["pid"], signal.SIGSTOP)
+    try:
+        resumed = wait(process, lambda s: ready(s) and s["pid"] != second["pid"])
+        assert resumed["restarts"] > second["restarts"], resumed
+    finally:
+        try:
+            os.kill(second["pid"], signal.SIGCONT)
+        except ProcessLookupError:
+            pass
 finally:
     process.kill()
 # The lab watches the Terminal's process and exits with it, even when the
 # Terminal is killed and nobody has reaped it yet.
-assert gone(second["pid"]), "the lab outlived the Terminal"
+assert gone(resumed["pid"]), "the lab outlived the Terminal"
 process.wait(timeout=10)
 
 # The next Terminal starts a fresh lab; a first start is not a restart.
@@ -91,7 +114,7 @@ process = launch()
 try:
     call(process, "lab.endpoint")
     third = wait(process, ready)
-    assert third["pid"] != second["pid"] and third["restarts"] == 0, third
+    assert third["pid"] != resumed["pid"] and third["restarts"] == 0, third
 finally:
     close(process)
 print("lab service started, restarted and tied to the Terminal's lifetime")
