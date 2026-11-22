@@ -14,7 +14,7 @@ export const feature: TerminalFeature = {
     {
       id: "workspace.data-dataset",
       get title() {
-        return t("数据覆盖");
+        return t("采集");
       },
       component: (context: TerminalContext) => <Dataset {...context} />,
     },

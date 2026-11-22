@@ -413,8 +413,8 @@ export function CoverageList({
   };
 
   return (
-    <div className="coverage-list" role="region" aria-label={t("数据覆盖")} tabIndex={0}>
-      <table className="coverage-table" aria-label={t("品种覆盖")}>
+    <div className="coverage-list" role="region" aria-label={t("采集进度")} tabIndex={0}>
+      <table className="coverage-table" aria-label={t("品种采集进度")}>
         <colgroup>
           <col className="coverage-col-name" />
           <col className="coverage-col-count" />

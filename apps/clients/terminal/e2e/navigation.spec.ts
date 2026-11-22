@@ -39,7 +39,7 @@ test("four business modules preserve navigation without starting work", async ({
   );
   await openView(page, "dataset");
   await expect(page.getByRole("navigation", { name: "子模块视图" }).getByRole("button")).toHaveText(
-    ["数据覆盖", "浏览"],
+    ["采集", "浏览"],
   );
   expect(
     methods.filter(

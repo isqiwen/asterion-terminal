@@ -55,7 +55,6 @@
   "任务": "Task",
   "未知": "Unknown",
   "样本": "Samples",
-  "数据覆盖": "Coverage",
   "采集": "Acquisition",
   "开始日期": "Start date",
   "开始采集": "Acquire",
@@ -120,7 +119,6 @@
   "浏览": "Browse",
   "缺 {count} 个交易日": "{count} trading days missing",
   "行数": "Rows",
-  "覆盖": "Coverage",
   "还没有数据": "No data yet",
   "来源无数据": "No source data",
   "另有 {count} 个交易日来源无数据": "plus {count} trading days with no source data",
@@ -204,7 +202,6 @@
   "已采": "Stored",
   "缺口": "Gap",
   "在市 / 全部": "Listed / all",
-  "品种覆盖": "Product coverage",
   "历史合约": "Past contracts",
   "{count} 个": "{count}",
   "{year} 年交割": "Delivery {year}",
@@ -223,5 +220,6 @@
   "未到期": "Not yet due",
   "部分采集": "Partly stored",
   "分钟线按合约逐日采集，约 {count} 次请求": "Minutes are requested per contract and day: about {count} requests",
-  "数据到 {day}": "Data through {day}"
+  "数据到 {day}": "Data through {day}",
+  "品种采集进度": "Product acquisition progress"
 }

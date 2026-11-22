@@ -219,7 +219,7 @@ const submitted = () =>
     .map(body => body.value);
 const startInDialog = () =>
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "开始采集" }));
-const list = () => screen.findByRole("table", { name: "品种覆盖" });
+const list = () => screen.findByRole("table", { name: "品种采集进度" });
 const showKind = (name: "日线" | "分钟线") =>
   fireEvent.click(
     within(screen.getByRole("group", { name: "数据" })).getByRole("button", {
@@ -577,7 +577,7 @@ test("a warehouse without a contract table offers no product to act on", async (
   });
   view(context());
   expect(await screen.findByText("暂无品种")).toBeTruthy();
-  expect(screen.queryByRole("table", { name: "品种覆盖" })).toBeNull();
+  expect(screen.queryByRole("table", { name: "品种采集进度" })).toBeNull();
 });
 
 test("an unreachable warehouse shows an inline error with retry and settings actions", async () => {

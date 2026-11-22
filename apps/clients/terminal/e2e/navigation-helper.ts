@@ -13,7 +13,7 @@ const destinations = {
   factors: ["研究", "因子"],
   trading: ["交易", "工作台"],
   tradingStrategies: ["交易", "策略"],
-  dataset: ["数据", "数据覆盖"],
+  dataset: ["数据", "采集"],
   browse: ["数据", "浏览"],
 } as const;
 

@@ -33,7 +33,7 @@ import { exchanges, freshness, startAcquisition, t, tableName } from "./dataset"
 // across products and months, and the acquisitions and versions behind it.
 export function Dataset(context: TerminalContext) {
   return (
-    <WarehousePage context={context} label={t("数据覆盖")}>
+    <WarehousePage context={context} label={t("采集")}>
       {() => <DatasetBody context={context} />}
     </WarehousePage>
   );
