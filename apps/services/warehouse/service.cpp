@@ -200,6 +200,33 @@ wire::AcquisitionTasks update(const std::filesystem::path& directory, acquisitio
     return result;
 }
 
+// The product list comes from the contract table, so it is kept without being asked for.
+void refresh_contracts(
+    const std::filesystem::path& directory,
+    acquisition::Manager& tasks,
+    bool missing_only)
+{
+    const auto configured = tasks.options();
+    const auto offered =
+        std::find_if(configured.tables().begin(), configured.tables().end(), [](const auto& item) {
+            return item.table() == wire::TABLE_CONTRACTS;
+        });
+    if (offered == configured.tables().end() || tasks.busy(wire::TABLE_CONTRACTS))
+        return;
+    const auto id = "contracts-"
+        + std::to_string(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch())
+                .count());
+    if (auto request = acquisition::contracts_request(
+            directory,
+            std::vector<std::string>(offered->exchanges().begin(), offered->exchanges().end()),
+            yesterday(),
+            id,
+            missing_only))
+        tasks.submit(std::move(*request));
+}
+
 // The next time of day `at` in Beijing after now.
 std::chrono::system_clock::time_point next(std::chrono::minutes at)
 {
@@ -301,12 +328,18 @@ struct WarehouseService::Running
                 std::mutex mutex;
                 std::condition_variable_any wake;
                 std::unique_lock lock(mutex);
+                try {
+                    refresh_contracts(this->settings.directory, acquisitions, true);
+                } catch (const std::exception& error) {
+                    log::error("contract table not requested: {}", error.what());
+                }
                 while (!wake.wait_until(lock, stop, next(*this->settings.update_at), [] {
                     return false;
                 }) && !stop.stop_requested())
                     try {
                         const auto tasks = update(this->settings.directory, acquisitions);
                         log::info("daily update submitted {} tasks", tasks.tasks_size());
+                        refresh_contracts(this->settings.directory, acquisitions, false);
                     } catch (const std::exception& error) {
                         log::error("daily update failed: {}", error.what());
                     }

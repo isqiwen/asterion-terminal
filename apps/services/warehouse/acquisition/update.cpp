@@ -164,4 +164,27 @@ std::vector<wire::StartAcquisition> update_requests(
     return result;
 }
 
+std::optional<wire::StartAcquisition> contracts_request(
+    const std::filesystem::path& directory,
+    const std::vector<std::string>& exchanges,
+    const std::string& day,
+    const std::string& id,
+    bool missing_only)
+{
+    const Store store(source_directory(directory, "research"), "research");
+    const auto version = store.current();
+    wire::StartAcquisition out;
+    for (const auto& exchange : exchanges)
+        if (!missing_only || !version.partitions.contains("contracts/" + exchange))
+            out.add_exchanges(exchange);
+    if (out.exchanges().empty())
+        return std::nullopt;
+    out.set_id(id);
+    out.set_table(protocol::table_of("contracts"));
+    out.set_first_day(day);
+    out.set_last_day(day);
+    out.set_refetch(true);
+    return out;
+}
+
 } // namespace asterion::warehouse::acquisition

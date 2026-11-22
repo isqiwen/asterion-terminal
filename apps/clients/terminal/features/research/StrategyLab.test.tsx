@@ -36,6 +36,11 @@ const editScope = (edit: () => void) => {
   fireEvent.click(screen.getByRole("button", { name: "完成" }));
 };
 
+const pickSymbol = (symbol: string) => {
+  fireEvent.change(screen.getByRole("combobox", { name: "品种" }), { target: { value: symbol } });
+  fireEvent.click(screen.getByRole("option", { name: new RegExp(symbol) }));
+};
+
 const editor = () => EditorView.findFromDOM(document.querySelector(".cm-editor") as HTMLElement)!;
 
 function mockRunDetail(id: string, strategy = "once.Once") {
@@ -111,7 +116,7 @@ test("an unsaved edit is saved before the run reads it, and the run opens its re
   editor().dispatch({ changes: { from: 7, to: 8, insert: "2" } });
   editScope(() => {
     fireEvent.focus(screen.getByLabelText("品种"));
-    fireEvent.click(screen.getByRole("option", { name: /SHFE\/rb/ }));
+    pickSymbol("SHFE/rb");
   });
   fireEvent.click(screen.getByRole("button", { name: "运行" }));
 
@@ -350,9 +355,9 @@ test("multiple symbols default to separate runs for single-symbol strategies and
 
   editScope(() => {
     fireEvent.focus(screen.getByLabelText("品种"));
-    fireEvent.click(screen.getByRole("option", { name: /SHFE\/rb/ }));
+    pickSymbol("SHFE/rb");
     expect(screen.queryByRole("radio", { name: "分别回测" })).toBeNull();
-    fireEvent.click(screen.getByRole("option", { name: /DCE\/i/ }));
+    pickSymbol("DCE/i");
   });
   expect((screen.getByRole("radio", { name: "分别回测" }) as HTMLInputElement).checked).toBe(true);
 

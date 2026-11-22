@@ -16,7 +16,7 @@ import type { TerminalContext } from "../../src/host/feature-registry";
 import { notify } from "../../src/host/notifications";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { getLocale, listSeparator, type MessageValues, translate } from "../../src/i18n";
-import { knownProducts, warehouseName } from "../../src/ui/contract-names";
+import { warehouseName } from "../../src/ui/contract-names";
 import { Icon } from "../../src/ui/Icon";
 import {
   copiedModule,
@@ -721,17 +721,6 @@ export function useStoredCatalog(
     for (const exchange of EXCHANGES) {
       if (!byExchange.has(exchange)) {
         byExchange.set(exchange, { id: exchange, first: "", last: "", stored: false });
-      }
-    }
-    for (const product of knownProducts) {
-      if (!byProduct.has(product)) {
-        byProduct.set(product, {
-          id: product,
-          name: warehouseName(product),
-          first: "",
-          last: "",
-          stored: false,
-        });
       }
     }
     const exchangeRank = (id: string) => {

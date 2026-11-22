@@ -11,12 +11,7 @@ import {
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "../../src/host/workspace/drafts";
 import { openPopover } from "../../src/testing/popover";
-import { tradingRequest } from "../../src/bridge/trading";
-import { ResponseSchema } from "../../src/generated/asterion/trading_pb";
-import { TradingAccountsProvider } from "../../src/host/trading-accounts";
 import { Dataset } from "./DatasetView";
-
-vi.mock("../../src/bridge/trading", () => ({ tradingRequest: vi.fn() }));
 
 const request = vi.hoisted(() => vi.fn());
 vi.mock("../../src/bridge/warehouse-data", () => ({
@@ -173,6 +168,7 @@ function serve({
                       listed: 2,
                       daily: { held: 2, pending: 1, firstDay: "2026-07-01", lastDay: "2026-10-30" },
                     },
+                    { product: "SHFE/pb", contracts: 1 },
                     {
                       product: "SHFE/rb",
                       contracts: rebar.length,
@@ -271,7 +267,7 @@ test("products with problems come first and only they count as needing attention
   const names = within(table)
     .getAllByRole("rowheader")
     .map(cell => cell.textContent);
-  expect(names).toEqual(["rb螺纹钢SHFE", "au沪金SHFE", "ag沪银SHFE"]);
+  expect(names).toEqual(["rb螺纹钢SHFE", "au沪金SHFE", "ag沪银SHFE", "pb沪铅SHFE"]);
   const row = (name: RegExp) => within(table).getByRole("rowheader", { name }).closest("tr")!;
   expect(row(/^rb/).textContent).toContain("缺 1 个合约");
   expect(row(/^rb/).textContent).toContain("2 / 5");
@@ -442,21 +438,13 @@ test("searching a contract code opens its product and shows that contract", asyn
   expect(screen.queryByRole("rowheader", { name: /^ag/ })).toBeNull();
 });
 
-test("the list shows the products held or watched until all products are asked for", async () => {
+test("the list shows every product Warehouse knows, those never acquired last", async () => {
   serve();
-  const props = context();
-  props.snapshot!.market_endpoint = {
-    host: "market",
-    port: 7440,
-    fingerprint: "f",
-    instruments: [{ exchange: "SHFE", symbol: "zn2612" }],
-  };
-  view(props);
-  const table = await list();
-  expect(within(table).getByRole("rowheader", { name: /^zn/ })).toBeTruthy();
-  expect(within(table).queryByRole("rowheader", { name: /^pb/ })).toBeNull();
-  fireEvent.click(screen.getByRole("checkbox", { name: "全部品种" }));
-  expect(within(table).getByRole("rowheader", { name: /^pb/ })).toBeTruthy();
+  view(context());
+  const headers = within(await list()).getAllByRole("rowheader");
+  expect(headers.at(-1)!.textContent).toContain("沪铅");
+  fireEvent.click(screen.getByRole("button", { name: "采集 SHFE/pb" }));
+  expect(await screen.findByRole("dialog", { name: "采集 日线" })).toBeTruthy();
 });
 
 test("minute acquisition submits one task, prerequisite requests show live progress, and update batches cancel together", async () => {
@@ -585,16 +573,11 @@ test("without an acquisition source nothing offers acquisition", async () => {
   expect(screen.queryByRole("button", { name: "更新到最新" })).toBeNull();
 });
 
-test("an empty warehouse lists what can be collected and asks for the first range", async () => {
+test("a warehouse without a contract table offers no product to act on", async () => {
   request.mockImplementation(async (body: { case: string }) => {
     switch (body.case) {
       case "getAcquisitionOptions":
-        return {
-          tables: [Table.DAILY, Table.MINUTES].map(table => ({
-            table,
-            exchanges: ["CFFEX", "SHFE"],
-          })),
-        };
+        return { tables: [{ table: Table.DAILY, exchanges: ["SHFE"] }] };
       case "getDatasetSummary":
         return { tables: [] };
       case "listAcquisitionTasks":
@@ -606,16 +589,8 @@ test("an empty warehouse lists what can be collected and asks for the first rang
     }
   });
   view(context());
-  await list();
-  const exchangeSelect = screen.getByLabelText("交易所") as HTMLSelectElement;
-  expect([...exchangeSelect.options].map(item => item.value)).toEqual(["", "SHFE", "CFFEX"]);
-  fireEvent.change(exchangeSelect, { target: { value: "CFFEX" } });
-  expect(screen.getByRole("rowheader", { name: /^ic/ }).textContent).toContain("中证500");
-  fireEvent.click(screen.getByRole("button", { name: "采集 CFFEX/ic" }));
-  const dialog = await screen.findByRole("dialog", { name: "采集 日线" });
-  expect(
-    (within(dialog).getByRole("checkbox", { name: "CFFEX" }) as HTMLInputElement).checked,
-  ).toBe(true);
+  expect(await screen.findByText("暂无品种")).toBeTruthy();
+  expect(screen.queryByRole("table", { name: "品种覆盖" })).toBeNull();
 });
 
 test("an unreachable warehouse shows an inline error with retry and settings actions", async () => {
@@ -630,35 +605,11 @@ test("an unreachable warehouse shows an inline error with retry and settings act
   await waitFor(() => expect(request.mock.calls.length).toBeGreaterThan(2));
 });
 
-test("my products include running dominant series and a kind link opens that kind", async () => {
+test("a kind link opens that kind", async () => {
   serve();
-  vi.mocked(tradingRequest).mockImplementation(async (_id, operation) =>
-    operation.case === "getStrategies"
-      ? create(ResponseSchema, {
-          result: {
-            case: "getStrategies",
-            value: {
-              instance: {
-                instance: {
-                  id: "dom",
-                  series: [{ exchange: "SHFE", product: "zn" }],
-                },
-              },
-            },
-          },
-        })
-      : create(ResponseSchema, { result: { case: "getAccount", value: {} } }),
-  );
   const props = context({ kind: "minutes" });
-  render(
-    <TradingAccountsProvider connections={[{ id: "sim", revision: "1" }]}>
-      <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.data-dataset">
-        <Dataset {...props} />
-      </WorkspaceDraftScope>
-    </TradingAccountsProvider>,
-  );
-  const table = await list();
-  await waitFor(() => expect(within(table).getByRole("rowheader", { name: /^zn/ })).toBeTruthy());
+  view(props);
+  await list();
   expect(
     within(screen.getByRole("group", { name: "数据" }))
       .getByRole("button", { name: /^分钟线/ })

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { lab } from "../../src/bridge/lab";
 import { warehouseData } from "../../src/bridge/warehouse-data";
 import {
   Table,
@@ -11,13 +10,12 @@ import {
 import { useActionError } from "../../src/host/action-error";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useMarket } from "../../src/host/market";
-import { useTradingAccounts } from "../../src/host/trading-accounts";
 import { useErrorNotification } from "../../src/host/notifications";
 import { useWarehouse, useWarehousePoll } from "../../src/host/warehouse";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { getLocale } from "../../src/i18n";
 import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
-import { knownProducts, warehouseName } from "../../src/ui/contract-names";
+import { warehouseName } from "../../src/ui/contract-names";
 import { StatusBadge } from "../../src/ui/StatusBadge";
 import { ContractHistory } from "../futures-market/ContractHistory";
 import { Acquisition, startAcquisition, type Preset } from "./Acquisition";
@@ -60,16 +58,7 @@ function DatasetBody({ context }: { context: TerminalContext }) {
   const [openProduct, setOpenProduct] = useWorkspaceDraft("coverage-open", "");
   const [chart, setChart] = useState("");
   const [shown, setShown] = useState(20);
-  const [everything, setEverything] = useState(false);
   const [issuesOnly, setIssuesOnly] = useState(false);
-  const [backtested, setBacktested] = useState<readonly string[]>([]);
-  useEffect(() => {
-    // Without Lab, recent backtests add nothing to the products shown.
-    void lab({ case: "listRecentRuns", value: {} })
-      .then(reply => setBacktested(reply.runs.flatMap(run => run.symbols)))
-      .catch(() => {});
-  }, []);
-  const { views } = useTradingAccounts();
   const [acquiring, setAcquiring] = useState<{ table: Table; preset: Preset }>();
   const catalog = useMarket()?.board.catalog?.contracts;
   const warehouse = useWarehouse();
@@ -185,73 +174,31 @@ function DatasetBody({ context }: { context: TerminalContext }) {
   const version = state.value?.version ?? "";
   const table = kind === "minutes" ? Table.MINUTES : Table.DAILY;
   const offered = options.value?.tables.map(item => item.table) ?? [];
-  const offeredExchanges = useMemo(
-    () => options.value?.tables.find(item => item.table === table)?.exchanges ?? [],
-    [options.value?.tables, table],
-  );
   const acquires = !viewed && offered.includes(table);
   const locale = getLocale();
-  const products = useMemo(
+  const rows = useMemo<ProductRow[]>(
     () =>
-      [
-        ...new Set([
-          ...knownProducts.filter(id => offeredExchanges.includes(id.split("/")[0]!)),
-          ...(coverage?.products ?? []).map(item => item.product),
-          ...(catalog ?? [])
-            .map(item => item.contract.split("/").slice(0, 2).join("/"))
-            .filter(id => offeredExchanges.includes(id.split("/")[0]!)),
-        ]),
-      ].sort(),
-    [offeredExchanges, coverage, catalog],
-  );
-  const rows = useMemo<ProductRow[]>(() => {
-    const byId = new Map((coverage?.products ?? []).map(item => [item.product, item]));
-    const ids = acquires ? products : [...byId.keys()];
-    return ids.map(id => ({
-      id,
-      name: warehouseName(id) ?? "",
-      exchange: id.split("/")[0]!,
-      coverage: byId.get(id),
-    }));
+      (coverage?.products ?? [])
+        .map(item => ({
+          id: item.product,
+          name: warehouseName(item.product) ?? "",
+          exchange: item.product.split("/")[0]!,
+          coverage: item,
+        }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
     // warehouseName depends on the current locale.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [acquires, products, coverage, locale]);
-  const present = exchanges.filter(
-    item =>
-      (acquires && offeredExchanges.includes(item)) || rows.some(row => row.exchange === item),
+    [coverage, locale],
   );
+  const products = useMemo(() => rows.map(row => row.id), [rows]);
+  const present = exchanges.filter(item => rows.some(row => row.exchange === item));
   const query = search.trim().toUpperCase();
   // A contract code such as RB2705 finds its product.
   const searchedProduct = /^([A-Z]{1,3})\d{3,4}$/.exec(query)?.[1];
-  // The operator's products: collected, watched, backtested, run by a strategy or held.
-  const saved = context.snapshot?.market_endpoint;
-  const traded = Object.values(views).flatMap(view => [
-    ...(view.positions?.rows ?? view.live?.positions ?? []).flatMap(
-      position => position.instrument ?? [],
-    ),
-    ...(view.strategies?.instance?.instance?.instruments ?? []),
-  ]);
-  const tradedSeries = Object.values(views).flatMap(view =>
-    (view.strategies?.instance?.instance?.series ?? []).map(
-      item => `${item.exchange}/${item.product.toLowerCase()}`,
-    ),
-  );
-  const mine = new Set([
-    ...backtested.map(symbol => symbol.split("/").slice(0, 2).join("/")),
-    ...tradedSeries,
-    ...[...(saved && "instruments" in saved ? saved.instruments : []), ...traded].map(
-      ({ exchange, symbol }) => `${exchange}/${symbol.replace(/\d.*$/, "").toLowerCase()}`,
-    ),
-  ]);
-  const held = (row: ProductRow) => !!(row.coverage?.daily?.held || row.coverage?.minutes?.held);
   const needsWork = ({ coverage: item }: ProductRow) =>
     !!(item?.[kind]?.withGaps || item?.[kind]?.pending);
-  const isMine = (row: ProductRow) => held(row) || mine.has(row.id);
-  // An empty warehouse with nothing of the operator's shows everything there is to collect.
-  const mineOnly = !everything && !query && rows.some(isMine);
   const scoped = rows.filter(
     row =>
-      (!mineOnly || isMine(row)) &&
       (!exchange || row.exchange === exchange) &&
       (!query ||
         `${row.id} ${row.name}`.toUpperCase().includes(query) ||
@@ -427,16 +374,6 @@ function DatasetBody({ context }: { context: TerminalContext }) {
                   <option key={item}>{item}</option>
                 ))}
               </select>
-              {acquires && (
-                <label className="checkbox">
-                  <input
-                    type="checkbox"
-                    checked={everything}
-                    onChange={event => setEverything(event.target.checked)}
-                  />
-                  {t("全部品种")}
-                </label>
-              )}
               <button
                 type="button"
                 aria-pressed={issuesOnly}
@@ -481,7 +418,7 @@ function DatasetBody({ context }: { context: TerminalContext }) {
           {updated && <p className="data-feedback">{updated}</p>}
           <div className="data-coverage-main">
             {!rows.length ? (
-              <p className="data-empty subtle">{t("还没有数据")}</p>
+              <p className="data-empty subtle">{t("暂无品种")}</p>
             ) : !shownRows.length ? (
               <p className="data-empty subtle">{t("没有匹配的品种或合约")}</p>
             ) : (

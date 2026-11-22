@@ -31,6 +31,11 @@ const tableLabel: Partial<Record<Table, string>> = {
   [Table.MINUTES]: "分钟 K 线",
 };
 
+// Warehouse keeps the contract table itself; only a failure concerns the operator.
+export const backgroundTask = (task: AcquisitionTask) =>
+  !!task.request?.id.startsWith("contracts-") &&
+  ![TaskState.FAILED, TaskState.INTERRUPTED].includes(task.state);
+
 export type WarehouseActivity = {
   done: bigint;
   total: bigint;
@@ -50,7 +55,9 @@ export type WarehouseView = {
 };
 
 function summarizeActive(tasks: readonly AcquisitionTask[]): WarehouseActivity | null {
-  const active = tasks.filter(item => [TaskState.QUEUED, TaskState.RUNNING].includes(item.state));
+  const active = tasks.filter(
+    item => !backgroundTask(item) && [TaskState.QUEUED, TaskState.RUNNING].includes(item.state),
+  );
   if (!active.length) return null;
   const groups = new Map<string, AcquisitionTask[]>();
   for (const item of active) {

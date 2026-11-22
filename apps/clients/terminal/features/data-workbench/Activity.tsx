@@ -7,6 +7,7 @@ import {
   type DatasetChange,
 } from "../../src/generated/asterion/warehouse_pb";
 import { ActionError, useActionError } from "../../src/host/action-error";
+import { backgroundTask } from "../../src/host/warehouse";
 import { ErrorNotice, remoteError } from "../../src/i18n/errors";
 import { listSeparator } from "../../src/i18n";
 import { Icon } from "../../src/ui/Icon";
@@ -40,7 +41,7 @@ const primaryRank = [
   Table.CALENDAR,
 ];
 export const activeTask = (task: AcquisitionTask) =>
-  [TaskState.QUEUED, TaskState.RUNNING].includes(task.state);
+  !backgroundTask(task) && [TaskState.QUEUED, TaskState.RUNNING].includes(task.state);
 const batchKey = (id: string) =>
   /^(acq-[A-Za-z0-9]+|update-\d+)-(?:daily|minutes|settlement|price_ticks|contracts|calendar|warehouse_receipts|member_positions|inventory)$/.exec(
     id,
@@ -60,7 +61,7 @@ export type TaskBatch = {
 
 export function groupTasks(tasks: readonly AcquisitionTask[]): TaskBatch[] {
   const byBatch = new Map<string, AcquisitionTask[]>();
-  for (const task of tasks) {
+  for (const task of tasks.filter(item => !backgroundTask(item))) {
     const key = batchKey(task.request!.id);
     const list = byBatch.get(key);
     if (list) list.push(task);

@@ -1650,6 +1650,50 @@ TEST_F(Acquisition, AnUpdateBringsEachAcquiredTableToYesterday)
     EXPECT_EQ(requests[3].last_day(), "2027-01-04");
 }
 
+TEST_F(Acquisition, ContractTablesAreRequestedForExchangesWithoutOneOrAllOnRefresh)
+{
+    wh::Store research(wh::source_directory(root, "research"), "research");
+    wh::Contract listed{.exchange = "SHFE", .contract = "SHFE/rb/2027-01", .product = "rb"};
+    listed.list_date = "2026-01-16";
+    listed.delist_date = "2027-01-15";
+    {
+        auto writer = research.writer();
+        writer.put("contracts/SHFE", wh::rows(std::vector{listed}));
+        writer.commit();
+    }
+    const std::vector<std::string> exchanges{"SHFE", "DCE"};
+
+    const auto missing = ac::contracts_request(root, exchanges, "2026-10-30", "contracts-1", true);
+    ASSERT_TRUE(missing);
+    EXPECT_EQ(
+        std::vector<std::string>(missing->exchanges().begin(), missing->exchanges().end()),
+        std::vector<std::string>{"DCE"});
+    EXPECT_TRUE(missing->refetch());
+    EXPECT_FALSE(ac::contracts_request(root, {"SHFE"}, "2026-10-30", "contracts-2", true));
+    EXPECT_EQ(
+        ac::contracts_request(root, exchanges, "2026-10-30", "contracts-3", false)
+            ->exchanges_size(),
+        2);
+
+    auto again = research.writer();
+    again.put("contracts/SHFE", wh::rows(std::vector{listed}));
+    EXPECT_EQ(again.commit().identity, research.current().identity);
+}
+
+TEST_F(Acquisition, AnEmptyWarehouseListsProductsAfterItsContractRefresh)
+{
+    auto vendor = std::make_shared<Vendor>();
+    ac::Manager manager(root, {{"tushare", factory(vendor)}});
+    manager.submit(*ac::contracts_request(root, {"SHFE"}, "2026-10-30", "contracts-1", true));
+    const auto task = finished(manager, "contracts-1");
+    ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
+    wh::Store research(wh::source_directory(root, "research"), "research");
+    const auto version = wh::compose(root, research, wh::source_versions(root)).identity;
+    ::warehouse::DatasetRef wanted;
+    wanted.set_version(version);
+    EXPECT_GT(wh::Reader(root).coverage(wanted).products_size(), 0);
+}
+
 TEST_F(Acquisition, FundamentalUpdatesContinueOnlyTheTablesAlreadyAcquired)
 {
     wh::Store research(wh::source_directory(root, "research"), "research");

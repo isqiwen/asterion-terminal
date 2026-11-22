@@ -65,6 +65,14 @@ const products: Record<string, [string, string]> = {
   "CZCE.RI": ["早籼稻", "Early Indica Rice"],
   "CZCE.WH": ["强麦", "Strong Gluten Wheat"],
   "CZCE.ZC": ["动力煤", "Thermal Coal"],
+  "CZCE.ER": ["早籼稻", "Early Indica Rice"],
+  "CZCE.LR": ["晚籼稻", "Late Indica Rice"],
+  "CZCE.ME": ["甲醇", "Methanol"],
+  "CZCE.RO": ["菜油", "Rapeseed Oil"],
+  "CZCE.SO": ["郑葵油", "Sunflower Oil"],
+  "CZCE.TC": ["动力煤", "Thermal Coal"],
+  "CZCE.WS": ["强麦", "Strong Gluten Wheat"],
+  "CZCE.WT": ["硬麦", "Hard Wheat"],
   "DCE.a": ["豆一", "No.1 Soybean"],
   "DCE.b": ["豆二", "No.2 Soybean"],
   "DCE.lh": ["生猪", "Live Hog"],
@@ -148,12 +156,6 @@ export function identityName(contract: string, provided = "") {
     ? `${label}${english() ? " " : ""}${month.slice(2, 4)}${month.slice(5, 7)}`
     : undefined;
 }
-
-// All built-in Warehouse product identities (EXCHANGE/product).
-export const knownProducts = Object.keys(products).map(key => {
-  const [venue = "", product = ""] = key.split(".");
-  return `${venue}/${product.toLowerCase()}`;
-});
 
 // The localized name of a Warehouse product (SHFE/rb) or contract (SHFE/rb/2026-10).
 export function warehouseName(id: string, provided = "") {

@@ -23,6 +23,17 @@ test("cancelling the remaining tables leaves a partially completed batch cancell
   expect(groupTasks(tasks).map(batch => batch.state)).toEqual([TaskState.CANCELLED]);
 });
 
+test("the automatic contract refresh appears in activity only when it fails", () => {
+  const refresh = (state: TaskState) =>
+    create(AcquisitionTaskSchema, {
+      request: { id: "contracts-1", table: Table.CONTRACTS },
+      state,
+    });
+  expect(groupTasks([refresh(TaskState.RUNNING)])).toEqual([]);
+  expect(groupTasks([refresh(TaskState.SUCCEEDED)])).toEqual([]);
+  expect(groupTasks([refresh(TaskState.FAILED)])).toHaveLength(1);
+});
+
 test("a recorded failed acquisition retains its error details when activity is opened", () => {
   render(
     <Activity
