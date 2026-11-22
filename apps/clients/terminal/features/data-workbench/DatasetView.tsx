@@ -626,12 +626,18 @@ function DatasetBody({ context }: { context: TerminalContext }) {
                 heading={minutes ? t("合约") : t("品种")}
                 onFill={
                   acquires
-                    ? (id, month) =>
+                    ? (id, month, state) =>
                         setAcquiring({
                           table,
                           preset: minutes
                             ? { instruments: [id], ...monthRange(month) }
-                            : { exchanges: [id.split("/")[0]!], ...monthRange(month) },
+                            : {
+                                exchanges: [id.split("/")[0]!],
+                                ...monthRange(month),
+                                // Daily days are stored per exchange: one holding other
+                                // products is skipped unless refetched.
+                                refetch: state === "partial",
+                              },
                         })
                     : undefined
                 }
@@ -675,7 +681,7 @@ function Matrix({
   months: string[];
   label: string;
   heading: string;
-  onFill?: (id: string, month: string) => void;
+  onFill?: (id: string, month: string, state: Cell) => void;
 }) {
   const latestMonth = beijingDay(-1).slice(0, 7);
   const groups = exchanges
@@ -762,7 +768,7 @@ function Matrix({
                           <button
                             type="button"
                             aria-label={text && text !== "+" ? `${action} (${text})` : action}
-                            onClick={() => onFill(row.id, month)}
+                            onClick={() => onFill(row.id, month, state)}
                           >
                             {text === "+" ? <span aria-hidden="true">+</span> : text}
                           </button>

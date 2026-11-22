@@ -16,6 +16,7 @@ export type Preset = {
   instruments?: string[];
   first?: string;
   last?: string;
+  refetch?: boolean;
 };
 
 // Daily bars are acquired whole-day per exchange; minute bars are acquired by
@@ -52,7 +53,7 @@ export function Acquisition({
   const [instruments, setInstruments] = useState(preset.instruments ?? []);
   const [begin, setBegin] = useState(preset.first ?? (minutes ? "" : day(-30)));
   const [end, setEnd] = useState(preset.last ?? (minutes ? "" : day(-1)));
-  const [replace, setReplace] = useState(false);
+  const [replace, setReplace] = useState(!!preset.refetch);
   const [submitting, setSubmitting] = useState(false);
   const failure = useActionError();
   const disabled =

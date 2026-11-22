@@ -272,6 +272,30 @@ test("monthly coverage shows localized product names and gaps submit a single ba
   });
 });
 
+test("a daily month with gaps refetches days its exchange already holds", async () => {
+  serve();
+  view(context());
+  await screen.findByRole("table", { name: "日线覆盖" });
+  const refetch = () =>
+    within(screen.getByRole("dialog")).getByRole<HTMLInputElement>("checkbox", {
+      name: "重新采集已有分区",
+    });
+  fireEvent.click(screen.getByRole("button", { name: "补采 SHFE/rb 2026-06" }));
+  expect(refetch().checked).toBe(false);
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "取消" }));
+
+  fireEvent.click(screen.getByRole("button", { name: /^补采 SHFE\/rb 2026-09/ }));
+  expect(refetch().checked).toBe(true);
+  startInDialog();
+  await waitFor(() => expect(submitted()).toHaveLength(1));
+  expect(submitted()[0]).toMatchObject({
+    exchanges: ["SHFE"],
+    refetch: true,
+    firstDay: "2026-09-01",
+    lastDay: "2026-09-30",
+  });
+});
+
 test("the matrix lists the products held or watched until all products are asked for", async () => {
   serve();
   const props = context();
