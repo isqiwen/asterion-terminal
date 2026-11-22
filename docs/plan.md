@@ -44,7 +44,7 @@ flowchart LR
 
 - 验证新版 Warehouse 在每日定时时点触发的更新全批完成。
 - 核定仓单、会员持仓和库存周报的历史起点与缺失区间，入口见[真实研究数据验收](acceptance/research-data.md#仓单会员持仓与库存)。
-- 补齐上期所历史仓单来源缺口：2018-11-13 入库 209 条，交易所[原始报告](https://www.shfe.com.cn/data/tradedata/future/dailydata/20181113dailystock.dat)有 221 条明细，缺铝 9 条、沥青 2 条和热轧卷板 1 条；修复来源覆盖后重采并逐项核对。
+- 部署新版 Warehouse，重采 2018-11-13 的上期所与能源中心仓单；上期所从现有 209 条补齐到[官方明细](https://www.shfe.com.cn/data/tradedata/future/dailydata/20181113dailystock.dat)的 221 条，核对缺失的铝 9 条、沥青 2 条和热轧卷板 1 条，并验证原固定版本不变。
 
 ### 数据仓库与多年真实回测验收（使用者）
 
@@ -85,7 +85,7 @@ flowchart LR
 - 组合策略目前只记录合成后的目标，需确定子策略就绪状态、原始权重与合成贡献的展示范围。
 - `LivePanel.test.tsx` 的“a split close keeps only remaining lots…”在 2026-11-21 偶发失败一次，随后完整单元测试连续 8 次、该文件单独 10 次通过；需在复现时定位时序原因。
 - UI 全量单测在默认并行下出现超时及随后 DOM 查询失败，限定 2 个 worker 后通过；需定位并行运行的时序问题。
-- macOS 的 `Acquisition.ADayByDayTaskPublishesVersionsInBatches` 在串行运行时仍超过 40 秒等待上限，Linux Release 同例通过；需定位本机批量采集耗时。
+- macOS 按品种、按合约及分批发布的三个长区间采集用例在全量并行时超过 40 秒等待上限，串行复测通过；需定位并行采集耗时。
 - macOS 的 `cross_session_portfolio_process` 在分钟和日线组合场景存在偶发的持仓等待超时，需定位跨时段调仓的时序原因。
 - 上期所 `SHFE/rb/2027-01` 在 2026-11-16 的交易所日线与独立 Tushare 分钟合计均为 659,809 手，新浪 345 条分钟记录合计 663,970 手；需定位新浪多出的 4,161 手并核实补缺源的取舍。
 - Tushare 的集合竞价记录被分钟聚合标为不完整周期：`SHFE/rb/2027-01` 与 `CFFEX/ic/2026-12` 在 2026-11-16～20 每日分别出现 21:00、09:30 结束的一个不完整周期，连续交易时段没有分钟缺口且全日成交量相符；需统一集合竞价记录的归属和验收口径。

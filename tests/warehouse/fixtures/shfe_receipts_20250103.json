@@ -1,0 +1,9 @@
+{
+  "o_code": "0000",
+  "report_date": "20250103",
+  "update_date": "20250103 18:00:02",
+  "o_cursor": [
+    {"VARNAME": "铜$$COPPER", "VARID": "cu", "REGNAME": "上海$$Shanghai", "WHABBRNAME": "国储天威$$Guochutianwei", "WGHTUNIT": "2", "WRTWGHTS": 0, "WRTCHANGE": 0, "ROWSTATUS": "0"},
+    {"VARNAME": "铜(BC)$$COPPER(BC)", "VARID": "bc", "REGNAME": "上海$$Shanghai", "WHABBRNAME": "世天威洋山$$Steinweg Yangshan", "WGHTUNIT": "2", "WRTWGHTS": 0, "WRTCHANGE": 0, "ROWSTATUS": "0"}
+  ]
+}

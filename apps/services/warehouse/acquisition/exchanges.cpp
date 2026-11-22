@@ -16,6 +16,7 @@ namespace {
 using values::Json;
 using warehouse::Cell;
 using Parsed = Exchange::Parsed;
+const std::set<std::string> ine_products{"bc", "ec", "lu", "nr", "sc"};
 
 std::string trim(std::string text)
 {
@@ -211,8 +212,7 @@ czce_price_ticks(const std::string& day, const std::string& raw, const std::stri
     return result;
 }
 
-std::vector<MemberPosition>
-shanghai_members(const std::string& exchange, const std::string& day, const Json& root)
+Cell shanghai_published(const Json& root)
 {
     Cell published;
     if (root.contains("update_date")) {
@@ -234,6 +234,82 @@ shanghai_members(const std::string& exchange, const std::string& day, const Json
                 .time_since_epoch())
                         .count();
     }
+    return published;
+}
+
+std::vector<WarehouseReceipt>
+shanghai_receipts(const std::string& exchange, const std::string& day, const Json& root)
+{
+    // Early reports identify products by their Chinese names, without VARID.
+    static const std::map<std::string, std::string> products{
+        {"铜", "cu"},
+        {"铝", "al"},
+        {"锌", "zn"},
+        {"铅", "pb"},
+        {"镍", "ni"},
+        {"锡", "sn"},
+        {"黄金", "au"},
+        {"白银", "ag"},
+        {"螺纹钢", "rb"},
+        {"线材", "wr"},
+        {"热轧卷板", "hc"},
+        {"沥青", "bu"},
+        {"石油沥青", "bu"},
+        {"天然橡胶", "ru"},
+        {"燃料油", "fu"},
+        {"中质含硫原油", "sc"},
+        {"20号胶", "nr"},
+        {"纸浆", "sp"},
+        {"不锈钢", "ss"},
+        {"低硫燃料油", "lu"},
+        {"铜(BC)", "bc"},
+        {"氧化铝", "ao"},
+        {"丁二烯橡胶", "br"}
+    };
+    static const std::map<std::string, std::string> units{{"1", "千克"}, {"2", "吨"}, {"3", "桶"}};
+    const auto label = [](const Json& value) {
+        const auto both = text(value);
+        return both.substr(0, both.find("$$"));
+    };
+    const auto published = shanghai_published(root);
+    const auto observed = observation_time();
+    std::vector<WarehouseReceipt> result;
+    for (const auto& row : root.at("o_cursor")) {
+        if (text(row.at("ROWSTATUS")) != "0")
+            continue;
+        auto name = label(row.at("VARNAME"));
+        for (const std::string_view suffix : {"仓库", "厂库"})
+            if (name.ends_with(suffix))
+                name.resize(name.size() - suffix.size());
+        const auto product = row.contains("VARID") ? text(row.at("VARID")) : products.at(name);
+        if (ine_products.contains(product) != (exchange == "INE"))
+            continue;
+        const auto volume = number(row.at("WRTWGHTS")), change = number(row.at("WRTCHANGE"));
+        Cell previous;
+        if (volume != Cell{} && change != Cell{})
+            previous = Decimal::parse(std::get<std::string>(volume))
+                - Decimal::parse(std::get<std::string>(change));
+        const auto area = label(row.at("REGNAME"));
+        result.push_back(
+            {.exchange = exchange,
+                .product = product,
+                .day = day,
+                .warehouse = label(row.at("WHABBRNAME")),
+                .area = area.empty() ? Cell{} : Cell{area},
+                .unit = units.at(text(row.at("WGHTUNIT"))),
+                .previous_volume = previous,
+                .volume = volume,
+                .volume_change = change,
+                .published_ms = published,
+                .observed_ms = observed});
+    }
+    return result;
+}
+
+std::vector<MemberPosition>
+shanghai_members(const std::string& exchange, const std::string& day, const Json& root)
+{
+    const auto published = shanghai_published(root);
     const auto observed = observation_time();
     const std::pair<Cell MemberPosition::*, Cell MemberPosition::*> metrics[] = {
         {&MemberPosition::volume, &MemberPosition::volume_change},
@@ -251,7 +327,6 @@ shanghai_members(const std::string& exchange, const std::string& day, const Json
             continue;
         const auto product = contract ? product_of(*contract) : code.substr(0, code.size() - 3);
         // 上期所排名文件同时列出能源中心品种。
-        static const std::set<std::string> ine_products{"bc", "ec", "lu", "nr", "sc"};
         if (exchange == "SHFE" && ine_products.contains(product))
             continue;
         for (std::size_t i = 0; i < std::size(metrics); ++i) {
@@ -305,6 +380,10 @@ Parsed shanghai(
     if ((table != "member_positions" || root.contains("report_date"))
         && text(root.at("report_date")) != compact(day))
         throw std::invalid_argument("wrong exchange report date");
+    if (table == "warehouse_receipts") {
+        result.warehouse_receipts = shanghai_receipts(exchange, day, root);
+        return result;
+    }
     if (table == "member_positions") {
         result.member_positions = shanghai_members(exchange, day, root);
         return result;
@@ -608,7 +687,8 @@ bool Exchange::supports(std::string_view table, std::string_view exchange) const
 {
     return exchange == exchange_
         && (table == "daily" || (table == "price_ticks" && exchange == "CZCE")
-            || (table == "member_positions" && (exchange == "SHFE" || exchange == "INE"))
+            || ((table == "member_positions" || table == "warehouse_receipts")
+                && (exchange == "SHFE" || exchange == "INE"))
             || (table == "settlement"
                 && (exchange == "SHFE" || exchange == "INE" || exchange == "CZCE"
                     || exchange == "GFEX")));
@@ -635,6 +715,12 @@ Exchange::member_positions(const std::string& exchange, const std::string& day)
     return read("member_positions", exchange, day).member_positions;
 }
 
+std::vector<WarehouseReceipt>
+Exchange::warehouse_receipts(const std::string& exchange, const std::string& day)
+{
+    return read("warehouse_receipts", exchange, day).warehouse_receipts;
+}
+
 Exchange::Parsed
 Exchange::read(const std::string& table, const std::string& exchange, const std::string& day)
 {
@@ -656,12 +742,14 @@ Exchange::read(const std::string& table, const std::string& exchange, const std:
     HttpRequest request;
     if (exchange == "SHFE" || exchange == "INE") {
         request.origin = exchange == "SHFE" ? "https://www.shfe.com.cn" : "https://www.ine.cn";
-        request.path = "/data/tradedata/future/dailydata/"
-            + std::string(
-                table == "daily"                  ? "kx"
-                    : table == "member_positions" ? "pm"
-                                                  : "js")
-            + date + ".dat";
+        request.path = table == "warehouse_receipts"
+            ? "/data/tradedata/future/dailydata/" + date + "dailystock.dat"
+            : "/data/tradedata/future/dailydata/"
+                + std::string(
+                    table == "daily"                  ? "kx"
+                        : table == "member_positions" ? "pm"
+                                                      : "js")
+                + date + ".dat";
     } else if (exchange == "CZCE") {
         request.origin = "https://www.czce.com.cn";
         if (archived)

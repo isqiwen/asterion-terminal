@@ -33,13 +33,11 @@ const std::string shfe_settlement = R"({"report_date":"20261030","o_code":"0000"
 const std::string czce_settlement =
     "郑州商品交易所期货结算参数表(2026-10-30)\n" "合约代码|交易保证金率(%)|手续费收取方式|交易手续费|日内平今仓交易手续费\n" "MA701|8|比例值|0.50|1.25\n" "AP611|20|绝对值|5.00|10.00\n";
 
-std::string reference_fixture()
+std::string reference_fixture(const char* name = "czce_reference_20220104.xml")
 {
-    std::ifstream file(
-        fs::path(ASTERION_EXCHANGE_FIXTURES) / "czce_reference_20220104.xml",
-        std::ios::binary);
+    std::ifstream file(fs::path(ASTERION_EXCHANGE_FIXTURES) / name, std::ios::binary);
     if (!file)
-        throw std::runtime_error("missing CZCE reference fixture");
+        throw std::runtime_error("missing exchange reference fixture");
     return {std::istreambuf_iterator<char>(file), {}};
 }
 
@@ -55,6 +53,69 @@ protected:
     fs::path root = fs::temp_directory_path() / ("asterion-exchange-" + unique_process_id());
     std::shared_ptr<ac::Budget> budget = std::make_shared<ac::Budget>(500);
 };
+
+TEST_F(ExchangeSources, ShanghaiReceiptsKeepAllWarehousesAndSeparateExchangeTotals)
+{
+    ac::Exchange shfe("SHFE", budget, {}, [&](const ac::HttpRequest& request, auto) {
+        EXPECT_EQ(request.origin, "https://www.shfe.com.cn");
+        EXPECT_EQ(request.path, "/data/tradedata/future/dailydata/20181113dailystock.dat");
+        return ac::HttpReply{200, reference_fixture("shfe_receipts_20181113.json")};
+    });
+    const auto before = ac::observation_time();
+    const auto rows = shfe.warehouse_receipts("SHFE", "2018-11-13");
+    ASSERT_EQ(rows.size(), 6);
+    EXPECT_EQ(rows[0].warehouse, wh::Cell{std::string("河南国储巩义")});
+    EXPECT_EQ(rows[0].previous_volume, wh::Cell{Decimal::parse("4000")});
+    EXPECT_EQ(rows[0].volume, wh::Cell{std::string("4996")});
+    EXPECT_EQ(rows[0].volume_change, wh::Cell{std::string("996")});
+    std::set<std::string> warehouses;
+    for (const auto& row : rows) {
+        EXPECT_EQ(row.exchange, "SHFE");
+        EXPECT_NE(row.product, "sc");
+        EXPECT_EQ(row.day, "2018-11-13");
+        EXPECT_EQ(row.unit, wh::Cell{std::string(row.product == "au" ? "千克" : "吨")});
+        EXPECT_EQ(row.crop_year, wh::Cell{});
+        EXPECT_EQ(row.published_ms, wh::Cell{std::int64_t{1542113748000}});
+        EXPECT_GE(row.observed_ms, before);
+        warehouses.insert(std::get<std::string>(row.warehouse));
+    }
+    EXPECT_EQ(
+        warehouses,
+        (std::set<std::string>{
+            "河南国储巩义",
+            "中储洛阳",
+            "营口港",
+            "环宇沥青",
+            "中储汉口",
+            "上期所交割库"
+        }));
+    ac::Exchange ine("INE", budget, {}, [&](const ac::HttpRequest& request, auto) {
+        EXPECT_EQ(request.origin, "https://www.ine.cn");
+        return ac::HttpReply{200, reference_fixture("ine_receipts_20181113.json")};
+    });
+    const auto energy = ine.warehouse_receipts("INE", "2018-11-13");
+    ASSERT_EQ(energy.size(), 8);
+    for (const auto& row : energy) {
+        EXPECT_EQ(row.exchange, "INE");
+        EXPECT_EQ(row.product, "sc");
+        EXPECT_EQ(row.unit, wh::Cell{std::string("桶")});
+        EXPECT_EQ(row.published_ms, wh::Cell{std::int64_t{1542110400000}});
+    }
+}
+
+TEST_F(ExchangeSources, ShanghaiReceiptsKeepBondedCopperOutOfShfe)
+{
+    const auto fetch = [&](const ac::HttpRequest&, auto) {
+        return ac::HttpReply{200, reference_fixture("shfe_receipts_20250103.json")};
+    };
+    for (const auto* exchange : {"SHFE", "INE"}) {
+        ac::Exchange source(exchange, budget, {}, fetch);
+        const auto rows = source.warehouse_receipts(exchange, "2025-01-03");
+        ASSERT_EQ(rows.size(), 1);
+        EXPECT_EQ(rows[0].product, std::string(exchange) == "SHFE" ? "cu" : "bc");
+        EXPECT_EQ(rows[0].volume, wh::Cell{std::string("0")});
+    }
+}
 
 TEST_F(ExchangeSources, IneMemberRanksMergeByContractAndKeepUnrankedSidesMissing)
 {
@@ -547,6 +608,49 @@ TEST_F(ExchangeSources, PriceTickTasksDiscoverAndPublishOnlyObservedTradingDays)
     EXPECT_EQ(store.current().identity, original.identity);
 }
 
+TEST_F(ExchangeSources, ReceiptRecollectionReplacesAnIncompleteProviderPartitionAndKeepsItsVersion)
+{
+    const std::string key = "warehouse_receipts/SHFE/2018-11-13";
+    wh::Store tushare(wh::source_directory(root, "tushare"), "tushare");
+    auto writer = tushare.writer();
+    writer.put(
+        key,
+        wh::rows(
+            std::vector<wh::WarehouseReceipt>{
+                {.exchange = "SHFE",
+                    .product = "al",
+                    .day = "2018-11-13",
+                    .warehouse = std::string("中储洛阳"),
+                    .volume = std::string("7275")}
+            }),
+        {"2018-11-13"});
+    writer.commit();
+    wh::Store research(wh::source_directory(root, "research"), "research");
+    const auto fixed = wh::compose(root, research, wh::source_versions(root));
+    ac::Manager manager(
+        root,
+        {{"shfe", [&](auto stop) {
+              return std::make_unique<ac::Exchange>("SHFE", budget, stop, [](const auto&, auto) {
+                  return ac::HttpReply{200, reference_fixture("shfe_receipts_20181113.json")};
+              });
+          }}});
+    ac::wire::StartAcquisition request;
+    request.set_id("receipts");
+    request.set_table(::warehouse::TABLE_WAREHOUSE_RECEIPTS);
+    request.add_exchanges("SHFE");
+    request.set_first_day("2018-11-13");
+    request.set_last_day("2018-11-13");
+    request.set_refetch(true);
+    manager.submit(request);
+    const auto task = wait(manager, request.id());
+    ASSERT_EQ(task.state(), ac::wire::TASK_STATE_SUCCEEDED) << task.error().message();
+    const auto updated = wh::compose(root, research, wh::source_versions(root));
+    EXPECT_EQ(updated.partitions.at(key).source, "shfe");
+    EXPECT_EQ(research.read(updated, key).size(), 6);
+    EXPECT_EQ(research.read(fixed, key).size(), 1);
+    EXPECT_EQ(fixed.partitions.at(key).source, "tushare");
+}
+
 TEST_F(ExchangeSources, PriceTickTasksFillGapsAndKeepFixedVersions)
 {
     auto raw = reference_fixture();
@@ -741,7 +845,8 @@ TEST_F(ExchangeSources, PublicFilesPublishThroughNativeTaskManager)
           }}});
     const auto* selected_table = std::getenv("ASTERION_EXCHANGE_ACCEPTANCE_TABLE");
     bool checked = false;
-    for (const auto* table : {"daily", "settlement", "price_ticks", "member_positions"}) {
+    for (const auto* table :
+        {"daily", "settlement", "price_ticks", "member_positions", "warehouse_receipts"}) {
         if (selected_table && std::string_view(selected_table) != table)
             continue;
         if (!ac::Exchange(exchange, online_budget, {}).supports(table, exchange))

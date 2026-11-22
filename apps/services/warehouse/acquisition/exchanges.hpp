@@ -29,6 +29,7 @@ public:
         std::vector<Settlement> settlement;
         std::vector<PriceTick> price_ticks;
         std::vector<MemberPosition> member_positions;
+        std::vector<WarehouseReceipt> warehouse_receipts;
     };
 
     Exchange(
@@ -41,6 +42,8 @@ public:
     std::vector<Settlement> settlement(const std::string&, const std::string&) override;
     std::vector<PriceTick> price_ticks(const std::string&, const std::string&) override;
     std::vector<MemberPosition> member_positions(const std::string&, const std::string&) override;
+    std::vector<WarehouseReceipt>
+    warehouse_receipts(const std::string&, const std::string&) override;
 
 private:
     Parsed read(const std::string& table, const std::string& exchange, const std::string& day);

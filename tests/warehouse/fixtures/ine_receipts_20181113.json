@@ -1,0 +1,18 @@
+{
+  "o_code": "0",
+  "report_date": "20181113",
+  "update_date": "2018111320:00:00",
+  "o_cursor": [
+    {"VARNAME": "中质含硫原油$$Medium Sour Crude Oil", "REGNAME": "上海$$Shanghai", "WHABBRNAME": "洋山石油$$Yangshan Oil", "WGHTUNIT": "3", "WRTWGHTS": 0, "WRTCHANGE": 0, "ROWSTATUS": "0"},
+    {"VARNAME": "中质含硫原油$$Medium Sour Crude Oil", "REGNAME": "浙江$$Zhejiang", "WHABBRNAME": "中国石化册子岛$$SPRC Cezidao", "WGHTUNIT": "3", "WRTWGHTS": 201000, "WRTCHANGE": 0, "ROWSTATUS": "0"},
+    {"VARNAME": "中质含硫原油$$Medium Sour Crude Oil", "REGNAME": "浙江$$Zhejiang", "WHABBRNAME": "中油大榭$$PetroChina Daxie", "WGHTUNIT": "3", "WRTWGHTS": 0, "WRTCHANGE": 0, "ROWSTATUS": "0"},
+    {"VARNAME": "中质含硫原油$$Medium Sour Crude Oil", "REGNAME": "浙江$$Zhejiang", "WHABBRNAME": "中化兴中$$Sinochem-Xingzhong", "WGHTUNIT": "3", "WRTWGHTS": 0, "WRTCHANGE": 0, "ROWSTATUS": "0"},
+    {"VARNAME": "中质含硫原油$$Medium Sour Crude Oil", "REGNAME": "浙江$$Zhejiang", "WHABBRNAME": "合计$$Subtotal", "WGHTUNIT": "3", "WRTWGHTS": 201000, "WRTCHANGE": 0, "ROWSTATUS": "1"},
+    {"VARNAME": "中质含硫原油$$Medium Sour Crude Oil", "REGNAME": "山东$$Shandong", "WHABBRNAME": "中国石化日照$$SPRC Rizhao", "WGHTUNIT": "3", "WRTWGHTS": 0, "WRTCHANGE": 0, "ROWSTATUS": "0"},
+    {"VARNAME": "中质含硫原油$$Medium Sour Crude Oil", "REGNAME": "山东$$Shandong", "WHABBRNAME": "青岛港董家口$$Qingdao port DJK", "WGHTUNIT": "3", "WRTWGHTS": 0, "WRTCHANGE": 0, "ROWSTATUS": "0"},
+    {"VARNAME": "中质含硫原油$$Medium Sour Crude Oil", "REGNAME": "山东$$Shandong", "WHABBRNAME": "合计$$Subtotal", "WGHTUNIT": "3", "WRTWGHTS": 0, "WRTCHANGE": 0, "ROWSTATUS": "1"},
+    {"VARNAME": "中质含硫原油$$Medium Sour Crude Oil", "REGNAME": "广东$$Guangdong", "WHABBRNAME": "中油湛江$$PetroChina Zhanjiang", "WGHTUNIT": "3", "WRTWGHTS": 300000, "WRTCHANGE": 0, "ROWSTATUS": "0"},
+    {"VARNAME": "中质含硫原油$$Medium Sour Crude Oil", "REGNAME": "辽宁$$Liaoning", "WHABBRNAME": "中油大连$$PetroChina Dalian", "WGHTUNIT": "3", "WRTWGHTS": 300000, "WRTCHANGE": 0, "ROWSTATUS": "0"},
+    {"VARNAME": "中质含硫原油$$Medium Sour Crude Oil", "REGNAME": "", "WHABBRNAME": "总计$$Total", "WGHTUNIT": "3", "WRTWGHTS": 801000, "WRTCHANGE": 0, "ROWSTATUS": "2"}
+  ]
+}

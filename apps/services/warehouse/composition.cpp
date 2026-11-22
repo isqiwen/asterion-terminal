@@ -34,7 +34,7 @@ const std::vector<std::string>& sources_of(std::string_view table)
         {"minutes", {"tushare", "sina"}},
         {"settlement", {"shfe", "ine", "czce", "gfex", "tushare"}},
         {"price_ticks", {"verified", "czce", "gtja"}},
-        {"warehouse_receipts", {"tushare"}},
+        {"warehouse_receipts", {"shfe", "ine", "tushare"}},
         {"member_positions", {"shfe", "ine", "tushare"}},
         {"inventory", {"tushare"}},
     };

@@ -1,0 +1,16 @@
+{
+  "o_code": "0",
+  "report_date": "20181113",
+  "update_date": "20181113 20:55:48",
+  "o_cursor": [
+    {"VARNAME": "铝$$ALUMINIUM", "REGNAME": "河南$$Henan", "WHABBRNAME": "河南国储巩义$$HenanGuochu Gongyi", "WGHTUNIT": "2", "WRTWGHTS": "4996", "WRTCHANGE": "996", "ROWSTATUS": "0"},
+    {"VARNAME": "铝$$ALUMINIUM", "REGNAME": "河南$$Henan", "WHABBRNAME": "中储洛阳$$Zhongchu Luoyang", "WGHTUNIT": "2", "WRTWGHTS": "7275", "WRTCHANGE": "0", "ROWSTATUS": "0"},
+    {"VARNAME": "铝$$ALUMINIUM", "REGNAME": "辽宁$$Liaoning", "WHABBRNAME": "营口港$$Yingkou port", "WGHTUNIT": "2", "WRTWGHTS": "0", "WRTCHANGE": "0", "ROWSTATUS": "0"},
+    {"VARNAME": "中质含硫原油$$Medium Sour Crude Oil", "REGNAME": "广东$$Guangdong", "WHABBRNAME": "中油湛江$$PetroChina Zhanjiang", "WGHTUNIT": "3", "WRTWGHTS": "300000", "WRTCHANGE": "0", "ROWSTATUS": "0"},
+    {"VARNAME": "沥青仓库$$BITUMEN Warehouse", "REGNAME": "安徽$$Anhui", "WHABBRNAME": "环宇沥青$$HUANYU ASPHALT", "WGHTUNIT": "2", "WRTWGHTS": "0", "WRTCHANGE": "0", "ROWSTATUS": "0"},
+    {"VARNAME": "黄金$$GOLD", "REGNAME": "上海$$Shanghai", "WHABBRNAME": "上期所交割库", "WGHTUNIT": "1", "WRTWGHTS": "744", "WRTCHANGE": "0", "ROWSTATUS": "0"},
+    {"VARNAME": "热轧卷板$$HOT ROLLED COILS", "REGNAME": "湖北$$Hubei", "WHABBRNAME": "中储汉口$$Zhongchu Hankou", "WGHTUNIT": "2", "WRTWGHTS": "0", "WRTCHANGE": "0", "ROWSTATUS": "0"},
+    {"VARNAME": "铜$$COPPER", "REGNAME": "上海$$Shanghai", "WHABBRNAME": "合计$$Subtotal", "WGHTUNIT": "2", "WRTWGHTS": "13469", "WRTCHANGE": "-901", "ROWSTATUS": "1"},
+    {"VARNAME": "铜$$COPPER", "REGNAME": "", "WHABBRNAME": "保税商品总计$$Total (Bonded)", "WGHTUNIT": "2", "WRTWGHTS": "0", "WRTCHANGE": "0", "ROWSTATUS": "2"}
+  ]
+}
