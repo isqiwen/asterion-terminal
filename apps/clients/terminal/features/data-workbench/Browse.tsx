@@ -61,10 +61,9 @@ function BrowseBody({ context }: { context: TerminalContext }) {
         ? await warehouseData({ case: "getDatasetCoverage", value: { version } })
         : undefined;
       const held = new Set(
-        [
-          ...(coverage?.products ?? []).map(item => item.product),
-          ...(coverage?.contracts ?? []).map(item => item.contract),
-        ].map(id => id.split("/")[0]),
+        (coverage?.products ?? [])
+          .filter(item => item.daily?.held || item.minutes?.held)
+          .map(item => item.product.split("/")[0]),
       );
       return {
         latest,

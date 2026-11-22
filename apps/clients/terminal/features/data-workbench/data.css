@@ -65,60 +65,34 @@
   border-top: 1px solid var(--line);
   flex-shrink: 0;
 }
-.data-series-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-page);
-  border-bottom: 1px solid var(--line);
-  flex-shrink: 0;
+.data-coverage-body > .data-toolbar input[type="search"] {
+  width: 240px;
 }
-button.data-series-card {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: flex-start;
-  gap: var(--space-1);
-  height: auto;
-  padding: var(--space-3);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--panel-radius);
-  background: var(--raised);
-  text-align: left;
-  white-space: normal;
-}
-button.data-series-card:hover {
-  border-color: var(--accent-line);
-  background: var(--hover);
-}
-button.data-series-card[aria-pressed="true"] {
-  border-color: var(--accent);
-  background: var(--accent-surface);
-  box-shadow: inset 2px 0 0 var(--accent);
-}
-.data-series-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-}
-.data-series-head strong {
-  font-size: var(--font-size-md);
-  font-weight: 600;
-  color: var(--text-strong);
-}
-.data-series-figure {
-  color: var(--text-strong);
-  font-family: var(--font-terminal);
-  font-size: var(--font-size-xl);
-  font-variant-numeric: tabular-nums;
-}
-.data-series-notes {
+.data-summary {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1) var(--space-3);
-  font-size: var(--font-size-aux);
+  flex-shrink: 0;
+  gap: var(--space-1) var(--space-5);
+  padding: var(--space-2) var(--space-page);
+  border-bottom: 1px solid var(--line);
   color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+.data-summary-item {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.data-summary-item strong {
+  color: var(--text-strong);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+}
+.data-summary-day {
+  color: var(--text);
+  font-family: var(--font-terminal);
+  font-variant-numeric: tabular-nums;
 }
 .data-coverage-body {
   display: flex;
@@ -374,10 +348,274 @@ html[lang="en-US"] .col-act-metric {
 }
 .data-legend i {
   display: inline-block;
-  width: 12px;
-  height: 12px;
-  border-radius: 2px;
+  width: 14px;
+  height: 6px;
+  border-radius: 1px;
+}
+:is(.data-legend, .coverage-timeline) i[data-part="held"] {
+  background: color-mix(in oklab, var(--success) 62%, var(--canvas));
+}
+:is(.data-legend, .coverage-timeline) i[data-part="gap"] {
+  background: var(--warning);
+}
+:is(.data-legend, .coverage-timeline) i[data-part="pending"] {
+  background: var(--series-2);
+}
+.data-coverage-main {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.coverage-list {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+.coverage-list:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.coverage-table {
+  width: 100%;
+  min-width: 960px;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  font-variant-numeric: tabular-nums;
+}
+.coverage-col-name {
+  width: 250px;
+}
+.coverage-col-count {
+  width: 104px;
+}
+.coverage-col-state {
+  width: 132px;
+}
+.coverage-col-action {
+  width: 104px;
+}
+.coverage-table :is(th, td) {
+  overflow: hidden;
+  padding: 0 var(--space-2);
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  font-weight: 400;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.coverage-table :is(th, td):first-child {
+  padding-left: var(--space-page);
+}
+.coverage-table :is(th, td):last-child {
+  padding-right: var(--space-page);
+  text-align: right;
+}
+.coverage-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 32px;
+  border-bottom-color: var(--line-strong);
+  background: var(--canvas);
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+.coverage-table tr[data-kind="product"] > * {
+  height: 40px;
+}
+.coverage-table tr:is([data-kind="contract"], [data-kind="history"], [data-kind="year"]) > * {
+  height: 32px;
+  background: var(--panel);
+}
+.coverage-table tr[data-kind="note"] > td {
+  height: 32px;
+  background: var(--panel);
+  color: var(--muted);
+}
+.coverage-table tbody tr:is(:hover, :focus-within) > * {
+  background: var(--hover);
+}
+.coverage-table tr[data-kind="product"][data-open] > * {
+  background: var(--panel);
+}
+.coverage-table tr[data-kind="contract"] > th {
+  padding-left: calc(var(--space-page) + 22px);
+}
+.coverage-table tr[data-kind="contract"][data-nested] > th {
+  padding-left: calc(var(--space-page) + 62px);
+}
+.coverage-table tr[data-kind="history"] > th {
+  padding-left: calc(var(--space-page) + 22px);
+}
+.coverage-table tr[data-kind="year"] > th {
+  padding-left: calc(var(--space-page) + 42px);
+}
+.coverage-axis {
+  position: relative;
+  height: 16px;
+}
+.coverage-axis > span {
+  position: absolute;
+  top: 0;
+  line-height: 16px;
+}
+.coverage-toggle {
+  all: unset;
   box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+  min-height: 24px;
+  cursor: pointer;
+}
+.coverage-toggle::before {
+  content: "";
+  flex: none;
+  width: 0;
+  height: 0;
+  margin-inline: 2px 3px;
+  border-block: 4px solid transparent;
+  border-inline-start: 5px solid var(--muted);
+  transition: transform 100ms ease;
+}
+.coverage-toggle[aria-expanded="true"]::before {
+  transform: rotate(90deg);
+}
+.coverage-toggle code {
+  min-width: 2em;
+  color: var(--text-strong);
+  font-family: var(--font-terminal);
+  font-weight: 600;
+}
+.coverage-toggle small {
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+}
+.coverage-toggle:hover :is(code, span) {
+  color: var(--accent);
+}
+:is(.coverage-toggle, .coverage-contract, .coverage-link):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.coverage-contract,
+.coverage-link {
+  all: unset;
+  color: var(--accent);
+  cursor: pointer;
+}
+.coverage-contract {
+  font-family: var(--font-terminal);
+  font-weight: 600;
+}
+:is(.coverage-contract, .coverage-link):hover {
+  color: var(--text-strong);
+  text-decoration: underline;
+}
+.coverage-link:disabled {
+  color: var(--accent);
+  cursor: progress;
+  text-decoration: none;
+}
+.coverage-table td.coverage-listed,
+.coverage-table td.coverage-note {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+.coverage-timeline {
+  position: relative;
+  height: 8px;
+}
+.coverage-timeline i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 2px;
+  border-radius: 1px;
+}
+.coverage-timeline i[data-part="life"] {
+  background: var(--pressed);
+}
+.coverage-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.coverage-state::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--subtle);
+}
+.coverage-state[data-state="full"]::before {
+  background: var(--success);
+}
+.coverage-state[data-state="gap"]::before {
+  background: var(--warning);
+}
+.coverage-state[data-state="pending"]::before {
+  background: var(--series-2);
+}
+.coverage-table .coverage-state[data-state="none"] {
+  color: var(--muted);
+}
+button.coverage-action {
+  min-height: 22px;
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-aux);
+}
+.coverage-busy {
+  color: var(--accent);
+  font-size: var(--font-size-aux);
+}
+.coverage-confirm {
+  margin: 0;
+  color: var(--text-strong);
+}
+.coverage-drawer {
+  display: flex;
+  flex: 0 0 min(48%, 860px);
+  flex-direction: column;
+  min-width: 0;
+  border-left: 1px solid var(--line-strong);
+  background: var(--panel);
+}
+.coverage-drawer > header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+.coverage-drawer > header strong {
+  color: var(--text-strong);
+  font-family: var(--font-terminal);
+}
+.coverage-drawer > header button {
+  margin-left: auto;
+}
+.coverage-drawer-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+@media (max-width: 1180px) {
+  .coverage-drawer {
+    position: absolute;
+    inset: 0 0 0 auto;
+    z-index: 3;
+    width: min(88%, 720px);
+    box-shadow: var(--shadow-dialog);
+  }
 }
 .data-dialog[open] {
   display: flex;
@@ -577,15 +815,13 @@ button.picker-chip small {
   align-items: center;
   gap: var(--space-2) var(--space-4);
 }
-.reference-table,
-.coverage-matrix {
+.reference-table {
   flex: 1;
   min-width: 0;
   min-height: 0;
   overflow: auto;
 }
-.reference-table:focus-visible,
-.coverage-matrix:focus-visible {
+.reference-table:focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
 }
@@ -598,192 +834,7 @@ button.picker-chip small {
 .reference-table :is(th, td):last-child {
   padding-right: var(--space-page);
 }
-.coverage-matrix .data-table {
-  border-collapse: separate;
-  border-spacing: 3px;
-  font-variant-numeric: tabular-nums;
-}
-.coverage-matrix .data-table :is(th, td) {
-  padding: var(--space-2) var(--space-1);
-  max-width: none;
-}
-.coverage-matrix tbody tr:hover {
-  background: none;
-}
-.data-coverage-body > .coverage-matrix {
-  padding: 0 var(--space-page) var(--space-3) 0;
-}
-.coverage-tip {
-  position: fixed;
-  z-index: 10;
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--control-radius);
-  background: var(--raised);
-  box-shadow: var(--shadow-popover);
-  color: var(--text);
-  font-size: var(--font-size-aux);
-  white-space: nowrap;
-  pointer-events: none;
-}
-.coverage-tip:empty {
-  display: none;
-}
-.coverage-name {
-  display: block;
-  font-weight: 400;
-  font-size: var(--font-size-aux);
-  color: var(--muted);
-}
-.coverage-matrix :is(thead th:not(:first-child), td) {
-  width: 8%;
-  min-width: 3.5rem;
-}
-.coverage-matrix td {
-  height: 1px;
-  border: 1px solid transparent;
-  border-radius: var(--control-radius);
-  text-align: center;
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-}
-.coverage-matrix td:has(> button) {
-  padding: 0;
-  transition:
-    background-color 120ms ease,
-    border-color 120ms ease,
-    color 120ms ease;
-}
-.coverage-matrix .data-table thead th {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: var(--canvas);
-  border-bottom: 1px solid var(--line);
-  text-align: center;
-}
-.coverage-matrix thead th:first-child {
-  left: 0;
-  z-index: 3;
-  text-align: left;
-}
-.coverage-matrix th[scope="row"] {
-  position: sticky;
-  left: 0;
-  z-index: 1;
-  width: 1%;
-  padding-right: var(--space-3);
-  border-bottom: 0;
-  white-space: nowrap;
-  text-align: left;
-  background: var(--canvas);
-  color: var(--text);
-}
-.coverage-matrix tbody tr:hover th[scope="row"] {
-  color: var(--accent);
-}
-.coverage-matrix tbody tr:hover .coverage-name {
-  color: var(--text);
-}
-.coverage-group th {
-  padding-top: var(--space-3);
-  color: var(--muted);
-  font-size: var(--font-size-aux);
-  letter-spacing: 0.08em;
-}
-.data-coverage-body
-  .coverage-matrix
-  :is(thead th:first-child, th[scope="row"], .coverage-group th) {
-  padding-left: calc(var(--space-page) - 3px);
-}
-:is(.coverage-matrix td, .data-legend i)[data-cell="full"] {
-  background: color-mix(in oklab, var(--success) 26%, var(--canvas));
-  border: 1px solid color-mix(in oklab, var(--success) 44%, var(--canvas));
-  color: var(--text-strong);
-}
-:is(.coverage-matrix td, .data-legend i)[data-cell="pending"] {
-  background: color-mix(in oklab, var(--series-2) 26%, var(--canvas));
-  border: 1px solid color-mix(in oklab, var(--series-2) 50%, var(--canvas));
-  color: color-mix(in oklab, var(--series-2) 45%, white);
-}
-:is(.coverage-matrix td, .data-legend i)[data-cell="partial"] {
-  background: color-mix(in oklab, var(--warning) 42%, var(--canvas));
-  border: 1px solid color-mix(in oklab, var(--warning) 68%, var(--canvas));
-  color: var(--text-strong);
-}
-:is(.coverage-matrix td, .data-legend i)[data-cell="missing"] {
-  background: color-mix(in oklab, var(--danger) 34%, var(--canvas));
-  border: 1px solid color-mix(in oklab, var(--danger) 64%, var(--canvas));
-  color: color-mix(in oklab, var(--danger) 30%, white);
-}
-:is(.coverage-matrix td, .data-legend i)[data-cell="empty"] {
-  background-color: var(--raised);
-  background-image: repeating-linear-gradient(
-    135deg,
-    color-mix(in oklab, var(--muted) 34%, transparent) 0 2px,
-    transparent 2px 6px
-  );
-  border: 1px solid var(--line-strong);
-  color: var(--text);
-}
-/* Months with nothing to act on stay blank; a past one offers its + on hover. */
-.coverage-matrix td[data-cell="unacquired"] > button > span {
-  opacity: 0;
-}
-.coverage-matrix td[data-cell="unacquired"]:hover > button > span,
-.coverage-matrix td[data-cell="unacquired"] > button:focus-visible > span {
-  opacity: 1;
-}
-:is(.coverage-matrix td, .data-legend i)[data-cell="delisted"] {
-  background: color-mix(in oklab, var(--muted) 14%, var(--panel));
-  border: 1px solid var(--line-strong);
-  color: var(--muted);
-}
-.coverage-matrix td[data-cell="held"] {
-  background: var(--accent-surface);
-  border: 1px solid var(--accent-line);
-}
 
-/* A coverage cell that opens an acquisition of its month. */
-.coverage-matrix td > button {
-  all: unset;
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  min-inline-size: 28px;
-  min-block-size: 28px;
-  padding: var(--space-2) var(--space-1);
-  border-radius: inherit;
-  cursor: pointer;
-}
-.coverage-matrix td:has(> button:enabled):hover {
-  border-style: solid;
-  border-color: var(--accent);
-  background: color-mix(in oklab, var(--accent) 18%, var(--raised));
-  color: var(--text-strong);
-}
-.coverage-matrix td:has(> button:enabled):active {
-  background: color-mix(in oklab, var(--accent) 26%, var(--raised));
-}
-.coverage-matrix td > button:enabled:is(:hover, :active) {
-  background: none;
-  color: inherit;
-}
-/* The cell keeps receiving the pointer so its detail still shows. */
-.coverage-matrix td:has(> button:disabled) {
-  cursor: progress;
-  opacity: 0.6;
-}
-.coverage-matrix td > button:disabled {
-  pointer-events: none;
-}
-.coverage-matrix td > button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
 .contract-choices {
   display: flex;
   flex-direction: column;

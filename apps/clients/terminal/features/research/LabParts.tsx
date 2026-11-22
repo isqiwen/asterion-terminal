@@ -889,10 +889,7 @@ export function SymbolField({
     setQuery("");
     return true;
   };
-  const openDataset = () =>
-    context.navigate("workspace.data-dataset", {
-      params: { kind: minutes ? "minutes" : "daily" },
-    });
+  const openDataset = () => context.navigate("workspace.data-dataset");
 
   const renderOption = (item: SymbolSpan, extraClass?: string, badge?: string) => {
     const active = selected.has(item.id);

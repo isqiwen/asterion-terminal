@@ -267,7 +267,7 @@ TEST_F(Warehouse, ResearchTakesTushareFirstAndOthersFillWhatItLacks)
     EXPECT_EQ(reader.read(research, mine).size(), 2U) << "earlier versions are unchanged";
 }
 
-TEST_F(Warehouse, MinuteCoverageCountsDaysPerContractAndMonth)
+TEST_F(Warehouse, CoverageSummarizesProductsAndListsEachContractsMinutes)
 {
     const auto store = [&](const char* provider) {
         return std::make_unique<wh::Store>(wh::source_directory(root, provider), provider);
@@ -281,15 +281,21 @@ TEST_F(Warehouse, MinuteCoverageCountsDaysPerContractAndMonth)
     wire::DatasetRef query;
     query.set_version(wh::compose(root, composed, wh::source_versions(root)).identity);
     const auto coverage = wh::Reader(root).coverage(query);
-    ASSERT_EQ(coverage.contracts_size(), 2);
-    EXPECT_EQ(coverage.contracts(0).contract(), "SHFE/cu/2026-12");
-    const auto& rb = coverage.contracts(1);
-    EXPECT_EQ(rb.contract(), "SHFE/rb/2027-01");
-    ASSERT_EQ(rb.months_size(), 2);
-    EXPECT_EQ(rb.months(0).month(), "2026-09");
-    EXPECT_EQ(rb.months(0).days(), 1);
-    EXPECT_EQ(rb.months(1).month(), "2026-10");
-    EXPECT_EQ(rb.months(1).days(), 2);
+    ASSERT_EQ(coverage.products_size(), 2);
+    EXPECT_EQ(coverage.products(0).product(), "SHFE/cu");
+    const auto& rb = coverage.products(1);
+    EXPECT_EQ(rb.product(), "SHFE/rb");
+    EXPECT_EQ(rb.contracts(), 1);
+    EXPECT_EQ(rb.minutes().held(), 1);
+    wire::ProductRef product;
+    product.set_version(query.version());
+    product.set_product("SHFE/rb");
+    const auto detail = wh::Reader(root).product_coverage(product);
+    ASSERT_EQ(detail.contracts_size(), 1);
+    EXPECT_EQ(detail.contracts(0).contract(), "SHFE/rb/2027-01");
+    EXPECT_EQ(detail.contracts(0).minutes().days(), 3);
+    EXPECT_EQ(detail.contracts(0).minutes().first_day(), "2026-09-30");
+    EXPECT_EQ(detail.contracts(0).minutes().last_day(), "2026-10-30");
 }
 
 TEST_F(Warehouse, MinuteCoverageIncludesEmptyDaysBeforeFirstStoredDay)
@@ -329,17 +335,17 @@ TEST_F(Warehouse, MinuteCoverageIncludesEmptyDaysBeforeFirstStoredDay)
     const auto version = writer.commit();
     fs::create_directories(root / "acquisition");
     replace_file_durably(wh::empty_file(root, "minutes"), empty);
-    wire::DatasetRef query;
-    query.set_version(version.identity);
-    const auto coverage = wh::Reader(root).coverage(query);
-    ASSERT_EQ(coverage.contracts_size(), 1);
-    ASSERT_EQ(coverage.contracts(0).months_size(), 1);
-    const auto& month = coverage.contracts(0).months(0);
-    EXPECT_EQ(month.month(), "2026-10");
-    EXPECT_EQ(month.days(), 10);
-    EXPECT_EQ(month.empty_days(), 5);
-    EXPECT_EQ(month.open_days(), 15);
-    EXPECT_EQ(month.pending_days(), 0);
+    wire::ProductRef product;
+    product.set_version(version.identity);
+    product.set_product("CFFEX/ic");
+    const auto detail = wh::Reader(root).product_coverage(product);
+    ASSERT_EQ(detail.contracts_size(), 1);
+    const auto& minutes = detail.contracts(0).minutes();
+    EXPECT_EQ(minutes.days(), 10);
+    EXPECT_EQ(minutes.empty_days(), 5);
+    EXPECT_EQ(minutes.open_days(), 15);
+    EXPECT_EQ(minutes.pending_days(), 0);
+    EXPECT_EQ(minutes.gap_days(), 0);
 }
 
 TEST_F(Warehouse, VersionsListNewestFirstWithWhatEachAddedReplacedAndRemoved)
@@ -609,6 +615,7 @@ TEST_F(Warehouse, CoverageSeparatesDaysAnUpdateBringsFromGaps)
     contract[0] = std::string("SHFE");
     contract[1] = std::string("SHFE/rb/2027-01");
     contract[2] = std::string("rb");
+    contract[6] = std::string("2026-10-26");
     contract[7] = std::string("2027-01-15");
     writer.put("contracts/SHFE", std::vector<wh::Row>{contract});
     // Daily bars miss the 27th and end on the 28th; minutes end on the 27th.
@@ -628,24 +635,30 @@ TEST_F(Warehouse, CoverageSeparatesDaysAnUpdateBringsFromGaps)
     fs::create_directories(root / "acquisition");
     replace_file_durably(wh::empty_file(root, "daily"), "daily/SHFE/2026-10-30\n");
 
-    wire::DatasetRef query;
-    query.set_version(version.identity);
-    const auto coverage = wh::Reader(root).coverage(query);
-    ASSERT_EQ(coverage.products_size(), 1);
-    const auto& daily = coverage.products(0).months(0);
+    wire::ProductRef product;
+    product.set_version(version.identity);
+    product.set_product("SHFE/rb");
+    const auto detail = wh::Reader(root).product_coverage(product);
+    ASSERT_EQ(detail.contracts_size(), 1);
+    const auto& daily = detail.contracts(0).daily();
     EXPECT_EQ(daily.days(), 2);
     EXPECT_EQ(daily.open_days(), 5);
     // The 29th comes with an update; the 30th no source has; the 27th is a gap.
     EXPECT_EQ(daily.pending_days(), 1);
     EXPECT_EQ(daily.empty_days(), 1);
-    const auto& minutes = coverage.contracts(0).months(0);
-    // Counted from the contract's first day.
+    EXPECT_EQ(daily.gap_days(), 1);
+    ASSERT_EQ(daily.gaps_size(), 1);
+    EXPECT_EQ(daily.gaps(0).first(), "2026-10-27");
+    EXPECT_EQ(daily.gaps(0).last(), "2026-10-27");
+    const auto& minutes = detail.contracts(0).minutes();
+    // Counted from listing: the 26th is before the first stored day, not a gap.
     EXPECT_EQ(minutes.days(), 1);
-    EXPECT_EQ(minutes.open_days(), 4);
+    EXPECT_EQ(minutes.open_days(), 5);
     EXPECT_EQ(minutes.pending_days(), 3);
+    EXPECT_EQ(minutes.gap_days(), 0);
 }
 
-TEST_F(Warehouse, DailyCoverageCountsADayOnlyWhenEveryListedContractHasItsBar)
+TEST_F(Warehouse, CoverageFindsTheOneContractMissingADay)
 {
     wh::Store store(wh::source_directory(root, "research"), "research");
     auto writer = store.writer();
@@ -658,22 +671,18 @@ TEST_F(Warehouse, DailyCoverageCountsADayOnlyWhenEveryListedContractHasItsBar)
         calendar.push_back(value);
     }
     writer.put("calendar/SHFE/2026", calendar);
-    const auto contract = [](const char* id, const char* listed, const char* delisted) {
+    const auto contract = [](const char* id) {
         auto value = row("contracts");
         value[0] = std::string("SHFE");
         value[1] = std::string(id);
         value[2] = std::string("rb");
-        value[6] = std::string(listed);
-        value[7] = std::string(delisted);
+        value[6] = std::string("2026-10-28");
+        value[7] = std::string("2027-02-15");
         return value;
     };
-    // The second contract lists on the 29th, so the 28th needs only the first.
     writer.put(
         "contracts/SHFE",
-        std::vector<wh::Row>{
-            contract("SHFE/rb/2027-01", "2026-01-15", "2027-01-15"),
-            contract("SHFE/rb/2027-02", "2026-10-29", "2027-02-15")
-        });
+        std::vector<wh::Row>{contract("SHFE/rb/2027-01"), contract("SHFE/rb/2027-02")});
     const auto bar = [](const char* id, const char* day) {
         auto value = row("daily");
         value[0] = std::string("SHFE");
@@ -684,7 +693,10 @@ TEST_F(Warehouse, DailyCoverageCountsADayOnlyWhenEveryListedContractHasItsBar)
     };
     writer.put(
         "daily/SHFE/2026-10-28",
-        std::vector<wh::Row>{bar("SHFE/rb/2027-01", "2026-10-28")},
+        std::vector<wh::Row>{
+            bar("SHFE/rb/2027-01", "2026-10-28"),
+            bar("SHFE/rb/2027-02", "2026-10-28")
+        },
         {"2026-10-28"});
     writer.put(
         "daily/SHFE/2026-10-29",
@@ -697,12 +709,23 @@ TEST_F(Warehouse, DailyCoverageCountsADayOnlyWhenEveryListedContractHasItsBar)
             bar("SHFE/rb/2027-02", "2026-10-30")
         },
         {"2026-10-30"});
+    const auto version = writer.commit();
     wire::DatasetRef query;
-    query.set_version(writer.commit().identity);
-    const auto month = wh::Reader(root).coverage(query).products(0).months(0);
-    EXPECT_EQ(month.days(), 2);
-    EXPECT_EQ(month.open_days(), 3);
-    EXPECT_EQ(month.pending_days(), 0);
+    query.set_version(version.identity);
+    const auto coverage = wh::Reader(root).coverage(query);
+    ASSERT_EQ(coverage.products_size(), 1);
+    EXPECT_EQ(coverage.products(0).listed(), 2);
+    EXPECT_EQ(coverage.products(0).daily().with_gaps(), 1);
+    ASSERT_EQ(coverage.products(0).daily().gaps_size(), 1);
+    EXPECT_EQ(coverage.products(0).daily().gaps(0).first(), "2026-10-29");
+    wire::ProductRef product;
+    product.set_version(version.identity);
+    product.set_product("SHFE/rb");
+    const auto detail = wh::Reader(root).product_coverage(product);
+    ASSERT_EQ(detail.contracts_size(), 2);
+    EXPECT_EQ(detail.contracts(0).daily().gap_days(), 0);
+    EXPECT_EQ(detail.contracts(1).daily().gap_days(), 1);
+    EXPECT_EQ(detail.contracts(1).daily().days(), 2);
 }
 
 TEST_F(Warehouse, ProductCoverageStaysOnOneVersionAndMissingCalendarStaysUnknown)
@@ -743,15 +766,11 @@ TEST_F(Warehouse, ProductCoverageStaysOnOneVersionAndMissingCalendarStaysUnknown
     ASSERT_EQ(coverage.products_size(), 2);
     const auto& product = coverage.products(0);
     EXPECT_EQ(product.product(), "SHFE/cu");
-    ASSERT_EQ(product.contracts_size(), 2);
-    EXPECT_EQ(product.contracts(0), "SHFE/cu/2026-12");
-    EXPECT_EQ(product.contracts(1), "SHFE/cu/2027-01");
-    ASSERT_EQ(product.months_size(), 2);
-    EXPECT_EQ(product.months(0).month(), "2026-09");
-    EXPECT_EQ(product.months(0).days(), 1);
-    EXPECT_EQ(product.months(0).open_days(), 0);
-    EXPECT_EQ(product.months(1).days(), 2);
-    EXPECT_EQ(product.months(1).open_days(), 1);
+    EXPECT_EQ(product.contracts(), 2);
+    EXPECT_EQ(product.daily().held(), 2);
+    EXPECT_EQ(product.daily().first_day(), "2026-09-30");
+    EXPECT_EQ(product.daily().last_day(), "2026-10-30");
+    EXPECT_EQ(product.daily().with_gaps(), 0);
     EXPECT_EQ(coverage.products(1).product(), "SHFE/rb");
     wh::Version current;
     {

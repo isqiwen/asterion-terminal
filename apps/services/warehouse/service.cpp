@@ -240,6 +240,10 @@ void answer_reader(
             *response.mutable_get_dataset_coverage() =
                 datasets.coverage(request.get_dataset_coverage());
             break;
+        case wire::Request::kGetProductCoverage:
+            *response.mutable_get_product_coverage() =
+                datasets.product_coverage(request.get_product_coverage());
+            break;
         case wire::Request::kGetTableRows:
             *response.mutable_get_table_rows() = datasets.rows(request.get_table_rows());
             break;

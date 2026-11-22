@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file asterion/warehouse.proto.
  */
 export const file_asterion_warehouse: GenFile = /*@__PURE__*/
-  fileDesc("Chhhc3Rlcmlvbi93YXJlaG91c2UucHJvdG8SCXdhcmVob3VzZSKaBgoHUmVxdWVzdBIKCgJpZBgBIAEoBBIjCgpnZXRfc3RhdHVzGAogASgLMg0uY29tbW9uLkVtcHR5SAASOwoTZ2V0X2RhdGFzZXRfdmVyc2lvbhgVIAEoCzIcLndhcmVob3VzZS5HZXREYXRhc2V0VmVyc2lvbkgAEjcKEXJlYWRfZGF0YXNldF9maWxlGBYgASgLMhoud2FyZWhvdXNlLlJlYWREYXRhc2V0RmlsZUgAEjQKE2dldF9kYXRhc2V0X3N1bW1hcnkYFyABKAsyFS53YXJlaG91c2UuRGF0YXNldFJlZkgAEjUKFGdldF9kYXRhc2V0X2NvdmVyYWdlGBggASgLMhUud2FyZWhvdXNlLkRhdGFzZXRSZWZIABI/ChVsaXN0X2RhdGFzZXRfdmVyc2lvbnMYGyABKAsyHi53YXJlaG91c2UuTGlzdERhdGFzZXRWZXJzaW9uc0gAEkUKGGNvbXBhcmVfZGF0YXNldF92ZXJzaW9ucxgcIAEoCzIhLndhcmVob3VzZS5Db21wYXJlRGF0YXNldFZlcnNpb25zSAASMQoOZ2V0X3RhYmxlX3Jvd3MYHSABKAsyFy53YXJlaG91c2UuR2V0VGFibGVSb3dzSAASMAoXZ2V0X2FjcXVpc2l0aW9uX29wdGlvbnMYHiABKAsyDS5jb21tb24uRW1wdHlIABI4ChFzdGFydF9hY3F1aXNpdGlvbhgfIAEoCzIbLndhcmVob3VzZS5TdGFydEFjcXVpc2l0aW9uSAASMQoUZ2V0X2FjcXVpc2l0aW9uX3Rhc2sYICABKAsyES53YXJlaG91c2UuVGFza0lkSAASQQoWbGlzdF9hY3F1aXNpdGlvbl90YXNrcxghIAEoCzIfLndhcmVob3VzZS5MaXN0QWNxdWlzaXRpb25UYXNrc0gAEi8KEmNhbmNlbF9hY3F1aXNpdGlvbhgiIAEoCzIRLndhcmVob3VzZS5UYXNrSWRIABIlCgxzdGFydF91cGRhdGUYIyABKAsyDS5jb21tb24uRW1wdHlIAEIGCgRjYWxsIt4GCghSZXNwb25zZRIKCgJpZBgBIAEoBBIeCgVlcnJvchgCIAEoCzINLmNvbW1vbi5FcnJvckgAEicKCmdldF9zdGF0dXMYCiABKAsyES53YXJlaG91c2UuU3RhdHVzSAASOAoTZ2V0X2RhdGFzZXRfdmVyc2lvbhgVIAEoCzIZLndhcmVob3VzZS5EYXRhc2V0VmVyc2lvbkgAEjMKEXJlYWRfZGF0YXNldF9maWxlGBYgASgLMhYud2FyZWhvdXNlLkRhdGFzZXRGaWxlSAASOAoTZ2V0X2RhdGFzZXRfc3VtbWFyeRgXIAEoCzIZLndhcmVob3VzZS5EYXRhc2V0U3VtbWFyeUgAEjoKFGdldF9kYXRhc2V0X2NvdmVyYWdlGBggASgLMhoud2FyZWhvdXNlLkRhdGFzZXRDb3ZlcmFnZUgAEjsKFWxpc3RfZGF0YXNldF92ZXJzaW9ucxgbIAEoCzIaLndhcmVob3VzZS5EYXRhc2V0VmVyc2lvbnNIABI8Chhjb21wYXJlX2RhdGFzZXRfdmVyc2lvbnMYHCABKAsyGC53YXJlaG91c2UuRGF0YXNldENoYW5nZUgAEi4KDmdldF90YWJsZV9yb3dzGB0gASgLMhQud2FyZWhvdXNlLlRhYmxlUm93c0gAEkAKF2dldF9hY3F1aXNpdGlvbl9vcHRpb25zGB4gASgLMh0ud2FyZWhvdXNlLkFjcXVpc2l0aW9uT3B0aW9uc0gAEjcKEXN0YXJ0X2FjcXVpc2l0aW9uGB8gASgLMhoud2FyZWhvdXNlLkFjcXVpc2l0aW9uVGFza0gAEjoKFGdldF9hY3F1aXNpdGlvbl90YXNrGCAgASgLMhoud2FyZWhvdXNlLkFjcXVpc2l0aW9uVGFza0gAEj0KFmxpc3RfYWNxdWlzaXRpb25fdGFza3MYISABKAsyGy53YXJlaG91c2UuQWNxdWlzaXRpb25UYXNrc0gAEjgKEmNhbmNlbF9hY3F1aXNpdGlvbhgiIAEoCzIaLndhcmVob3VzZS5BY3F1aXNpdGlvblRhc2tIABIzCgxzdGFydF91cGRhdGUYIyABKAsyGy53YXJlaG91c2UuQWNxdWlzaXRpb25UYXNrc0gAQggKBnJlc3VsdCJYCgZTdGF0dXMSDwoHdmVyc2lvbhgBIAEoCRISCgpzdGFydGVkX21zGAIgASgDEhcKD2Rpc2tfZnJlZV9ieXRlcxgDIAEoBBIQCghwcm90b2NvbBgEIAEoCSIdCgpEYXRhc2V0UmVmEg8KB3ZlcnNpb24YASABKAkiLgoHRGF0YXNldBIPCgd2ZXJzaW9uGAEgASgJEhIKCmNyZWF0ZWRfbXMYAiABKAMigQEKEUdldERhdGFzZXRWZXJzaW9uEiYKB2RhdGFzZXQYASABKAsyFS53YXJlaG91c2UuRGF0YXNldFJlZhIfCgV0YWJsZRgCIAEoDjIQLndhcmVob3VzZS5UYWJsZRIQCghleGNoYW5nZRgDIAEoCRIRCglhZnRlcl9rZXkYBCABKAkigQEKDkRhdGFzZXRWZXJzaW9uEiMKB2RhdGFzZXQYASABKAsyEi53YXJlaG91c2UuRGF0YXNldBIOCgZwYXJlbnQYAiABKAkSKAoKcGFydGl0aW9ucxgDIAMoCzIULndhcmVob3VzZS5QYXJ0aXRpb24SEAoIbmV4dF9rZXkYBCABKAkiZQoJUGFydGl0aW9uEgsKA2tleRgBIAEoCRIfCgV0YWJsZRgCIAEoDjIQLndhcmVob3VzZS5UYWJsZRIOCgZzaGEyNTYYAyABKAkSDAoEcm93cxgEIAEoBBIMCgRkYXlzGAUgAygJIlYKD1JlYWREYXRhc2V0RmlsZRImCgdkYXRhc2V0GAEgASgLMhUud2FyZWhvdXNlLkRhdGFzZXRSZWYSCwoDa2V5GAIgASgJEg4KBm9mZnNldBgDIAEoBCJJCgtEYXRhc2V0RmlsZRIOCgZzaGEyNTYYASABKAkSDAoEc2l6ZRgCIAEoBBIOCgZvZmZzZXQYAyABKAQSDAoEZGF0YRgEIAEoDCJeCg5EYXRhc2V0U3VtbWFyeRIjCgdkYXRhc2V0GAEgASgLMhIud2FyZWhvdXNlLkRhdGFzZXQSJwoGdGFibGVzGAIgAygLMhcud2FyZWhvdXNlLlRhYmxlU3VtbWFyeSK4AQoMVGFibGVTdW1tYXJ5Eh8KBXRhYmxlGAEgASgOMhAud2FyZWhvdXNlLlRhYmxlEhIKCnBhcnRpdGlvbnMYAiABKAQSDAoEcm93cxgDIAEoBBIRCglmaXJzdF9kYXkYBCABKAkSEAoIbGFzdF9kYXkYBSABKAkSGQoRZXhwZWN0ZWRfbGFzdF9kYXkYBiABKAkSDwoHbWlzc2luZxgHIAEoBBIUCgxzb3VyY2VfZW1wdHkYCCABKAQiLAoTTGlzdERhdGFzZXRWZXJzaW9ucxIVCg1hZnRlcl92ZXJzaW9uGAEgASgJIlMKD0RhdGFzZXRWZXJzaW9ucxIqCgh2ZXJzaW9ucxgBIAMoCzIYLndhcmVob3VzZS5EYXRhc2V0Q2hhbmdlEhQKDG5leHRfdmVyc2lvbhgCIAEoCSI3ChZDb21wYXJlRGF0YXNldFZlcnNpb25zEg8KB3ZlcnNpb24YASABKAkSDAoEYmFzZRgCIAEoCSJ0Cg1EYXRhc2V0Q2hhbmdlEiMKB2RhdGFzZXQYASABKAsyEi53YXJlaG91c2UuRGF0YXNldBIMCgRiYXNlGAIgASgJEg0KBWFkZGVkGAMgASgNEhAKCHJlcGxhY2VkGAQgASgNEg8KB3JlbW92ZWQYBSABKA0ingEKDEdldFRhYmxlUm93cxImCgdkYXRhc2V0GAEgASgLMhUud2FyZWhvdXNlLkRhdGFzZXRSZWYSHwoFdGFibGUYAiABKA4yEC53YXJlaG91c2UuVGFibGUSEAoIZXhjaGFuZ2UYAyABKAkSEQoJZmlyc3RfZGF5GAQgASgJEhAKCGxhc3RfZGF5GAUgASgJEg4KBm9mZnNldBgGIAEoDSJOCglUYWJsZVJvd3MSDwoHY29sdW1ucxgBIAMoCRIhCgRyb3dzGAIgAygLMhMud2FyZWhvdXNlLlRhYmxlUm93Eg0KBXRvdGFsGAMgASgNIhoKCFRhYmxlUm93Eg4KBnZhbHVlcxgBIAMoCSJvCg9EYXRhc2V0Q292ZXJhZ2USLAoIcHJvZHVjdHMYASADKAsyGi53YXJlaG91c2UuUHJvZHVjdENvdmVyYWdlEi4KCWNvbnRyYWN0cxgCIAMoCzIbLndhcmVob3VzZS5Db250cmFjdENvdmVyYWdlIl8KD1Byb2R1Y3RDb3ZlcmFnZRIPCgdwcm9kdWN0GAEgASgJEigKBm1vbnRocxgCIAMoCzIYLndhcmVob3VzZS5Nb250aENvdmVyYWdlEhEKCWNvbnRyYWN0cxgDIAMoCSJpCg1Nb250aENvdmVyYWdlEg0KBW1vbnRoGAEgASgJEgwKBGRheXMYAiABKA0SEQoJb3Blbl9kYXlzGAMgASgNEhIKCmVtcHR5X2RheXMYBCABKA0SFAoMcGVuZGluZ19kYXlzGAUgASgNIkwKEENvbnRyYWN0Q292ZXJhZ2USEAoIY29udHJhY3QYASABKAkSJgoGbW9udGhzGAIgAygLMhYud2FyZWhvdXNlLk1pbnV0ZU1vbnRoImcKC01pbnV0ZU1vbnRoEg0KBW1vbnRoGAEgASgJEgwKBGRheXMYAiABKA0SEgoKZW1wdHlfZGF5cxgDIAEoDRIRCglvcGVuX2RheXMYBCABKA0SFAoMcGVuZGluZ19kYXlzGAUgASgNIkEKEkFjcXVpc2l0aW9uT3B0aW9ucxIrCgZ0YWJsZXMYASADKAsyGy53YXJlaG91c2UuQWNxdWlzaXRpb25UYWJsZSJGChBBY3F1aXNpdGlvblRhYmxlEh8KBXRhYmxlGAEgASgOMhAud2FyZWhvdXNlLlRhYmxlEhEKCWV4Y2hhbmdlcxgCIAMoCSKdAQoQU3RhcnRBY3F1aXNpdGlvbhIKCgJpZBgBIAEoCRIfCgV0YWJsZRgCIAEoDjIQLndhcmVob3VzZS5UYWJsZRIRCglmaXJzdF9kYXkYAyABKAkSEAoIbGFzdF9kYXkYBCABKAkSEQoJZXhjaGFuZ2VzGAUgAygJEhMKC2luc3RydW1lbnRzGAYgAygJEg8KB3JlZmV0Y2gYByABKAgiFAoGVGFza0lkEgoKAmlkGAEgASgJIo8CCg9BY3F1aXNpdGlvblRhc2sSLAoHcmVxdWVzdBgBIAEoCzIbLndhcmVob3VzZS5TdGFydEFjcXVpc2l0aW9uEiMKBXN0YXRlGAIgASgOMhQud2FyZWhvdXNlLlRhc2tTdGF0ZRINCgVpdGVtcxgDIAEoBBISCgppdGVtc19kb25lGAQgASgEEhMKC2l0ZW1zX2VtcHR5GAUgASgEEhUKDXJlcXVlc3RzX3NlbnQYBiABKAQSHAoFZXJyb3IYByABKAsyDS5jb21tb24uRXJyb3ISEgoKc3RhcnRlZF9tcxgIIAEoAxIYCgtmaW5pc2hlZF9tcxgJIAEoA0gAiAEBQg4KDF9maW5pc2hlZF9tcyIoChRMaXN0QWNxdWlzaXRpb25UYXNrcxIQCghhZnRlcl9pZBgBIAEoCSJOChBBY3F1aXNpdGlvblRhc2tzEikKBXRhc2tzGAEgAygLMhoud2FyZWhvdXNlLkFjcXVpc2l0aW9uVGFzaxIPCgduZXh0X2lkGAIgASgJKucBCgVUYWJsZRIVChFUQUJMRV9VTlNQRUNJRklFRBAAEhIKDlRBQkxFX0NBTEVOREFSEAESEwoPVEFCTEVfQ09OVFJBQ1RTEAISDwoLVEFCTEVfREFJTFkQAxIRCg1UQUJMRV9NSU5VVEVTEAQSFAoQVEFCTEVfU0VUVExFTUVOVBAFEhUKEVRBQkxFX1BSSUNFX1RJQ0tTEAYSHAoYVEFCTEVfV0FSRUhPVVNFX1JFQ0VJUFRTEAcSGgoWVEFCTEVfTUVNQkVSX1BPU0lUSU9OUxAIEhMKD1RBQkxFX0lOVkVOVE9SWRAJKr0BCglUYXNrU3RhdGUSGgoWVEFTS19TVEFURV9VTlNQRUNJRklFRBAAEhUKEVRBU0tfU1RBVEVfUVVFVUVEEAESFgoSVEFTS19TVEFURV9SVU5OSU5HEAISGAoUVEFTS19TVEFURV9TVUNDRUVERUQQAxIVChFUQVNLX1NUQVRFX0ZBSUxFRBAEEhgKFFRBU0tfU1RBVEVfQ0FOQ0VMTEVEEAUSGgoWVEFTS19TVEFURV9JTlRFUlJVUFRFRBAGYgZwcm90bzM", [file_asterion_common]);
+  fileDesc("Chhhc3Rlcmlvbi93YXJlaG91c2UucHJvdG8SCXdhcmVob3VzZSLRBgoHUmVxdWVzdBIKCgJpZBgBIAEoBBIjCgpnZXRfc3RhdHVzGAogASgLMg0uY29tbW9uLkVtcHR5SAASOwoTZ2V0X2RhdGFzZXRfdmVyc2lvbhgVIAEoCzIcLndhcmVob3VzZS5HZXREYXRhc2V0VmVyc2lvbkgAEjcKEXJlYWRfZGF0YXNldF9maWxlGBYgASgLMhoud2FyZWhvdXNlLlJlYWREYXRhc2V0RmlsZUgAEjQKE2dldF9kYXRhc2V0X3N1bW1hcnkYFyABKAsyFS53YXJlaG91c2UuRGF0YXNldFJlZkgAEjUKFGdldF9kYXRhc2V0X2NvdmVyYWdlGBggASgLMhUud2FyZWhvdXNlLkRhdGFzZXRSZWZIABI1ChRnZXRfcHJvZHVjdF9jb3ZlcmFnZRgZIAEoCzIVLndhcmVob3VzZS5Qcm9kdWN0UmVmSAASPwoVbGlzdF9kYXRhc2V0X3ZlcnNpb25zGBsgASgLMh4ud2FyZWhvdXNlLkxpc3REYXRhc2V0VmVyc2lvbnNIABJFChhjb21wYXJlX2RhdGFzZXRfdmVyc2lvbnMYHCABKAsyIS53YXJlaG91c2UuQ29tcGFyZURhdGFzZXRWZXJzaW9uc0gAEjEKDmdldF90YWJsZV9yb3dzGB0gASgLMhcud2FyZWhvdXNlLkdldFRhYmxlUm93c0gAEjAKF2dldF9hY3F1aXNpdGlvbl9vcHRpb25zGB4gASgLMg0uY29tbW9uLkVtcHR5SAASOAoRc3RhcnRfYWNxdWlzaXRpb24YHyABKAsyGy53YXJlaG91c2UuU3RhcnRBY3F1aXNpdGlvbkgAEjEKFGdldF9hY3F1aXNpdGlvbl90YXNrGCAgASgLMhEud2FyZWhvdXNlLlRhc2tJZEgAEkEKFmxpc3RfYWNxdWlzaXRpb25fdGFza3MYISABKAsyHy53YXJlaG91c2UuTGlzdEFjcXVpc2l0aW9uVGFza3NIABIvChJjYW5jZWxfYWNxdWlzaXRpb24YIiABKAsyES53YXJlaG91c2UuVGFza0lkSAASJQoMc3RhcnRfdXBkYXRlGCMgASgLMg0uY29tbW9uLkVtcHR5SABCBgoEY2FsbCKbBwoIUmVzcG9uc2USCgoCaWQYASABKAQSHgoFZXJyb3IYAiABKAsyDS5jb21tb24uRXJyb3JIABInCgpnZXRfc3RhdHVzGAogASgLMhEud2FyZWhvdXNlLlN0YXR1c0gAEjgKE2dldF9kYXRhc2V0X3ZlcnNpb24YFSABKAsyGS53YXJlaG91c2UuRGF0YXNldFZlcnNpb25IABIzChFyZWFkX2RhdGFzZXRfZmlsZRgWIAEoCzIWLndhcmVob3VzZS5EYXRhc2V0RmlsZUgAEjgKE2dldF9kYXRhc2V0X3N1bW1hcnkYFyABKAsyGS53YXJlaG91c2UuRGF0YXNldFN1bW1hcnlIABI6ChRnZXRfZGF0YXNldF9jb3ZlcmFnZRgYIAEoCzIaLndhcmVob3VzZS5EYXRhc2V0Q292ZXJhZ2VIABI7ChRnZXRfcHJvZHVjdF9jb3ZlcmFnZRgZIAEoCzIbLndhcmVob3VzZS5Qcm9kdWN0Q29udHJhY3RzSAASOwoVbGlzdF9kYXRhc2V0X3ZlcnNpb25zGBsgASgLMhoud2FyZWhvdXNlLkRhdGFzZXRWZXJzaW9uc0gAEjwKGGNvbXBhcmVfZGF0YXNldF92ZXJzaW9ucxgcIAEoCzIYLndhcmVob3VzZS5EYXRhc2V0Q2hhbmdlSAASLgoOZ2V0X3RhYmxlX3Jvd3MYHSABKAsyFC53YXJlaG91c2UuVGFibGVSb3dzSAASQAoXZ2V0X2FjcXVpc2l0aW9uX29wdGlvbnMYHiABKAsyHS53YXJlaG91c2UuQWNxdWlzaXRpb25PcHRpb25zSAASNwoRc3RhcnRfYWNxdWlzaXRpb24YHyABKAsyGi53YXJlaG91c2UuQWNxdWlzaXRpb25UYXNrSAASOgoUZ2V0X2FjcXVpc2l0aW9uX3Rhc2sYICABKAsyGi53YXJlaG91c2UuQWNxdWlzaXRpb25UYXNrSAASPQoWbGlzdF9hY3F1aXNpdGlvbl90YXNrcxghIAEoCzIbLndhcmVob3VzZS5BY3F1aXNpdGlvblRhc2tzSAASOAoSY2FuY2VsX2FjcXVpc2l0aW9uGCIgASgLMhoud2FyZWhvdXNlLkFjcXVpc2l0aW9uVGFza0gAEjMKDHN0YXJ0X3VwZGF0ZRgjIAEoCzIbLndhcmVob3VzZS5BY3F1aXNpdGlvblRhc2tzSABCCAoGcmVzdWx0IlgKBlN0YXR1cxIPCgd2ZXJzaW9uGAEgASgJEhIKCnN0YXJ0ZWRfbXMYAiABKAMSFwoPZGlza19mcmVlX2J5dGVzGAMgASgEEhAKCHByb3RvY29sGAQgASgJIh0KCkRhdGFzZXRSZWYSDwoHdmVyc2lvbhgBIAEoCSIuCgdEYXRhc2V0Eg8KB3ZlcnNpb24YASABKAkSEgoKY3JlYXRlZF9tcxgCIAEoAyKBAQoRR2V0RGF0YXNldFZlcnNpb24SJgoHZGF0YXNldBgBIAEoCzIVLndhcmVob3VzZS5EYXRhc2V0UmVmEh8KBXRhYmxlGAIgASgOMhAud2FyZWhvdXNlLlRhYmxlEhAKCGV4Y2hhbmdlGAMgASgJEhEKCWFmdGVyX2tleRgEIAEoCSKBAQoORGF0YXNldFZlcnNpb24SIwoHZGF0YXNldBgBIAEoCzISLndhcmVob3VzZS5EYXRhc2V0Eg4KBnBhcmVudBgCIAEoCRIoCgpwYXJ0aXRpb25zGAMgAygLMhQud2FyZWhvdXNlLlBhcnRpdGlvbhIQCghuZXh0X2tleRgEIAEoCSJlCglQYXJ0aXRpb24SCwoDa2V5GAEgASgJEh8KBXRhYmxlGAIgASgOMhAud2FyZWhvdXNlLlRhYmxlEg4KBnNoYTI1NhgDIAEoCRIMCgRyb3dzGAQgASgEEgwKBGRheXMYBSADKAkiVgoPUmVhZERhdGFzZXRGaWxlEiYKB2RhdGFzZXQYASABKAsyFS53YXJlaG91c2UuRGF0YXNldFJlZhILCgNrZXkYAiABKAkSDgoGb2Zmc2V0GAMgASgEIkkKC0RhdGFzZXRGaWxlEg4KBnNoYTI1NhgBIAEoCRIMCgRzaXplGAIgASgEEg4KBm9mZnNldBgDIAEoBBIMCgRkYXRhGAQgASgMIl4KDkRhdGFzZXRTdW1tYXJ5EiMKB2RhdGFzZXQYASABKAsyEi53YXJlaG91c2UuRGF0YXNldBInCgZ0YWJsZXMYAiADKAsyFy53YXJlaG91c2UuVGFibGVTdW1tYXJ5IrgBCgxUYWJsZVN1bW1hcnkSHwoFdGFibGUYASABKA4yEC53YXJlaG91c2UuVGFibGUSEgoKcGFydGl0aW9ucxgCIAEoBBIMCgRyb3dzGAMgASgEEhEKCWZpcnN0X2RheRgEIAEoCRIQCghsYXN0X2RheRgFIAEoCRIZChFleHBlY3RlZF9sYXN0X2RheRgGIAEoCRIPCgdtaXNzaW5nGAcgASgEEhQKDHNvdXJjZV9lbXB0eRgIIAEoBCIsChNMaXN0RGF0YXNldFZlcnNpb25zEhUKDWFmdGVyX3ZlcnNpb24YASABKAkiUwoPRGF0YXNldFZlcnNpb25zEioKCHZlcnNpb25zGAEgAygLMhgud2FyZWhvdXNlLkRhdGFzZXRDaGFuZ2USFAoMbmV4dF92ZXJzaW9uGAIgASgJIjcKFkNvbXBhcmVEYXRhc2V0VmVyc2lvbnMSDwoHdmVyc2lvbhgBIAEoCRIMCgRiYXNlGAIgASgJInQKDURhdGFzZXRDaGFuZ2USIwoHZGF0YXNldBgBIAEoCzISLndhcmVob3VzZS5EYXRhc2V0EgwKBGJhc2UYAiABKAkSDQoFYWRkZWQYAyABKA0SEAoIcmVwbGFjZWQYBCABKA0SDwoHcmVtb3ZlZBgFIAEoDSKeAQoMR2V0VGFibGVSb3dzEiYKB2RhdGFzZXQYASABKAsyFS53YXJlaG91c2UuRGF0YXNldFJlZhIfCgV0YWJsZRgCIAEoDjIQLndhcmVob3VzZS5UYWJsZRIQCghleGNoYW5nZRgDIAEoCRIRCglmaXJzdF9kYXkYBCABKAkSEAoIbGFzdF9kYXkYBSABKAkSDgoGb2Zmc2V0GAYgASgNIk4KCVRhYmxlUm93cxIPCgdjb2x1bW5zGAEgAygJEiEKBHJvd3MYAiADKAsyEy53YXJlaG91c2UuVGFibGVSb3cSDQoFdG90YWwYAyABKA0iGgoIVGFibGVSb3cSDgoGdmFsdWVzGAEgAygJIj8KD0RhdGFzZXRDb3ZlcmFnZRIsCghwcm9kdWN0cxgBIAMoCzIaLndhcmVob3VzZS5Qcm9kdWN0Q292ZXJhZ2UimQEKD1Byb2R1Y3RDb3ZlcmFnZRIPCgdwcm9kdWN0GAEgASgJEhEKCWNvbnRyYWN0cxgCIAEoDRIOCgZsaXN0ZWQYAyABKA0SJwoFZGFpbHkYBCABKAsyGC53YXJlaG91c2UuU2VyaWVzU3VtbWFyeRIpCgdtaW51dGVzGAUgASgLMhgud2FyZWhvdXNlLlNlcmllc1N1bW1hcnkiiQEKDVNlcmllc1N1bW1hcnkSDAoEaGVsZBgBIAEoDRIRCgl3aXRoX2dhcHMYAiABKA0SDwoHcGVuZGluZxgDIAEoDRIRCglmaXJzdF9kYXkYBCABKAkSEAoIbGFzdF9kYXkYBSABKAkSIQoEZ2FwcxgGIAMoCzITLndhcmVob3VzZS5EYXlSYW5nZSIuCgpQcm9kdWN0UmVmEg8KB3ZlcnNpb24YASABKAkSDwoHcHJvZHVjdBgCIAEoCSJCChBQcm9kdWN0Q29udHJhY3RzEi4KCWNvbnRyYWN0cxgBIAMoCzIbLndhcmVob3VzZS5Db250cmFjdENvdmVyYWdlIrABChBDb250cmFjdENvdmVyYWdlEhAKCGNvbnRyYWN0GAEgASgJEhAKCGxpc3RfZGF5GAIgASgJEhIKCmRlbGlzdF9kYXkYAyABKAkSDgoGbGlzdGVkGAQgASgIEigKBWRhaWx5GAUgASgLMhkud2FyZWhvdXNlLlNlcmllc0NvdmVyYWdlEioKB21pbnV0ZXMYBiABKAsyGS53YXJlaG91c2UuU2VyaWVzQ292ZXJhZ2UitQEKDlNlcmllc0NvdmVyYWdlEhEKCWZpcnN0X2RheRgBIAEoCRIQCghsYXN0X2RheRgCIAEoCRIMCgRkYXlzGAMgASgNEhEKCW9wZW5fZGF5cxgEIAEoDRISCgplbXB0eV9kYXlzGAUgASgNEhQKDHBlbmRpbmdfZGF5cxgGIAEoDRIQCghnYXBfZGF5cxgHIAEoDRIhCgRnYXBzGAggAygLMhMud2FyZWhvdXNlLkRheVJhbmdlIicKCERheVJhbmdlEg0KBWZpcnN0GAEgASgJEgwKBGxhc3QYAiABKAkiQQoSQWNxdWlzaXRpb25PcHRpb25zEisKBnRhYmxlcxgBIAMoCzIbLndhcmVob3VzZS5BY3F1aXNpdGlvblRhYmxlIkYKEEFjcXVpc2l0aW9uVGFibGUSHwoFdGFibGUYASABKA4yEC53YXJlaG91c2UuVGFibGUSEQoJZXhjaGFuZ2VzGAIgAygJIp0BChBTdGFydEFjcXVpc2l0aW9uEgoKAmlkGAEgASgJEh8KBXRhYmxlGAIgASgOMhAud2FyZWhvdXNlLlRhYmxlEhEKCWZpcnN0X2RheRgDIAEoCRIQCghsYXN0X2RheRgEIAEoCRIRCglleGNoYW5nZXMYBSADKAkSEwoLaW5zdHJ1bWVudHMYBiADKAkSDwoHcmVmZXRjaBgHIAEoCCIUCgZUYXNrSWQSCgoCaWQYASABKAkijwIKD0FjcXVpc2l0aW9uVGFzaxIsCgdyZXF1ZXN0GAEgASgLMhsud2FyZWhvdXNlLlN0YXJ0QWNxdWlzaXRpb24SIwoFc3RhdGUYAiABKA4yFC53YXJlaG91c2UuVGFza1N0YXRlEg0KBWl0ZW1zGAMgASgEEhIKCml0ZW1zX2RvbmUYBCABKAQSEwoLaXRlbXNfZW1wdHkYBSABKAQSFQoNcmVxdWVzdHNfc2VudBgGIAEoBBIcCgVlcnJvchgHIAEoCzINLmNvbW1vbi5FcnJvchISCgpzdGFydGVkX21zGAggASgDEhgKC2ZpbmlzaGVkX21zGAkgASgDSACIAQFCDgoMX2ZpbmlzaGVkX21zIigKFExpc3RBY3F1aXNpdGlvblRhc2tzEhAKCGFmdGVyX2lkGAEgASgJIk4KEEFjcXVpc2l0aW9uVGFza3MSKQoFdGFza3MYASADKAsyGi53YXJlaG91c2UuQWNxdWlzaXRpb25UYXNrEg8KB25leHRfaWQYAiABKAkq5wEKBVRhYmxlEhUKEVRBQkxFX1VOU1BFQ0lGSUVEEAASEgoOVEFCTEVfQ0FMRU5EQVIQARITCg9UQUJMRV9DT05UUkFDVFMQAhIPCgtUQUJMRV9EQUlMWRADEhEKDVRBQkxFX01JTlVURVMQBBIUChBUQUJMRV9TRVRUTEVNRU5UEAUSFQoRVEFCTEVfUFJJQ0VfVElDS1MQBhIcChhUQUJMRV9XQVJFSE9VU0VfUkVDRUlQVFMQBxIaChZUQUJMRV9NRU1CRVJfUE9TSVRJT05TEAgSEwoPVEFCTEVfSU5WRU5UT1JZEAkqvQEKCVRhc2tTdGF0ZRIaChZUQVNLX1NUQVRFX1VOU1BFQ0lGSUVEEAASFQoRVEFTS19TVEFURV9RVUVVRUQQARIWChJUQVNLX1NUQVRFX1JVTk5JTkcQAhIYChRUQVNLX1NUQVRFX1NVQ0NFRURFRBADEhUKEVRBU0tfU1RBVEVfRkFJTEVEEAQSGAoUVEFTS19TVEFURV9DQU5DRUxMRUQQBRIaChZUQVNLX1NUQVRFX0lOVEVSUlVQVEVEEAZiBnByb3RvMw", [file_asterion_common]);
 
 /**
  * @generated from message warehouse.Request
@@ -56,6 +56,12 @@ export type Request = Message<"warehouse.Request"> & {
      */
     value: DatasetRef;
     case: "getDatasetCoverage";
+  } | {
+    /**
+     * @generated from field: warehouse.ProductRef get_product_coverage = 25;
+     */
+    value: ProductRef;
+    case: "getProductCoverage";
   } | {
     /**
      * @generated from field: warehouse.ListDatasetVersions list_dataset_versions = 27;
@@ -171,6 +177,12 @@ export type Response = Message<"warehouse.Response"> & {
      */
     value: DatasetCoverage;
     case: "getDatasetCoverage";
+  } | {
+    /**
+     * @generated from field: warehouse.ProductContracts get_product_coverage = 25;
+     */
+    value: ProductContracts;
+    case: "getProductCoverage";
   } | {
     /**
      * @generated from field: warehouse.DatasetVersions list_dataset_versions = 27;
@@ -759,18 +771,9 @@ export const TableRowSchema: GenMessage<TableRow> = /*@__PURE__*/
  */
 export type DatasetCoverage = Message<"warehouse.DatasetCoverage"> & {
   /**
-   * Daily bars.
-   *
    * @generated from field: repeated warehouse.ProductCoverage products = 1;
    */
   products: ProductCoverage[];
-
-  /**
-   * Minute bars, from the version's partition list.
-   *
-   * @generated from field: repeated warehouse.ContractCoverage contracts = 2;
-   */
-  contracts: ContractCoverage[];
 };
 
 /**
@@ -781,6 +784,8 @@ export const DatasetCoverageSchema: GenMessage<DatasetCoverage> = /*@__PURE__*/
   messageDesc(file_asterion_warehouse, 19);
 
 /**
+ * A product across every contract the contract table or the stored bars name.
+ *
  * @generated from message warehouse.ProductCoverage
  */
 export type ProductCoverage = Message<"warehouse.ProductCoverage"> & {
@@ -790,16 +795,26 @@ export type ProductCoverage = Message<"warehouse.ProductCoverage"> & {
   product: string;
 
   /**
-   * @generated from field: repeated warehouse.MonthCoverage months = 2;
+   * @generated from field: uint32 contracts = 2;
    */
-  months: MonthCoverage[];
+  contracts: number;
 
   /**
-   * EXCHANGE/product/YYYY-MM contracts with daily bars in this version.
+   * Those listed on the exchange's latest open day.
    *
-   * @generated from field: repeated string contracts = 3;
+   * @generated from field: uint32 listed = 3;
    */
-  contracts: string[];
+  listed: number;
+
+  /**
+   * @generated from field: warehouse.SeriesSummary daily = 4;
+   */
+  daily?: SeriesSummary | undefined;
+
+  /**
+   * @generated from field: warehouse.SeriesSummary minutes = 5;
+   */
+  minutes?: SeriesSummary | undefined;
 };
 
 /**
@@ -810,47 +825,91 @@ export const ProductCoverageSchema: GenMessage<ProductCoverage> = /*@__PURE__*/
   messageDesc(file_asterion_warehouse, 20);
 
 /**
- * Open days count through yesterday (Beijing), so a month under way is not short.
- *
- * @generated from message warehouse.MonthCoverage
+ * @generated from message warehouse.SeriesSummary
  */
-export type MonthCoverage = Message<"warehouse.MonthCoverage"> & {
+export type SeriesSummary = Message<"warehouse.SeriesSummary"> & {
   /**
-   * @generated from field: string month = 1;
-   */
-  month: string;
-
-  /**
-   * @generated from field: uint32 days = 2;
-   */
-  days: number;
-
-  /**
-   * @generated from field: uint32 open_days = 3;
-   */
-  openDays: number;
-
-  /**
-   * Open days without bars that every source answered empty.
+   * Contracts with stored bars.
    *
-   * @generated from field: uint32 empty_days = 4;
+   * @generated from field: uint32 held = 1;
    */
-  emptyDays: number;
+  held: number;
 
   /**
-   * Open days after the product's last stored one: an update brings them.
-   *
-   * @generated from field: uint32 pending_days = 5;
+   * @generated from field: uint32 with_gaps = 2;
    */
-  pendingDays: number;
+  withGaps: number;
+
+  /**
+   * @generated from field: uint32 pending = 3;
+   */
+  pending: number;
+
+  /**
+   * @generated from field: string first_day = 4;
+   */
+  firstDay: string;
+
+  /**
+   * @generated from field: string last_day = 5;
+   */
+  lastDay: string;
+
+  /**
+   * The contracts' gaps merged.
+   *
+   * @generated from field: repeated warehouse.DayRange gaps = 6;
+   */
+  gaps: DayRange[];
 };
 
 /**
- * Describes the message warehouse.MonthCoverage.
- * Use `create(MonthCoverageSchema)` to create a new message.
+ * Describes the message warehouse.SeriesSummary.
+ * Use `create(SeriesSummarySchema)` to create a new message.
  */
-export const MonthCoverageSchema: GenMessage<MonthCoverage> = /*@__PURE__*/
+export const SeriesSummarySchema: GenMessage<SeriesSummary> = /*@__PURE__*/
   messageDesc(file_asterion_warehouse, 21);
+
+/**
+ * @generated from message warehouse.ProductRef
+ */
+export type ProductRef = Message<"warehouse.ProductRef"> & {
+  /**
+   * @generated from field: string version = 1;
+   */
+  version: string;
+
+  /**
+   * EXCHANGE/product
+   *
+   * @generated from field: string product = 2;
+   */
+  product: string;
+};
+
+/**
+ * Describes the message warehouse.ProductRef.
+ * Use `create(ProductRefSchema)` to create a new message.
+ */
+export const ProductRefSchema: GenMessage<ProductRef> = /*@__PURE__*/
+  messageDesc(file_asterion_warehouse, 22);
+
+/**
+ * @generated from message warehouse.ProductContracts
+ */
+export type ProductContracts = Message<"warehouse.ProductContracts"> & {
+  /**
+   * @generated from field: repeated warehouse.ContractCoverage contracts = 1;
+   */
+  contracts: ContractCoverage[];
+};
+
+/**
+ * Describes the message warehouse.ProductContracts.
+ * Use `create(ProductContractsSchema)` to create a new message.
+ */
+export const ProductContractsSchema: GenMessage<ProductContracts> = /*@__PURE__*/
+  messageDesc(file_asterion_warehouse, 23);
 
 /**
  * @generated from message warehouse.ContractCoverage
@@ -864,9 +923,29 @@ export type ContractCoverage = Message<"warehouse.ContractCoverage"> & {
   contract: string;
 
   /**
-   * @generated from field: repeated warehouse.MinuteMonth months = 2;
+   * @generated from field: string list_day = 2;
    */
-  months: MinuteMonth[];
+  listDay: string;
+
+  /**
+   * @generated from field: string delist_day = 3;
+   */
+  delistDay: string;
+
+  /**
+   * @generated from field: bool listed = 4;
+   */
+  listed: boolean;
+
+  /**
+   * @generated from field: warehouse.SeriesCoverage daily = 5;
+   */
+  daily?: SeriesCoverage | undefined;
+
+  /**
+   * @generated from field: warehouse.SeriesCoverage minutes = 6;
+   */
+  minutes?: SeriesCoverage | undefined;
 };
 
 /**
@@ -874,48 +953,89 @@ export type ContractCoverage = Message<"warehouse.ContractCoverage"> & {
  * Use `create(ContractCoverageSchema)` to create a new message.
  */
 export const ContractCoverageSchema: GenMessage<ContractCoverage> = /*@__PURE__*/
-  messageDesc(file_asterion_warehouse, 22);
+  messageDesc(file_asterion_warehouse, 24);
 
 /**
- * Trading days with minutes in one month.
+ * Open days run from listing through delisting or yesterday (Beijing), whichever is earlier.
  *
- * @generated from message warehouse.MinuteMonth
+ * @generated from message warehouse.SeriesCoverage
  */
-export type MinuteMonth = Message<"warehouse.MinuteMonth"> & {
+export type SeriesCoverage = Message<"warehouse.SeriesCoverage"> & {
   /**
-   * @generated from field: string month = 1;
+   * @generated from field: string first_day = 1;
    */
-  month: string;
+  firstDay: string;
 
   /**
-   * @generated from field: uint32 days = 2;
+   * @generated from field: string last_day = 2;
+   */
+  lastDay: string;
+
+  /**
+   * @generated from field: uint32 days = 3;
    */
   days: number;
 
   /**
-   * @generated from field: uint32 empty_days = 3;
-   */
-  emptyDays: number;
-
-  /**
-   * As in MonthCoverage, through the contract's delisting.
-   *
    * @generated from field: uint32 open_days = 4;
    */
   openDays: number;
 
   /**
-   * @generated from field: uint32 pending_days = 5;
+   * Open days without bars that every source answered empty.
+   *
+   * @generated from field: uint32 empty_days = 5;
+   */
+  emptyDays: number;
+
+  /**
+   * Open days after the last stored one: an update brings them.
+   *
+   * @generated from field: uint32 pending_days = 6;
    */
   pendingDays: number;
+
+  /**
+   * Open days without bars between the first and last stored ones.
+   *
+   * @generated from field: uint32 gap_days = 7;
+   */
+  gapDays: number;
+
+  /**
+   * @generated from field: repeated warehouse.DayRange gaps = 8;
+   */
+  gaps: DayRange[];
 };
 
 /**
- * Describes the message warehouse.MinuteMonth.
- * Use `create(MinuteMonthSchema)` to create a new message.
+ * Describes the message warehouse.SeriesCoverage.
+ * Use `create(SeriesCoverageSchema)` to create a new message.
  */
-export const MinuteMonthSchema: GenMessage<MinuteMonth> = /*@__PURE__*/
-  messageDesc(file_asterion_warehouse, 23);
+export const SeriesCoverageSchema: GenMessage<SeriesCoverage> = /*@__PURE__*/
+  messageDesc(file_asterion_warehouse, 25);
+
+/**
+ * @generated from message warehouse.DayRange
+ */
+export type DayRange = Message<"warehouse.DayRange"> & {
+  /**
+   * @generated from field: string first = 1;
+   */
+  first: string;
+
+  /**
+   * @generated from field: string last = 2;
+   */
+  last: string;
+};
+
+/**
+ * Describes the message warehouse.DayRange.
+ * Use `create(DayRangeSchema)` to create a new message.
+ */
+export const DayRangeSchema: GenMessage<DayRange> = /*@__PURE__*/
+  messageDesc(file_asterion_warehouse, 26);
 
 /**
  * What Warehouse can acquire.
@@ -934,7 +1054,7 @@ export type AcquisitionOptions = Message<"warehouse.AcquisitionOptions"> & {
  * Use `create(AcquisitionOptionsSchema)` to create a new message.
  */
 export const AcquisitionOptionsSchema: GenMessage<AcquisitionOptions> = /*@__PURE__*/
-  messageDesc(file_asterion_warehouse, 24);
+  messageDesc(file_asterion_warehouse, 27);
 
 /**
  * @generated from message warehouse.AcquisitionTable
@@ -956,7 +1076,7 @@ export type AcquisitionTable = Message<"warehouse.AcquisitionTable"> & {
  * Use `create(AcquisitionTableSchema)` to create a new message.
  */
 export const AcquisitionTableSchema: GenMessage<AcquisitionTable> = /*@__PURE__*/
-  messageDesc(file_asterion_warehouse, 25);
+  messageDesc(file_asterion_warehouse, 28);
 
 /**
  * The client chooses the id. Warehouse takes what it lacks from its sources in order
@@ -1010,7 +1130,7 @@ export type StartAcquisition = Message<"warehouse.StartAcquisition"> & {
  * Use `create(StartAcquisitionSchema)` to create a new message.
  */
 export const StartAcquisitionSchema: GenMessage<StartAcquisition> = /*@__PURE__*/
-  messageDesc(file_asterion_warehouse, 26);
+  messageDesc(file_asterion_warehouse, 29);
 
 /**
  * @generated from message warehouse.TaskId
@@ -1027,7 +1147,7 @@ export type TaskId = Message<"warehouse.TaskId"> & {
  * Use `create(TaskIdSchema)` to create a new message.
  */
 export const TaskIdSchema: GenMessage<TaskId> = /*@__PURE__*/
-  messageDesc(file_asterion_warehouse, 27);
+  messageDesc(file_asterion_warehouse, 30);
 
 /**
  * Items are exchange-days, or contract-days for minutes.
@@ -1086,7 +1206,7 @@ export type AcquisitionTask = Message<"warehouse.AcquisitionTask"> & {
  * Use `create(AcquisitionTaskSchema)` to create a new message.
  */
 export const AcquisitionTaskSchema: GenMessage<AcquisitionTask> = /*@__PURE__*/
-  messageDesc(file_asterion_warehouse, 28);
+  messageDesc(file_asterion_warehouse, 31);
 
 /**
  * Newest first; 20 a page.
@@ -1105,7 +1225,7 @@ export type ListAcquisitionTasks = Message<"warehouse.ListAcquisitionTasks"> & {
  * Use `create(ListAcquisitionTasksSchema)` to create a new message.
  */
 export const ListAcquisitionTasksSchema: GenMessage<ListAcquisitionTasks> = /*@__PURE__*/
-  messageDesc(file_asterion_warehouse, 29);
+  messageDesc(file_asterion_warehouse, 32);
 
 /**
  * @generated from message warehouse.AcquisitionTasks
@@ -1129,7 +1249,7 @@ export type AcquisitionTasks = Message<"warehouse.AcquisitionTasks"> & {
  * Use `create(AcquisitionTasksSchema)` to create a new message.
  */
 export const AcquisitionTasksSchema: GenMessage<AcquisitionTasks> = /*@__PURE__*/
-  messageDesc(file_asterion_warehouse, 30);
+  messageDesc(file_asterion_warehouse, 33);
 
 /**
  * @generated from enum warehouse.Table

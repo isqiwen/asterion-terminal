@@ -13,6 +13,7 @@ message Request {
     ReadDatasetFile read_dataset_file = 22;
     DatasetRef get_dataset_summary = 23;
     DatasetRef get_dataset_coverage = 24;
+    ProductRef get_product_coverage = 25;
     ListDatasetVersions list_dataset_versions = 27;
     CompareDatasetVersions compare_dataset_versions = 28;
     GetTableRows get_table_rows = 29;
@@ -38,6 +39,7 @@ message Response {
     DatasetFile read_dataset_file = 22;
     DatasetSummary get_dataset_summary = 23;
     DatasetCoverage get_dataset_coverage = 24;
+    ProductContracts get_product_coverage = 25;
     DatasetVersions list_dataset_versions = 27;
     DatasetChange compare_dataset_versions = 28;
     TableRows get_table_rows = 29;
@@ -195,44 +197,68 @@ message TableRow {
 }
 
 message DatasetCoverage {
-  // Daily bars.
   repeated ProductCoverage products = 1;
-  // Minute bars, from the version's partition list.
-  repeated ContractCoverage contracts = 2;
 }
 
+// A product across every contract the contract table or the stored bars name.
 message ProductCoverage {
   string product = 1;
-  repeated MonthCoverage months = 2;
-  // EXCHANGE/product/YYYY-MM contracts with daily bars in this version.
-  repeated string contracts = 3;
+  uint32 contracts = 2;
+  // Those listed on the exchange's latest open day.
+  uint32 listed = 3;
+  SeriesSummary daily = 4;
+  SeriesSummary minutes = 5;
 }
 
-// Open days count through yesterday (Beijing), so a month under way is not short.
-message MonthCoverage {
-  string month = 1;
-  uint32 days = 2;
-  uint32 open_days = 3;
-  // Open days without bars that every source answered empty.
-  uint32 empty_days = 4;
-  // Open days after the product's last stored one: an update brings them.
-  uint32 pending_days = 5;
+message SeriesSummary {
+  // Contracts with stored bars.
+  uint32 held = 1;
+  uint32 with_gaps = 2;
+  uint32 pending = 3;
+  string first_day = 4;
+  string last_day = 5;
+  // The contracts' gaps merged.
+  repeated DayRange gaps = 6;
+}
+
+message ProductRef {
+  string version = 1;
+  // EXCHANGE/product
+  string product = 2;
+}
+
+message ProductContracts {
+  repeated ContractCoverage contracts = 1;
 }
 
 message ContractCoverage {
   // EXCHANGE/product/YYYY-MM
   string contract = 1;
-  repeated MinuteMonth months = 2;
+  string list_day = 2;
+  string delist_day = 3;
+  bool listed = 4;
+  SeriesCoverage daily = 5;
+  SeriesCoverage minutes = 6;
 }
 
-// Trading days with minutes in one month.
-message MinuteMonth {
-  string month = 1;
-  uint32 days = 2;
-  uint32 empty_days = 3;
-  // As in MonthCoverage, through the contract's delisting.
+// Open days run from listing through delisting or yesterday (Beijing), whichever is earlier.
+message SeriesCoverage {
+  string first_day = 1;
+  string last_day = 2;
+  uint32 days = 3;
   uint32 open_days = 4;
-  uint32 pending_days = 5;
+  // Open days without bars that every source answered empty.
+  uint32 empty_days = 5;
+  // Open days after the last stored one: an update brings them.
+  uint32 pending_days = 6;
+  // Open days without bars between the first and last stored ones.
+  uint32 gap_days = 7;
+  repeated DayRange gaps = 8;
+}
+
+message DayRange {
+  string first = 1;
+  string last = 2;
 }
 
 // ---- Acquisition

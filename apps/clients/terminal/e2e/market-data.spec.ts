@@ -26,9 +26,9 @@ test(
       await page.goto("/");
       await openView(page, "dataset");
       await rpc(page.request, "market.endpoint.clear");
-      await expect(
-        page.getByRole("group", { name: "数据" }).getByRole("button", { name: /^日线/ }),
-      ).toContainText(/2026-02-13.*2026-01-05 起/);
+      await expect(page.locator(".data-summary-item").first()).toContainText(
+        /日线.*2026-02-13.*2026-01-05 起/,
+      );
       await page.getByRole("button", { name: /^最近活动/ }).click();
       await expect(
         page.getByRole("table", { name: "最近活动" }).locator(`code[title="${version}"]`),
@@ -36,8 +36,8 @@ test(
       await page.keyboard.press("Escape");
       await expect(page.getByRole("table", { name: "最近活动" })).toBeHidden();
       await expect(page.getByRole("button", { name: "采集", exact: true })).toBeVisible();
-      await expect(page.getByRole("rowheader", { name: /^SHFE\/rb\b/ })).toContainText("螺纹钢");
-      await expect(page.getByRole("columnheader", { name: "01", exact: true })).toBeVisible();
+      await expect(page.getByRole("rowheader", { name: /^rb\b/ })).toContainText("螺纹钢");
+      await expect(page.getByRole("columnheader", { name: "日线", exact: true })).toBeVisible();
       expect((await rpc(page.request, "market.watch", { restart: false })).market_watch).toBeNull();
     } finally {
       rmSync(join(data, "sources/research"), { recursive: true, force: true });

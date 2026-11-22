@@ -4,6 +4,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import {
   AcquisitionTaskSchema,
   DatasetCoverageSchema,
+  ProductContractsSchema,
   Table,
   TaskState,
 } from "../../src/generated/asterion/warehouse_pb";
@@ -54,6 +55,53 @@ const task = (id: string, table = Table.DAILY, startedMs = 1n) =>
     startedMs,
   });
 
+const series = (days: number, extra: Record<string, unknown> = {}) => ({
+  days,
+  openDays: days,
+  firstDay: "2026-07-01",
+  lastDay: "2026-10-30",
+  ...extra,
+});
+
+const rebar = [
+  {
+    contract: "SHFE/rb/2024-10",
+    listDay: "2023-10-16",
+    delistDay: "2024-10-15",
+  },
+  {
+    contract: "SHFE/rb/2025-10",
+    listDay: "2024-10-16",
+    delistDay: "2025-10-15",
+    daily: series(5, { firstDay: "2025-07-01", lastDay: "2025-10-15", openDays: 9 }),
+  },
+  {
+    contract: "SHFE/rb/2026-10",
+    listDay: "2025-10-16",
+    delistDay: "2026-10-15",
+    daily: series(5, { firstDay: "2025-10-16", lastDay: "2026-10-15" }),
+  },
+  {
+    contract: "SHFE/rb/2027-01",
+    listDay: "2026-01-16",
+    delistDay: "2099-01-15",
+    listed: true,
+    daily: series(10),
+    minutes: series(3),
+  },
+  {
+    contract: "SHFE/rb/2027-02",
+    listDay: "2026-02-25",
+    delistDay: "2099-02-15",
+    listed: true,
+    daily: series(8, {
+      openDays: 10,
+      gapDays: 2,
+      gaps: [{ first: "2026-09-10", last: "2026-09-11" }],
+    }),
+  },
+];
+
 function serve({
   tables = [Table.DAILY, Table.MINUTES, Table.SETTLEMENT, Table.PRICE_TICKS],
   tasks = () => ({ tasks: [] as unknown[], nextId: "" }),
@@ -62,7 +110,10 @@ function serve({
   tasks?: (afterId: string) => { tasks: unknown[]; nextId: string };
 } = {}) {
   request.mockImplementation(
-    async (body: { case: string; value: { version?: string; afterId?: string } }) => {
+    async (body: {
+      case: string;
+      value: { version?: string; afterId?: string; product?: string };
+    }) => {
       switch (body.case) {
         case "getAcquisitionOptions":
           return { tables: tables.map(table => ({ table, exchanges: ["CFFEX", "SHFE"] })) };
@@ -86,13 +137,6 @@ function serve({
                 lastDay: "2026-11-12",
                 expectedLastDay: "2026-11-12",
               },
-              {
-                table: Table.PRICE_TICKS,
-                rows: 4n,
-                firstDay: "2026-07-01",
-                lastDay: "2026-11-12",
-                expectedLastDay: "2026-11-12",
-              },
             ],
           };
         case "getDatasetCoverage":
@@ -101,44 +145,48 @@ function serve({
             body.value.version === older
               ? {
                   products: [
-                    { product: "SHFE/cu", months: [{ month: "2026-10", days: 21, openDays: 21 }] },
+                    {
+                      product: "SHFE/cu",
+                      contracts: 1,
+                      listed: 1,
+                      daily: { held: 1, firstDay: "2026-10-01", lastDay: "2026-10-30" },
+                    },
                   ],
                 }
               : {
                   products: [
                     {
-                      product: "SHFE/rb",
-                      contracts: ["SHFE/rb/2026-10", "SHFE/rb/2027-01"],
-                      months: [
-                        { month: "2026-07", days: 23, openDays: 23 },
-                        { month: "2026-09", days: 10, openDays: 21 },
-                        { month: "2026-10", days: 16, openDays: 16 },
-                      ],
+                      product: "SHFE/ag",
+                      contracts: 2,
+                      listed: 2,
+                      daily: { held: 2, firstDay: "2026-07-01", lastDay: "2026-10-30" },
                     },
                     {
                       product: "SHFE/au",
-                      months: [
-                        { month: "2026-09", days: 18, openDays: 21, pendingDays: 2 },
-                        { month: "2026-10", days: 10, openDays: 16, emptyDays: 6 },
-                      ],
+                      contracts: 2,
+                      listed: 2,
+                      daily: { held: 2, pending: 1, firstDay: "2026-07-01", lastDay: "2026-10-30" },
                     },
                     {
-                      product: "SHFE/ag",
-                      months: [{ month: "2026-10", days: 12, openDays: 16, pendingDays: 4 }],
-                    },
-                  ],
-                  contracts: [
-                    {
-                      contract: "SHFE/cu/2026-12",
-                      months: [{ month: "2026-10", days: 3, openDays: 16 }],
-                    },
-                    {
-                      contract: "SHFE/rb/2027-01",
-                      months: [{ month: "2026-10", days: 3, openDays: 16 }],
+                      product: "SHFE/rb",
+                      contracts: rebar.length,
+                      listed: 2,
+                      daily: {
+                        held: 4,
+                        withGaps: 1,
+                        firstDay: "2025-07-01",
+                        lastDay: "2026-10-30",
+                        gaps: [{ first: "2026-09-10", last: "2026-09-11" }],
+                      },
+                      minutes: { held: 1, firstDay: "2026-07-01", lastDay: "2026-10-30" },
                     },
                   ],
                 },
           );
+        case "getProductCoverage":
+          return create(ProductContractsSchema, {
+            contracts: body.value.product === "SHFE/rb" ? rebar : [],
+          });
         case "listAcquisitionTasks":
           return tasks(body.value.afterId ?? "");
         case "listDatasetVersions":
@@ -167,26 +215,22 @@ const submitted = () =>
     .map(body => body.value);
 const startInDialog = () =>
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "开始采集" }));
-const show = (prefix: string) =>
-  fireEvent.click(
-    within(screen.getByRole("group", { name: "数据" })).getByRole("button", {
-      name: new RegExp(`^${prefix}`),
-    }),
-  );
+const list = () => screen.findByRole("table", { name: "品种覆盖" });
+const openRebar = async () => {
+  fireEvent.click(within(await list()).getByRole("button", { name: /^rb\s*螺纹钢/ }));
+  await screen.findByRole("button", { name: "查看 rb2701" });
+};
 
-test("market series cards show freshness, acquisition defaults to canonical exchange order, and update brings all current", async () => {
+test("the summary shows freshness, acquisition defaults to canonical exchange order, and update brings all current", async () => {
   serve();
   view(context());
-  const series = await screen.findByRole("group", { name: "数据" });
-  const daily = within(series).getByRole("button", { name: /^日线/ });
-  const minutes = within(series).getByRole("button", { name: /^分钟线/ });
-  expect(daily.textContent).toContain("3 个品种 · 5 行");
-  expect(daily.textContent).not.toContain("个合约");
-  expect(daily.textContent).toContain("缺 2 个交易日");
-  expect(daily.textContent).toContain("应到 2026-11-12");
-  expect(daily.textContent).toContain("另有 3 个交易日来源无数据");
-  expect(minutes.textContent).toContain("未采集");
-  expect(screen.queryByText(/回测参数/)).toBeNull();
+  const summary = await screen.findByRole("group", { name: "数据" });
+  const [daily, minutes] = summary.querySelectorAll(".data-summary-item");
+  expect(daily!.textContent).toContain("3 个品种 · 5 行");
+  expect(daily!.textContent).toContain("缺 2 个交易日");
+  expect(daily!.textContent).toContain("应到 2026-11-12");
+  expect(daily!.textContent).toContain("另有 3 个交易日来源无数据");
+  expect(minutes!.textContent).toContain("未采集");
 
   fireEvent.click(screen.getByRole("button", { name: "采集" }));
   const dialog = screen.getByRole("dialog", { name: "采集 日线" });
@@ -197,6 +241,10 @@ test("market series cards show freshness, acquisition defaults to canonical exch
   expect(
     (within(dialog).getByRole("checkbox", { name: "CFFEX" }) as HTMLInputElement).checked,
   ).toBe(false);
+  expect(
+    (within(dialog).getByRole("checkbox", { name: "重新采集已有分区" }) as HTMLInputElement)
+      .checked,
+  ).toBe(false);
   fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
 
   fireEvent.click(screen.getByRole("button", { name: "更新到最新" }));
@@ -204,114 +252,87 @@ test("market series cards show freshness, acquisition defaults to canonical exch
   expect(request).toHaveBeenCalledWith({ case: "startUpdate", value: {} });
 });
 
-test("hovering shows detail only for months their number and colour cannot explain", async () => {
+test("products with problems come first and only they count as needing attention", async () => {
   serve();
   view(context());
-  const matrix = await screen.findByRole("table", { name: "日线覆盖" });
-  const cellsOf = (name: RegExp) =>
-    within(within(matrix).getByRole("row", { name })).getAllByRole("cell");
-  const gold = cellsOf(/SHFE\/au/);
-  const rebar = cellsOf(/SHFE\/rb/);
-  const tip = screen.getByRole("tooltip");
-  fireEvent.pointerOver(gold[8]!);
-  expect(tip.textContent).toBe("18 / 21 · 缺 1 天 · 2 天待更新");
-  fireEvent.pointerOver(gold[9]!);
-  expect(tip.textContent).toBe("10 / 16 · 6 天来源无数据");
-  // Complete, gap-only and blank months say nothing more on hover.
-  for (const index of [9, 8, 11]) {
-    fireEvent.pointerOver(rebar[index]!);
-    expect(tip.textContent).toBe("");
-  }
-  fireEvent.pointerOver(gold[9]!);
-  fireEvent.pointerLeave(screen.getByRole("region", { name: "日线覆盖" }));
-  expect(tip.textContent).toBe("");
+  const table = await list();
+  const names = within(table)
+    .getAllByRole("rowheader")
+    .map(cell => cell.textContent);
+  expect(names).toEqual(["rb螺纹钢SHFE", "au沪金SHFE", "ag沪银SHFE"]);
+  const row = (name: RegExp) => within(table).getByRole("rowheader", { name }).closest("tr")!;
+  expect(row(/^rb/).textContent).toContain("缺 1 个合约");
+  expect(row(/^rb/).textContent).toContain("2 / 5");
+  expect(row(/^au/).textContent).toContain("待更新");
+  expect(row(/^ag/).textContent).toContain("齐全");
+  fireEvent.click(screen.getByRole("button", { name: "需处理 2" }));
+  expect(within(table).queryByRole("rowheader", { name: /^ag/ })).toBeNull();
 });
 
-test("monthly coverage shows localized product names and gaps submit a single bar acquisition", async () => {
+test("a product opens on its listed contracts with history folded by delivery year", async () => {
   serve();
   view(context());
-  const matrix = await screen.findByRole("table", { name: "日线覆盖" });
-  const row = within(matrix).getByRole("row", { name: /SHFE\/rb/ });
-  expect(within(row).getByRole("rowheader").textContent).toContain("螺纹钢");
-  expect(within(row).getByRole("rowheader").textContent).not.toContain("个合约");
-  const cells = within(row).getAllByRole("cell");
-  expect(cells.slice(6, 10).map(cell => cell.getAttribute("data-cell"))).toEqual([
-    "full",
-    "missing",
-    "partial",
-    "full",
-  ]);
-  expect(cells[8]!.textContent).toBe("10/21");
-  expect(cells[5]!.getAttribute("data-cell")).toBe("unacquired");
-  expect(cells[10]!.getAttribute("data-cell")).toBe("unacquired");
-  expect(cells[11]!.getAttribute("data-cell")).toBe("future");
-  const key = document.querySelector(".data-legend")!.textContent;
-  expect(key).toContain("有缺口");
-  expect(key).not.toMatch(/未采集|未到来/);
-  expect(screen.queryByRole("button", { name: /^补采 SHFE\/rb 2026-12/ })).toBeNull();
-  expect(screen.queryByRole("button", { name: /^补采 SHFE\/au 2026-10/ })).toBeNull();
-  const silver = within(within(matrix).getByRole("row", { name: /SHFE\/ag/ })).getAllByRole("cell");
-  expect(silver[9]!.getAttribute("data-cell")).toBe("pending");
-  expect(silver[9]!.textContent).toBe("12/16");
+  await openRebar();
+  const table = await list();
+  expect(within(table).queryByRole("button", { name: "查看 rb2610" })).toBeNull();
+  const history = within(table).getByRole("button", { name: "历史合约" }).closest("tr")!;
+  expect(history.textContent).toContain("3 个");
+  expect(history.textContent).toContain("已采 2");
+  fireEvent.click(within(history).getByRole("button", { name: "历史合约" }));
+  const year = (value: string) =>
+    within(table)
+      .getByRole("button", { name: `${value} 年交割` })
+      .closest("tr")!;
+  expect(year("2026").textContent).toContain("1 / 1");
+  expect(year("2026").textContent).toContain("齐全");
+  expect(year("2025").textContent).toContain("1 个未采全");
+  expect(year("2024").textContent).toContain("未采集");
+  fireEvent.click(within(year("2026")).getByRole("button", { name: "2026 年交割" }));
+  expect(within(table).getByRole("button", { name: "查看 rb2610" })).toBeTruthy();
+});
 
-  // Past unacquired months (before the earliest stored month) are also clickable.
-  fireEvent.click(screen.getByRole("button", { name: "补采 SHFE/rb 2026-06" }));
-  await waitFor(() => expect(submitted().map(item => item.table)).toEqual([Table.DAILY]));
+test("a contract is completed at once: gaps are refetched and minutes take its whole life", async () => {
+  serve();
+  view(context());
+  await openRebar();
+  fireEvent.click(screen.getByRole("button", { name: "补全 rb2702" }));
+  await waitFor(() => expect(submitted()).toHaveLength(1));
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(submitted()[0]).toMatchObject({
+    table: Table.DAILY,
     exchanges: ["SHFE"],
-    instruments: [],
-    firstDay: "2026-06-01",
-    lastDay: "2026-06-30",
+    refetch: true,
+    firstDay: "2026-09-10",
+    lastDay: "2026-09-11",
   });
-});
-
-test("the key lists every state whatever is on screen, and delisted only for contracts", async () => {
-  serve();
-  view(context());
-  await screen.findByRole("table", { name: "日线覆盖" });
-  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "SHFE/rb" } });
-  const key = () =>
-    [...document.querySelectorAll(".data-legend > span")].map(item => item.textContent!.trim());
-  const daily = ["齐全", "待更新", "有缺口", "整月缺失", "来源无数据"];
-  expect(key()).toEqual(daily);
-  show("分钟线");
-  await screen.findByRole("table", { name: "分钟线覆盖" });
-  expect(key()).toEqual([...daily, "已摘牌"]);
-});
-
-test("a coverage cell starts by its state and the acquire button leaves the choice to the user", async () => {
-  serve();
-  view(context());
-  await screen.findByRole("table", { name: "日线覆盖" });
-  const cases = [
-    [/^补采 SHFE\/rb 2026-06/, false], // not acquired
-    [/^补采 SHFE\/ag 2026-10/, false], // awaiting update
-    [/^补采 SHFE\/rb 2026-08/, true], // whole month missing
-    [/^补采 SHFE\/rb 2026-09/, true], // gaps
-  ] as const;
-  for (const [index, [name, refetch]] of cases.entries()) {
-    fireEvent.click(screen.getByRole("button", { name }));
-    await waitFor(() => expect(submitted()).toHaveLength(index + 1));
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(submitted()[index]).toMatchObject({ exchanges: ["SHFE"], refetch });
-  }
-
-  fireEvent.click(screen.getByRole("button", { name: "采集" }));
-  const option = within(screen.getByRole("dialog")).getByRole<HTMLInputElement>("checkbox", {
-    name: "重新采集已有分区",
-  });
-  expect(option.checked).toBe(false);
-  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "取消" }));
-
-  show("分钟线");
-  fireEvent.click(await screen.findByRole("button", { name: /^补采 SHFE\/cu\/2026-12 2026-10/ }));
-  await waitFor(() => expect(submitted()).toHaveLength(cases.length + 1));
-  expect(submitted().at(-1)).toMatchObject({
-    instruments: ["SHFE/cu/2026-12"],
+  fireEvent.click(screen.getByRole("button", { name: "采集 rb2702 分钟线" }));
+  await waitFor(() => expect(submitted()).toHaveLength(2));
+  expect(submitted()[1]).toMatchObject({
+    table: Table.MINUTES,
+    instruments: ["SHFE/rb/2027-02"],
     refetch: false,
     firstDay: "",
     lastDay: "",
+  });
+});
+
+test("going back to a year confirms how many contracts and from when", async () => {
+  serve();
+  view(context());
+  await openRebar();
+  fireEvent.click(screen.getByRole("button", { name: "历史合约" }));
+  fireEvent.click(screen.getByRole("button", { name: "采到 SHFE/rb 2024" }));
+  const dialog = screen.getByRole("dialog", { name: "采集 rb 2024–2025 年交割的 2 个合约" });
+  expect(dialog.textContent).toContain("数据大约从 2023-10 开始");
+  expect(dialog.textContent).toContain("SHFE 其他品种");
+  expect(submitted()).toHaveLength(0);
+  startInDialog();
+  await waitFor(() => expect(submitted()).toHaveLength(1));
+  expect(submitted()[0]).toMatchObject({
+    exchanges: ["SHFE"],
+    refetch: false,
+    firstDay: "2023-10-16",
+    lastDay: "2025-07-01",
   });
 });
 
@@ -323,9 +344,17 @@ test("a month an active task covers cannot be started again", async () => {
           request: {
             id: "acq-running",
             table: Table.DAILY,
-            exchanges: ["SHFE"],
+            exchanges: ["CFFEX"],
             firstDay: "2026-09-01",
             lastDay: "2026-09-30",
+          },
+          state: TaskState.RUNNING,
+        }),
+        create(AcquisitionTaskSchema, {
+          request: {
+            id: "acq-minutes",
+            table: Table.MINUTES,
+            instruments: ["SHFE/rb/2027-02"],
           },
           state: TaskState.RUNNING,
         }),
@@ -334,15 +363,26 @@ test("a month an active task covers cannot be started again", async () => {
     }),
   });
   view(context());
-  await screen.findByRole("table", { name: "日线覆盖" });
-  const busy = await screen.findByRole("button", { name: /^补采 SHFE\/rb 2026-09/ });
-  await waitFor(() => expect((busy as HTMLButtonElement).disabled).toBe(true));
-  expect(
-    (screen.getByRole("button", { name: /^补采 SHFE\/rb 2026-08/ }) as HTMLButtonElement).disabled,
-  ).toBe(false);
+  await openRebar();
+  await waitFor(() =>
+    expect(
+      (screen.getByRole("button", { name: "采集 rb2702 分钟线" }) as HTMLButtonElement).disabled,
+    ).toBe(true),
+  );
+  expect(screen.getByRole("button", { name: "补全 rb2702" })).toBeTruthy();
 });
 
-test("the matrix lists the products held or watched until all products are asked for", async () => {
+test("searching a contract code opens its product and shows that contract", async () => {
+  serve();
+  view(context());
+  await list();
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "rb2610" } });
+  expect(await screen.findByRole("button", { name: "查看 rb2610" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "查看 rb2701" })).toBeNull();
+  expect(screen.queryByRole("rowheader", { name: /^ag/ })).toBeNull();
+});
+
+test("the list shows the products held or watched until all products are asked for", async () => {
   serve();
   const props = context();
   props.snapshot!.market_endpoint = {
@@ -352,11 +392,11 @@ test("the matrix lists the products held or watched until all products are asked
     instruments: [{ exchange: "SHFE", symbol: "zn2612" }],
   };
   view(props);
-  const matrix = await screen.findByRole("table", { name: "日线覆盖" });
-  expect(within(matrix).getByRole("row", { name: /SHFE\/zn/ })).toBeTruthy();
-  expect(within(matrix).queryByRole("row", { name: /SHFE\/pb/ })).toBeNull();
+  const table = await list();
+  expect(within(table).getByRole("rowheader", { name: /^zn/ })).toBeTruthy();
+  expect(within(table).queryByRole("rowheader", { name: /^pb/ })).toBeNull();
   fireEvent.click(screen.getByRole("checkbox", { name: "全部品种" }));
-  expect(within(matrix).getByRole("row", { name: /SHFE\/pb/ })).toBeTruthy();
+  expect(within(table).getByRole("rowheader", { name: /^pb/ })).toBeTruthy();
 });
 
 test("minute acquisition submits one task, prerequisite requests show live progress, and update batches cancel together", async () => {
@@ -391,30 +431,19 @@ test("minute acquisition submits one task, prerequisite requests show live progr
   });
   const props = context();
   view(props);
-  await screen.findByRole("table", { name: "日线覆盖" });
-  show("分钟线");
-  await screen.findByRole("button", { name: /^补采 SHFE\/cu\/2026-12 2026-10/ });
-  const minuteMatrix = screen.getByRole("table", { name: "分钟线覆盖" });
-  // Once data is held, contracts without any wait behind the toggle.
-  expect(within(minuteMatrix).queryByRole("row", { name: /SHFE\/rb\/2026-10/ })).toBeNull();
-  fireEvent.click(screen.getByRole("checkbox", { name: "全部品种" }));
-  const expiredCells = within(
-    within(minuteMatrix).getByRole("row", { name: /SHFE\/rb\/2026-10/ }),
-  ).getAllByRole("cell");
-  expect(expiredCells[10]!.getAttribute("data-cell")).toBe("delisted");
-  expect(expiredCells[10]!.textContent).toBe("—");
-  const activeCells = within(
-    within(minuteMatrix).getByRole("row", { name: /SHFE\/rb\/2027-01/ }),
-  ).getAllByRole("cell");
-  expect(activeCells[11]!.getAttribute("data-cell")).toBe("future");
-  expect(activeCells[11]!.textContent).toBe("");
+  await list();
 
   fireEvent.click(screen.getByRole("button", { name: "采集" }));
+  fireEvent.click(
+    within(within(screen.getByRole("dialog")).getByRole("group", { name: "数据类型" })).getByRole(
+      "button",
+      { name: "分钟线" },
+    ),
+  );
   const dialog = screen.getByRole("dialog", { name: "采集 分钟线" });
   expect(within(dialog).queryByLabelText("数据源")).toBeNull();
   const picker = within(dialog).getByRole("group", { name: "品种或合约" });
   fireEvent.click(within(picker).getByRole("button", { name: /^SHFE\/rb/ }));
-  expect(within(picker).getByRole("checkbox", { name: /SHFE\/rb\/2026-10/ })).toBeTruthy();
   fireEvent.click(within(picker).getByRole("checkbox", { name: /^整个品种 · SHFE\/rb/ }));
   startInDialog();
   await waitFor(() => expect(submitted().map(item => item.table)).toEqual([Table.MINUTES]));
@@ -486,22 +515,22 @@ test("versions inspect historical coverage in place and pagination loads earlier
   expect(props.navigate).toHaveBeenCalledWith("workspace.data-dataset", {
     params: { version: older },
   });
-  await screen.findByRole("rowheader", { name: /^SHFE\/cu\b/ });
+  await screen.findByRole("rowheader", { name: /^cu/ });
   expect(screen.queryByRole("button", { name: "采集" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "回到最新数据" }));
-  await screen.findByRole("rowheader", { name: /^SHFE\/rb\b/ });
+  await screen.findByRole("rowheader", { name: /^rb/ });
 });
 
 test("without an acquisition source nothing offers acquisition", async () => {
   serve({ tables: [] });
   view(context());
-  await screen.findByRole("rowheader", { name: /^SHFE\/rb\b/ });
+  await openRebar();
   expect(screen.queryByRole("button", { name: "采集" })).toBeNull();
-  expect(screen.queryByRole("button", { name: /^补采/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^补全/ })).toBeNull();
   expect(screen.queryByRole("button", { name: "更新到最新" })).toBeNull();
 });
 
-test("an empty warehouse offers exchanges, continuous years, and clickable rows for both daily and minutes", async () => {
+test("an empty warehouse lists what can be collected and asks for the first range", async () => {
   request.mockImplementation(async (body: { case: string }) => {
     switch (body.case) {
       case "getAcquisitionOptions":
@@ -522,27 +551,16 @@ test("an empty warehouse offers exchanges, continuous years, and clickable rows 
     }
   });
   view(context());
-  await screen.findByRole("table", { name: "日线覆盖" });
+  await list();
   const exchangeSelect = screen.getByLabelText("交易所") as HTMLSelectElement;
   expect([...exchangeSelect.options].map(item => item.value)).toEqual(["", "SHFE", "CFFEX"]);
-  const yearSelect = screen.getByLabelText("年份") as HTMLSelectElement;
-  expect(yearSelect.options.length).toBeGreaterThanOrEqual(15);
-  expect([...yearSelect.options].map(item => item.value)).toContain("2025");
-
   fireEvent.change(exchangeSelect, { target: { value: "CFFEX" } });
-  fireEvent.change(yearSelect, { target: { value: "2025" } });
-  expect(screen.getByRole("rowheader", { name: /CFFEX\/ic/ }).textContent).toContain("中证500");
-  expect(screen.getByRole("button", { name: "补采 CFFEX/ic 2025-08" })).toBeTruthy();
-
-  show("分钟线");
-  await screen.findByRole("table", { name: "分钟线覆盖" });
-  fireEvent.click(screen.getByRole("button", { name: "补采 CFFEX/ic 2025-08" }));
-  await waitFor(() => expect(submitted().map(item => item.table)).toEqual([Table.MINUTES]));
-  expect(submitted()[0]).toMatchObject({
-    instruments: ["CFFEX/ic"],
-    firstDay: "2025-08-01",
-    lastDay: "2025-08-31",
-  });
+  expect(screen.getByRole("rowheader", { name: /^ic/ }).textContent).toContain("中证500");
+  fireEvent.click(screen.getByRole("button", { name: "采集 CFFEX/ic" }));
+  const dialog = await screen.findByRole("dialog", { name: "采集 日线" });
+  expect(
+    (within(dialog).getByRole("checkbox", { name: "CFFEX" }) as HTMLInputElement).checked,
+  ).toBe(true);
 });
 
 test("an unreachable warehouse shows an inline error with retry and settings actions", async () => {
@@ -557,7 +575,7 @@ test("an unreachable warehouse shows an inline error with retry and settings act
   await waitFor(() => expect(request.mock.calls.length).toBeGreaterThan(2));
 });
 
-test("my products include running dominant series and kind params clear after consumption", async () => {
+test("my products include running dominant series", async () => {
   serve();
   vi.mocked(tradingRequest).mockImplementation(async (_id, operation) =>
     operation.case === "getStrategies"
@@ -576,15 +594,13 @@ test("my products include running dominant series and kind params clear after co
         })
       : create(ResponseSchema, { result: { case: "getAccount", value: {} } }),
   );
-  const props = context({ kind: "minutes" });
   render(
     <TradingAccountsProvider connections={[{ id: "sim", revision: "1" }]}>
       <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.data-dataset">
-        <Dataset {...props} />
+        <Dataset {...context()} />
       </WorkspaceDraftScope>
     </TradingAccountsProvider>,
   );
-  const matrix = await screen.findByRole("table", { name: "分钟线覆盖" });
-  await waitFor(() => expect(within(matrix).getByRole("row", { name: /SHFE\/zn/ })).toBeTruthy());
-  expect(props.navigate).toHaveBeenCalledWith("workspace.data-dataset", {});
+  const table = await list();
+  await waitFor(() => expect(within(table).getByRole("rowheader", { name: /^zn/ })).toBeTruthy());
 });

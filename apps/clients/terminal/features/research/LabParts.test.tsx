@@ -163,9 +163,7 @@ test("symbol field selects multiple symbols as tags, prioritizes stored products
   const view = render(<SymbolField context={context} value="DCE/m" onChange={onChange} />);
   expect(await screen.findByText("未入库：DCE/m")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "去采集" }));
-  expect(navigate).toHaveBeenCalledWith("workspace.data-dataset", {
-    params: { kind: "daily" },
-  });
+  expect(navigate).toHaveBeenCalledWith("workspace.data-dataset");
 
   // Opening the dropdown puts stored products first and allows picking multiple symbols & months.
   const combobox = screen.getByLabelText("品种");

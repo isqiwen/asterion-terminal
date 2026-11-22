@@ -18,6 +18,7 @@ public:
     ::warehouse::DatasetFile file(const ::warehouse::ReadDatasetFile&) const;
     ::warehouse::DatasetSummary summary(const ::warehouse::DatasetRef&) const;
     ::warehouse::DatasetCoverage coverage(const ::warehouse::DatasetRef&) const;
+    ::warehouse::ProductContracts product_coverage(const ::warehouse::ProductRef&) const;
     ::warehouse::DatasetVersions versions(const ::warehouse::ListDatasetVersions&) const;
     ::warehouse::DatasetChange change(const ::warehouse::CompareDatasetVersions&) const;
     ::warehouse::TableRows rows(const ::warehouse::GetTableRows&) const;
