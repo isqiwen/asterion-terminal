@@ -697,24 +697,24 @@ button.picker-chip small {
   padding-left: calc(var(--space-page) - 3px);
 }
 :is(.coverage-matrix td, .data-legend i)[data-cell="full"] {
-  background: color-mix(in oklab, var(--success) 13%, var(--panel));
-  border: 1px solid color-mix(in oklab, var(--success) 30%, var(--panel));
-  color: var(--text);
+  background: color-mix(in oklab, var(--success) 26%, var(--canvas));
+  border: 1px solid color-mix(in oklab, var(--success) 44%, var(--canvas));
+  color: var(--text-strong);
 }
 :is(.coverage-matrix td, .data-legend i)[data-cell="pending"] {
-  background: color-mix(in oklab, var(--series-2) 26%, var(--panel));
-  border: 1px solid color-mix(in oklab, var(--series-2) 66%, var(--panel));
-  color: color-mix(in oklab, var(--series-2) 78%, white);
+  background: var(--panel);
+  border: 1px solid color-mix(in oklab, var(--series-2) 50%, var(--panel));
+  color: var(--series-2);
 }
 :is(.coverage-matrix td, .data-legend i)[data-cell="partial"] {
-  background: color-mix(in oklab, var(--warning) 24%, var(--panel));
-  border: 1px solid color-mix(in oklab, var(--warning) 64%, var(--panel));
-  color: color-mix(in oklab, var(--warning) 80%, white);
+  background: var(--panel);
+  border: 1px solid color-mix(in oklab, var(--warning) 50%, var(--panel));
+  color: var(--warning);
 }
 :is(.coverage-matrix td, .data-legend i)[data-cell="missing"] {
-  background: color-mix(in oklab, var(--danger) 22%, var(--panel));
-  border: 1px solid color-mix(in oklab, var(--danger) 64%, var(--panel));
-  color: color-mix(in oklab, var(--danger) 80%, white);
+  background: color-mix(in oklab, var(--danger) 34%, var(--canvas));
+  border: 1px solid color-mix(in oklab, var(--danger) 64%, var(--canvas));
+  color: color-mix(in oklab, var(--danger) 30%, white);
 }
 :is(.coverage-matrix td, .data-legend i)[data-cell="empty"] {
   background-color: var(--raised);
