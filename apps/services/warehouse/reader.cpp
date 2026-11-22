@@ -338,9 +338,12 @@ wire::DatasetCoverage Reader::coverage(const wire::DatasetRef& query) const
         for (auto* field : {&table, &exchange, &day, &product, &delivery})
             std::getline(fields, *field, '/');
         const auto contract = minutes.find(exchange + '/' + product + '/' + delivery);
-        if (contract != minutes.end())
+        if (contract != minutes.end()) {
             contract->second[day.substr(0, 7)].set_empty_days(
                 contract->second[day.substr(0, 7)].empty_days() + 1);
+            auto& first = first_minute[contract->first];
+            first = std::min(first, day);
+        }
     }
     for (const auto& [contract, holding] : holdings(store, version, "minutes", open, empty_minutes))
         if (!holding.through.empty())

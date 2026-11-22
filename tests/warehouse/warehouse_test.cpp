@@ -292,6 +292,56 @@ TEST_F(Warehouse, MinuteCoverageCountsDaysPerContractAndMonth)
     EXPECT_EQ(rb.months(1).days(), 2);
 }
 
+TEST_F(Warehouse, MinuteCoverageIncludesEmptyDaysBeforeFirstStoredDay)
+{
+    wh::Store store(wh::source_directory(root, "research"), "research");
+    auto writer = store.writer();
+    std::vector<wh::Row> calendar;
+    std::string empty;
+    for (const auto* day :
+        {"2026-10-12",
+            "2026-10-13",
+            "2026-10-14",
+            "2026-10-15",
+            "2026-10-16",
+            "2026-10-19",
+            "2026-10-20",
+            "2026-10-21",
+            "2026-10-22",
+            "2026-10-23",
+            "2026-10-26",
+            "2026-10-27",
+            "2026-10-28",
+            "2026-10-29",
+            "2026-10-30"}) {
+        auto value = row("calendar");
+        value[0] = std::string("CFFEX");
+        value[1] = std::string(day);
+        value[2] = true;
+        calendar.push_back(value);
+        const auto key = std::string("minutes/CFFEX/") + day + "/ic/2027-06";
+        if (std::string_view(day) < "2026-10-19")
+            empty += key + '\n';
+        else
+            writer.put(key, std::vector<wh::Row>{row("minutes")}, {day});
+    }
+    writer.put("calendar/CFFEX/2026", calendar);
+    const auto version = writer.commit();
+    fs::create_directories(root / "acquisition");
+    replace_file_durably(wh::empty_file(root, "minutes"), empty);
+    wire::DatasetRef query;
+    query.set_version(version.identity);
+    const auto coverage = wh::Reader(root).coverage(query);
+    ASSERT_EQ(coverage.contracts_size(), 1);
+    ASSERT_EQ(coverage.contracts(0).months_size(), 1);
+    const auto& month = coverage.contracts(0).months(0);
+    EXPECT_EQ(month.month(), "2026-10");
+    EXPECT_EQ(month.days(), 10);
+    EXPECT_EQ(month.empty_days(), 5);
+    EXPECT_EQ(month.open_days(), 15);
+    EXPECT_EQ(month.pending_days(), 0);
+}
+
 TEST_F(Warehouse, VersionsListNewestFirstWithWhatEachAddedReplacedAndRemoved)
 {
     wh::Store store(wh::source_directory(root, "research"), "research");
