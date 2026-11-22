@@ -467,6 +467,12 @@ html[lang="en-US"] .col-act-metric {
 .coverage-table tr[data-kind="product"][data-open] > * {
   background: var(--panel);
 }
+.coverage-table tr[data-viewing] > * {
+  background: var(--pressed);
+}
+.coverage-table tr[data-viewing] > th {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
 .coverage-table tr[data-kind="contract"] > th {
   padding-left: calc(var(--space-page) + 22px);
 }
@@ -586,12 +592,15 @@ button.coverage-action {
   color: var(--text-strong);
 }
 .coverage-drawer {
+  position: absolute;
+  inset: 0 0 0 auto;
+  z-index: 3;
   display: flex;
-  flex: 0 0 min(48%, 860px);
   flex-direction: column;
-  min-width: 0;
+  width: max(50%, min(88%, 720px));
   border-left: 1px solid var(--line-strong);
   background: var(--panel);
+  box-shadow: var(--shadow-dialog);
 }
 .coverage-drawer > header {
   display: flex;
@@ -614,14 +623,20 @@ button.coverage-action {
   flex-direction: column;
   min-height: 0;
 }
-@media (max-width: 1180px) {
-  .coverage-drawer {
-    position: absolute;
-    inset: 0 0 0 auto;
-    z-index: 3;
-    width: min(88%, 720px);
-    box-shadow: var(--shadow-dialog);
-  }
+.coverage-drawer-body :is(.market-history-chart, .price-chart[data-fit-height]) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.coverage-drawer-body .price-chart[data-fit-height] > :not(.price-chart-canvas) {
+  flex-shrink: 0;
+}
+.coverage-drawer-body .price-chart[data-fit-height] .price-chart-canvas {
+  flex: 1;
+  height: auto;
+  min-height: 190px;
+  max-height: none;
 }
 .data-dialog[open] {
   display: flex;

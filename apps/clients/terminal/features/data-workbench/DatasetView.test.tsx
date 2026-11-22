@@ -427,6 +427,21 @@ test("the list shows every product Warehouse knows, those never acquired last", 
   expect(screen.queryByRole("button", { name: "采集 SHFE/pb" })).toBeNull();
 });
 
+test("a contract's chart opens over the list and closes on a second click or Escape", async () => {
+  serve();
+  view(context());
+  await openRebar();
+  const contract = screen.getByRole("button", { name: "查看 rb2701" });
+  fireEvent.click(contract);
+  expect(screen.getByRole("complementary", { name: "rb2701" })).toBeTruthy();
+  expect(contract.getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(contract);
+  expect(screen.queryByRole("complementary")).toBeNull();
+  fireEvent.click(contract);
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(screen.queryByRole("complementary")).toBeNull();
+});
+
 test("minute acquisition submits one task, prerequisite requests show live progress, and update batches cancel together", async () => {
   let poll: () => void = () => {};
   const interval = globalThis.setInterval;

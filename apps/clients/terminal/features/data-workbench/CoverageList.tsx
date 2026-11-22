@@ -254,6 +254,7 @@ function ContractRow({
   running,
   acquires,
   start,
+  viewing,
   view,
 }: {
   contract: ContractCoverage;
@@ -262,6 +263,7 @@ function ContractRow({
   running: readonly AcquisitionTask[];
   acquires: boolean;
   start: (rules: Rule[]) => void;
+  viewing: string;
   view: (contract: string) => void;
 }) {
   const code = contractCode(contract.contract);
@@ -270,12 +272,17 @@ function ContractRow({
   const rule = acquires ? ruleOf(contract, kind) : undefined;
   const busy = !!rule && running.some(task => covers(task, rule));
   return (
-    <tr data-kind="contract" data-nested={nested || undefined}>
+    <tr
+      data-kind="contract"
+      data-nested={nested || undefined}
+      data-viewing={viewing === contract.contract || undefined}
+    >
       <th scope="row">
         <button
           type="button"
           className="coverage-contract"
           aria-label={t("查看 {code}", { code })}
+          aria-pressed={viewing === contract.contract}
           onClick={() => view(contract.contract)}
         >
           {code}
@@ -321,6 +328,7 @@ export function CoverageList({
   acquires,
   start,
   collect,
+  viewing,
   view,
 }: {
   kind: Kind;
@@ -334,6 +342,7 @@ export function CoverageList({
   acquires: boolean;
   start: (rules: Rule[]) => void;
   collect: (row: ProductRow) => void;
+  viewing: string;
   view: (contract: string) => void;
 }) {
   const [historyOpen, setHistoryOpen] = useState("");
@@ -354,7 +363,7 @@ export function CoverageList({
   const searching = /\d/.test(query);
   const matches = (item: ContractCoverage) =>
     !searching || contractCode(item.contract).toUpperCase().includes(query);
-  const rowProps = { kind, running, acquires, start, view };
+  const rowProps = { kind, running, acquires, start, viewing, view };
 
   const askHistory = (product: string, history: ContractCoverage[], from: string, to: string) => {
     const chosen = history.filter(item => {

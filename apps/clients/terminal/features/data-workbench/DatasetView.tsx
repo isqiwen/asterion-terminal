@@ -55,6 +55,16 @@ function DatasetBody({ context }: { context: TerminalContext }) {
   const [search, setSearch] = useWorkspaceDraft("coverage-search", "");
   const [openProduct, setOpenProduct] = useWorkspaceDraft("coverage-open", "");
   const [chart, setChart] = useState("");
+  useEffect(() => {
+    if (!chart) return;
+    const close = (event: KeyboardEvent) => {
+      // Escape belongs to a dialog or popover open above the chart.
+      if (event.key === "Escape" && !document.querySelector("dialog[open], :popover-open"))
+        setChart("");
+    };
+    document.addEventListener("keydown", close);
+    return () => document.removeEventListener("keydown", close);
+  }, [chart]);
   const [shown, setShown] = useState(20);
   const [issuesOnly, setIssuesOnly] = useState(false);
   const warehouse = useWarehouse();
@@ -391,7 +401,8 @@ function DatasetBody({ context }: { context: TerminalContext }) {
                 acquires={acquires}
                 start={start}
                 collect={collect}
-                view={setChart}
+                viewing={chart}
+                view={item => setChart(item === chart ? "" : item)}
               />
             )}
             {chart && (
