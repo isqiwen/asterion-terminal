@@ -271,13 +271,15 @@ function TaskRow({
 }) {
   const request = batch.primary.request!;
   const running = batch.activeIds.length > 0;
-  const dailyEmpty = batch.members.reduce(
-    (sum, item) => (item.request!.table === Table.INVENTORY ? sum : sum + item.itemsEmpty),
-    0n,
-  );
-  const weeklyEmpty = batch.members.some(
-    item => item.request!.table === Table.INVENTORY && item.itemsEmpty > 0n,
-  );
+  const weekly = batch.members.filter(item => item.request!.table === Table.INVENTORY);
+  const weeklyEmpty = weekly.reduce((sum, item) => sum + item.itemsEmpty, 0n);
+  const dailyEmpty = batch.members.reduce((sum, item) => sum + item.itemsEmpty, 0n) - weeklyEmpty;
+  const weeklyNote =
+    weeklyEmpty === 0n
+      ? ""
+      : weeklyEmpty === weekly.reduce((sum, item) => sum + item.items, 0n)
+        ? t("没有新周报")
+        : t("周报按报告日提供");
   const targets =
     [
       ...new Set(
@@ -356,7 +358,7 @@ function TaskRow({
               ? t("已请求 {count} 次", { count: batch.requestsSent.toString() })
               : "—"}
           {dailyEmpty > 0n && ` · ${t("{count} 个分区暂无数据", { count: dailyEmpty.toString() })}`}
-          {weeklyEmpty && ` · ${t("周报按报告日提供")}`}
+          {weeklyNote && ` · ${weeklyNote}`}
         </span>
         {running && (
           <progress

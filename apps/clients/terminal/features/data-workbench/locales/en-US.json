@@ -63,6 +63,7 @@
   "状态": "Status",
   "{count} 个分区暂无数据": "{count} partitions have no data",
   "周报按报告日提供": "Weekly reports are available by report date",
+  "没有新周报": "No new weekly reports",
   "采集中": "Acquiring",
   "日线覆盖": "Daily bar coverage",
   "无数据": "No data",

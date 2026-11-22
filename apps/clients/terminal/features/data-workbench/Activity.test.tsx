@@ -83,3 +83,27 @@ test("weekly report dates do not become missing daily partitions, including in m
     "100% · 30 / 30 个分区 · 2 个分区暂无数据 · 周报按报告日提供",
   );
 });
+
+test("an inventory task that stored no report says so", () => {
+  render(
+    <Activity
+      tasks={[
+        create(AcquisitionTaskSchema, {
+          request: { id: "acq-weekly", table: Table.INVENTORY },
+          state: TaskState.SUCCEEDED,
+          items: 20n,
+          itemsDone: 20n,
+          itemsEmpty: 20n,
+        }),
+      ]}
+      versions={[]}
+      shown={20}
+      refresh={vi.fn()}
+      openVersion={vi.fn()}
+    />,
+  );
+  openPopover(screen.getByRole("button", { name: "最近活动" }));
+  expect(screen.getByText("采集 库存周报").closest("tr")!.textContent).toContain(
+    "100% · 20 / 20 个分区 · 没有新周报",
+  );
+});
