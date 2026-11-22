@@ -376,9 +376,10 @@ Parsed shanghai(
     const auto& rows = root.at(table == "daily" ? "o_curinstrument" : "o_cursor");
     if (!rows.is_array())
         throw std::invalid_argument("expected exchange rows");
+    const auto* date_field = table == "warehouse_receipts" ? "o_tradingday" : "report_date";
     // 早年的排名文件没有报告日，日期只在请求路径里。
-    if ((table != "member_positions" || root.contains("report_date"))
-        && text(root.at("report_date")) != compact(day))
+    if ((table != "member_positions" || root.contains(date_field))
+        && text(root.at(date_field)) != compact(day))
         throw std::invalid_argument("wrong exchange report date");
     if (table == "warehouse_receipts") {
         result.warehouse_receipts = shanghai_receipts(exchange, day, root);

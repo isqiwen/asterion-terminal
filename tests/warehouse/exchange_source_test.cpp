@@ -117,6 +117,17 @@ TEST_F(ExchangeSources, ShanghaiReceiptsKeepBondedCopperOutOfShfe)
     }
 }
 
+TEST_F(ExchangeSources, ShanghaiHistoricalReceiptsUseTheirPublishedTradingDay)
+{
+    ac::Exchange source("SHFE", budget, {}, [&](const ac::HttpRequest&, auto) {
+        return ac::HttpReply{200, reference_fixture("shfe_receipts_20140519.json")};
+    });
+    const auto rows = source.warehouse_receipts("SHFE", "2014-05-19");
+    ASSERT_EQ(rows.size(), 1);
+    EXPECT_EQ(rows[0].day, "2014-05-19");
+    EXPECT_EQ(rows[0].volume, wh::Cell{std::string("1919")});
+}
+
 TEST_F(ExchangeSources, IneMemberRanksMergeByContractAndKeepUnrankedSidesMissing)
 {
     const std::string raw = R"({"report_date":"20261120","o_code":"0000",
