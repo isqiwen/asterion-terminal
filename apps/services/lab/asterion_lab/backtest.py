@@ -375,9 +375,8 @@ def spans(missing: list, days: list) -> str:
 
 
 def contract_input(data: Data, config: Config, contract: str, begin: str, end: str,
-                   minutes_until: str = "") -> dict:
-    """`minutes_until`: the last day minutes are required; later days without
-    them are listed as unminuted."""
+                   prices_until: str = "") -> dict:
+    """After handover, missing prices matter only while the outgoing month is held."""
     exchange, product, _ = contract.split("/")
     month = data.product(exchange, product).get(contract)
     life = data.contract_life(exchange, contract)
@@ -390,17 +389,21 @@ def contract_input(data: Data, config: Config, contract: str, begin: str, end: s
     unsettled = [day for day in days if month.days[day]["settlement"] is None]
     if unsettled:
         raise ValueError(f"settlement prices of {contract} are missing on {spans(unsettled, days)}")
+    unpriced = []
     if not config.minutes:
         missing = [day for day in days if month.days[day]["volume"] != 0
                    and any(month.days[day][field] is None for field in ("open", "high", "low", "close"))]
+        unpriced = [day for day in missing if day > (prices_until or end)]
+        missing = [day for day in missing if day <= (prices_until or end)]
         if missing:
             raise ValueError(f"daily prices of {contract} are missing on {spans(missing, days)}")
-        days = [day for day in days if month.days[day]["auction"] and month.days[day]["close"] is not None]
+        days = [day for day in days if day not in unpriced and month.days[day]["auction"]
+                and month.days[day]["close"] is not None]
     if not days:
         raise ValueError(f"no bars of {contract} fall inside the requested trading days")
     def interest(value):
         return math.nan if value is None else float(value)
-    excluded, unminuted = [], []
+    excluded = []
     coverage = dict(contract=contract, missing={}, zero_volume_minutes=0, unchecked_days=[])
     if config.minutes:
         settled = set(days)
@@ -419,8 +422,8 @@ def contract_input(data: Data, config: Config, contract: str, begin: str, end: s
                 coverage["unchecked_days"].append(day)
         stored = {bar["trading_day"] for bar in minutes}
         missing = [day for day in days if day not in stored and month.days[day]["volume"] != 0]
-        unminuted = [day for day in missing if day > (minutes_until or end)]
-        missing = [day for day in missing if day <= (minutes_until or end)]
+        unpriced = [day for day in missing if day > (prices_until or end)]
+        missing = [day for day in missing if day <= (prices_until or end)]
         if missing:
             raise ValueError(f"minutes of {contract} are not stored on {spans(missing, days)}")
         bars = [(bar["trading_day"], bar["time_ms"] * 10 ** 6,
@@ -470,7 +473,7 @@ def contract_input(data: Data, config: Config, contract: str, begin: str, end: s
         settlements=settlements,
         # Not the engine's: what a strategy reads besides prices, by bar time,
         # and the trading day of each bar left out.
-        open_interest={bar[1]: bar[7] for bar in bars}, excluded=excluded, unminuted=unminuted,
+        open_interest={bar[1]: bar[7] for bar in bars}, excluded=excluded, unpriced=unpriced,
         minute_coverage=coverage)
 
 
@@ -792,13 +795,13 @@ def open_data(directory: Path, config: Config) -> Data:
     return Data(Dataset(directory), config.begin_day, config.end_day, version=config.dataset_version)
 
 
-def held_without_minutes(engine, contracts: list):
-    """A position held where its month has no minutes could neither close nor roll."""
+def held_without_prices(engine, contracts: list):
+    """A position held where its month has no prices could neither close nor roll."""
     for index, item in enumerate(contracts):
-        days = [row[0] for row in engine.positions if row[1] == index and row[0] in item["unminuted"]]
+        days = [row[0] for row in engine.positions if row[1] == index and row[0] in item["unpriced"]]
         if days:
-            raise ValueError(f"minutes of {item['symbol']} are not stored on "
-                             f"{spans(days, item['unminuted'])}, while it is held")
+            raise ValueError(f"prices of {item['symbol']} are missing on "
+                             f"{spans(days, item['unpriced'])}, while it is held")
 
 
 def replay_record(engine, contracts: list, minutes: int) -> dict:
@@ -857,7 +860,7 @@ def run(directory: Path, identity: str, config: Config, started=lambda: None):
              raw(config.max_contract_lots)))
         symbols = {engine.unit(index): symbol for symbol, index in first.items()}
         replay(engine, strategy, symbols, contracts, config)
-        held_without_minutes(engine, contracts)
+        held_without_prices(engine, contracts)
         runs.succeed(identity, tables(engine, contracts), metrics(config, engine),
                      replay_record(engine, contracts, config.minutes))
     except BaseException as error:

@@ -214,7 +214,7 @@ def run(directory: Path, identity: str, sweep: str, config, training: int, valid
              raw(config.max_contract_lots)))
         symbols = {engine.unit(index): symbol for symbol, index in first.items()}
         follow(engine, strategies, symbols, contracts, followed, config)
-        backtest.held_without_minutes(engine, contracts)
+        backtest.held_without_prices(engine, contracts)
         result = backtest.metrics(config, engine)
         # Out of sample: from the first validation day on.
         result.update({f"out_of_sample_{name}": value for name, value in

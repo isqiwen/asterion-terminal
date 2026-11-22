@@ -982,9 +982,42 @@ class Backtests(unittest.TestCase):
                                         (backtest.R, 10 * backtest.R, 10, 10 * backtest.R))
         backtest.replay(engine, Pause(), {engine.unit(index): symbol for symbol, index in first.items()},
                         contracts, config)
-        with self.assertRaisesRegex(ValueError, f"minutes of SHFE/rb/2026-05 are not stored on "
+        with self.assertRaisesRegex(ValueError, f"prices of SHFE/rb/2026-05 are missing on "
                                                 f"{DAYS[18].isoformat()} to .*, while it is held"):
-            backtest.held_without_minutes(engine, contracts)
+            backtest.held_without_prices(engine, contracts)
+
+    def test_a_series_ignores_missing_prices_after_leaving_the_old_month(self):
+        import asterion_engine
+
+        store = Warehouse(self.directory)
+        writer = store.writer()
+        rows = store.read(writer.base, "daily/SHFE/2026-01").to_dicts()
+        for row in rows:
+            if row["contract"] == "SHFE/rb/2026-05" and row["day"] >= DAYS[18]:
+                row["open"] = None
+            row["day"] = row["day"].isoformat()
+        writer.put_rows("daily/SHFE/2026-01", "daily", rows,
+                        days=[day.isoformat() for day in DAYS])
+        writer.commit()
+        config = self.config(("SHFE/rb",))
+        backtest.run(self.directory, "rolled", config)
+        self.assertEqual(Runs(self.directory).get("rolled")["state"], "succeeded")
+
+        class Pause(Strategy):
+            def on_bar(self, ctx, bar):
+                if bar.time.date() == DAYS[2]:
+                    ctx.target(bar.symbol, 1)
+
+            def ready(self, ctx):
+                return ctx.time.date() <= DAYS[2]
+
+        contracts, series, first = backtest.prepare(backtest.open_data(self.directory, config), config)
+        engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
+                                        (backtest.R, 10 * backtest.R, 10, 10 * backtest.R))
+        backtest.replay(engine, Pause(), {engine.unit(index): symbol for symbol, index in first.items()},
+                        contracts, config)
+        with self.assertRaisesRegex(ValueError, "prices of SHFE/rb/2026-05 are missing on .*while it is held"):
+            backtest.held_without_prices(engine, contracts)
 
     def test_minute_bars_are_read_gathered_and_traded(self):
         # Ten minutes 09:00-09:10 Beijing on each of the first ten days, up
