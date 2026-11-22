@@ -44,7 +44,6 @@ flowchart LR
 
 - 验证新版 Warehouse 在每日定时时点触发的更新全批完成。
 - 核定仓单、会员持仓和库存周报的历史起点与缺失区间，入口见[真实研究数据验收](acceptance/research-data.md#仓单会员持仓与库存)。
-- 部署新版 Warehouse，重采 2018-11-13 的上期所与能源中心仓单；上期所从现有 209 条补齐到[官方明细](https://www.shfe.com.cn/data/tradedata/future/dailydata/20181113dailystock.dat)的 221 条，核对缺失的铝 9 条、沥青 2 条和热轧卷板 1 条，并验证原固定版本不变。
 
 ### 数据仓库与多年真实回测验收（使用者）
 
