@@ -1,7 +1,8 @@
 """A cross-sectional momentum ranking over several contracts or series."""
 from collections import deque
+from decimal import Decimal, ROUND_DOWN
 
-from asterion_strategy import Strategy
+from asterion_strategy import WEIGHT_STEP, Strategy
 
 from factors.price import momentum, volatility
 from strategies._common import SIDES
@@ -66,5 +67,6 @@ class MomentumRank(Strategy):
             total = sum(inverse.values())
             wanted = {symbol: side * (len(inverse) * inverse[symbol] / total if symbol in inverse else 0)
                       for symbol, side in wanted.items()}
-        ctx.weights({symbol: side * p["weight"] for symbol, side in wanted.items()})
+        ctx.weights({symbol: float(Decimal(str(side * p["weight"])).quantize(WEIGHT_STEP, rounding=ROUND_DOWN))
+                     for symbol, side in wanted.items()})
 

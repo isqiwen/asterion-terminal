@@ -17,6 +17,7 @@ from asterion_strategy import Bar, Context, check_factor, observe, quantize_weig
 from factors import liquidity, positions, price, risk, technical, term_structure
 from strategies.composite import CompositePortfolio
 from strategies.learning import RandomFeatureForecast, RidgeForecast
+from strategies.momentum_rank import MomentumRank
 from strategies.oscillators import AtrBreakout, RsiReversion
 from strategies.panel import PanelRandomFeatureRank, PanelRidgeRank
 from strategies.risk_premia import (
@@ -282,6 +283,18 @@ class Portfolios(unittest.TestCase):
             if isinstance(strategy, CarryRank):
                 self.assertEqual(gross, Decimal("0.6"))
                 self.assertEqual(sum(weights, Decimal(0)), 0)
+
+    def test_inverse_volatility_momentum_stays_inside_its_nominal_budget(self):
+        rng = np.random.default_rng(16)
+        prices = 100 * np.cumprod(1 + rng.uniform(-0.02, 0.04, (4, 7)), axis=0)
+        symbols = [str(i) for i in range(7)]
+        strategy = MomentumRank(lookback=3, volatility=3, count=2, rebalance=1, weight=0.15)
+        ctx = Context(symbols)
+        for i, values in enumerate(prices):
+            output = step(strategy, ctx, [row(s, i, values[j]) for j, s in enumerate(symbols)])
+        weights = list(map(quantize_weight, output.values()))
+        self.assertEqual(sum(weight != 0 for weight in weights), 4)
+        self.assertLessEqual(sum(map(abs, weights)), Decimal("0.6"))
 
     def test_rsi_reversion_enters_exits_and_respects_allowed_sides(self):
         for sides, final in (("both", -1), ("long", 0)):

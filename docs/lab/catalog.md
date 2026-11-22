@@ -88,6 +88,8 @@ RSI 和 ATR 使用有限窗口的简单统计，便于研究评价与交易短�
 
 `risk_premia.*` 与 `panel.*` 排序前排除因子缺测、收益波动为零以及未通过启用的量仓过滤的品种。多空各取 `count` 个，各分配 `gross_weight / 2`，侧内按逆波动率加权；不足两侧数量或两侧边界无法区分时输出零权重。`DualMomentum` 再按收益正负过滤，空出的预算留现金。固定月份合约没有 `roll_yield`，因此 carry 策略应选择主力连续；次主力缺测时相关品种退出候选。
 
+`MomentumRank` 每个入选品种贡献 `weight` 的总预算，启用 `volatility` 后在所有入选品种间按逆波动分配；输出权重向零舍入，以免舍入增加总敞口。
+
 `VolatilityTargetMomentum.target_volatility` 是每个品种的年化风险配置尺度，随后应用 `max_weight` 与 `gross_weight`；组合实际波动还取决于相关性。`TurningPointMomentum.weight` 为每品种名义权重，实例的总权重预算需覆盖所选品种。所有委托仍由 C++ 的账户授权和风控规则决定。
 
 ## 论文来源与期货适配
