@@ -155,6 +155,12 @@ def dev_targets(build: Path) -> list[str]:
     return targets
 
 
+def repair_ninja_deps(build: Path):
+    # An interrupted build can leave a truncated .ninja_deps that forces full rebuilds until recompacted.
+    if (build / ".ninja_deps").is_file():
+        run(["ninja", "-C", str(build), "-t", "recompact"])
+
+
 def stage_native_resources(build, destination):
     for name in NATIVE_FILES:
         source = build / name
@@ -356,6 +362,7 @@ def main():
                       "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"]
         run(configure)
         (build / ".desktop-configure.json").write_text(json.dumps(state, indent=2) + "\n")
+    repair_ninja_deps(build)
     if mode == "dev":
         run(["cmake", "--build", "--preset", preset, "--target", *dev_targets(build)])
     else:

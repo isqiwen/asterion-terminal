@@ -88,6 +88,17 @@ class DesktopDev(unittest.TestCase):
         (self.build / "asterion_terminal.node").write_bytes(b"v2:binary")
         self.assertFalse(desktop.native_resources_current(self.build, native))
 
+    def test_repair_ninja_deps_recovers_truncated_deps_log(self):
+        self.build.mkdir(parents=True, exist_ok=True)
+        (self.build / "build.ninja").write_text("rule noop\n  command = true\nbuild all: noop\n")
+        (self.build / ".ninja_deps").write_bytes(b"# ninjadeps\n\x04\x00\x00\x00\x10\x00\x00\x00abcd")
+        desktop.repair_ninja_deps(self.build)
+        check = desktop.subprocess.run(
+            ["ninja", "-C", str(self.build), "-t", "recompact"],
+            capture_output=True, text=True, check=True,
+        )
+        self.assertEqual(check.stderr, "")
+
 
 if __name__ == "__main__":
     unittest.main()
