@@ -444,6 +444,9 @@ function DatasetBody({ context }: { context: TerminalContext }) {
                   ["held", "已采"],
                   ["gap", "缺口"],
                   ["pending", "待更新"],
+                  ["empty", "来源无数据"],
+                  ["none", "未采集"],
+                  ["future", "未到期"],
                 ] as const
               ).map(([part, label]) => (
                 <span key={part}>

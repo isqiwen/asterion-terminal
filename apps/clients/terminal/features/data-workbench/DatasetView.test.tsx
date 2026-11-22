@@ -264,7 +264,7 @@ test("products with problems come first and only they count as needing attention
   expect(row(/^rb/).textContent).toContain("缺 1 个合约");
   expect(row(/^rb/).textContent).toContain("2 / 5");
   expect(row(/^au/).textContent).toContain("待更新");
-  expect(row(/^ag/).textContent).toContain("齐全");
+  expect(row(/^ag/).textContent).toContain("已采 2");
   fireEvent.click(screen.getByRole("button", { name: "需处理 2" }));
   expect(within(table).queryByRole("rowheader", { name: /^ag/ })).toBeNull();
 });
@@ -289,6 +289,29 @@ test("a product opens on its listed contracts with history folded by delivery ye
   expect(year("2024").textContent).toContain("未采集");
   fireEvent.click(within(year("2026")).getByRole("button", { name: "2026 年交割" }));
   expect(within(table).getByRole("button", { name: "查看 rb2610" })).toBeTruthy();
+});
+
+test("one bar shows a contract's whole life, daily over minutes, by share of time", async () => {
+  serve();
+  view(context());
+  await openRebar();
+  const lane = (code: string, name: "daily" | "minutes") =>
+    screen
+      .getByRole("button", { name: `查看 ${code}` })
+      .closest("tr")!
+      .querySelector(`[data-lane="${name}"]`)!;
+  const parts = (element: Element) =>
+    [...element.querySelectorAll("i")].map(item => item.dataset.part);
+  expect(parts(lane("rb2702", "daily"))).toEqual(["future", "held", "gap"]);
+  expect(parts(lane("rb2702", "minutes"))).toEqual(["future"]);
+  expect(parts(lane("rb2701", "minutes"))).toEqual(["future", "held"]);
+  fireEvent.click(screen.getByRole("button", { name: "历史合约" }));
+  fireEvent.click(screen.getByRole("button", { name: "2026 年交割" }));
+  // A delisted contract held from listing to delisting fills the bar.
+  const whole = lane("rb2610", "daily").querySelector("i")!;
+  expect(whole.dataset.part).toBe("held");
+  expect(parseFloat(whole.style.left)).toBe(0);
+  expect(parseFloat(whole.style.width)).toBe(100);
 });
 
 test("a contract is completed at once: gaps are refetched and minutes take its whole life", async () => {

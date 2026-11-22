@@ -352,14 +352,23 @@ html[lang="en-US"] .col-act-metric {
   height: 6px;
   border-radius: 1px;
 }
-:is(.data-legend, .coverage-timeline) i[data-part="held"] {
+:is(.data-legend, .coverage-lane) i[data-part="held"] {
   background: color-mix(in oklab, var(--success) 62%, var(--canvas));
 }
-:is(.data-legend, .coverage-timeline) i[data-part="gap"] {
+:is(.data-legend, .coverage-lane) i[data-part="gap"] {
   background: var(--warning);
 }
-:is(.data-legend, .coverage-timeline) i[data-part="pending"] {
+:is(.data-legend, .coverage-lane) i[data-part="pending"] {
   background: var(--series-2);
+}
+:is(.data-legend, .coverage-lane) i[data-part="empty"] {
+  background: var(--subtle);
+}
+.data-legend i[data-part="none"] {
+  background: var(--pressed);
+}
+:is(.data-legend, .coverage-lane) i[data-part="future"] {
+  background: repeating-linear-gradient(135deg, var(--line-strong) 0 1px, var(--canvas) 1px 4px);
 }
 .data-coverage-main {
   position: relative;
@@ -454,14 +463,10 @@ html[lang="en-US"] .col-act-metric {
 .coverage-table tr[data-kind="year"] > th {
   padding-left: calc(var(--space-page) + 42px);
 }
-.coverage-axis {
-  position: relative;
-  height: 16px;
-}
-.coverage-axis > span {
-  position: absolute;
-  top: 0;
-  line-height: 16px;
+.coverage-table thead small {
+  margin-left: var(--space-2);
+  color: var(--muted);
+  font-size: var(--font-size-xs);
 }
 .coverage-toggle {
   all: unset;
@@ -527,19 +532,29 @@ html[lang="en-US"] .col-act-metric {
   color: var(--muted);
   font-size: var(--font-size-aux);
 }
-.coverage-timeline {
-  position: relative;
-  height: 8px;
+.coverage-bar {
+  display: grid;
+  gap: 1px;
 }
-.coverage-timeline i {
+.coverage-lane {
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  background: var(--pressed);
+}
+.coverage-lane:first-child {
+  border-radius: 2px 2px 0 0;
+}
+.coverage-lane:last-child {
+  border-radius: 0 0 2px 2px;
+}
+.coverage-lane i {
   position: absolute;
   top: 0;
   bottom: 0;
-  min-width: 2px;
-  border-radius: 1px;
 }
-.coverage-timeline i[data-part="life"] {
-  background: var(--pressed);
+.coverage-lane i:is([data-part="gap"], [data-part="pending"]) {
+  min-width: 2px;
 }
 .coverage-state {
   display: inline-flex;

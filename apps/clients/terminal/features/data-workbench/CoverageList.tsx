@@ -133,62 +133,108 @@ const seriesText = (state: State, series: SeriesCoverage | undefined) =>
     full: t("齐全"),
     gap: t("缺 {days} 天", { days: series?.gapDays ?? 0 }),
     pending: t("待更新"),
-    early: t("自 {day}", { day: series?.firstDay ?? "" }),
+    early: t("前段未采"),
     empty: t("来源无数据"),
   })[state];
 
-const summaryText = (state: State, series: SeriesSummary | undefined, minutes: boolean) =>
+// Some contracts held is progress, not a complete product.
+const summaryDot = (state: State, series: SeriesSummary | undefined, total: number): State =>
+  state === "full" && series!.held < total ? "early" : state;
+
+const summaryText = (state: State, series: SeriesSummary | undefined) =>
   state === "none"
     ? t("未采集")
     : state === "gap"
       ? t("缺 {count} 个合约", { count: series!.withGaps })
       : state === "pending"
         ? t("待更新")
-        : minutes
-          ? t("{count} 个合约", { count: series!.held })
-          : t("齐全");
+        : t("已采 {count}", { count: series!.held });
 
-// The time span every bar in the list is drawn against.
-function axisOf(rows: readonly ProductRow[]) {
-  const held = rows.flatMap(({ coverage }) =>
-    [coverage?.daily?.firstDay, coverage?.minutes?.firstDay].filter((day): day is string => !!day),
-  );
-  const last = beijingDay(-1);
-  const first = held.length ? earliest(held) : beijingDay(-366);
-  const from = Date.parse(first);
-  const span = Math.max(1, Date.parse(last) - from);
-  const at = (day: string) => Math.min(1, Math.max(0, (Date.parse(day) - from) / span));
-  const [startYear, startMonth] = first.split("-").map(Number);
-  const [endYear, endMonth] = last.split("-").map(Number);
-  const months = (endYear! - startYear!) * 12 + endMonth! - startMonth!;
-  const step = months > 96 ? 24 : months > 36 ? 12 : 6;
-  const ticks: { label: string; left: number }[] = [];
-  for (let year = startYear!; year <= endYear!; year += 1)
-    for (let month = 1; month <= 12; month += step) {
-      const day = `${year}-${String(month).padStart(2, "0")}-01`;
-      if (day >= first && day <= last && at(day) < 0.94)
-        ticks.push({ label: step >= 12 ? String(year) : day.slice(0, 7), left: at(day) });
-    }
-  return { at, ticks };
+const dayMs = 86_400_000;
+const nextDay = (day: string) => new Date(Date.parse(day) + dayMs).toISOString().slice(0, 10);
+type Piece = { part: string; left: number; width: number };
+
+// A contract's life, listing to delisting, is 100%; each stretch's length is its share of it.
+function lifePieces(contract: ContractCoverage, series: SeriesCoverage | undefined): Piece[] {
+  const start = contract.listDay || series?.firstDay;
+  const end = contract.delistDay || series?.lastDay;
+  if (!start || !end) return [];
+  const from = Date.parse(start);
+  const span = Date.parse(end) + dayMs - from;
+  const edge = (time: number) => Math.min(1, Math.max(0, (time - from) / span));
+  const piece = (part: string, first: string, last: string): Piece[] => {
+    const left = edge(Date.parse(first));
+    const right = edge(Date.parse(last) + dayMs);
+    return right > left ? [{ part, left, width: right - left }] : [];
+  };
+  const yesterday = beijingDay(-1);
+  const through = end < yesterday ? end : yesterday;
+  const pieces = end > yesterday ? piece("future", nextDay(yesterday), end) : [];
+  if (!series?.days)
+    return series?.emptyDays && series.emptyDays >= series.openDays
+      ? [...pieces, ...piece("empty", start, through)]
+      : pieces;
+  const unasked =
+    series.openDays - series.days - series.emptyDays - series.pendingDays - series.gapDays;
+  // With nothing unasked, the days before the first stored one are those no source has.
+  if (!unasked && series.emptyDays && start < series.firstDay)
+    pieces.push(...piece("empty", start, series.firstDay));
+  pieces.push(...piece("held", series.firstDay, series.lastDay));
+  if (series.pendingDays) pieces.push(...piece("pending", nextDay(series.lastDay), through));
+  for (const gap of series.gaps) pieces.push(...piece("gap", gap.first, gap.last));
+  return pieces;
 }
-type Axis = ReturnType<typeof axisOf>;
 
-function Bar({ axis, part, from, to }: { axis: Axis; part: string; from: string; to: string }) {
-  const left = axis.at(from);
+// A group of contracts: each stretch's length is its share of the group's contracts.
+function countPieces(total: number, held: number, gaps: number, pending: number): Piece[] {
+  if (!total) return [];
+  const gap = Math.min(gaps, held);
+  const late = Math.min(pending, held - gap);
+  let left = 0;
   return (
-    <i
-      data-part={part}
-      style={{
-        left: `${(left * 100).toFixed(2)}%`,
-        width: `${(Math.max(0, axis.at(to) - left) * 100).toFixed(2)}%`,
-      }}
-    />
+    [
+      ["held", held - gap - late],
+      ["gap", gap],
+      ["pending", late],
+    ] as const
+  ).flatMap(([part, count]) => {
+    const item = { part, left, width: count / total };
+    left += item.width;
+    return count ? [item] : [];
+  });
+}
+
+// Delivery-year rows add up their contracts' open days, so a part-held contract counts in part.
+const groupPieces = (items: readonly ContractCoverage[], key: "daily" | "minutes") => {
+  const sum = (field: "days" | "openDays" | "gapDays" | "pendingDays") =>
+    items.reduce((total, item) => total + (item[key]?.[field] ?? 0), 0);
+  const [gaps, pending] = [sum("gapDays"), sum("pendingDays")];
+  return countPieces(sum("openDays"), sum("days") + gaps + pending, gaps, pending);
+};
+
+function Progress({ daily, minutes }: { daily: Piece[]; minutes: Piece[] }) {
+  return (
+    <div className="coverage-bar" aria-hidden="true">
+      {[daily, minutes].map((pieces, lane) => (
+        <div key={lane} className="coverage-lane" data-lane={lane ? "minutes" : "daily"}>
+          {pieces.map(({ part, left, width }) => (
+            <i
+              key={`${part}-${left}`}
+              data-part={part}
+              style={{
+                left: `${(left * 100).toFixed(2)}%`,
+                width: `${(width * 100).toFixed(2)}%`,
+              }}
+            />
+          ))}
+        </div>
+      ))}
+    </div>
   );
 }
 
 function ContractRow({
   contract,
-  axis,
   nested,
   running,
   acquires,
@@ -197,7 +243,6 @@ function ContractRow({
   view,
 }: {
   contract: ContractCoverage;
-  axis: Axis;
   nested: boolean;
   running: readonly AcquisitionTask[];
   acquires: boolean;
@@ -213,7 +258,6 @@ function ContractRow({
   const minutes = minuteRule(contract);
   const minuteBusy = running.some(task => covers(task, minutes));
   const busy = !!rule && running.some(task => covers(task, rule));
-  const through = throughOf(contract);
   return (
     <tr data-kind="contract" data-nested={nested || undefined}>
       <th scope="row">
@@ -228,18 +272,10 @@ function ContractRow({
       </th>
       <td className="coverage-listed">{contract.listDay}</td>
       <td>
-        <div className="coverage-timeline" aria-hidden="true">
-          {contract.listDay && <Bar axis={axis} part="life" from={contract.listDay} to={through} />}
-          {daily?.days ? (
-            <Bar axis={axis} part="held" from={daily.firstDay} to={daily.lastDay} />
-          ) : null}
-          {daily?.pendingDays ? (
-            <Bar axis={axis} part="pending" from={daily.lastDay} to={through} />
-          ) : null}
-          {daily?.gaps.map(gap => (
-            <Bar key={gap.first} axis={axis} part="gap" from={gap.first} to={gap.last} />
-          ))}
-        </div>
+        <Progress
+          daily={lifePieces(contract, daily)}
+          minutes={lifePieces(contract, contract.minutes)}
+        />
       </td>
       <td>
         <StateText state={dailyState}>{seriesText(dailyState, daily)}</StateText>
@@ -314,7 +350,6 @@ export function CoverageList({
   const [historyOpen, setHistoryOpen] = useState("");
   const [yearOpen, setYearOpen] = useState("");
   const [confirm, setConfirm] = useState<Confirm>();
-  const axis = axisOf(rows);
   const rank = (row: ProductRow) => {
     const state = summaryState(row.coverage?.daily);
     return state === "gap" ? 0 : state === "pending" ? 1 : state === "none" ? 3 : 2;
@@ -328,7 +363,7 @@ export function CoverageList({
   const searching = /\d/.test(query);
   const matches = (item: ContractCoverage) =>
     !searching || contractCode(item.contract).toUpperCase().includes(query);
-  const rowProps = { axis, running, acquires, acquiresMinutes, start, view };
+  const rowProps = { running, acquires, acquiresMinutes, start, view };
 
   const askHistory = (product: string, history: ContractCoverage[], from: string, to: string) => {
     const chosen = history.filter(item => {
@@ -373,13 +408,7 @@ export function CoverageList({
             <th scope="col">{t("品种")}</th>
             <th scope="col">{t("在市 / 全部")}</th>
             <th scope="col">
-              <div className="coverage-axis">
-                {axis.ticks.map(tick => (
-                  <span key={tick.label} style={{ left: `${(tick.left * 100).toFixed(2)}%` }}>
-                    {tick.label}
-                  </span>
-                ))}
-              </div>
+              {t("采集进度")} <small>{t("上 日线 · 下 分钟线")}</small>
             </th>
             <th scope="col">{t("日线")}</th>
             <th scope="col">{t("分钟线")}</th>
@@ -429,21 +458,29 @@ export function CoverageList({
                   {row.coverage ? `${row.coverage.listed} / ${row.coverage.contracts}` : "—"}
                 </td>
                 <td>
-                  <div className="coverage-timeline" aria-hidden="true">
-                    {daily?.held ? (
-                      <Bar axis={axis} part="held" from={daily.firstDay} to={daily.lastDay} />
-                    ) : null}
-                    {daily?.gaps.map(gap => (
-                      <Bar key={gap.first} axis={axis} part="gap" from={gap.first} to={gap.last} />
-                    ))}
-                  </div>
+                  <Progress
+                    daily={countPieces(
+                      row.coverage?.contracts ?? 0,
+                      daily?.held ?? 0,
+                      daily?.withGaps ?? 0,
+                      daily?.pending ?? 0,
+                    )}
+                    minutes={countPieces(
+                      row.coverage?.contracts ?? 0,
+                      minutes?.held ?? 0,
+                      minutes?.withGaps ?? 0,
+                      minutes?.pending ?? 0,
+                    )}
+                  />
                 </td>
                 <td>
-                  <StateText state={dailyState}>{summaryText(dailyState, daily, false)}</StateText>
+                  <StateText state={summaryDot(dailyState, daily, row.coverage?.contracts ?? 0)}>
+                    {summaryText(dailyState, daily)}
+                  </StateText>
                 </td>
                 <td>
-                  <StateText state={minuteState}>
-                    {summaryText(minuteState, minutes, true)}
+                  <StateText state={summaryDot(minuteState, minutes, row.coverage?.contracts ?? 0)}>
+                    {summaryText(minuteState, minutes)}
                   </StateText>
                 </td>
                 <td>
@@ -487,8 +524,14 @@ export function CoverageList({
                     </button>
                   </th>
                   <td className="coverage-count">{t("{count} 个", { count: history.length })}</td>
+                  <td>
+                    <Progress
+                      daily={groupPieces(history, "daily")}
+                      minutes={groupPieces(history, "minutes")}
+                    />
+                  </td>
                   <td className="coverage-note">{t("已采 {count}", { count: historyHeld })}</td>
-                  <td colSpan={3} />
+                  <td colSpan={2} />
                 </tr>
               )}
               {showHistory &&
@@ -518,7 +561,12 @@ export function CoverageList({
                         <td className="coverage-count">
                           {held} / {inYear.length}
                         </td>
-                        <td />
+                        <td>
+                          <Progress
+                            daily={groupPieces(inYear, "daily")}
+                            minutes={groupPieces(inYear, "minutes")}
+                          />
+                        </td>
                         <td>
                           {!held ? (
                             <StateText state="none">{t("未采集")}</StateText>
