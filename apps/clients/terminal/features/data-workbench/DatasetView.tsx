@@ -9,7 +9,6 @@ import {
 } from "../../src/generated/asterion/warehouse_pb";
 import { useActionError } from "../../src/host/action-error";
 import type { TerminalContext } from "../../src/host/feature-registry";
-import { useMarket } from "../../src/host/market";
 import { useErrorNotification } from "../../src/host/notifications";
 import { useWarehouse, useWarehousePoll } from "../../src/host/warehouse";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
@@ -18,7 +17,6 @@ import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
 import { warehouseName } from "../../src/ui/contract-names";
 import { StatusBadge } from "../../src/ui/StatusBadge";
 import { ContractHistory } from "../futures-market/ContractHistory";
-import { Acquisition, startAcquisition, type Preset } from "./Acquisition";
 import { Activity, activeTask } from "./Activity";
 import {
   contractCode,
@@ -29,7 +27,7 @@ import {
   type Rule,
 } from "./CoverageList";
 import { VersionBanner, WarehousePage, WarehouseUnavailable } from "./Page";
-import { exchanges, freshness, t, tableName } from "./dataset";
+import { exchanges, freshness, startAcquisition, t, tableName } from "./dataset";
 
 // What the research dataset holds for daily and minute bars, where any gaps sit
 // across products and months, and the acquisitions and versions behind it.
@@ -59,8 +57,6 @@ function DatasetBody({ context }: { context: TerminalContext }) {
   const [chart, setChart] = useState("");
   const [shown, setShown] = useState(20);
   const [issuesOnly, setIssuesOnly] = useState(false);
-  const [acquiring, setAcquiring] = useState<{ table: Table; preset: Preset }>();
-  const catalog = useMarket()?.board.catalog?.contracts;
   const warehouse = useWarehouse();
   const warehouseRef = useRef(warehouse);
   warehouseRef.current = warehouse;
@@ -190,7 +186,6 @@ function DatasetBody({ context }: { context: TerminalContext }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [coverage, locale],
   );
-  const products = useMemo(() => rows.map(row => row.id), [rows]);
   const present = exchanges.filter(item => rows.some(row => row.exchange === item));
   const query = search.trim().toUpperCase();
   // A contract code such as RB2705 finds its product.
@@ -228,29 +223,14 @@ function DatasetBody({ context }: { context: TerminalContext }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detailKey, coverage]);
   const contracts = detail?.key === detailKey ? detail.contracts : undefined;
-  const known = useMemo(
-    () => [
-      ...new Set([
-        ...(catalog ?? []).map(item => item.contract),
-        ...(contracts ?? []).map(item => item.contract),
-      ]),
-    ],
-    [catalog, contracts],
-  );
   // A product never acquired starts with its listed contracts' whole lives.
   const collect = (row: ProductRow) =>
     void update.attempt(async () => {
-      const listed = version
-        ? (
-            await warehouseData({
-              case: "getProductCoverage",
-              value: { version, product: row.id },
-            })
-          ).contracts
-        : [];
-      const rules = productRules(listed, kind);
-      if (rules.length) start(rules);
-      else setAcquiring({ table, preset: { exchanges: [row.exchange] } });
+      const { contracts: held } = await warehouseData({
+        case: "getProductCoverage",
+        value: { version, product: row.id },
+      });
+      start(productRules(held, kind));
     });
 
   const error = state.error || options.error || (!viewed ? versionError : "");
@@ -279,19 +259,6 @@ function DatasetBody({ context }: { context: TerminalContext }) {
   const tasks = sharedPage ? warehouse.tasks! : state.value.tasks;
   const older = sharedPage ? warehouse.nextTaskId !== "" : state.value.older;
   const running = tasks.filter(activeTask);
-  const presetFor = (target: Table): Preset => {
-    const item = summary.tables.find(entry => entry.table === target);
-    const selectedExchange = exchange || present[0];
-    const exchanges = selectedExchange ? [selectedExchange] : undefined;
-    if (target === Table.MINUTES || !item?.firstDay || !item.missing)
-      return exchanges ? { exchanges } : {};
-    return {
-      exchanges,
-      first: item.firstDay,
-      last: item.expectedLastDay || item.lastDay,
-    };
-  };
-
   return (
     <>
       <VersionBanner
@@ -403,15 +370,6 @@ function DatasetBody({ context }: { context: TerminalContext }) {
                     {t("更新到最新")}
                   </button>
                 )}
-                {acquires && (
-                  <button
-                    type="button"
-                    className="primary"
-                    onClick={() => setAcquiring({ table, preset: presetFor(table) })}
-                  >
-                    {t("采集")}
-                  </button>
-                )}
               </div>
             )}
           </div>
@@ -459,21 +417,6 @@ function DatasetBody({ context }: { context: TerminalContext }) {
             )}
           </div>
         </div>
-        {acquiring && (
-          <Acquisition
-            table={acquiring.table}
-            name={tableName(acquiring.table)}
-            options={options.value}
-            products={products}
-            known={known}
-            preset={acquiring.preset}
-            close={() => setAcquiring(undefined)}
-            started={() => {
-              setAcquiring(undefined);
-              void refreshAll();
-            }}
-          />
-        )}
       </div>
     </>
   );

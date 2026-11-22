@@ -1,3 +1,4 @@
+import { warehouseData } from "../../src/bridge/warehouse-data";
 import { Table, type TableSummary } from "../../src/generated/asterion/warehouse_pb";
 import { type MessageValues, translate } from "../../src/i18n";
 import type { Tone } from "../../src/ui/StatusBadge";
@@ -30,3 +31,16 @@ export function freshness(item: TableSummary | undefined): { tone: Tone; text: s
   if (!item.missing) return { tone: "ok", text: t("最新") };
   return { tone: "attention", text: t("缺 {count} 个交易日", { count: Number(item.missing) }) };
 }
+
+export const startAcquisition = (request: {
+  table: Table;
+  refetch: boolean;
+  exchanges: string[];
+  instruments: string[];
+  firstDay: string;
+  lastDay: string;
+}) =>
+  warehouseData({
+    case: "startAcquisition",
+    value: { id: `acq-${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`, ...request },
+  });

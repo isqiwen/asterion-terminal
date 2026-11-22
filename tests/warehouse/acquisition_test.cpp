@@ -1568,6 +1568,19 @@ TEST_F(Acquisition, InvalidMinuteLabelsVolumesAndContractIdentityAreRejected)
     }
 }
 
+// An update's market tasks, without the reports that follow them.
+std::vector<ac::wire::StartAcquisition>
+market_requests(const fs::path& root, const std::string& day, const std::string& prefix)
+{
+    auto requests = ac::update_requests(root, day, prefix);
+    std::erase_if(requests, [](const auto& request) {
+        return request.table() == ac::wire::TABLE_WAREHOUSE_RECEIPTS
+            || request.table() == ac::wire::TABLE_MEMBER_POSITIONS
+            || request.table() == ac::wire::TABLE_INVENTORY;
+    });
+    return requests;
+}
+
 } // namespace
 
 TEST_F(Acquisition, AnUpdateBringsEachAcquiredTableToYesterday)
@@ -1597,7 +1610,7 @@ TEST_F(Acquisition, AnUpdateBringsEachAcquiredTableToYesterday)
 
     // Daily and minutes end before the last open day; settlement lacks the
     // earliest acquired daily bar (2026-10-28), so update backfills it.
-    auto requests = ac::update_requests(root, "2026-10-30", "update-1");
+    auto requests = market_requests(root, "2026-10-30", "update-1");
     ASSERT_EQ(requests.size(), 3);
     EXPECT_EQ(requests[0].id(), "update-1-daily");
     EXPECT_EQ(requests[0].table(), ac::wire::TABLE_DAILY);
@@ -1623,7 +1636,7 @@ TEST_F(Acquisition, AnUpdateBringsEachAcquiredTableToYesterday)
             wh::rows(std::vector<wh::Settlement>{{"SHFE", "rb", "SHFE/rb/2027-01", "2026-10-28"}}));
         healed.commit();
     }
-    requests = ac::update_requests(root, "2026-10-30", "update-covered");
+    requests = market_requests(root, "2026-10-30", "update-covered");
     ASSERT_EQ(requests.size(), 2);
 
     // A new year without its calendar asks for the calendar first and brings
@@ -1638,7 +1651,7 @@ TEST_F(Acquisition, AnUpdateBringsEachAcquiredTableToYesterday)
             wh::rows(std::vector<wh::Settlement>{{"DCE", "m", "DCE/m/2027-01", "2026-10-30"}}));
         standalone.commit();
     }
-    requests = ac::update_requests(root, "2027-01-04", "update-2");
+    requests = market_requests(root, "2027-01-04", "update-2");
     ASSERT_EQ(requests.size(), 4);
     EXPECT_EQ(requests[0].table(), ac::wire::TABLE_CALENDAR);
     EXPECT_EQ(requests[0].exchanges(0), "DCE");
@@ -1694,7 +1707,7 @@ TEST_F(Acquisition, AnEmptyWarehouseListsProductsAfterItsContractRefresh)
     EXPECT_GT(wh::Reader(root).coverage(wanted).products_size(), 0);
 }
 
-TEST_F(Acquisition, FundamentalUpdatesContinueOnlyTheTablesAlreadyAcquired)
+TEST_F(Acquisition, FundamentalReportsFollowTheDaysAnExchangeHasMarketBarsFor)
 {
     wh::Store research(wh::source_directory(root, "research"), "research");
     auto writer = research.writer();
@@ -1702,9 +1715,15 @@ TEST_F(Acquisition, FundamentalUpdatesContinueOnlyTheTablesAlreadyAcquired)
         "calendar/SHFE/2026",
         wh::rows(
             std::vector<wh::CalendarDay>{
+                {"SHFE", "2026-01-02", true, {}},
                 {"SHFE", "2026-01-05", true, {}},
                 {"SHFE", "2026-01-06", true, {}}
             }));
+    for (const auto* day : {"2026-01-05", "2026-01-06"})
+        writer.put(
+            std::string("daily/SHFE/") + day,
+            wh::rows(std::vector<wh::DailyBar>{{"SHFE", "rb", "SHFE/rb/2027-01", day}}),
+            {day});
     writer.put(
         "warehouse_receipts/SHFE/2026-01-05",
         wh::rows(
@@ -1713,29 +1732,17 @@ TEST_F(Acquisition, FundamentalUpdatesContinueOnlyTheTablesAlreadyAcquired)
             }),
         {"2026-01-05"});
     writer.commit();
-    auto requests = ac::update_requests(root, "2026-01-06", "update-1");
-    ASSERT_EQ(requests.size(), 1);
-    EXPECT_EQ(requests[0].table(), ac::wire::TABLE_WAREHOUSE_RECEIPTS);
-    EXPECT_EQ(requests[0].first_day(), "2026-01-06");
-    EXPECT_EQ(requests[0].last_day(), "2026-01-06");
-    writer.put(
-        "member_positions/SHFE/2026-01-05",
-        wh::rows(
-            std::vector<wh::MemberPosition>{
-                {.exchange = "SHFE", .product = "rb", .day = "2026-01-05", .member = "测试会员"}
-            }),
-        {"2026-01-05"});
-    writer.put(
-        "inventory/SHFE/2026-01-05",
-        wh::rows(
-            std::vector<wh::Inventory>{{.exchange = "SHFE", .product = "rb", .day = "2026-01-05"}}),
-        {"2026-01-05"});
-    writer.commit();
-    requests = ac::update_requests(root, "2026-01-06", "update-2");
-    ASSERT_EQ(requests.size(), 3);
-    EXPECT_EQ(requests[1].table(), ac::wire::TABLE_MEMBER_POSITIONS);
-    EXPECT_EQ(requests[2].table(), ac::wire::TABLE_INVENTORY);
-    EXPECT_EQ(requests[2].exchanges(0), "SHFE");
+    const auto requests = ac::update_requests(root, "2026-01-06", "update-1");
+    const auto of = [&](ac::wire::Table table) {
+        return std::ranges::find(requests, table, &ac::wire::StartAcquisition::table);
+    };
+    ASSERT_NE(of(ac::wire::TABLE_WAREHOUSE_RECEIPTS), requests.end());
+    EXPECT_EQ(of(ac::wire::TABLE_WAREHOUSE_RECEIPTS)->first_day(), "2026-01-06");
+    ASSERT_NE(of(ac::wire::TABLE_MEMBER_POSITIONS), requests.end());
+    EXPECT_EQ(of(ac::wire::TABLE_MEMBER_POSITIONS)->first_day(), "2026-01-05");
+    EXPECT_EQ(of(ac::wire::TABLE_MEMBER_POSITIONS)->last_day(), "2026-01-06");
+    ASSERT_NE(of(ac::wire::TABLE_INVENTORY), requests.end());
+    EXPECT_EQ(requests.back().table(), ac::wire::TABLE_INVENTORY);
 }
 
 TEST_F(Acquisition, AnUpdateBackfillsInteriorGapsAndFollowsRolledDominantMinutes)
@@ -1837,7 +1844,7 @@ TEST_F(Acquisition, AnUpdateBackfillsInteriorGapsAndFollowsRolledDominantMinutes
 
     // 1) Interior gap in daily and minutes triggers backfill even though last == yesterday;
     //    newly dominant SHFE/rb/2027-01 (overtook on 10-30) is added automatically while DCE/m is not.
-    auto requests = ac::update_requests(root, "2026-10-30", "gap-roll");
+    auto requests = market_requests(root, "2026-10-30", "gap-roll");
     ASSERT_EQ(requests.size(), 2);
     EXPECT_EQ(requests[0].table(), ac::wire::TABLE_DAILY);
     EXPECT_EQ(requests[0].first_day(), "2026-10-29");
@@ -1869,7 +1876,7 @@ TEST_F(Acquisition, AnUpdateBackfillsInteriorGapsAndFollowsRolledDominantMinutes
             wh::rows(std::vector<wh::MinuteBar>{{"SHFE", "rb", "SHFE/rb/2026-10", "2026-10-29"}}));
         writer.commit();
     }
-    requests = ac::update_requests(root, "2026-10-30", "roll-only");
+    requests = market_requests(root, "2026-10-30", "roll-only");
     ASSERT_EQ(requests.size(), 1);
     EXPECT_EQ(requests[0].table(), ac::wire::TABLE_MINUTES);
     EXPECT_EQ(requests[0].first_day(), "2026-10-29");
@@ -1913,7 +1920,7 @@ TEST_F(Acquisition, AnUpdateBackfillsInteriorGapsAndFollowsRolledDominantMinutes
             wh::rows(std::vector<wh::MinuteBar>{{"SHFE", "rb", "SHFE/rb/2027-01", "2026-10-30"}}));
         writer.commit();
     }
-    requests = ac::update_requests(root, "2026-10-30", "expiry-roll");
+    requests = market_requests(root, "2026-10-30", "expiry-roll");
     ASSERT_EQ(requests.size(), 1);
     EXPECT_EQ(requests[0].table(), ac::wire::TABLE_MINUTES);
     EXPECT_EQ(requests[0].first_day(), "2026-10-29");

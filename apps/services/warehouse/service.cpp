@@ -189,14 +189,30 @@ wire::AcquisitionTasks update(const std::filesystem::path& directory, acquisitio
     const auto configured = tasks.options();
     const auto& tables = configured.tables();
     wire::AcquisitionTasks result;
-    for (auto& request : acquisition::update_requests(directory, yesterday(), prefix))
-        if (std::ranges::any_of(
-                tables,
-                [&](const auto& table) {
-                    return table.table() == request.table();
-                })
-            && !tasks.busy(request.table()))
+    for (auto& request : acquisition::update_requests(directory, yesterday(), prefix)) {
+        const auto offered = std::find_if(tables.begin(), tables.end(), [&](const auto& table) {
+            return table.table() == request.table();
+        });
+        if (offered == tables.end() || tasks.busy(request.table()))
+            continue;
+        // Reports exist only on some exchanges; minute requests name contracts instead.
+        const bool by_exchange = !request.exchanges().empty();
+        auto* named = request.mutable_exchanges();
+        named->erase(
+            std::remove_if(
+                named->begin(),
+                named->end(),
+                [&](const std::string& exchange) {
+                    return std::find(
+                               offered->exchanges().begin(),
+                               offered->exchanges().end(),
+                               exchange)
+                        == offered->exchanges().end();
+                }),
+            named->end());
+        if (!by_exchange || !named->empty())
             *result.add_tasks() = tasks.submit(std::move(request));
+    }
     return result;
 }
 
@@ -335,14 +351,20 @@ struct WarehouseService::Running
                 }
                 while (!wake.wait_until(lock, stop, next(*this->settings.update_at), [] {
                     return false;
-                }) && !stop.stop_requested())
+                }) && !stop.stop_requested()) {
+                    // Ahead of the update, whose report backfill can occupy the queue for hours.
+                    try {
+                        refresh_contracts(this->settings.directory, acquisitions, false);
+                    } catch (const std::exception& error) {
+                        log::error("contract table not requested: {}", error.what());
+                    }
                     try {
                         const auto tasks = update(this->settings.directory, acquisitions);
                         log::info("daily update submitted {} tasks", tasks.tasks_size());
-                        refresh_contracts(this->settings.directory, acquisitions, false);
                     } catch (const std::exception& error) {
                         log::error("daily update failed: {}", error.what());
                     }
+                }
             });
     }
 

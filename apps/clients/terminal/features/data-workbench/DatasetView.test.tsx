@@ -240,21 +240,6 @@ test("the summary shows freshness, acquisition defaults to canonical exchange or
   expect(daily!.title).toBe("数据到 2026-11-10 · 应到 2026-11-12 · 另有 3 个交易日来源无数据");
   expect(minutes!.textContent).toBe("分钟线未采集");
 
-  fireEvent.click(screen.getByRole("button", { name: "采集" }));
-  const dialog = screen.getByRole("dialog", { name: "采集 日线" });
-  expect(within(dialog).queryByRole("group", { name: "品种或合约" })).toBeNull();
-  expect((within(dialog).getByRole("checkbox", { name: "SHFE" }) as HTMLInputElement).checked).toBe(
-    true,
-  );
-  expect(
-    (within(dialog).getByRole("checkbox", { name: "CFFEX" }) as HTMLInputElement).checked,
-  ).toBe(false);
-  expect(
-    (within(dialog).getByRole("checkbox", { name: "重新采集已有分区" }) as HTMLInputElement)
-      .checked,
-  ).toBe(false);
-  fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
-
   fireEvent.click(screen.getByRole("button", { name: "更新到最新" }));
   await screen.findByText("已提交 2 个更新任务");
   expect(request).toHaveBeenCalledWith({ case: "startUpdate", value: {} });
@@ -443,8 +428,7 @@ test("the list shows every product Warehouse knows, those never acquired last", 
   view(context());
   const headers = within(await list()).getAllByRole("rowheader");
   expect(headers.at(-1)!.textContent).toContain("沪铅");
-  fireEvent.click(screen.getByRole("button", { name: "采集 SHFE/pb" }));
-  expect(await screen.findByRole("dialog", { name: "采集 日线" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "采集 SHFE/pb" })).toBeNull();
 });
 
 test("minute acquisition submits one task, prerequisite requests show live progress, and update batches cancel together", async () => {
@@ -482,15 +466,8 @@ test("minute acquisition submits one task, prerequisite requests show live progr
   await list();
 
   showKind("分钟线");
-  fireEvent.click(screen.getByRole("button", { name: "采集" }));
-  const dialog = screen.getByRole("dialog", { name: "采集 分钟线" });
-  expect(within(dialog).queryByLabelText("数据源")).toBeNull();
-  const picker = within(dialog).getByRole("group", { name: "品种或合约" });
-  fireEvent.click(within(picker).getByRole("button", { name: /^SHFE\/rb/ }));
-  fireEvent.click(within(picker).getByRole("checkbox", { name: /^整个品种 · SHFE\/rb/ }));
-  startInDialog();
+  fireEvent.click(screen.getByRole("button", { name: "补全 SHFE/rb" }));
   await waitFor(() => expect(submitted().map(item => item.table)).toEqual([Table.MINUTES]));
-  expect(submitted()[0]).toMatchObject({ instruments: ["SHFE/rb"] });
   expect(props.trade).not.toHaveBeenCalled();
 
   runningPhase = "prerequisites";
@@ -559,7 +536,7 @@ test("versions inspect historical coverage in place and pagination loads earlier
     params: { version: older },
   });
   await screen.findByRole("rowheader", { name: /^cu/ });
-  expect(screen.queryByRole("button", { name: "采集" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^补全/ })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "回到最新数据" }));
   await screen.findByRole("rowheader", { name: /^rb/ });
 });
@@ -568,7 +545,6 @@ test("without an acquisition source nothing offers acquisition", async () => {
   serve({ tables: [] });
   view(context());
   await openRebar();
-  expect(screen.queryByRole("button", { name: "采集" })).toBeNull();
   expect(screen.queryByRole("button", { name: /^补全/ })).toBeNull();
   expect(screen.queryByRole("button", { name: "更新到最新" })).toBeNull();
 });

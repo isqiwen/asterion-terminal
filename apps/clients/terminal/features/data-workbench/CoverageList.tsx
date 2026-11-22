@@ -9,8 +9,7 @@ import {
 } from "../../src/generated/asterion/warehouse_pb";
 import { getLocale } from "../../src/i18n";
 import { Dialog } from "./Dialog";
-import type { startAcquisition } from "./Acquisition";
-import { beijingDay, exchanges, t } from "./dataset";
+import { beijingDay, exchanges, t, type startAcquisition } from "./dataset";
 
 export type Rule = Parameters<typeof startAcquisition>[0];
 export type Kind = "daily" | "minutes";
@@ -438,11 +437,13 @@ export function CoverageList({
           const expanded = open === row.id;
           const series = row.coverage?.[kind];
           const tally = rowTally(row);
+          // A product with nothing listed is collected year by year from its history.
           const needsWork =
-            !series?.held ||
-            !!series.withGaps ||
-            !!series.pending ||
-            series.listedComplete < (row.coverage?.listed ?? 0);
+            (!!row.coverage?.listed || !!series?.withGaps) &&
+            (!series?.held ||
+              !!series.withGaps ||
+              !!series.pending ||
+              series.listedComplete < (row.coverage?.listed ?? 0));
           const busy = running.some(({ request }) =>
             kind === "daily"
               ? request!.table === Table.DAILY && request!.exchanges.includes(row.exchange)

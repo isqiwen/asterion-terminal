@@ -23,7 +23,7 @@ import { useIntervalPoll } from "./polling";
 
 const th = (key: string, values?: MessageValues) => translate("host", key, values);
 const batchOf = (id: string) =>
-  /^(acq-[A-Za-z0-9]+|update-\d+)-(?:daily|minutes|settlement|price_ticks|contracts|calendar)$/.exec(
+  /^(acq-[A-Za-z0-9]+|update-\d+)-(?:daily|minutes|settlement|price_ticks|contracts|calendar|warehouse_receipts|member_positions|inventory)$/.exec(
     id,
   )?.[1] ?? id;
 const tableLabel: Partial<Record<Table, string>> = {

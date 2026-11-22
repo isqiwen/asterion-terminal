@@ -67,8 +67,7 @@ std::vector<wire::StartAcquisition> update_requests(
         }
     std::string daily_first;
     std::set<std::string> daily_exchanges;
-    for (const std::string table :
-        {"daily", "minutes", "warehouse_receipts", "member_positions", "inventory"}) {
+    for (const std::string table : {"daily", "minutes"}) {
         const auto empty_table = empty_keys(directory, table);
         std::string first;
         std::set<std::string> due;
@@ -160,6 +159,35 @@ std::vector<wire::StartAcquisition> update_requests(
             for (const auto& exchange : due)
                 out.add_exchanges(exchange);
         }
+    }
+    // Last in the queue: a first backfill takes hours and must not hold up market bars.
+    for (const std::string table : {"warehouse_receipts", "member_positions", "inventory"}) {
+        const auto answered = empty_keys(directory, table);
+        std::string first;
+        std::vector<std::string> due;
+        for (const auto& [exchange, from] : market_first) {
+            const auto days = open.find(exchange);
+            if (days == open.end())
+                continue;
+            const auto missing = std::find_if(
+                std::lower_bound(days->second.begin(), days->second.end(), from),
+                days->second.end(),
+                [&](const std::string& day) {
+                    const auto key = table + "/" + exchange + "/" + day;
+                    return !version.partitions.contains(key) && !answered.contains(key);
+                });
+            if (missing == days->second.end())
+                continue;
+            due.push_back(exchange);
+            first = first.empty() ? *missing : std::min(first, *missing);
+        }
+        if (due.empty())
+            continue;
+        auto& out = request(table);
+        out.set_first_day(first);
+        out.set_last_day(yesterday);
+        for (const auto& exchange : due)
+            out.add_exchanges(exchange);
     }
     return result;
 }

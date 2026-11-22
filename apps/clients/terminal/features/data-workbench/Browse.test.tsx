@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import { Table } from "../../src/generated/asterion/warehouse_pb";
 import type { TerminalContext } from "../../src/host/feature-registry";
@@ -46,36 +46,9 @@ const view = (version = "") => {
   );
 };
 
-test("inventory acquisition offers only the exchanges supported by that table", async () => {
-  view();
-  await screen.findByRole("table", { name: "库存周报" });
-  fireEvent.click(screen.getByRole("button", { name: "采集" }));
-  const dialog = within(screen.getByRole("dialog"));
-  expect(dialog.getAllByRole("checkbox")).toHaveLength(3);
-  expect(dialog.getByRole("checkbox", { name: "SHFE" })).toBeTruthy();
-  expect(dialog.getByRole("checkbox", { name: "INE" })).toBeTruthy();
-  expect(dialog.queryByRole("checkbox", { name: "CFFEX" })).toBeNull();
-  fireEvent.change(dialog.getByLabelText("开始日期"), { target: { value: "2026-01-05" } });
-  fireEvent.change(dialog.getByLabelText("结束日期"), { target: { value: "2026-01-09" } });
-  fireEvent.click(dialog.getByRole("button", { name: "开始采集" }));
-  await waitFor(() =>
-    expect(request).toHaveBeenCalledWith({
-      case: "startAcquisition",
-      value: expect.objectContaining({
-        table: Table.INVENTORY,
-        exchanges: ["SHFE"],
-        firstDay: "2026-01-05",
-        lastDay: "2026-01-09",
-      }),
-    }),
-  );
-  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-});
-
-test("opening an earlier report version keeps its reads fixed and hides acquisition", async () => {
+test("opening an earlier report version keeps its reads fixed", async () => {
   view("earlier");
   await screen.findByRole("table", { name: "库存周报" });
-  expect(screen.queryByRole("button", { name: "采集" })).toBeNull();
   expect(request).toHaveBeenCalledWith({
     case: "getTableRows",
     value: expect.objectContaining({ table: Table.INVENTORY, dataset: { version: "earlier" } }),
