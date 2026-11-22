@@ -43,6 +43,7 @@ flowchart LR
 
 - 验证新版 Warehouse 在每日定时时点触发的更新全批完成。
 - 核定仓单、会员持仓和库存周报的历史起点与缺失区间，入口见[真实研究数据验收](acceptance/research-data.md#仓单会员持仓与库存)。
+- 在 research 部署已核对的葵油 `CZCE/so` 最小变动价位规则，重启 Warehouse 后验证新增固定版本中的完整覆盖。
 
 ### 数据仓库与多年真实回测验收（使用者）
 

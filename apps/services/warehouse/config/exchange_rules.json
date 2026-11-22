@@ -131,6 +131,13 @@
         "sf": [{"from": "1990-01-01", "tick": "2"}],
         "sh": [{"from": "1990-01-01", "tick": "1"}],
         "sm": [{"from": "1990-01-01", "tick": "2"}],
+        "so": [
+          {
+            "from": "2026-11-12",
+            "tick": "1",
+            "source_url": "https://www.czce.com.cn/cn/content_file/flfg/zcjywgz/pzxz/2026/11/cd4d36000a5d4b63aecb80aeaa914efc.pdf"
+          }
+        ],
         "sr": [{"from": "1990-01-01", "tick": "1"}],
         "ta": [{"from": "1990-01-01", "tick": "2"}],
         "tc": [{"from": "1990-01-01", "tick": "0.2"}],
