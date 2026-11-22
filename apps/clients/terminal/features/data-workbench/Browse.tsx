@@ -21,8 +21,7 @@ const groups: readonly { name: string; tabs: readonly BrowseTab[] }[] = [
   },
 ];
 
-// The stored contracts with their charts, and the reference tables behind them,
-// in the version current when the view opened or the one opened from a run.
+// Follow the latest data unless a run or activity opens a fixed version.
 export function Browse(context: TerminalContext) {
   return (
     <WarehousePage context={context} label={t("数据浏览")}>
@@ -68,7 +67,7 @@ function BrowseBody({ context }: { context: TerminalContext }) {
       };
     },
     [viewed],
-    true,
+    !!viewed,
   );
   useErrorNotification(state.error, "asterion.terminal.data-workbench");
   const latest = state.value?.latest ?? "";
@@ -136,7 +135,7 @@ function BrowseBody({ context }: { context: TerminalContext }) {
           />
         ) : (
           <ReferenceTable
-            key={`${state.value.version}/${tab}`}
+            key={`${viewed}/${tab}`}
             version={state.value.version}
             table={tab}
             name={tableName(tab)}
