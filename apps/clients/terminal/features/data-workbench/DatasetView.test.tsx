@@ -239,12 +239,10 @@ test("the summary shows freshness, acquisition defaults to canonical exchange or
   serve();
   view(context());
   const summary = await screen.findByRole("group", { name: "数据" });
-  const [daily, minutes] = summary.querySelectorAll(".data-summary-item");
-  expect(daily!.textContent).toContain("3 个品种 · 5 行");
-  expect(daily!.textContent).toContain("缺 2 个交易日");
-  expect(daily!.textContent).toContain("应到 2026-11-12");
-  expect(daily!.textContent).toContain("另有 3 个交易日来源无数据");
-  expect(minutes!.textContent).toContain("未采集");
+  const [daily, minutes] = summary.querySelectorAll<HTMLElement>(".data-summary-item");
+  expect(daily!.textContent).toBe("日线缺 2 个交易日");
+  expect(daily!.title).toBe("数据到 2026-11-10 · 应到 2026-11-12 · 另有 3 个交易日来源无数据");
+  expect(minutes!.textContent).toBe("分钟线未采集");
 
   fireEvent.click(screen.getByRole("button", { name: "采集" }));
   const dialog = screen.getByRole("dialog", { name: "采集 日线" });

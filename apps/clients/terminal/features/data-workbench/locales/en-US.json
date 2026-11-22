@@ -142,9 +142,6 @@
   "无分区变更": "No partition changes",
   "各表末日已到最新；中间缺口请点击对应缺口或“采集”补齐": "Latest trading day reached; click a gap or Acquire to fill earlier missing days",
   "已请求 {count} 次": "{count} requests",
-  "{count} 个品种": "{count} products",
-  "{count} 个合约": "{count} contracts",
-  "{count} 行": "{count} rows",
   "交割月": "Delivery month",
   "柜台代码": "Exchange symbol",
   "是否开市": "Market open",
@@ -173,7 +170,6 @@
   "搜索品种或输入代码，如 SHFE/rb、SHFE/rb/2027-01": "Search or enter code, e.g. SHFE/rb, SHFE/rb/2027-01",
   "错误详情": "Error details",
   "全部品种": "All products",
-  "{day} 起": "Since {day}",
   "数据服务设置": "Data service settings",
   "仓单": "Warehouse receipts",
   "会员持仓": "Member positions",
@@ -240,5 +236,6 @@
   "采全 {count}": "{count} complete",
   "部分 {count}": "{count} partial",
   "部分采集": "Partly stored",
-  "分钟线按合约逐日采集，约 {count} 次请求": "Minutes are requested per contract and day: about {count} requests"
+  "分钟线按合约逐日采集，约 {count} 次请求": "Minutes are requested per contract and day: about {count} requests",
+  "数据到 {day}": "Data through {day}"
 }

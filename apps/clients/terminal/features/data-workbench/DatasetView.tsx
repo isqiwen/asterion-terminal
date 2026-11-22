@@ -361,44 +361,28 @@ function DatasetBody({ context }: { context: TerminalContext }) {
             const itemTable = item === "minutes" ? Table.MINUTES : Table.DAILY;
             const entry = summary.tables.find(row => row.table === itemTable);
             const status = freshness(entry);
-            const count = (coverage?.products ?? []).reduce(
-              (sum, product) =>
-                item === "daily"
-                  ? sum + Number(!!product.daily?.held)
-                  : sum + (product.minutes?.held ?? 0),
-              0,
-            );
+            const detail = entry?.rows
+              ? [
+                  t("数据到 {day}", { day: entry.lastDay }),
+                  entry.lastDay < entry.expectedLastDay &&
+                    t("应到 {day}", { day: entry.expectedLastDay }),
+                  entry.sourceEmpty > 0n &&
+                    t("另有 {count} 个交易日来源无数据", { count: Number(entry.sourceEmpty) }),
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              : undefined;
             return (
               <button
                 key={item}
                 type="button"
                 className="data-summary-item"
+                title={detail}
                 aria-pressed={kind === item}
                 onClick={() => setKind(item)}
               >
                 <strong>{tableName(itemTable)}</strong>
-                <span className="data-summary-day">{entry?.lastDay || "—"}</span>
                 {status && <StatusBadge tone={status.tone}>{status.text}</StatusBadge>}
-                {entry?.rows ? (
-                  <span>
-                    {[
-                      t("{day} 起", { day: entry.firstDay }),
-                      count > 0 &&
-                        t(itemTable === Table.MINUTES ? "{count} 个合约" : "{count} 个品种", {
-                          count,
-                        }),
-                      t("{count} 行", { count: Number(entry.rows).toLocaleString(locale) }),
-                      entry.lastDay < entry.expectedLastDay &&
-                        t("应到 {day}", { day: entry.expectedLastDay }),
-                      entry.sourceEmpty > 0n &&
-                        t("另有 {count} 个交易日来源无数据", {
-                          count: Number(entry.sourceEmpty),
-                        }),
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </span>
-                ) : null}
               </button>
             );
           })}

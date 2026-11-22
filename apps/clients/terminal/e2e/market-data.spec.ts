@@ -26,8 +26,9 @@ test(
       await page.goto("/");
       await openView(page, "dataset");
       await rpc(page.request, "market.endpoint.clear");
-      await expect(page.locator(".data-summary-item").first()).toContainText(
-        /日线.*2026-02-13.*2026-01-05 起/,
+      await expect(page.locator(".data-summary-item").first()).toHaveAttribute(
+        "title",
+        /数据到 2026-02-13/,
       );
       await page.getByRole("button", { name: /^最近活动/ }).click();
       await expect(
