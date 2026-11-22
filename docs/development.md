@@ -48,7 +48,7 @@ Linux 本地调试选择 `Market: debug installation`、`Warehouse: debug instal
 | 命令 | 说明 |
 | --- | --- |
 | `pnpm sync` | 同步本地配方、前端与 Conan 依赖，配置并增量构建 `build/Debug`，确保 Python 运行时可用（首次准备与拉取更新后运行） |
-| `pnpm desktop` | Conan → CMake Release → Node-API → Vite，启动 Electron（Vite 端口 1422） |
+| `pnpm desktop` | 按需同步 Conan/CMake 并增量构建桌面 Release 产物（`asterion_terminal.node`、Python 协议与回测引擎），启动 Vite（端口 1422）与 Electron |
 | `pnpm desktop --debug` | 使用 Debug 构建启动，供 C++ 调试 |
 | `pnpm desktop:check` | 构建 Release 并检查桌面链路，不打开窗口；`--debug` 可选择 Debug |
 | `pnpm desktop:build` | Release 构建并验证 Terminal 发布包：macOS `.dmg`（签名、公证），Linux `.deb` |

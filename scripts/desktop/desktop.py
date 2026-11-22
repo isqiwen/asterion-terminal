@@ -85,6 +85,76 @@ def verify_native_resources(directory):
         raise ValueError("Native resources differ from the current distribution manifest")
 
 
+def file_sha256(path: Path) -> str:
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def native_resources_current(build: Path, destination: Path) -> bool:
+    try:
+        verify_native_resources(destination)
+    except ValueError:
+        return False
+    return all(
+        (build / name).is_file() and not (build / name).is_symlink()
+        and file_sha256(build / name) == file_sha256(destination / name)
+        for name in NATIVE_FILES
+    )
+
+
+def configure_state(configuration: str, electron_version: str, compiler: str, profile: Path) -> dict:
+    inputs = [ROOT / "conanfile.py", ROOT / "conan.lock",
+              *sorted(path for path in (ROOT / "conan").rglob("*") if path.is_file())]
+    if profile.is_file():
+        inputs.append(profile)
+    return {
+        "configuration": configuration,
+        "electron": electron_version,
+        "compiler": compiler,
+        "files": {path.relative_to(ROOT).as_posix(): file_sha256(path) for path in inputs},
+    }
+
+
+def configure_current(build: Path, configuration: str, node_headers: Path, state: dict) -> bool:
+    stamp = build / ".desktop-configure.json"
+    cache = build / "CMakeCache.txt"
+    presets = ROOT / "CMakeUserPresets.json"
+    if not stamp.is_file() or not (build / "build.ninja").is_file() \
+            or not (build / "generators/conan_toolchain.cmake").is_file() \
+            or not (node_headers / "node_api.h").is_file() \
+            or not cache.is_file() or not presets.is_file():
+        return False
+    try:
+        if json.loads(stamp.read_text()) != state:
+            return False
+    except (OSError, ValueError):
+        return False
+    if f"build/{configuration}/generators/CMakePresets.json" not in presets.read_text():
+        return False
+    if f"ASTERION_NODE_HEADERS:PATH={node_headers}\n" not in cache.read_text():
+        return False
+    if MACOS:
+        records = list((build / "CMakeFiles").glob("*/CMakeCXXCompiler.cmake"))
+        if not records or any('set(CMAKE_CXX_COMPILER "/usr/bin/clang++")' not in path.read_text()
+                              for path in records):
+            return False
+    return True
+
+
+def has_python_home(build: Path) -> bool:
+    cache = build / "CMakeCache.txt"
+    return cache.is_file() and bool(
+        re.search(r"^ASTERION_PYTHON_HOME:[^=]*=\S+", cache.read_text(), re.MULTILINE)
+    )
+
+
+def dev_targets(build: Path) -> list[str]:
+    targets = ["asterion_terminal_node", "asterion_python_protocol"]
+    if has_python_home(build):
+        targets.append("asterion_engine")
+    return targets
+
+
 def stage_native_resources(build, destination):
     for name in NATIVE_FILES:
         source = build / name
@@ -231,83 +301,100 @@ def main():
     profile = ROOT / "build/local-profile"
     configuration = "Debug" if arguments.debug else "Release"
     preset = "conan-" + configuration.lower()
-    install = ["conan", "install", ".", "-s", "compiler.cppstd=20", "-c", "tools.cmake.cmaketoolchain:generator=Ninja", "--build=missing"]
-    if profile.exists():
-        install += ["-pr:h", str(profile), "-pr:b", str(profile)]
+    build = ROOT / "build" / configuration
     # Desktop dependencies and flags come from Conan, not shell-wide
     # overrides that can link the app to libraries outside the lock.
     for variable in ("CFLAGS", "CXXFLAGS", "CPPFLAGS", "LDFLAGS"):
         env.pop(variable, None)
-    configure = ["cmake", "--preset", preset]
+    electron_version = json.loads((ROOT / "node_modules/electron/package.json").read_text())["version"]
+    sdk = ROOT / "build/electron-sdk"
+    node_headers = sdk / electron_version / "include/node"
+    compiler = ""
     if MACOS:
-        install += ["-s", "build_type=" + configuration]
         compiler = subprocess.check_output(["/usr/bin/clang++", "--version"], env=env, text=True)
         if not compiler.startswith("Apple clang version "):
             raise SystemExit("macOS desktop builds require the system Apple Clang toolchain")
-        compiler_version = compiler.split()[3].split(".")[0]
-        executables = json.dumps({"c": "/usr/bin/clang", "cpp": "/usr/bin/clang++"})
-        for context in ("h", "b"):
-            install += ["-s:" + context, "compiler=apple-clang",
-                        "-s:" + context, "compiler.version=" + compiler_version,
-                        "-s:" + context, "compiler.libcxx=libc++",
-                        "-c:" + context, "tools.build:compiler_executables=" + executables]
-        minimum = "13.0"
-        env["MACOSX_DEPLOYMENT_TARGET"] = minimum
-        install += ["-s:h", "os.version=" + minimum, "-s:b", "os.version=" + minimum]
-        install += ["-c", "user.ctp:sdk_root=" + str(ROOT / "build/ctp-sdk/macos-armv8")]
-        # CMake's compiler detection survives toolchain changes. Reset only
-        # when an earlier configure used a different compiler.
-        compiler_records = (ROOT / "build" / configuration / "CMakeFiles").glob("*/CMakeCXXCompiler.cmake")
-        if any('set(CMAKE_CXX_COMPILER "/usr/bin/clang++")' not in file.read_text()
-               for file in compiler_records):
-            configure.append("--fresh")
-        # Reinitialize managed flags without deleting compiled object files.
-        # Conan's cache default does not replace a previous deployment target.
-        configure += ["-UCMAKE_*_FLAGS*", "-DCMAKE_OSX_DEPLOYMENT_TARGET=" + minimum]
+        env["MACOSX_DEPLOYMENT_TARGET"] = "13.0"
+    state = configure_state(configuration, electron_version, compiler, profile)
+    if mode != "dev" or not configure_current(build, configuration, node_headers, state):
+        install = ["conan", "install", ".", "-s", "compiler.cppstd=20",
+                   "-c", "tools.cmake.cmaketoolchain:generator=Ninja", "--build=missing"]
+        if profile.exists():
+            install += ["-pr:h", str(profile), "-pr:b", str(profile)]
+        configure = ["cmake", "--preset", preset]
+        if MACOS:
+            install += ["-s", "build_type=" + configuration]
+            compiler_version = compiler.split()[3].split(".")[0]
+            executables = json.dumps({"c": "/usr/bin/clang", "cpp": "/usr/bin/clang++"})
+            for context in ("h", "b"):
+                install += ["-s:" + context, "compiler=apple-clang",
+                            "-s:" + context, "compiler.version=" + compiler_version,
+                            "-s:" + context, "compiler.libcxx=libc++",
+                            "-c:" + context, "tools.build:compiler_executables=" + executables]
+            minimum = "13.0"
+            install += ["-s:h", "os.version=" + minimum, "-s:b", "os.version=" + minimum]
+            install += ["-c", "user.ctp:sdk_root=" + str(ROOT / "build/ctp-sdk/macos-armv8")]
+            # CMake's compiler detection survives toolchain changes. Reset only
+            # when an earlier configure used a different compiler.
+            compiler_records = (build / "CMakeFiles").glob("*/CMakeCXXCompiler.cmake")
+            if any('set(CMAKE_CXX_COMPILER "/usr/bin/clang++")' not in file.read_text()
+                   for file in compiler_records):
+                configure.append("--fresh")
+            # Reinitialize managed flags without deleting compiled object files.
+            # Conan's cache default does not replace a previous deployment target.
+            configure += ["-UCMAKE_*_FLAGS*", "-DCMAKE_OSX_DEPLOYMENT_TARGET=" + minimum]
+        else:
+            # Linux uses the Conan profile's compiler. Dependencies build optimized.
+            install += ["-s", "&:build_type=" + configuration, "-s", "build_type=Release"]
+            # Conan's prebuilt cpptrace lacks the host glibc's signal-safe _dl_find_object.
+            install += ["--build=cpptrace/*"]
+        run(install)
+        run(["pnpm", "exec", "node-gyp", "install", "--ensure", "--target=" + electron_version,
+             "--dist-url=https://electronjs.org/headers", "--devdir=" + str(sdk)])
+        # The compile database is what editors' C++ language servers read.
+        configure += ["-DASTERION_NODE_HEADERS=" + str(node_headers),
+                      "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"]
+        run(configure)
+        (build / ".desktop-configure.json").write_text(json.dumps(state, indent=2) + "\n")
+    if mode == "dev":
+        run(["cmake", "--build", "--preset", preset, "--target", *dev_targets(build)])
     else:
-        # Linux uses the Conan profile's compiler. Dependencies build optimized.
-        install += ["-s", "&:build_type=" + configuration, "-s", "build_type=Release"]
-        # Conan's prebuilt cpptrace lacks the host glibc's signal-safe _dl_find_object.
-        install += ["--build=cpptrace/*"]
-    run(install)
-    electron_version = json.loads((ROOT / "node_modules/electron/package.json").read_text())["version"]
-    sdk = ROOT / "build/electron-sdk"
-    run(["pnpm", "exec", "node-gyp", "install", "--ensure", "--target=" + electron_version,
-         "--dist-url=https://electronjs.org/headers", "--devdir=" + str(sdk)])
-    # The compile database is what editors' C++ language servers read.
-    configure += ["-DASTERION_NODE_HEADERS=" + str(sdk / electron_version / "include/node"),
-                  "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"]
-    run(configure)
-    run(["cmake", "--build", "--preset", preset])
+        run(["cmake", "--build", "--preset", preset])
     if mode == "sync":
-        build = ROOT / "build" / configuration
-        if arguments.prepare_python or not list((build / "engine-python").glob("asterion_engine.*")):
+        if arguments.prepare_python or not has_python_home(build) \
+                or not list((build / "engine-python").glob("asterion_engine.*")):
             python_runtime.prepare(build)
         else:
             python_runtime.ensure(build)
         return
-    env["ASTERION_CPP_BUILD"] = str(ROOT / "build" / configuration)
+    env["ASTERION_CPP_BUILD"] = str(build)
     native = ROOT / "build/electron-resources/native"
-    stage_native_resources(ROOT / "build" / configuration, native)
+    native_changed = mode != "dev" or not native_resources_current(build, native)
+    if native_changed:
+        stage_native_resources(build, native)
     if MACOS:
         symbols = ROOT / "build/electron-resources/symbols"
-        symbols.mkdir(parents=True, exist_ok=True)
-        run(["dsymutil", str(ROOT / "build" / configuration / "asterion_terminal.node"),
-             "-o", str(symbols / "asterion_terminal.node.dSYM")])
-    crash_resources.prepare(ROOT / "build" / configuration)
-    if MACOS:
+        dsym = symbols / "asterion_terminal.node.dSYM"
+        if native_changed or not dsym.is_dir():
+            symbols.mkdir(parents=True, exist_ok=True)
+            run(["dsymutil", str(build / "asterion_terminal.node"), "-o", str(dsym)])
+    crash_resources.prepare(build)
+    if MACOS and native_changed:
         verify_macos_target(crash_resources.DESTINATION / "minidump-stackwalk", "13.0")
-    if arguments.prepare_python:
-        python_runtime.prepare(ROOT / "build" / configuration)
+    if arguments.prepare_python or not has_python_home(build) \
+            or not list((build / "engine-python").glob("asterion_engine.*")):
+        python_runtime.prepare(build)
     else:
-        python_runtime.ensure(ROOT / "build" / configuration)
+        python_runtime.ensure(build)
     # Development runs on the prepared runtime; a package ships the manifest
     # its first launch installs from.
     runtime_manifest.verify()
-    run(["pnpm", "build"])
-    # Loading and calling the compiled addon is part of desktop:check.
-    run([sys.executable, str(ROOT / "tests/support/isolated_node.py"), "node",
-         str(ROOT / "tests/desktop/electron_bridge.cjs"), str(native / "asterion_terminal.node")])
+    if mode != "dev":
+        run(["pnpm", "build"])
+    if native_changed:
+        # Loading and calling the compiled addon is part of desktop:check.
+        run([sys.executable, str(ROOT / "tests/support/isolated_node.py"), "node",
+             str(ROOT / "tests/desktop/electron_bridge.cjs"), str(native / "asterion_terminal.node")])
     if mode == "check":
         run(["node", "--check", "apps/clients/terminal/electron/main.cjs"])
         run(["node", "--check", "apps/clients/terminal/electron/preload.cjs"])

@@ -253,6 +253,7 @@ add_dependencies(asterion_terminal_application_tests asterion_warehouse asterion
 target_link_libraries(asterion_terminal_application_tests PRIVATE asio::asio spdlog::spdlog_header_only)
 # desktop: the Electron host
 add_test(NAME desktop_python_startup COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/desktop/python_runtime.py)
+add_test(NAME desktop_dev_incremental COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/desktop/desktop_dev.py)
 find_program(ASTERION_TEST_NODE node REQUIRED)
 add_test(NAME lab_channel COMMAND "${ASTERION_TEST_NODE}" "${CMAKE_CURRENT_SOURCE_DIR}/desktop/lab_channel.cjs")
 if(ASTERION_NODE_HEADERS)
