@@ -128,22 +128,6 @@ const covers = (task: AcquisitionTask, rule: Rule) => {
   );
 };
 
-// Only what the bar can hide: a gap or a late day may be a sliver of it.
-function StateText({ state, children }: { state: State; children: string }) {
-  return children ? (
-    <span className="coverage-state" data-state={state}>
-      {children}
-    </span>
-  ) : null;
-}
-
-const seriesText = (state: State, series: SeriesCoverage | undefined) =>
-  state === "gap"
-    ? t("缺 {days} 天", { days: series?.gapDays ?? 0 })
-    : state === "pending"
-      ? t("待更新")
-      : "";
-
 // A product or delivery year counted by its contracts.
 type Tally = { total: number; held: number; complete: number; gaps: number; pending: number };
 
@@ -168,12 +152,6 @@ const contractsTally = (items: readonly ContractCoverage[], kind: Kind): Tally =
 
 const tallyState = ({ total, held, complete, gaps, pending }: Tally): State =>
   !held ? "none" : gaps ? "gap" : pending ? "pending" : complete === total ? "full" : "early";
-
-function tallyText(tally: Tally) {
-  const state = tallyState(tally);
-  if (state === "gap") return t("缺 {count} 个合约", { count: tally.gaps });
-  return state === "pending" ? t("待更新") : "";
-}
 
 const dayMs = 86_400_000;
 const nextDay = (day: string) => new Date(Date.parse(day) + dayMs).toISOString().slice(0, 10);
@@ -291,9 +269,6 @@ function ContractRow({
       <td />
       <td>
         <Progress pieces={lifePieces(contract, series)} />
-      </td>
-      <td>
-        <StateText state={state}>{seriesText(state, series)}</StateText>
       </td>
       <td>
         {busy ? (
@@ -414,7 +389,6 @@ export function CoverageList({
           <col className="coverage-col-name" />
           <col className="coverage-col-count" />
           <col />
-          <col className="coverage-col-state" />
           <col className="coverage-col-action" />
         </colgroup>
         <thead>
@@ -422,7 +396,6 @@ export function CoverageList({
             <th scope="col">{t("品种")}</th>
             <th scope="col">{t("在市 / 全部")}</th>
             <th scope="col">{t("采集进度")}</th>
-            <th scope="col">{t("状态")}</th>
             <th scope="col" aria-label={t("操作")} />
           </tr>
         </thead>
@@ -480,9 +453,6 @@ export function CoverageList({
                   <Progress pieces={tallyPieces(tally)} />
                 </td>
                 <td>
-                  <StateText state={tallyState(tally)}>{tallyText(tally)}</StateText>
-                </td>
-                <td>
                   {!acquires ? null : busy ? (
                     <span className="coverage-busy">{t("采集中")}</span>
                   ) : needsWork ? (
@@ -501,7 +471,7 @@ export function CoverageList({
               </tr>
               {expanded && !contracts && (
                 <tr data-kind="note">
-                  <td colSpan={5}>{t("读取中")}</td>
+                  <td colSpan={4}>{t("读取中")}</td>
                 </tr>
               )}
               {listed.map(item => (
@@ -525,11 +495,6 @@ export function CoverageList({
                   <td className="coverage-count">{t("{count} 个", { count: history.length })}</td>
                   <td>
                     <Progress pieces={tallyPieces(historyTally)} />
-                  </td>
-                  <td>
-                    <StateText state={tallyState(historyTally)}>
-                      {tallyText(historyTally)}
-                    </StateText>
                   </td>
                   <td>
                     {!acquires || !historyRules.length ? null : historyBusy ? (
@@ -574,11 +539,6 @@ export function CoverageList({
                         </td>
                         <td>
                           <Progress pieces={tallyPieces(yearTally)} />
-                        </td>
-                        <td>
-                          <StateText state={tallyState(yearTally)}>
-                            {tallyText(yearTally)}
-                          </StateText>
                         </td>
                         <td>
                           {!acquires || !rules.length ? null : yearBusy ? (

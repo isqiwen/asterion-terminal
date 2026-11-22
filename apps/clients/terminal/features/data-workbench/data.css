@@ -416,9 +416,6 @@ html[lang="en-US"] .col-act-metric {
 .coverage-col-count {
   width: 104px;
 }
-.coverage-col-state {
-  width: 150px;
-}
 .coverage-col-action {
   width: 104px;
 }
@@ -558,25 +555,6 @@ html[lang="en-US"] .col-act-metric {
 }
 .coverage-lane i:is([data-part="gap"], [data-part="pending"]) {
   min-width: 2px;
-}
-.coverage-state {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.coverage-state::before {
-  content: "";
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--subtle);
-}
-.coverage-state[data-state="gap"]::before {
-  background: var(--warning);
-}
-.coverage-state[data-state="pending"]::before {
-  background: var(--series-2);
 }
 button.coverage-action {
   min-height: 22px;

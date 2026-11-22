@@ -254,10 +254,7 @@ test("products with problems come first and only they count as needing attention
     .map(cell => cell.textContent);
   expect(names).toEqual(["rb螺纹钢SHFE", "au沪金SHFE", "ag沪银SHFE", "pb沪铅SHFE"]);
   const row = (name: RegExp) => within(table).getByRole("rowheader", { name }).closest("tr")!;
-  expect(row(/^rb/).textContent).toContain("缺 1 个合约");
   expect(row(/^rb/).textContent).toContain("2 / 5");
-  expect(row(/^au/).textContent).toContain("待更新");
-  expect(row(/^ag/).textContent).not.toContain("采全");
   fireEvent.click(screen.getByRole("button", { name: "需处理 2" }));
   expect(within(table).queryByRole("rowheader", { name: /^ag/ })).toBeNull();
 });
