@@ -26,6 +26,7 @@ import {
   contractCode,
   CoverageList,
   productRules,
+  type Kind,
   type ProductRow,
   type Rule,
 } from "./CoverageList";
@@ -45,12 +46,15 @@ export function Dataset(context: TerminalContext) {
 function DatasetBody({ context }: { context: TerminalContext }) {
   const paramVersion = context.workspaceParams?.version ?? "";
   const [viewed, setViewed] = useState(paramVersion);
+  const [kind, setKind] = useWorkspaceDraft<Kind>("coverage-kind", "daily");
+  const paramKind = context.workspaceParams?.kind;
   useEffect(() => {
-    if (!paramVersion) return;
-    setViewed(paramVersion);
+    if (!paramVersion && !paramKind) return;
+    if (paramVersion) setViewed(paramVersion);
+    if (paramKind === "daily" || paramKind === "minutes") setKind(paramKind);
     context.navigate("workspace.data-dataset", {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paramVersion]);
+  }, [paramVersion, paramKind]);
   const [exchange, setExchange] = useWorkspaceDraft("coverage-exchange", "");
   const [search, setSearch] = useWorkspaceDraft("coverage-search", "");
   const [openProduct, setOpenProduct] = useWorkspaceDraft("coverage-open", "");
@@ -179,13 +183,13 @@ function DatasetBody({ context }: { context: TerminalContext }) {
   };
   const coverage = state.value?.coverage;
   const version = state.value?.version ?? "";
+  const table = kind === "minutes" ? Table.MINUTES : Table.DAILY;
   const offered = options.value?.tables.map(item => item.table) ?? [];
   const offeredExchanges = useMemo(
-    () => options.value?.tables.find(item => item.table === Table.DAILY)?.exchanges ?? [],
-    [options.value?.tables],
+    () => options.value?.tables.find(item => item.table === table)?.exchanges ?? [],
+    [options.value?.tables, table],
   );
-  const acquires = !viewed && offered.includes(Table.DAILY);
-  const acquiresMinutes = !viewed && offered.includes(Table.MINUTES);
+  const acquires = !viewed && offered.includes(table);
   const locale = getLocale();
   const products = useMemo(
     () =>
@@ -241,12 +245,7 @@ function DatasetBody({ context }: { context: TerminalContext }) {
   ]);
   const held = (row: ProductRow) => !!(row.coverage?.daily?.held || row.coverage?.minutes?.held);
   const needsWork = ({ coverage: item }: ProductRow) =>
-    !!(
-      item?.daily?.withGaps ||
-      item?.daily?.pending ||
-      item?.minutes?.withGaps ||
-      item?.minutes?.pending
-    );
+    !!(item?.[kind]?.withGaps || item?.[kind]?.pending);
   const isMine = (row: ProductRow) => held(row) || mine.has(row.id);
   // An empty warehouse with nothing of the operator's shows everything there is to collect.
   const mineOnly = !everything && !query && rows.some(isMine);
@@ -302,9 +301,9 @@ function DatasetBody({ context }: { context: TerminalContext }) {
             })
           ).contracts
         : [];
-      const rules = productRules(listed);
+      const rules = productRules(listed, kind);
       if (rules.length) start(rules);
-      else setAcquiring({ table: Table.DAILY, preset: { exchanges: [row.exchange] } });
+      else setAcquiring({ table, preset: { exchanges: [row.exchange] } });
     });
 
   const error = state.error || options.error || (!viewed ? versionError : "");
@@ -358,18 +357,25 @@ function DatasetBody({ context }: { context: TerminalContext }) {
       />
       <div className="data-dataset">
         <div className="data-summary" role="group" aria-label={t("数据")}>
-          {[Table.DAILY, Table.MINUTES].map(itemTable => {
+          {(["daily", "minutes"] as const).map(item => {
+            const itemTable = item === "minutes" ? Table.MINUTES : Table.DAILY;
             const entry = summary.tables.find(row => row.table === itemTable);
             const status = freshness(entry);
             const count = (coverage?.products ?? []).reduce(
-              (sum, item) =>
-                itemTable === Table.DAILY
-                  ? sum + Number(!!item.daily?.held)
-                  : sum + (item.minutes?.held ?? 0),
+              (sum, product) =>
+                item === "daily"
+                  ? sum + Number(!!product.daily?.held)
+                  : sum + (product.minutes?.held ?? 0),
               0,
             );
             return (
-              <span key={itemTable} className="data-summary-item">
+              <button
+                key={item}
+                type="button"
+                className="data-summary-item"
+                aria-pressed={kind === item}
+                onClick={() => setKind(item)}
+              >
                 <strong>{tableName(itemTable)}</strong>
                 <span className="data-summary-day">{entry?.lastDay || "—"}</span>
                 {status && <StatusBadge tone={status.tone}>{status.text}</StatusBadge>}
@@ -393,9 +399,26 @@ function DatasetBody({ context }: { context: TerminalContext }) {
                       .join(" · ")}
                   </span>
                 ) : null}
-              </span>
+              </button>
             );
           })}
+          <span className="data-legend" aria-hidden="true">
+            {(
+              [
+                ["held", "已采"],
+                ["part", "部分采集"],
+                ["gap", "缺口"],
+                ["pending", "待更新"],
+                ["empty", "来源无数据"],
+                ["none", "未采集"],
+                ["future", "未到期"],
+              ] as const
+            ).map(([part, label]) => (
+              <span key={part}>
+                <i data-part={part} /> {t(label)}
+              </span>
+            ))}
+          </span>
         </div>
         <div className="data-coverage-body">
           <div className="data-toolbar">
@@ -438,22 +461,6 @@ function DatasetBody({ context }: { context: TerminalContext }) {
                 {t("需处理 {count}", { count: issueCount })}
               </button>
             </search>
-            <span className="data-legend" aria-hidden="true">
-              {(
-                [
-                  ["held", "已采"],
-                  ["gap", "缺口"],
-                  ["pending", "待更新"],
-                  ["empty", "来源无数据"],
-                  ["none", "未采集"],
-                  ["future", "未到期"],
-                ] as const
-              ).map(([part, label]) => (
-                <span key={part}>
-                  <i data-part={part} /> {t(label)}
-                </span>
-              ))}
-            </span>
             {!viewed && (
               <div className="data-toolbar-actions">
                 <Activity
@@ -479,9 +486,7 @@ function DatasetBody({ context }: { context: TerminalContext }) {
                   <button
                     type="button"
                     className="primary"
-                    onClick={() =>
-                      setAcquiring({ table: Table.DAILY, preset: presetFor(Table.DAILY) })
-                    }
+                    onClick={() => setAcquiring({ table, preset: presetFor(table) })}
                   >
                     {t("采集")}
                   </button>
@@ -497,6 +502,7 @@ function DatasetBody({ context }: { context: TerminalContext }) {
               <p className="data-empty subtle">{t("没有匹配的品种或合约")}</p>
             ) : (
               <CoverageList
+                kind={kind}
                 rows={shownRows}
                 contracts={contracts}
                 open={expanded}
@@ -504,7 +510,6 @@ function DatasetBody({ context }: { context: TerminalContext }) {
                 query={query}
                 running={running}
                 acquires={acquires}
-                acquiresMinutes={acquiresMinutes}
                 start={start}
                 collect={collect}
                 view={setChart}
@@ -535,11 +540,8 @@ function DatasetBody({ context }: { context: TerminalContext }) {
         </div>
         {acquiring && (
           <Acquisition
-            key={acquiring.table}
             table={acquiring.table}
             name={tableName(acquiring.table)}
-            tables={acquiresMinutes ? [Table.DAILY, Table.MINUTES] : undefined}
-            chooseTable={table => setAcquiring({ table, preset: presetFor(table) })}
             options={options.value}
             products={products}
             known={known}

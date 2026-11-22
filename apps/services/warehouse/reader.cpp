@@ -291,6 +291,10 @@ void summarize(
                                         : std::min(out.first_day(), item.first_day()));
             out.set_last_day(std::max(out.last_day(), item.last_day()));
         }
+        const bool complete = item.days() && !item.gap_days() && !item.pending_days()
+            && item.open_days() <= item.days() + item.empty_days();
+        out.set_complete(out.complete() + complete);
+        out.set_listed_complete(out.listed_complete() + (complete && contract.listed()));
         out.set_with_gaps(out.with_gaps() + (item.gaps_size() > 0));
         out.set_pending(out.pending() + (item.pending_days() > 0));
         for (const auto& gap : item.gaps())

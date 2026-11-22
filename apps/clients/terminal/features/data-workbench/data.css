@@ -72,17 +72,28 @@
   display: flex;
   flex-wrap: wrap;
   flex-shrink: 0;
-  gap: var(--space-1) var(--space-5);
+  gap: var(--space-1);
   padding: var(--space-2) var(--space-page);
   border-bottom: 1px solid var(--line);
-  color: var(--muted);
-  font-size: var(--font-size-aux);
 }
-.data-summary-item {
+button.data-summary-item {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
+  height: auto;
+  min-height: 32px;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+  white-space: normal;
+}
+button.data-summary-item[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-surface);
 }
 .data-summary-item strong {
   color: var(--text-strong);
@@ -341,6 +352,9 @@ html[lang="en-US"] .col-act-metric {
   color: var(--text);
   font-size: var(--font-size-xs);
 }
+.data-summary > .data-legend {
+  margin-left: auto;
+}
 .data-legend > span {
   display: inline-flex;
   align-items: center;
@@ -354,6 +368,9 @@ html[lang="en-US"] .col-act-metric {
 }
 :is(.data-legend, .coverage-lane) i[data-part="held"] {
   background: color-mix(in oklab, var(--success) 62%, var(--canvas));
+}
+:is(.data-legend, .coverage-lane) i[data-part="part"] {
+  background: color-mix(in oklab, var(--success) 26%, var(--canvas));
 }
 :is(.data-legend, .coverage-lane) i[data-part="gap"] {
   background: var(--warning);
@@ -401,7 +418,7 @@ html[lang="en-US"] .col-act-metric {
   width: 104px;
 }
 .coverage-col-state {
-  width: 132px;
+  width: 190px;
 }
 .coverage-col-action {
   width: 104px;
@@ -462,11 +479,6 @@ html[lang="en-US"] .col-act-metric {
 }
 .coverage-table tr[data-kind="year"] > th {
   padding-left: calc(var(--space-page) + 42px);
-}
-.coverage-table thead small {
-  margin-left: var(--space-2);
-  color: var(--muted);
-  font-size: var(--font-size-xs);
 }
 .coverage-toggle {
   all: unset;
@@ -532,21 +544,12 @@ html[lang="en-US"] .col-act-metric {
   color: var(--muted);
   font-size: var(--font-size-aux);
 }
-.coverage-bar {
-  display: grid;
-  gap: 1px;
-}
 .coverage-lane {
   position: relative;
-  height: 6px;
+  height: 10px;
   overflow: hidden;
+  border-radius: 2px;
   background: var(--pressed);
-}
-.coverage-lane:first-child {
-  border-radius: 2px 2px 0 0;
-}
-.coverage-lane:last-child {
-  border-radius: 0 0 2px 2px;
 }
 .coverage-lane i {
   position: absolute;

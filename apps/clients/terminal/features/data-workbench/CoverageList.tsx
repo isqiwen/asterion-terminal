@@ -7,11 +7,13 @@ import {
   type SeriesCoverage,
   type SeriesSummary,
 } from "../../src/generated/asterion/warehouse_pb";
+import { getLocale } from "../../src/i18n";
 import { Dialog } from "./Dialog";
 import type { startAcquisition } from "./Acquisition";
 import { beijingDay, exchanges, t } from "./dataset";
 
 export type Rule = Parameters<typeof startAcquisition>[0];
+export type Kind = "daily" | "minutes";
 export type ProductRow = {
   id: string;
   name: string;
@@ -30,16 +32,13 @@ const deliveryYear = (id: string) => id.split("/")[2]!.slice(0, 4);
 const throughOf = (contract: ContractCoverage) =>
   contract.delistDay && contract.delistDay < beijingDay(-1) ? contract.delistDay : beijingDay(-1);
 
-export function stateOf(series: SeriesCoverage | undefined): State {
+function stateOf(series: SeriesCoverage | undefined): State {
   if (!series?.days) return series?.emptyDays ? "empty" : "none";
   if (series.gapDays) return "gap";
   if (series.pendingDays) return "pending";
   if (series.openDays > series.days + series.emptyDays) return "early";
   return series.emptyDays ? "empty" : "full";
 }
-
-const summaryState = (series: SeriesSummary | undefined): State =>
-  !series?.held ? "none" : series.withGaps ? "gap" : series.pending ? "pending" : "full";
 
 // What a contract still lacks of its life, as one daily acquisition. Days are
 // stored per exchange, so a gap on a day the exchange holds has to be refetched.
@@ -71,17 +70,28 @@ function dailyRule(contract: ContractCoverage): Rule | undefined {
   };
 }
 
-const minuteRule = (contract: ContractCoverage): Rule => ({
-  table: Table.MINUTES,
-  refetch: false,
-  exchanges: [],
-  instruments: [contract.contract],
-  firstDay: "",
-  lastDay: "",
-});
+// Minutes are stored per contract and day: the contract's whole life, skipping what is held.
+function minuteRule(contract: ContractCoverage): Rule | undefined {
+  const state = stateOf(contract.minutes);
+  return state === "full" || state === "empty"
+    ? undefined
+    : {
+        table: Table.MINUTES,
+        refetch: false,
+        exchanges: [],
+        instruments: [contract.contract],
+        firstDay: "",
+        lastDay: "",
+      };
+}
+
+const ruleOf = (contract: ContractCoverage, kind: Kind) =>
+  kind === "daily" ? dailyRule(contract) : minuteRule(contract);
 
 // One acquisition for days to refetch and one for days never asked for.
 function merged(rules: Rule[]): Rule[] {
+  if (rules[0]?.table === Table.MINUTES)
+    return [{ ...rules[0], instruments: rules.flatMap(rule => rule.instruments) }];
   return [true, false].flatMap(refetch => {
     const group = rules.filter(rule => rule.refetch === refetch);
     return group.length
@@ -97,18 +107,18 @@ function merged(rules: Rule[]): Rule[] {
 }
 
 // A product's listed contracts, and any older one with a gap in what it holds.
-export const productRules = (contracts: ContractCoverage[]) =>
+export const productRules = (contracts: readonly ContractCoverage[], kind: Kind) =>
   merged(
     contracts
-      .filter(item => item.listed || ["gap", "pending"].includes(stateOf(item.daily)))
-      .flatMap(item => dailyRule(item) ?? []),
+      .filter(item => item.listed || ["gap", "pending"].includes(stateOf(item[kind])))
+      .flatMap(item => ruleOf(item, kind) ?? []),
   );
 
-export const covers = (task: AcquisitionTask, rule: Rule) => {
+const covers = (task: AcquisitionTask, rule: Rule) => {
   const asked = task.request!;
   const target = rule.instruments.length
-    ? asked.instruments.some(
-        item => item === rule.instruments[0] || rule.instruments[0]!.startsWith(`${item}/`),
+    ? asked.instruments.some(item =>
+        rule.instruments.some(wanted => wanted === item || wanted.startsWith(`${item}/`)),
       )
     : asked.exchanges.some(item => rule.exchanges.includes(item));
   return (
@@ -137,18 +147,45 @@ const seriesText = (state: State, series: SeriesCoverage | undefined) =>
     empty: t("来源无数据"),
   })[state];
 
-// Some contracts held is progress, not a complete product.
-const summaryDot = (state: State, series: SeriesSummary | undefined, total: number): State =>
-  state === "full" && series!.held < total ? "early" : state;
+// A product or delivery year counted by its contracts.
+type Tally = { total: number; held: number; complete: number; gaps: number; pending: number };
 
-const summaryText = (state: State, series: SeriesSummary | undefined) =>
-  state === "none"
-    ? t("未采集")
-    : state === "gap"
-      ? t("缺 {count} 个合约", { count: series!.withGaps })
-      : state === "pending"
-        ? t("待更新")
-        : t("已采 {count}", { count: series!.held });
+const summaryTally = (total: number, series: SeriesSummary | undefined): Tally => ({
+  total,
+  held: series?.held ?? 0,
+  complete: series?.complete ?? 0,
+  gaps: series?.withGaps ?? 0,
+  pending: series?.pending ?? 0,
+});
+
+const contractsTally = (items: readonly ContractCoverage[], kind: Kind): Tally => {
+  const states = items.filter(item => item[kind]?.days).map(item => stateOf(item[kind]));
+  return {
+    total: items.length,
+    held: states.length,
+    complete: states.filter(state => state === "full" || state === "empty").length,
+    gaps: states.filter(state => state === "gap").length,
+    pending: states.filter(state => state === "pending").length,
+  };
+};
+
+const tallyState = ({ total, held, complete, gaps, pending }: Tally): State =>
+  !held ? "none" : gaps ? "gap" : pending ? "pending" : complete === total ? "full" : "early";
+
+function tallyText(tally: Tally) {
+  const state = tallyState(tally);
+  if (state === "none") return t("未采集");
+  if (state === "gap") return t("缺 {count} 个合约", { count: tally.gaps });
+  if (state === "pending") return t("待更新");
+  if (state === "full") return t("齐全");
+  const part = tally.held - tally.complete;
+  return [
+    tally.complete > 0 && t("采全 {count}", { count: tally.complete }),
+    part > 0 && t("部分 {count}", { count: part }),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 const dayMs = 86_400_000;
 const nextDay = (day: string) => new Date(Date.parse(day) + dayMs).toISOString().slice(0, 10);
@@ -185,15 +222,16 @@ function lifePieces(contract: ContractCoverage, series: SeriesCoverage | undefin
   return pieces;
 }
 
-// A group of contracts: each stretch's length is its share of the group's contracts.
-function countPieces(total: number, held: number, gaps: number, pending: number): Piece[] {
+// A group's bar: each stretch's length is its share of the group's contracts.
+function tallyPieces({ total, held, complete, gaps, pending }: Tally): Piece[] {
   if (!total) return [];
-  const gap = Math.min(gaps, held);
-  const late = Math.min(pending, held - gap);
+  const gap = Math.min(gaps, held - complete);
+  const late = Math.min(pending, held - complete - gap);
   let left = 0;
   return (
     [
-      ["held", held - gap - late],
+      ["held", complete],
+      ["part", held - complete - gap - late],
       ["gap", gap],
       ["pending", late],
     ] as const
@@ -204,30 +242,18 @@ function countPieces(total: number, held: number, gaps: number, pending: number)
   });
 }
 
-// Delivery-year rows add up their contracts' open days, so a part-held contract counts in part.
-const groupPieces = (items: readonly ContractCoverage[], key: "daily" | "minutes") => {
-  const sum = (field: "days" | "openDays" | "gapDays" | "pendingDays") =>
-    items.reduce((total, item) => total + (item[key]?.[field] ?? 0), 0);
-  const [gaps, pending] = [sum("gapDays"), sum("pendingDays")];
-  return countPieces(sum("openDays"), sum("days") + gaps + pending, gaps, pending);
-};
-
-function Progress({ daily, minutes }: { daily: Piece[]; minutes: Piece[] }) {
+function Progress({ pieces }: { pieces: Piece[] }) {
   return (
-    <div className="coverage-bar" aria-hidden="true">
-      {[daily, minutes].map((pieces, lane) => (
-        <div key={lane} className="coverage-lane" data-lane={lane ? "minutes" : "daily"}>
-          {pieces.map(({ part, left, width }) => (
-            <i
-              key={`${part}-${left}`}
-              data-part={part}
-              style={{
-                left: `${(left * 100).toFixed(2)}%`,
-                width: `${(width * 100).toFixed(2)}%`,
-              }}
-            />
-          ))}
-        </div>
+    <div className="coverage-lane" aria-hidden="true">
+      {pieces.map(({ part, left, width }) => (
+        <i
+          key={`${part}-${left}`}
+          data-part={part}
+          style={{
+            left: `${(left * 100).toFixed(2)}%`,
+            width: `${(width * 100).toFixed(2)}%`,
+          }}
+        />
       ))}
     </div>
   );
@@ -235,28 +261,25 @@ function Progress({ daily, minutes }: { daily: Piece[]; minutes: Piece[] }) {
 
 function ContractRow({
   contract,
+  kind,
   nested,
   running,
   acquires,
-  acquiresMinutes,
   start,
   view,
 }: {
   contract: ContractCoverage;
+  kind: Kind;
   nested: boolean;
   running: readonly AcquisitionTask[];
   acquires: boolean;
-  acquiresMinutes: boolean;
   start: (rules: Rule[]) => void;
   view: (contract: string) => void;
 }) {
   const code = contractCode(contract.contract);
-  const daily = contract.daily;
-  const dailyState = stateOf(daily);
-  const minuteState = stateOf(contract.minutes);
-  const rule = acquires ? dailyRule(contract) : undefined;
-  const minutes = minuteRule(contract);
-  const minuteBusy = running.some(task => covers(task, minutes));
+  const series = contract[kind];
+  const state = stateOf(series);
+  const rule = acquires ? ruleOf(contract, kind) : undefined;
   const busy = !!rule && running.some(task => covers(task, rule));
   return (
     <tr data-kind="contract" data-nested={nested || undefined}>
@@ -272,32 +295,10 @@ function ContractRow({
       </th>
       <td className="coverage-listed">{contract.listDay}</td>
       <td>
-        <Progress
-          daily={lifePieces(contract, daily)}
-          minutes={lifePieces(contract, contract.minutes)}
-        />
+        <Progress pieces={lifePieces(contract, series)} />
       </td>
       <td>
-        <StateText state={dailyState}>{seriesText(dailyState, daily)}</StateText>
-      </td>
-      <td>
-        {acquiresMinutes && minuteState !== "full" && minuteState !== "empty" ? (
-          <button
-            type="button"
-            className="coverage-link"
-            disabled={minuteBusy}
-            aria-label={t("采集 {code} 分钟线", { code })}
-            onClick={() => start([minutes])}
-          >
-            {minuteBusy
-              ? t("采集中")
-              : minuteState === "none"
-                ? t("采集")
-                : seriesText(minuteState, contract.minutes)}
-          </button>
-        ) : (
-          <StateText state={minuteState}>{seriesText(minuteState, contract.minutes)}</StateText>
-        )}
+        <StateText state={state}>{seriesText(state, series)}</StateText>
       </td>
       <td>
         {busy ? (
@@ -306,10 +307,10 @@ function ContractRow({
           <button
             type="button"
             className="coverage-action"
-            aria-label={t("补全 {name}", { name: code })}
+            aria-label={t(state === "none" ? "采集 {name}" : "补全 {name}", { name: code })}
             onClick={() => start([rule])}
           >
-            {t("补全")}
+            {state === "none" ? t("采集") : t("补全")}
           </button>
         ) : null}
       </td>
@@ -317,11 +318,12 @@ function ContractRow({
   );
 }
 
-type Confirm = { title: string; from: string; exchange: string; rule: Rule };
+type Confirm = { title: string; from: string; note: string; rule: Rule };
 
-// Products with their contracts: what is held of each, from listing to delisting
-// or the latest day, and one action that takes what is missing.
+// Products with their contracts for one kind of data: what is held of each,
+// from listing to delisting, and one action that takes what is missing.
 export function CoverageList({
+  kind,
   rows,
   contracts,
   open,
@@ -329,11 +331,11 @@ export function CoverageList({
   query,
   running,
   acquires,
-  acquiresMinutes,
   start,
   collect,
   view,
 }: {
+  kind: Kind;
   rows: readonly ProductRow[];
   // Those of the open product, once read.
   contracts: readonly ContractCoverage[] | undefined;
@@ -342,7 +344,6 @@ export function CoverageList({
   query: string;
   running: readonly AcquisitionTask[];
   acquires: boolean;
-  acquiresMinutes: boolean;
   start: (rules: Rule[]) => void;
   collect: (row: ProductRow) => void;
   view: (contract: string) => void;
@@ -350,8 +351,10 @@ export function CoverageList({
   const [historyOpen, setHistoryOpen] = useState("");
   const [yearOpen, setYearOpen] = useState("");
   const [confirm, setConfirm] = useState<Confirm>();
+  const rowTally = (row: ProductRow) =>
+    summaryTally(row.coverage?.contracts ?? 0, row.coverage?.[kind]);
   const rank = (row: ProductRow) => {
-    const state = summaryState(row.coverage?.daily);
+    const state = tallyState(rowTally(row));
     return state === "gap" ? 0 : state === "pending" ? 1 : state === "none" ? 3 : 2;
   };
   const ordered = [...rows].sort(
@@ -363,26 +366,46 @@ export function CoverageList({
   const searching = /\d/.test(query);
   const matches = (item: ContractCoverage) =>
     !searching || contractCode(item.contract).toUpperCase().includes(query);
-  const rowProps = { running, acquires, acquiresMinutes, start, view };
+  const rowProps = { kind, running, acquires, start, view };
 
   const askHistory = (product: string, history: ContractCoverage[], from: string, to: string) => {
     const chosen = history.filter(item => {
       const year = deliveryYear(item.contract);
-      return year >= from && year <= to && !!dailyRule(item);
+      return year >= from && year <= to && !!ruleOf(item, kind);
     });
-    const rules = chosen.flatMap(item => dailyRule(item) ?? []);
+    const rules = chosen.flatMap(item => ruleOf(item, kind) ?? []);
     if (!rules.length) return;
     const years = chosen.map(item => deliveryYear(item.contract));
     const [low, high] = [earliest(years), latest(years)];
+    const title = t("采集 {code} {years} 年交割的 {count} 个合约", {
+      code: product.split("/")[1]!,
+      years: low === high ? low : `${low}–${high}`,
+      count: chosen.length,
+    });
+    if (kind === "minutes") {
+      const requests = chosen.reduce(
+        (sum, { minutes }) =>
+          sum +
+          Math.max(0, (minutes?.openDays ?? 0) - (minutes?.days ?? 0) - (minutes?.emptyDays ?? 0)),
+        0,
+      );
+      setConfirm({
+        title,
+        from: earliest(chosen.map(item => item.listDay || throughOf(item))).slice(0, 7),
+        note: t("分钟线按合约逐日采集，约 {count} 次请求", {
+          count: requests.toLocaleString(getLocale()),
+        }),
+        rule: merged(rules)[0]!,
+      });
+      return;
+    }
     const firstDay = earliest(rules.map(rule => rule.firstDay));
     setConfirm({
-      title: t("采集 {code} {years} 年交割的 {count} 个合约", {
-        code: product.split("/")[1]!,
-        years: low === high ? low : `${low}–${high}`,
-        count: chosen.length,
-      }),
+      title,
       from: firstDay.slice(0, 7),
-      exchange: product.split("/")[0]!,
+      note: t("日线按交易所整日采集，{exchange} 其他品种这些交易日的数据也会入库", {
+        exchange: product.split("/")[0]!,
+      }),
       rule: {
         ...rules[0]!,
         refetch: rules.some(rule => rule.refetch),
@@ -400,40 +423,41 @@ export function CoverageList({
           <col className="coverage-col-count" />
           <col />
           <col className="coverage-col-state" />
-          <col className="coverage-col-state" />
           <col className="coverage-col-action" />
         </colgroup>
         <thead>
           <tr>
             <th scope="col">{t("品种")}</th>
             <th scope="col">{t("在市 / 全部")}</th>
-            <th scope="col">
-              {t("采集进度")} <small>{t("上 日线 · 下 分钟线")}</small>
-            </th>
-            <th scope="col">{t("日线")}</th>
-            <th scope="col">{t("分钟线")}</th>
+            <th scope="col">{t("采集进度")}</th>
+            <th scope="col">{t("状态")}</th>
             <th scope="col" aria-label={t("操作")} />
           </tr>
         </thead>
         {ordered.map(row => {
           const expanded = open === row.id;
-          const daily = row.coverage?.daily;
-          const minutes = row.coverage?.minutes;
-          const dailyState = summaryState(daily);
-          const minuteState = summaryState(minutes);
-          const busy = running.some(
-            task =>
-              task.request!.table === Table.DAILY && task.request!.exchanges.includes(row.exchange),
+          const series = row.coverage?.[kind];
+          const tally = rowTally(row);
+          const needsWork =
+            !series?.held ||
+            !!series.withGaps ||
+            !!series.pending ||
+            series.listedComplete < (row.coverage?.listed ?? 0);
+          const busy = running.some(({ request }) =>
+            kind === "daily"
+              ? request!.table === Table.DAILY && request!.exchanges.includes(row.exchange)
+              : request!.table === Table.MINUTES &&
+                request!.instruments.some(item => item === row.id || item.startsWith(`${row.id}/`)),
           );
           const items = expanded ? (contracts ?? []) : [];
           const listed = items.filter(item => item.listed && matches(item));
           // A historical contract with a gap stays in view; the rest fold by delivery year.
           const history = items.filter(item => !item.listed);
-          const flagged = history.filter(item => stateOf(item.daily) === "gap" && matches(item));
+          const flagged = history.filter(item => stateOf(item[kind]) === "gap" && matches(item));
           const years = [...new Set(history.map(item => deliveryYear(item.contract)))].sort(
             (a, b) => b.localeCompare(a),
           );
-          const historyHeld = history.filter(item => item.daily?.days).length;
+          const historyTally = contractsTally(history, kind);
           const searchedYears = searching
             ? new Set(history.filter(matches).map(item => deliveryYear(item.contract)))
             : undefined;
@@ -458,51 +482,31 @@ export function CoverageList({
                   {row.coverage ? `${row.coverage.listed} / ${row.coverage.contracts}` : "—"}
                 </td>
                 <td>
-                  <Progress
-                    daily={countPieces(
-                      row.coverage?.contracts ?? 0,
-                      daily?.held ?? 0,
-                      daily?.withGaps ?? 0,
-                      daily?.pending ?? 0,
-                    )}
-                    minutes={countPieces(
-                      row.coverage?.contracts ?? 0,
-                      minutes?.held ?? 0,
-                      minutes?.withGaps ?? 0,
-                      minutes?.pending ?? 0,
-                    )}
-                  />
+                  <Progress pieces={tallyPieces(tally)} />
                 </td>
                 <td>
-                  <StateText state={summaryDot(dailyState, daily, row.coverage?.contracts ?? 0)}>
-                    {summaryText(dailyState, daily)}
-                  </StateText>
-                </td>
-                <td>
-                  <StateText state={summaryDot(minuteState, minutes, row.coverage?.contracts ?? 0)}>
-                    {summaryText(minuteState, minutes)}
-                  </StateText>
+                  <StateText state={tallyState(tally)}>{tallyText(tally)}</StateText>
                 </td>
                 <td>
                   {!acquires ? null : busy ? (
                     <span className="coverage-busy">{t("采集中")}</span>
-                  ) : dailyState === "gap" || dailyState === "pending" || dailyState === "none" ? (
+                  ) : needsWork ? (
                     <button
                       type="button"
                       className="coverage-action"
-                      aria-label={t(dailyState === "none" ? "采集 {name}" : "补全 {name}", {
+                      aria-label={t(series?.held ? "补全 {name}" : "采集 {name}", {
                         name: row.id,
                       })}
                       onClick={() => collect(row)}
                     >
-                      {dailyState === "none" ? t("采集") : t("补全")}
+                      {series?.held ? t("补全") : t("采集")}
                     </button>
                   ) : null}
                 </td>
               </tr>
               {expanded && !contracts && (
                 <tr data-kind="note">
-                  <td colSpan={6}>{t("读取中")}</td>
+                  <td colSpan={5}>{t("读取中")}</td>
                 </tr>
               )}
               {listed.map(item => (
@@ -525,13 +529,14 @@ export function CoverageList({
                   </th>
                   <td className="coverage-count">{t("{count} 个", { count: history.length })}</td>
                   <td>
-                    <Progress
-                      daily={groupPieces(history, "daily")}
-                      minutes={groupPieces(history, "minutes")}
-                    />
+                    <Progress pieces={tallyPieces(historyTally)} />
                   </td>
-                  <td className="coverage-note">{t("已采 {count}", { count: historyHeld })}</td>
-                  <td colSpan={2} />
+                  <td>
+                    <StateText state={tallyState(historyTally)}>
+                      {tallyText(historyTally)}
+                    </StateText>
+                  </td>
+                  <td />
                 </tr>
               )}
               {showHistory &&
@@ -539,13 +544,11 @@ export function CoverageList({
                   .filter(year => !searchedYears || searchedYears.has(year))
                   .map(year => {
                     const inYear = history.filter(item => deliveryYear(item.contract) === year);
-                    const held = inYear.filter(item => item.daily?.days).length;
-                    const lacking = inYear.filter(item => !!dailyRule(item)).length;
-                    const withGaps = inYear.filter(item => stateOf(item.daily) === "gap").length;
+                    const yearTally = contractsTally(inYear, kind);
+                    const rules = inYear.flatMap(item => ruleOf(item, kind) ?? []);
                     const yearKey = `${row.id}/${year}`;
                     const shown = yearOpen === yearKey || !!searchedYears;
-                    const yearRule = inYear.flatMap(item => dailyRule(item) ?? [])[0];
-                    const yearBusy = !!yearRule && running.some(task => covers(task, yearRule));
+                    const yearBusy = rules.some(rule => running.some(task => covers(task, rule)));
                     return [
                       <tr key={year} data-kind="year">
                         <th scope="row">
@@ -559,45 +562,31 @@ export function CoverageList({
                           </button>
                         </th>
                         <td className="coverage-count">
-                          {held} / {inYear.length}
+                          {yearTally.held} / {inYear.length}
                         </td>
                         <td>
-                          <Progress
-                            daily={groupPieces(inYear, "daily")}
-                            minutes={groupPieces(inYear, "minutes")}
-                          />
+                          <Progress pieces={tallyPieces(yearTally)} />
                         </td>
                         <td>
-                          {!held ? (
-                            <StateText state="none">{t("未采集")}</StateText>
-                          ) : withGaps ? (
-                            <StateText state="gap">
-                              {t("缺 {count} 个", { count: withGaps })}
-                            </StateText>
-                          ) : lacking ? (
-                            <StateText state="early">
-                              {t("{count} 个未采全", { count: lacking })}
-                            </StateText>
-                          ) : (
-                            <StateText state="full">{t("齐全")}</StateText>
-                          )}
+                          <StateText state={tallyState(yearTally)}>
+                            {tallyText(yearTally)}
+                          </StateText>
                         </td>
-                        <td />
                         <td>
-                          {!acquires || !lacking ? null : yearBusy ? (
+                          {!acquires || !rules.length ? null : yearBusy ? (
                             <span className="coverage-busy">{t("采集中")}</span>
                           ) : (
                             <button
                               type="button"
                               className="coverage-action"
-                              aria-label={t(held ? "补全 {name}" : "采到 {name}", {
+                              aria-label={t(yearTally.held ? "补全 {name}" : "采到 {name}", {
                                 name: `${row.id} ${year}`,
                               })}
                               onClick={() =>
-                                askHistory(row.id, history, year, held ? year : newest)
+                                askHistory(row.id, history, year, yearTally.held ? year : newest)
                               }
                             >
-                              {held ? t("补全") : t("采到这年")}
+                              {yearTally.held ? t("补全") : t("采到这年")}
                             </button>
                           )}
                         </td>
@@ -625,11 +614,7 @@ export function CoverageList({
           <p className="coverage-confirm">
             {t("数据大约从 {month} 开始", { month: confirm.from })}
           </p>
-          <p className="subtle">
-            {t("日线按交易所整日采集，{exchange} 其他品种这些交易日的数据也会入库", {
-              exchange: confirm.exchange,
-            })}
-          </p>
+          <p className="subtle">{confirm.note}</p>
           <div className="data-actions">
             <button type="button" onClick={() => setConfirm(undefined)}>
               {t("取消")}

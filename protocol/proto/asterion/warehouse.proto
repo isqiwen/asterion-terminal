@@ -219,6 +219,9 @@ message SeriesSummary {
   string last_day = 5;
   // The contracts' gaps merged.
   repeated DayRange gaps = 6;
+  // Contracts holding every open day of their life so far, and those still listed.
+  uint32 complete = 7;
+  uint32 listed_complete = 8;
 }
 
 message ProductRef {

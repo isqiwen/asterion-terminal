@@ -716,6 +716,8 @@ TEST_F(Warehouse, CoverageFindsTheOneContractMissingADay)
     ASSERT_EQ(coverage.products_size(), 1);
     EXPECT_EQ(coverage.products(0).listed(), 2);
     EXPECT_EQ(coverage.products(0).daily().with_gaps(), 1);
+    EXPECT_EQ(coverage.products(0).daily().complete(), 1);
+    EXPECT_EQ(coverage.products(0).daily().listed_complete(), 1);
     ASSERT_EQ(coverage.products(0).daily().gaps_size(), 1);
     EXPECT_EQ(coverage.products(0).daily().gaps(0).first(), "2026-10-29");
     wire::ProductRef product;

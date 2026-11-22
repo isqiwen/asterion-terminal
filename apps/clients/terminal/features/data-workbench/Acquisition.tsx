@@ -6,7 +6,7 @@ import type { AcquisitionOptions } from "../../src/generated/asterion/warehouse_
 import { ActionError, useActionError } from "../../src/host/action-error";
 import { ContractPicker } from "./ContractPicker";
 import { Dialog } from "./Dialog";
-import { beijingDay, exchanges, t, tableName } from "./dataset";
+import { beijingDay, exchanges, t } from "./dataset";
 
 const day = beijingDay;
 
@@ -39,8 +39,6 @@ export function Acquisition({
   products,
   known,
   preset,
-  tables,
-  chooseTable,
   close,
   started,
 }: {
@@ -50,9 +48,6 @@ export function Acquisition({
   products: string[];
   known: string[];
   preset: Preset;
-  // Offered when the dialog can take either of several tables.
-  tables?: readonly Table[];
-  chooseTable?: (table: Table) => void;
   close: () => void;
   started: () => void;
 }) {
@@ -101,20 +96,6 @@ export function Acquisition({
           void start();
         }}
       >
-        {tables && (
-          <div className="tabs" role="group" aria-label={t("数据类型")}>
-            {tables.map(item => (
-              <button
-                key={item}
-                type="button"
-                aria-pressed={item === table}
-                onClick={() => item !== table && chooseTable?.(item)}
-              >
-                {tableName(item)}
-              </button>
-            ))}
-          </div>
-        )}
         {minutes ? (
           <ContractPicker
             products={products}

@@ -159,7 +159,13 @@ function serve({
                       product: "SHFE/ag",
                       contracts: 2,
                       listed: 2,
-                      daily: { held: 2, firstDay: "2026-07-01", lastDay: "2026-10-30" },
+                      daily: {
+                        held: 2,
+                        complete: 1,
+                        listedComplete: 1,
+                        firstDay: "2026-07-01",
+                        lastDay: "2026-10-30",
+                      },
                     },
                     {
                       product: "SHFE/au",
@@ -173,6 +179,8 @@ function serve({
                       listed: 2,
                       daily: {
                         held: 4,
+                        complete: 2,
+                        listedComplete: 1,
                         withGaps: 1,
                         firstDay: "2025-07-01",
                         lastDay: "2026-10-30",
@@ -216,6 +224,12 @@ const submitted = () =>
 const startInDialog = () =>
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "开始采集" }));
 const list = () => screen.findByRole("table", { name: "品种覆盖" });
+const showKind = (name: "日线" | "分钟线") =>
+  fireEvent.click(
+    within(screen.getByRole("group", { name: "数据" })).getByRole("button", {
+      name: new RegExp(`^${name}`),
+    }),
+  );
 const openRebar = async () => {
   fireEvent.click(within(await list()).getByRole("button", { name: /^rb\s*螺纹钢/ }));
   await screen.findByRole("button", { name: "查看 rb2701" });
@@ -264,7 +278,7 @@ test("products with problems come first and only they count as needing attention
   expect(row(/^rb/).textContent).toContain("缺 1 个合约");
   expect(row(/^rb/).textContent).toContain("2 / 5");
   expect(row(/^au/).textContent).toContain("待更新");
-  expect(row(/^ag/).textContent).toContain("已采 2");
+  expect(row(/^ag/).textContent).toContain("采全 1 · 部分 1");
   fireEvent.click(screen.getByRole("button", { name: "需处理 2" }));
   expect(within(table).queryByRole("rowheader", { name: /^ag/ })).toBeNull();
 });
@@ -277,7 +291,7 @@ test("a product opens on its listed contracts with history folded by delivery ye
   expect(within(table).queryByRole("button", { name: "查看 rb2610" })).toBeNull();
   const history = within(table).getByRole("button", { name: "历史合约" }).closest("tr")!;
   expect(history.textContent).toContain("3 个");
-  expect(history.textContent).toContain("已采 2");
+  expect(history.textContent).toContain("采全 1 · 部分 1");
   fireEvent.click(within(history).getByRole("button", { name: "历史合约" }));
   const year = (value: string) =>
     within(table)
@@ -285,36 +299,41 @@ test("a product opens on its listed contracts with history folded by delivery ye
       .closest("tr")!;
   expect(year("2026").textContent).toContain("1 / 1");
   expect(year("2026").textContent).toContain("齐全");
-  expect(year("2025").textContent).toContain("1 个未采全");
+  expect(year("2025").textContent).toContain("部分 1");
   expect(year("2024").textContent).toContain("未采集");
   fireEvent.click(within(year("2026")).getByRole("button", { name: "2026 年交割" }));
   expect(within(table).getByRole("button", { name: "查看 rb2610" })).toBeTruthy();
 });
 
-test("one bar shows a contract's whole life, daily over minutes, by share of time", async () => {
+test("the page shows one kind of data at a time, each contract's whole life by share of time", async () => {
   serve();
   view(context());
   await openRebar();
-  const lane = (code: string, name: "daily" | "minutes") =>
-    screen
-      .getByRole("button", { name: `查看 ${code}` })
-      .closest("tr")!
-      .querySelector(`[data-lane="${name}"]`)!;
-  const parts = (element: Element) =>
-    [...element.querySelectorAll("i")].map(item => item.dataset.part);
-  expect(parts(lane("rb2702", "daily"))).toEqual(["future", "held", "gap"]);
-  expect(parts(lane("rb2702", "minutes"))).toEqual(["future"]);
-  expect(parts(lane("rb2701", "minutes"))).toEqual(["future", "held"]);
+  const parts = (code: string) =>
+    [
+      ...screen
+        .getByRole("button", { name: `查看 ${code}` })
+        .closest("tr")!
+        .querySelectorAll<HTMLElement>(".coverage-lane i"),
+    ].map(item => item.dataset.part);
+  expect(parts("rb2702")).toEqual(["future", "held", "gap"]);
   fireEvent.click(screen.getByRole("button", { name: "历史合约" }));
   fireEvent.click(screen.getByRole("button", { name: "2026 年交割" }));
   // A delisted contract held from listing to delisting fills the bar.
-  const whole = lane("rb2610", "daily").querySelector("i")!;
+  const whole = screen
+    .getByRole("button", { name: "查看 rb2610" })
+    .closest("tr")!
+    .querySelector<HTMLElement>(".coverage-lane i")!;
   expect(whole.dataset.part).toBe("held");
   expect(parseFloat(whole.style.left)).toBe(0);
   expect(parseFloat(whole.style.width)).toBe(100);
+
+  showKind("分钟线");
+  expect(parts("rb2701")).toEqual(["future", "held"]);
+  expect(parts("rb2702")).toEqual(["future"]);
 });
 
-test("a contract is completed at once: gaps are refetched and minutes take its whole life", async () => {
+test("a contract is completed at once for the kind on show", async () => {
   serve();
   view(context());
   await openRebar();
@@ -328,7 +347,8 @@ test("a contract is completed at once: gaps are refetched and minutes take its w
     firstDay: "2026-09-10",
     lastDay: "2026-09-11",
   });
-  fireEvent.click(screen.getByRole("button", { name: "采集 rb2702 分钟线" }));
+  showKind("分钟线");
+  fireEvent.click(screen.getByRole("button", { name: "采集 rb2702" }));
   await waitFor(() => expect(submitted()).toHaveLength(2));
   expect(submitted()[1]).toMatchObject({
     table: Table.MINUTES,
@@ -359,7 +379,26 @@ test("going back to a year confirms how many contracts and from when", async () 
   });
 });
 
-test("a month an active task covers cannot be started again", async () => {
+test("going back in minutes names every contract and the requests it takes", async () => {
+  serve();
+  view(context());
+  await openRebar();
+  showKind("分钟线");
+  fireEvent.click(screen.getByRole("button", { name: "历史合约" }));
+  fireEvent.click(screen.getByRole("button", { name: "采到 SHFE/rb 2024" }));
+  const dialog = screen.getByRole("dialog", { name: "采集 rb 2024–2026 年交割的 3 个合约" });
+  expect(dialog.textContent).toContain("次请求");
+  startInDialog();
+  await waitFor(() => expect(submitted()).toHaveLength(1));
+  expect(submitted()[0]).toMatchObject({
+    table: Table.MINUTES,
+    instruments: ["SHFE/rb/2024-10", "SHFE/rb/2025-10", "SHFE/rb/2026-10"],
+    firstDay: "",
+    lastDay: "",
+  });
+});
+
+test("a contract an active task covers cannot be started again", async () => {
   serve({
     tasks: () => ({
       tasks: [
@@ -387,12 +426,12 @@ test("a month an active task covers cannot be started again", async () => {
   });
   view(context());
   await openRebar();
-  await waitFor(() =>
-    expect(
-      (screen.getByRole("button", { name: "采集 rb2702 分钟线" }) as HTMLButtonElement).disabled,
-    ).toBe(true),
-  );
   expect(screen.getByRole("button", { name: "补全 rb2702" })).toBeTruthy();
+  showKind("分钟线");
+  await waitFor(() => expect(screen.queryByRole("button", { name: "采集 rb2702" })).toBeNull());
+  expect(
+    within(screen.getByRole("button", { name: "查看 rb2702" }).closest("tr")!).getByText("采集中"),
+  ).toBeTruthy();
 });
 
 test("searching a contract code opens its product and shows that contract", async () => {
@@ -456,13 +495,8 @@ test("minute acquisition submits one task, prerequisite requests show live progr
   view(props);
   await list();
 
+  showKind("分钟线");
   fireEvent.click(screen.getByRole("button", { name: "采集" }));
-  fireEvent.click(
-    within(within(screen.getByRole("dialog")).getByRole("group", { name: "数据类型" })).getByRole(
-      "button",
-      { name: "分钟线" },
-    ),
-  );
   const dialog = screen.getByRole("dialog", { name: "采集 分钟线" });
   expect(within(dialog).queryByLabelText("数据源")).toBeNull();
   const picker = within(dialog).getByRole("group", { name: "品种或合约" });
@@ -598,7 +632,7 @@ test("an unreachable warehouse shows an inline error with retry and settings act
   await waitFor(() => expect(request.mock.calls.length).toBeGreaterThan(2));
 });
 
-test("my products include running dominant series", async () => {
+test("my products include running dominant series and a kind link opens that kind", async () => {
   serve();
   vi.mocked(tradingRequest).mockImplementation(async (_id, operation) =>
     operation.case === "getStrategies"
@@ -617,13 +651,20 @@ test("my products include running dominant series", async () => {
         })
       : create(ResponseSchema, { result: { case: "getAccount", value: {} } }),
   );
+  const props = context({ kind: "minutes" });
   render(
     <TradingAccountsProvider connections={[{ id: "sim", revision: "1" }]}>
       <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.data-dataset">
-        <Dataset {...context()} />
+        <Dataset {...props} />
       </WorkspaceDraftScope>
     </TradingAccountsProvider>,
   );
   const table = await list();
   await waitFor(() => expect(within(table).getByRole("rowheader", { name: /^zn/ })).toBeTruthy());
+  expect(
+    within(screen.getByRole("group", { name: "数据" }))
+      .getByRole("button", { name: /^分钟线/ })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
+  expect(props.navigate).toHaveBeenCalledWith("workspace.data-dataset", {});
 });
