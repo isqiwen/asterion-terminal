@@ -10,15 +10,25 @@ import { beijingDay, exchanges, t } from "./dataset";
 
 const day = beijingDay;
 
-// What a coverage gap or the view's button opens the dialog with.
+// What the view's button opens the dialog with.
 export type Preset = {
   exchanges?: string[];
-  instruments?: string[];
   first?: string;
   last?: string;
-  // Set by a coverage cell, whose state decides it; otherwise the user chooses.
-  refetch?: boolean;
 };
+
+export const startAcquisition = (request: {
+  table: Table;
+  refetch: boolean;
+  exchanges: string[];
+  instruments: string[];
+  firstDay: string;
+  lastDay: string;
+}) =>
+  warehouseData({
+    case: "startAcquisition",
+    value: { id: `acq-${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`, ...request },
+  });
 
 // Daily bars are acquired whole-day per exchange; minute bars are acquired by
 // product (all listed contracts in the span) or individual contract.
@@ -51,10 +61,10 @@ export function Acquisition({
   const [chosenExchanges, setExchanges] = useState(
     initialExchanges?.length ? initialExchanges : offeredExchanges.slice(0, 1),
   );
-  const [instruments, setInstruments] = useState(preset.instruments ?? []);
+  const [instruments, setInstruments] = useState<string[]>([]);
   const [begin, setBegin] = useState(preset.first ?? (minutes ? "" : day(-30)));
   const [end, setEnd] = useState(preset.last ?? (minutes ? "" : day(-1)));
-  const [replace, setReplace] = useState(!!preset.refetch);
+  const [replace, setReplace] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const failure = useActionError();
   const disabled =
@@ -65,17 +75,13 @@ export function Acquisition({
     if (disabled) return;
     setSubmitting(true);
     const done = await failure.attempt(async () => {
-      await warehouseData({
-        case: "startAcquisition",
-        value: {
-          id: `acq-${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`,
-          table,
-          refetch: replace,
-          exchanges: minutes ? [] : chosenExchanges,
-          instruments: minutes ? instruments : [],
-          firstDay: begin,
-          lastDay: end,
-        },
+      await startAcquisition({
+        table,
+        refetch: replace,
+        exchanges: minutes ? [] : chosenExchanges,
+        instruments: minutes ? instruments : [],
+        firstDay: begin,
+        lastDay: end,
       });
     });
     setSubmitting(false);
@@ -144,16 +150,14 @@ export function Acquisition({
           </label>
         </div>
         {minutes && <p className="subtle data-dialog-hint">{t("日期留空即整个上市期")}</p>}
-        {preset.refetch === undefined && (
-          <label className="data-checkbox-line">
-            <input
-              type="checkbox"
-              checked={replace}
-              onChange={event => setReplace(event.target.checked)}
-            />
-            {t("重新采集已有分区")}
-          </label>
-        )}
+        <label className="data-checkbox-line">
+          <input
+            type="checkbox"
+            checked={replace}
+            onChange={event => setReplace(event.target.checked)}
+          />
+          {t("重新采集已有分区")}
+        </label>
         <ActionError error={failure.error} namespace="asterion.terminal.data-workbench" />
         <div className="data-actions">
           <button type="button" onClick={close}>

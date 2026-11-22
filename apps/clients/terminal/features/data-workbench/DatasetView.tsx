@@ -18,7 +18,7 @@ import { getLocale } from "../../src/i18n";
 import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
 import { knownProducts, warehouseName } from "../../src/ui/contract-names";
 import { StatusBadge } from "../../src/ui/StatusBadge";
-import { Acquisition, type Preset } from "./Acquisition";
+import { Acquisition, startAcquisition, type Preset } from "./Acquisition";
 import { Activity, activeTask } from "./Activity";
 import { VersionBanner, WarehousePage, WarehouseUnavailable } from "./Page";
 import { beijingDay, exchanges, freshness, t, tableName } from "./dataset";
@@ -278,6 +278,29 @@ function DatasetBody({ context }: { context: TerminalContext }) {
 
   const minutes = kind === "minutes";
   const table = minutes ? Table.MINUTES : Table.DAILY;
+  const filling = useRef(new Set<string>());
+  // A cell needs no choices: daily and product rows take the month, a contract its whole life.
+  const fill = (id: string, month: string, cell: Cell) => {
+    const key = `${table}/${id}/${month}`;
+    if (filling.current.has(key)) return;
+    filling.current.add(key);
+    const { first, last } = monthRange(month);
+    const wholeLife = minutes && id.split("/").length === 3;
+    void update
+      .attempt(async () => {
+        await startAcquisition({
+          table,
+          // Daily days are stored per exchange: one holding other products is skipped unless refetched.
+          refetch: !minutes && (cell === "partial" || cell === "missing"),
+          exchanges: minutes ? [] : [id.split("/")[0]!],
+          instruments: minutes ? [id] : [],
+          firstDay: wholeLife ? "" : first,
+          lastDay: wholeLife ? "" : last,
+        });
+        await refreshAll();
+      })
+      .finally(() => filling.current.delete(key));
+  };
   const coverage = state.value?.coverage;
   const offered = options.value?.tables.map(item => item.table) ?? [];
   const offeredExchanges = useMemo(
@@ -436,6 +459,19 @@ function DatasetBody({ context }: { context: TerminalContext }) {
     (!warehouse.nextTaskId || warehouse.tasks.length >= shown);
   const tasks = sharedPage ? warehouse.tasks! : state.value.tasks;
   const older = sharedPage ? warehouse.nextTaskId !== "" : state.value.older;
+  const running = tasks.filter(item => activeTask(item) && item.request!.table === table);
+  // A click on a month already being acquired would only queue a repeat.
+  const acquiringMonth = (row: Row, month: string) =>
+    running.some(({ request }) => {
+      const { exchanges, instruments, firstDay, lastDay } = request!;
+      return (
+        (minutes
+          ? instruments.some(item => row.id === item || row.id.startsWith(`${item}/`))
+          : exchanges.includes(row.exchange)) &&
+        (!firstDay || firstDay.slice(0, 7) <= month) &&
+        (!lastDay || month <= lastDay.slice(0, 7))
+      );
+    });
   const presetFor = (target: Table): Preset => {
     const item = summary.tables.find(entry => entry.table === target);
     const selectedExchange = exchange || present[0];
@@ -615,23 +651,8 @@ function DatasetBody({ context }: { context: TerminalContext }) {
                 months={matrixMonths}
                 label={minutes ? t("分钟线覆盖") : t("日线覆盖")}
                 heading={minutes ? t("合约") : t("品种")}
-                onFill={
-                  acquires
-                    ? (id, month, state) =>
-                        setAcquiring({
-                          table,
-                          preset: minutes
-                            ? { instruments: [id], ...monthRange(month), refetch: false }
-                            : {
-                                exchanges: [id.split("/")[0]!],
-                                ...monthRange(month),
-                                // Daily days are stored per exchange: one holding other
-                                // products is skipped unless refetched.
-                                refetch: state === "partial" || state === "missing",
-                              },
-                        })
-                    : undefined
-                }
+                onFill={acquires ? fill : undefined}
+                acquiring={acquiringMonth}
               />
               {minutes && !query && shownRows.length > 200 && (
                 <p className="data-coverage-note subtle">
@@ -667,12 +688,14 @@ function Matrix({
   label,
   heading,
   onFill,
+  acquiring,
 }: {
   rows: Row[];
   months: string[];
   label: string;
   heading: string;
   onFill?: (id: string, month: string, state: Cell) => void;
+  acquiring: (row: Row, month: string) => boolean;
 }) {
   const latestMonth = beijingDay(-1).slice(0, 7);
   const groups = exchanges
@@ -753,15 +776,18 @@ function Matrix({
                         state === "unacquired");
                     const text = cellText(cell, state, fillable);
                     const action = t("补采 {target} {month}", { target: row.id, month });
+                    const busy = fillable && acquiring(row, month);
                     return (
                       <td key={month} data-cell={state} aria-description={cell && describe(cell)}>
                         {fillable ? (
                           <button
                             type="button"
+                            disabled={busy}
+                            aria-busy={busy}
                             aria-label={text && text !== "+" ? `${action} (${text})` : action}
                             onClick={() => onFill(row.id, month, state)}
                           >
-                            {text === "+" ? <span aria-hidden="true">+</span> : text}
+                            {text !== "+" ? text : busy ? "…" : <span aria-hidden="true">+</span>}
                           </button>
                         ) : (
                           text

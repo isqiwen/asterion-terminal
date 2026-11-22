@@ -256,19 +256,13 @@ test("monthly coverage shows localized product names and gaps submit a single ba
 
   // Past unacquired months (before the earliest stored month) are also clickable.
   fireEvent.click(screen.getByRole("button", { name: "补采 SHFE/rb 2026-06" }));
-  expect(
-    (within(screen.getByRole("dialog")).getByLabelText("开始日期") as HTMLInputElement).value,
-  ).toBe("2026-06-01");
-  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "取消" }));
-
-  fireEvent.click(screen.getByRole("button", { name: "补采 SHFE/rb 2026-08" }));
-  startInDialog();
   await waitFor(() => expect(submitted().map(item => item.table)).toEqual([Table.DAILY]));
+  expect(screen.queryByRole("dialog")).toBeNull();
   expect(submitted()[0]).toMatchObject({
     exchanges: ["SHFE"],
     instruments: [],
-    firstDay: "2026-08-01",
-    lastDay: "2026-08-31",
+    firstDay: "2026-06-01",
+    lastDay: "2026-06-30",
   });
 });
 
@@ -286,14 +280,10 @@ test("the key lists every state whatever is on screen, and delisted only for con
   expect(key()).toEqual([...daily, "已摘牌"]);
 });
 
-test("a coverage cell decides the refetch and the acquire button leaves it to the user", async () => {
+test("a coverage cell starts by its state and the acquire button leaves the choice to the user", async () => {
   serve();
   view(context());
   await screen.findByRole("table", { name: "日线覆盖" });
-  const option = () =>
-    within(screen.getByRole("dialog")).queryByRole<HTMLInputElement>("checkbox", {
-      name: "重新采集已有分区",
-    });
   const cases = [
     [/^补采 SHFE\/rb 2026-06/, false], // not acquired
     [/^补采 SHFE\/ag 2026-10/, false], // awaiting update
@@ -302,15 +292,54 @@ test("a coverage cell decides the refetch and the acquire button leaves it to th
   ] as const;
   for (const [index, [name, refetch]] of cases.entries()) {
     fireEvent.click(screen.getByRole("button", { name }));
-    expect(option()).toBeNull();
-    startInDialog();
     await waitFor(() => expect(submitted()).toHaveLength(index + 1));
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(submitted()[index]).toMatchObject({ exchanges: ["SHFE"], refetch });
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   }
 
   fireEvent.click(screen.getByRole("button", { name: "采集" }));
-  expect(option()!.checked).toBe(false);
+  const option = within(screen.getByRole("dialog")).getByRole<HTMLInputElement>("checkbox", {
+    name: "重新采集已有分区",
+  });
+  expect(option.checked).toBe(false);
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "取消" }));
+
+  show("分钟线");
+  fireEvent.click(await screen.findByRole("button", { name: /^补采 SHFE\/cu\/2026-12 2026-10/ }));
+  await waitFor(() => expect(submitted()).toHaveLength(cases.length + 1));
+  expect(submitted().at(-1)).toMatchObject({
+    instruments: ["SHFE/cu/2026-12"],
+    refetch: false,
+    firstDay: "",
+    lastDay: "",
+  });
+});
+
+test("a month an active task covers cannot be started again", async () => {
+  serve({
+    tasks: () => ({
+      tasks: [
+        create(AcquisitionTaskSchema, {
+          request: {
+            id: "acq-running",
+            table: Table.DAILY,
+            exchanges: ["SHFE"],
+            firstDay: "2026-09-01",
+            lastDay: "2026-09-30",
+          },
+          state: TaskState.RUNNING,
+        }),
+      ],
+      nextId: "",
+    }),
+  });
+  view(context());
+  await screen.findByRole("table", { name: "日线覆盖" });
+  const busy = await screen.findByRole("button", { name: /^补采 SHFE\/rb 2026-09/ });
+  await waitFor(() => expect((busy as HTMLButtonElement).disabled).toBe(true));
+  expect(
+    (screen.getByRole("button", { name: /^补采 SHFE\/rb 2026-08/ }) as HTMLButtonElement).disabled,
+  ).toBe(false);
 });
 
 test("the matrix lists the products held or watched until all products are asked for", async () => {
@@ -380,17 +409,8 @@ test("minute acquisition submits one task, prerequisite requests show live progr
   expect(activeCells[11]!.getAttribute("data-cell")).toBe("future");
   expect(activeCells[11]!.textContent).toBe("");
 
-  fireEvent.click(screen.getByRole("button", { name: /^补采 SHFE\/cu\/2026-12 2026-10/ }));
-  let dialog = screen.getByRole("dialog", { name: "采集 分钟线" });
-  expect(within(dialog).getByRole("button", { name: "移除 SHFE/cu/2026-12" })).toBeTruthy();
-  expect(
-    (within(dialog).getByRole("checkbox", { name: /^整个品种 · SHFE\/cu/ }) as HTMLInputElement)
-      .indeterminate,
-  ).toBe(true);
-  fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
-
   fireEvent.click(screen.getByRole("button", { name: "采集" }));
-  dialog = screen.getByRole("dialog", { name: "采集 分钟线" });
+  const dialog = screen.getByRole("dialog", { name: "采集 分钟线" });
   expect(within(dialog).queryByLabelText("数据源")).toBeNull();
   const picker = within(dialog).getByRole("group", { name: "品种或合约" });
   fireEvent.click(within(picker).getByRole("button", { name: /^SHFE\/rb/ }));
@@ -517,9 +537,6 @@ test("an empty warehouse offers exchanges, continuous years, and clickable rows 
   show("分钟线");
   await screen.findByRole("table", { name: "分钟线覆盖" });
   fireEvent.click(screen.getByRole("button", { name: "补采 CFFEX/ic 2025-08" }));
-  const dialog = screen.getByRole("dialog", { name: "采集 分钟线" });
-  expect(within(dialog).getByRole("button", { name: "移除 CFFEX/ic" })).toBeTruthy();
-  startInDialog();
   await waitFor(() => expect(submitted().map(item => item.table)).toEqual([Table.MINUTES]));
   expect(submitted()[0]).toMatchObject({
     instruments: ["CFFEX/ic"],

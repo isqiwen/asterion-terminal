@@ -759,18 +759,26 @@ button.picker-chip small {
   border-radius: inherit;
   cursor: pointer;
 }
-.coverage-matrix td:has(> button):hover {
+.coverage-matrix td:has(> button:enabled):hover {
   border-style: solid;
   border-color: var(--accent);
   background: color-mix(in oklab, var(--accent) 18%, var(--raised));
   color: var(--text-strong);
 }
-.coverage-matrix td:has(> button):active {
+.coverage-matrix td:has(> button:enabled):active {
   background: color-mix(in oklab, var(--accent) 26%, var(--raised));
 }
 .coverage-matrix td > button:enabled:is(:hover, :active) {
   background: none;
   color: inherit;
+}
+/* The cell keeps receiving the pointer so its detail still shows. */
+.coverage-matrix td:has(> button:disabled) {
+  cursor: progress;
+  opacity: 0.6;
+}
+.coverage-matrix td > button:disabled {
+  pointer-events: none;
 }
 .coverage-matrix td > button:focus-visible {
   outline: 2px solid var(--accent);
