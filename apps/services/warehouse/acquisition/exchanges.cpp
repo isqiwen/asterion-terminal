@@ -217,14 +217,17 @@ shanghai_members(const std::string& exchange, const std::string& day, const Json
     Cell published;
     if (root.contains("update_date")) {
         const auto label = text(root.at("update_date"));
-        static const std::regex clock("[0-9]{8} [0-9]{2}:[0-9]{2}:[0-9]{2}");
-        if (!std::regex_match(label, clock))
+        // 能源中心多年的原报在日期和时间之间没有空格。
+        static const std::regex clock(
+            "([0-9]{4})([0-9]{2})([0-9]{2}) ?([0-9]{2}):([0-9]{2}):([0-9]{2})");
+        std::smatch at;
+        if (!std::regex_match(label, at, clock))
             throw std::invalid_argument("invalid exchange report update time");
-        const auto hour = std::stoi(label.substr(9, 2)), minute = std::stoi(label.substr(12, 2)),
-                   second = std::stoi(label.substr(15, 2));
+        const auto hour = std::stoi(at.str(4)), minute = std::stoi(at.str(5)),
+                   second = std::stoi(at.str(6));
         if (hour > 23 || minute > 59 || second > 59)
             throw std::invalid_argument("invalid exchange report update time");
-        const auto date = label.substr(0, 4) + "-" + label.substr(4, 2) + "-" + label.substr(6, 2);
+        const auto date = at.str(1) + "-" + at.str(2) + "-" + at.str(3);
         published = std::chrono::duration_cast<std::chrono::milliseconds>(
             (day_of(date) + std::chrono::hours(hour - 8) + std::chrono::minutes(minute)
                 + std::chrono::seconds(second))
@@ -241,7 +244,10 @@ shanghai_members(const std::string& exchange, const std::string& day, const Json
     for (const auto& row : root.at("o_cursor")) {
         const auto code = text(row.at("INSTRUMENTID"));
         const auto contract = contract_of(exchange, code, day);
-        if ((!contract && !code.ends_with("all")) || values::numeric(row.at("RANK")) == "999")
+        const auto rank = values::numeric(row.at("RANK"));
+        // 早年的 *actv 只合计活跃月份，合约行里的 -1、0 是会员类型汇总，都不是会员记录。
+        if ((!contract && !code.ends_with("all")) || rank == "999"
+            || (contract && (rank == "-1" || rank == "0")))
             continue;
         const auto product = contract ? product_of(*contract) : code.substr(0, code.size() - 3);
         // 上期所排名文件同时列出能源中心品种。
@@ -295,9 +301,9 @@ Parsed shanghai(
     const auto& rows = root.at(table == "daily" ? "o_curinstrument" : "o_cursor");
     if (!rows.is_array())
         throw std::invalid_argument("expected exchange rows");
-    if (table == "member_positions" && rows.empty() && !root.contains("report_date"))
-        return {};
-    if (text(root.at("report_date")) != compact(day))
+    // 早年的排名文件没有报告日，日期只在请求路径里。
+    if ((table != "member_positions" || root.contains("report_date"))
+        && text(root.at("report_date")) != compact(day))
         throw std::invalid_argument("wrong exchange report date");
     if (table == "member_positions") {
         result.member_positions = shanghai_members(exchange, day, root);

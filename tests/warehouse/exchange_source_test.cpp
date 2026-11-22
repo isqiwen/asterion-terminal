@@ -130,6 +130,49 @@ TEST_F(ExchangeSources, ShfeMemberRanksKeepSummaryScopeAndDistinguishMissingFrom
     }
 }
 
+TEST_F(ExchangeSources, EarlyShfeRankingKeepsOnlyRealMembersOnContracts)
+{
+    const std::string raw = R"({"o_code":0,"o_msg":"","o_cursor":[
+{"INSTRUMENTID":"cu1501","RANK":-1,"PARTICIPANTABBR1":"期货公司","CJ1":90,"CJ1_CHG":9,
+ "PARTICIPANTABBR2":"期货公司","CJ2":80,"CJ2_CHG":8,
+ "PARTICIPANTABBR3":"期货公司","CJ3":70,"CJ3_CHG":7},
+{"INSTRUMENTID":"cu1501","RANK":0,"PARTICIPANTABBR1":"非期货公司","CJ1":9,"CJ1_CHG":1,
+ "PARTICIPANTABBR2":"非期货公司","CJ2":8,"CJ2_CHG":1,
+ "PARTICIPANTABBR3":"非期货公司","CJ3":7,"CJ3_CHG":1},
+{"INSTRUMENTID":"cu1501","RANK":1,"PARTICIPANTABBR1":"甲会员","CJ1":10,"CJ1_CHG":1,
+ "PARTICIPANTABBR2":"甲会员","CJ2":20,"CJ2_CHG":2,
+ "PARTICIPANTABBR3":"甲会员","CJ3":30,"CJ3_CHG":3},
+{"INSTRUMENTID":"cu1501","RANK":999,"PARTICIPANTABBR1":"","CJ1":10,"CJ1_CHG":1,
+ "PARTICIPANTABBR2":"","CJ2":20,"CJ2_CHG":2,
+ "PARTICIPANTABBR3":"","CJ3":30,"CJ3_CHG":3},
+{"INSTRUMENTID":"cuactv","RANK":1,"PARTICIPANTABBR1":"甲会员","CJ1":10,"CJ1_CHG":1,
+ "PARTICIPANTABBR2":"甲会员","CJ2":20,"CJ2_CHG":2,
+ "PARTICIPANTABBR3":"甲会员","CJ3":30,"CJ3_CHG":3}]})";
+    ac::Exchange source("SHFE", budget, {}, [&](const auto&, auto) {
+        return ac::HttpReply{200, raw};
+    });
+    const auto rows = source.member_positions("SHFE", "2015-01-05");
+    ASSERT_EQ(rows.size(), 1);
+    EXPECT_EQ(rows[0].member, "甲会员");
+    EXPECT_EQ(rows[0].contract, wh::Cell{std::string("SHFE/cu/2015-01")});
+    EXPECT_EQ(rows[0].published_ms, wh::Cell{});
+}
+
+TEST_F(ExchangeSources, IneRankingReadsReportTimeWithoutSeparator)
+{
+    const std::string raw = R"({"report_date":"20240102","o_code":0,
+"update_date":"2024010220:01:00","o_cursor":[
+{"INSTRUMENTID":"lu2403","RANK":1,"PARTICIPANTABBR1":"甲会员","CJ1":10,"CJ1_CHG":1,
+ "PARTICIPANTABBR2":"甲会员","CJ2":20,"CJ2_CHG":2,
+ "PARTICIPANTABBR3":"甲会员","CJ3":30,"CJ3_CHG":3}]})";
+    ac::Exchange source("INE", budget, {}, [&](const auto&, auto) {
+        return ac::HttpReply{200, raw};
+    });
+    const auto rows = source.member_positions("INE", "2024-01-02");
+    ASSERT_EQ(rows.size(), 1);
+    EXPECT_EQ(rows[0].published_ms, wh::Cell{std::int64_t{1704196860000}});
+}
+
 TEST_F(ExchangeSources, ExactDecimalsMissingPricesAndFeeBasesReachParquet)
 {
     for (const auto* exchange : {"SHFE", "INE"}) {
