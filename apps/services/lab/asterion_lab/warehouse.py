@@ -48,7 +48,7 @@ SCHEMAS["member_positions"] = {"exchange": pl.String, "product": pl.String, "con
     **{name: NUMBER for name in ("volume", "volume_change", "long_position", "long_change", "short_position", "short_change")},
     "published_ms": pl.Int64, "observed_ms": pl.Int64}
 SCHEMAS["inventory"] = {"exchange": pl.String, "product": pl.String, "day": pl.Date,
-    **{name: pl.String for name in ("area", "warehouse", "grade", "unit")},
+    **{name: pl.String for name in ("area", "warehouse", "warehouse_type", "grade", "unit")},
     **{name: NUMBER for name in ("previous_total", "previous_receipts", "total", "receipts",
         "total_change", "receipts_change", "previous_capacity", "capacity", "capacity_change")},
     "published_ms": pl.Int64, "observed_ms": pl.Int64}

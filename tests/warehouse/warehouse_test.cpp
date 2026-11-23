@@ -235,6 +235,9 @@ TEST_F(Warehouse, ResearchTakesTushareFirstAndOthersFillWhatItLacks)
     publish(*tushare, "daily/SHFE/2026-10");
     publish(*tushare, "contracts/SHFE");
     publish(*tushare, mine, 2);
+    publish(*tushare, "inventory/SHFE/2026-10-30");
+    publish(*tushare, "inventory/SHFE/2026-10-29");
+    publish(*shfe, "inventory/SHFE/2026-10-30", 2);
     publish(*shfe, "settlement/SHFE/2026-10-30");
     publish(*shfe, "daily/SHFE/2026-10-30");
     publish(*gtja, tick, 2);
@@ -251,6 +254,8 @@ TEST_F(Warehouse, ResearchTakesTushareFirstAndOthersFillWhatItLacks)
             {"contracts/SHFE", "tushare"},
             {"daily/SHFE/2026-10", "tushare"},
             {"daily/SHFE/2026-10-30", "shfe"},
+            {"inventory/SHFE/2026-10-29", "tushare"},
+            {"inventory/SHFE/2026-10-30", "shfe"},
             {mine, "tushare"},
             {"price_ticks/SHFE/2026-10-29", "gtja"},
             {tick, "gtja"},
@@ -260,6 +265,7 @@ TEST_F(Warehouse, ResearchTakesTushareFirstAndOthersFillWhatItLacks)
     const wh::Store reader(wh::source_directory(root, "research"), "research");
     EXPECT_TRUE(fs::equivalent(reader.file(research, tick), gtja->file(gtja->current(), tick)));
     EXPECT_EQ(reader.read(research, mine).size(), 2U);
+    EXPECT_EQ(reader.read(research, "inventory/SHFE/2026-10-30").size(), 2U);
     publish(*tushare, mine, 4);
     EXPECT_EQ(wh::compose(root, composed, completed).identity, research.identity);
     completed["tushare"] = tushare->current_identity();

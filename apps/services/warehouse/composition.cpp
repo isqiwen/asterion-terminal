@@ -36,7 +36,7 @@ const std::vector<std::string>& sources_of(std::string_view table)
         {"price_ticks", {"verified", "czce", "gtja"}},
         {"warehouse_receipts", {"shfe", "ine", "tushare"}},
         {"member_positions", {"shfe", "ine", "tushare"}},
-        {"inventory", {"tushare"}},
+        {"inventory", {"shfe", "tushare"}},
     };
     return order.at(table);
 }

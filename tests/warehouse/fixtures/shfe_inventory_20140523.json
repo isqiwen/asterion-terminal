@@ -1,0 +1,94 @@
+{
+  "o_tradingday": "20140523",
+  "o_cursor": [
+    {
+      "VARNAME": "铜$$COPPER",
+      "REGNAME": "上海$$Shanghai",
+      "WHABBRNAME": "期晟公司$$Qisheng",
+      "WGHTUNIT": "2",
+      "PRESPOTWGHTS": 5563,
+      "PREWRTWGHTS": 1919,
+      "SPOTWGHTS": 3959,
+      "WRTWGHTS": 199,
+      "SPOTCHANGE": -1604,
+      "WRTCHANGE": -1720,
+      "PREWHSTOCKS": 58081,
+      "WHSTOCKS": 59801,
+      "WHSTOCKCHANGE": 1720,
+      "ROWSTATUS": "0"
+    },
+    {
+      "VARNAME": "铜$$COPPER",
+      "REGNAME": "上海$$Shanghai",
+      "WHABBRNAME": "合计$$Subtotal",
+      "WGHTUNIT": "2",
+      "PRESPOTWGHTS": 73155,
+      "PREWRTWGHTS": 11188,
+      "SPOTWGHTS": 70134,
+      "WRTWGHTS": 5125,
+      "SPOTCHANGE": -3021,
+      "WRTCHANGE": -6063,
+      "PREWHSTOCKS": 872972,
+      "WHSTOCKS": 886169,
+      "WHSTOCKCHANGE": 13197,
+      "ROWSTATUS": "1"
+    },
+    {
+      "VARNAME": "铜$$COPPER",
+      "REGNAME": "",
+      "WHABBRNAME": "保税商品总计$$Total (Bonded)",
+      "WGHTUNIT": "2",
+      "PRESPOTWGHTS": 42206,
+      "PREWRTWGHTS": 623,
+      "SPOTWGHTS": 41041,
+      "WRTWGHTS": 623,
+      "SPOTCHANGE": -1165,
+      "WRTCHANGE": 0,
+      "PREWHSTOCKS": 59377,
+      "WHSTOCKS": 59377,
+      "WHSTOCKCHANGE": 0,
+      "ROWSTATUS": "2"
+    },
+    {
+      "VARNAME": "沥青仓库$$Bitumen Warehouse",
+      "REGNAME": "江苏$$Jiangsu",
+      "WHABBRNAME": "金海宏业$$Golden Sea",
+      "WGHTUNIT": "2",
+      "PRESPOTWGHTS": 1000,
+      "PREWRTWGHTS": 0,
+      "SPOTWGHTS": 1000,
+      "WRTWGHTS": 0,
+      "SPOTCHANGE": 0,
+      "WRTCHANGE": 0,
+      "PREWHSTOCKS": 45000,
+      "WHSTOCKS": 45000,
+      "WHSTOCKCHANGE": 0,
+      "ROWSTATUS": "0"
+    },
+    {
+      "VARNAME": "沥青厂库$$Bitumen Factory Warehouse",
+      "REGNAME": "江苏$$Jiangsu",
+      "WHABBRNAME": "金海宏业$$Golden Sea",
+      "WGHTUNIT": "2",
+      "PRESPOTWGHTS": "",
+      "PREWRTWGHTS": 0,
+      "SPOTWGHTS": "",
+      "WRTWGHTS": 0,
+      "SPOTCHANGE": "",
+      "WRTCHANGE": 0,
+      "PREWHSTOCKS": 30000,
+      "WHSTOCKS": 30000,
+      "WHSTOCKCHANGE": 0,
+      "ROWSTATUS": "0"
+    }
+  ],
+  "o_cursorau": [
+    {
+      "PREWRTWGHTS": 426,
+      "WRTWGHTS": 420,
+      "WRTCHANGE": -6,
+      "WGHTUNIT": "1"
+    }
+  ],
+  "o_code": "0"
+}

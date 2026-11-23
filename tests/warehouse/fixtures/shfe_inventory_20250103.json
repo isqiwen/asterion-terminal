@@ -1,0 +1,109 @@
+{
+  "o_cursorau": [
+    {
+      "WGHTUNIT": "1",
+      "PREWRTWGHTS": 15147,
+      "VARID": "au",
+      "WRTWGHTS": 15147,
+      "WRTCHANGE": 0
+    }
+  ],
+  "o_cursor": [
+    {
+      "WHSTOCKS": 20000,
+      "WGHTUNIT": "2",
+      "WHABBRNAME": "山港青岛国际物流$$SPG Qingdao International Logistics",
+      "SPOTWGHTS": 0,
+      "ROWSTATUS": "0",
+      "PREWHSTOCKS": 20000,
+      "WHSTOCKCHANGE": 0,
+      "REGNAME": "山东$$Shandong",
+      "PREWRTWGHTS": 0,
+      "SPOTCHANGE": 0,
+      "VARNAME": "氧化铝(仓库)$$Aluminium Oxide Warehouse",
+      "VARID": "ao",
+      "WRTWGHTS": 0,
+      "WRTCHANGE": 0,
+      "PRESPOTWGHTS": 0
+    },
+    {
+      "WHSTOCKS": 50000,
+      "WGHTUNIT": "2",
+      "WHABBRNAME": "中铝山东$$Chalco Shandong",
+      "SPOTWGHTS": 0,
+      "ROWSTATUS": "0",
+      "PREWHSTOCKS": 50000,
+      "WHSTOCKCHANGE": 0,
+      "REGNAME": "山东$$Shandong",
+      "PREWRTWGHTS": 0,
+      "SPOTCHANGE": 0,
+      "VARNAME": "氧化铝(厂库)$$Aluminium Oxide Factory Warehouse",
+      "VARID": "ao",
+      "WRTWGHTS": 0,
+      "WRTCHANGE": 0,
+      "PRESPOTWGHTS": 0
+    },
+    {
+      "WHSTOCKS": 0,
+      "WGHTUNIT": "1",
+      "WHABBRNAME": "上期所交割库",
+      "SPOTWGHTS": "",
+      "ROWSTATUS": "0",
+      "PREWHSTOCKS": 0,
+      "WHSTOCKCHANGE": 0,
+      "REGNAME": "上海$$Shanghai",
+      "PREWRTWGHTS": 15147,
+      "SPOTCHANGE": "",
+      "VARNAME": "黄金$$GOLD",
+      "VARID": "au",
+      "WRTWGHTS": 15147,
+      "WRTCHANGE": 0,
+      "PRESPOTWGHTS": ""
+    }
+  ],
+  "o_cursorfu": [
+    {
+      "WHSTOCKS": "--",
+      "WGHTUNIT": "2",
+      "WHABBRNAME": "洋山石油$$Yangshan Shengang",
+      "SPOTWGHTS": 7335,
+      "ROWSTATUS": "0",
+      "PREWHSTOCKS": "--",
+      "GRDNAME": "RMG380（硫Ⅰ级）",
+      "WHSTOCKCHANGE": "--",
+      "REGNAME": "上海$$Shanghai",
+      "PREWRTWGHTS": 0,
+      "SPOTCHANGE": 0,
+      "VARNAME": "燃料油$$FUEL OIL",
+      "VARID": "fu",
+      "WRTWGHTS": 0,
+      "WRTCHANGE": 0,
+      "PRESPOTWGHTS": 7335
+    }
+  ],
+  "o_code": "0000",
+  "update_date": "20250107 16:02:09",
+  "o_tradingday": "20250103",
+  "o_cursorine": [
+    {
+      "WHSTOCKS": "--",
+      "WGHTUNIT": "3",
+      "WHABBRNAME": "洋山石油$$Yangshan Shengang",
+      "SPOTWGHTS": 0,
+      "ROWSTATUS": "0",
+      "OILNAME": "巴士拉轻油（I 级）$$Basra Light ( level I )",
+      "PREWHSTOCKS": "--",
+      "WHSTOCKCHANGE": "--",
+      "REGNAME": "上海$$Shanghai",
+      "OILID": "006",
+      "PREWRTWGHTS": 190000,
+      "SPOTCHANGE": 0,
+      "VARNAME": "中质含硫原油$$Medium Sour Crude Oil",
+      "OILROWS": 2,
+      "VARID": "sc",
+      "WRTWGHTS": 190000,
+      "WRTCHANGE": 0,
+      "PRESPOTWGHTS": 0
+    }
+  ]
+}

@@ -237,8 +237,19 @@ Cell shanghai_published(const Json& root)
     return published;
 }
 
-std::vector<WarehouseReceipt>
-shanghai_receipts(const std::string& exchange, const std::string& day, const Json& root)
+std::string shanghai_label(const Json& value)
+{
+    const auto both = text(value);
+    return both.substr(0, both.find("$$"));
+}
+
+std::string shanghai_unit(const Json& value)
+{
+    static const std::map<std::string, std::string> units{{"1", "千克"}, {"2", "吨"}, {"3", "桶"}};
+    return units.at(text(value));
+}
+
+std::pair<std::string, Cell> shanghai_product(const Json& row)
 {
     // Early reports identify products by their Chinese names, without VARID.
     static const std::map<std::string, std::string> products{
@@ -266,25 +277,30 @@ shanghai_receipts(const std::string& exchange, const std::string& day, const Jso
         {"氧化铝", "ao"},
         {"丁二烯橡胶", "br"}
     };
-    static const std::map<std::string, std::string> units{{"1", "千克"}, {"2", "吨"}, {"3", "桶"}};
-    const auto label = [](const Json& value) {
-        const auto both = text(value);
-        return both.substr(0, both.find("$$"));
-    };
+    auto name = shanghai_label(row.at("VARNAME"));
+    Cell warehouse_type;
+    for (const std::string_view suffix : {"仓库", "厂库"}) {
+        const auto at = name.find(suffix);
+        if (at != std::string::npos) {
+            warehouse_type = std::string(suffix);
+            name.resize(at);
+            if (name.ends_with('('))
+                name.pop_back();
+        }
+    }
+    return {row.contains("VARID") ? text(row.at("VARID")) : products.at(name), warehouse_type};
+}
+
+std::vector<WarehouseReceipt>
+shanghai_receipts(const std::string& exchange, const std::string& day, const Json& root)
+{
     const auto published = shanghai_published(root);
     const auto observed = observation_time();
     std::vector<WarehouseReceipt> result;
     for (const auto& row : root.at("o_cursor")) {
         if (text(row.at("ROWSTATUS")) != "0")
             continue;
-        auto name = label(row.at("VARNAME"));
-        Cell warehouse_type;
-        for (const std::string_view suffix : {"仓库", "厂库"})
-            if (name.ends_with(suffix)) {
-                warehouse_type = std::string(suffix);
-                name.resize(name.size() - suffix.size());
-            }
-        const auto product = row.contains("VARID") ? text(row.at("VARID")) : products.at(name);
+        const auto [product, warehouse_type] = shanghai_product(row);
         if (ine_products.contains(product) != (exchange == "INE"))
             continue;
         const auto volume = number(row.at("WRTWGHTS")), change = number(row.at("WRTCHANGE"));
@@ -292,21 +308,82 @@ shanghai_receipts(const std::string& exchange, const std::string& day, const Jso
         if (volume != Cell{} && change != Cell{})
             previous = Decimal::parse(std::get<std::string>(volume))
                 - Decimal::parse(std::get<std::string>(change));
-        const auto area = label(row.at("REGNAME"));
+        const auto area = shanghai_label(row.at("REGNAME"));
         result.push_back(
             {.exchange = exchange,
                 .product = product,
                 .day = day,
-                .warehouse = label(row.at("WHABBRNAME")),
+                .warehouse = shanghai_label(row.at("WHABBRNAME")),
                 .warehouse_type = warehouse_type,
                 .area = area.empty() ? Cell{} : Cell{area},
-                .unit = units.at(text(row.at("WGHTUNIT"))),
+                .unit = shanghai_unit(row.at("WGHTUNIT")),
                 .previous_volume = previous,
                 .volume = volume,
                 .volume_change = change,
                 .published_ms = published,
                 .observed_ms = observed});
     }
+    return result;
+}
+
+std::vector<Inventory> shanghai_inventory(const std::string& day, const Json& root)
+{
+    const auto published = shanghai_published(root);
+    const auto observed = observation_time();
+    std::vector<Inventory> result;
+    for (const auto* cursor : {"o_cursor", "o_cursorfu"}) {
+        if (!root.contains(cursor))
+            continue;
+        for (const auto& row : root.at(cursor)) {
+            if (text(row.at("ROWSTATUS")) != "0")
+                continue;
+            const auto [product, warehouse_type] = shanghai_product(row);
+            if (product == "au" || ine_products.contains(product))
+                continue;
+            const auto area = shanghai_label(row.at("REGNAME"));
+            const auto n = [&](const char* key) {
+                return number(row.at(key));
+            };
+            result.push_back(
+                {.exchange = "SHFE",
+                    .product = product,
+                    .day = day,
+                    .area = area.empty() ? Cell{} : Cell{area},
+                    .warehouse = shanghai_label(row.at("WHABBRNAME")),
+                    .warehouse_type = warehouse_type,
+                    .grade = row.contains("GRDNAME") ? Cell{shanghai_label(row.at("GRDNAME"))}
+                        : row.contains("OILNAME")    ? Cell{shanghai_label(row.at("OILNAME"))}
+                                                     : Cell{},
+                    .unit = shanghai_unit(row.at("WGHTUNIT")),
+                    .previous_total = n("PRESPOTWGHTS"),
+                    .previous_receipts = n("PREWRTWGHTS"),
+                    .total = n("SPOTWGHTS"),
+                    .receipts = n("WRTWGHTS"),
+                    .total_change = n("SPOTCHANGE"),
+                    .receipts_change = n("WRTCHANGE"),
+                    .previous_capacity = n("PREWHSTOCKS"),
+                    .capacity = n("WHSTOCKS"),
+                    .capacity_change = n("WHSTOCKCHANGE"),
+                    .published_ms = published,
+                    .observed_ms = observed});
+        }
+    }
+    // 黄金原报说明库存就是已注册成标准仓单的数量，只公布汇总。
+    for (const auto& row : root.at("o_cursorau"))
+        result.push_back(
+            {.exchange = "SHFE",
+                .product = "au",
+                .day = day,
+                .warehouse = std::string("总计"),
+                .unit = shanghai_unit(row.at("WGHTUNIT")),
+                .previous_total = number(row.at("PREWRTWGHTS")),
+                .previous_receipts = number(row.at("PREWRTWGHTS")),
+                .total = number(row.at("WRTWGHTS")),
+                .receipts = number(row.at("WRTWGHTS")),
+                .total_change = number(row.at("WRTCHANGE")),
+                .receipts_change = number(row.at("WRTCHANGE")),
+                .published_ms = published,
+                .observed_ms = observed});
     return result;
 }
 
@@ -380,13 +457,18 @@ Parsed shanghai(
     const auto& rows = root.at(table == "daily" ? "o_curinstrument" : "o_cursor");
     if (!rows.is_array())
         throw std::invalid_argument("expected exchange rows");
-    const auto* date_field = table == "warehouse_receipts" ? "o_tradingday" : "report_date";
+    const auto* date_field =
+        table == "warehouse_receipts" || table == "inventory" ? "o_tradingday" : "report_date";
     // 早年的排名文件没有报告日，日期只在请求路径里。
     if ((table != "member_positions" || root.contains(date_field))
         && text(root.at(date_field)) != compact(day))
         throw std::invalid_argument("wrong exchange report date");
     if (table == "warehouse_receipts") {
         result.warehouse_receipts = shanghai_receipts(exchange, day, root);
+        return result;
+    }
+    if (table == "inventory") {
+        result.inventory = shanghai_inventory(day, root);
         return result;
     }
     if (table == "member_positions") {
@@ -692,6 +774,7 @@ bool Exchange::supports(std::string_view table, std::string_view exchange) const
 {
     return exchange == exchange_
         && (table == "daily" || (table == "price_ticks" && exchange == "CZCE")
+            || (table == "inventory" && exchange == "SHFE")
             || ((table == "member_positions" || table == "warehouse_receipts")
                 && (exchange == "SHFE" || exchange == "INE"))
             || (table == "settlement"
@@ -726,6 +809,11 @@ Exchange::warehouse_receipts(const std::string& exchange, const std::string& day
     return read("warehouse_receipts", exchange, day).warehouse_receipts;
 }
 
+std::vector<Inventory> Exchange::inventory(const std::string& exchange, const std::string& day)
+{
+    return read("inventory", exchange, day).inventory;
+}
+
 Exchange::Parsed
 Exchange::read(const std::string& table, const std::string& exchange, const std::string& day)
 {
@@ -747,7 +835,9 @@ Exchange::read(const std::string& table, const std::string& exchange, const std:
     HttpRequest request;
     if (exchange == "SHFE" || exchange == "INE") {
         request.origin = exchange == "SHFE" ? "https://www.shfe.com.cn" : "https://www.ine.cn";
-        request.path = table == "warehouse_receipts"
+        request.path = table == "inventory"
+            ? "/data/tradedata/future/weeklydata/" + date + "weeklystock.dat"
+            : table == "warehouse_receipts"
             ? "/data/tradedata/future/dailydata/" + date + "dailystock.dat"
             : "/data/tradedata/future/dailydata/"
                 + std::string(

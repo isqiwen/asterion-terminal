@@ -519,8 +519,8 @@ wire::TableRows Reader::rows(const wire::GetTableRows& query) const
                 : table == "warehouse_receipts"
                 ? "product, warehouse, warehouse_id, warehouse_type, area, crop_year, grade, brand, origin, converted, unit"
                 : table == "member_positions" ? "product, contract, member"
-                : table == "inventory"        ? "product, area, warehouse, grade, unit"
-                                              : "contract")
+                : table == "inventory" ? "product, area, warehouse, warehouse_type, grade, unit"
+                                       : "contract")
         + " LIMIT 100 OFFSET " + std::to_string(query.offset() - skipped));
     for (duckdb::idx_t row = 0; row < rows->RowCount(); ++row) {
         auto* out = result.add_rows();

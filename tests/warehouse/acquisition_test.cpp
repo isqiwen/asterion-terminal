@@ -176,7 +176,7 @@ struct Vendor
             Json record{
                 {"trade_date", p.at("trade_date")},
                 {"symbol", product},
-                {"fut_name", "测试品种"},
+                {"fut_name", api == "fut_inv_weekly" ? "螺纹钢(厂库)" : "测试品种"},
                 {"ts_code", product},
                 {"exchange", api == "fut_holding" ? p.at("exchange") : Json("SHFE")},
                 {"warehouse", "中金圣源"},
@@ -445,6 +445,8 @@ TEST_F(Acquisition, FundamentalReportsAreAcquiredAndBrowsedInFixedVersions)
                 EXPECT_EQ(cell(0, "crop_year"), "0");
                 EXPECT_EQ(cell(1, "crop_year"), "2025/2026");
             }
+            if (table == ::warehouse::TABLE_INVENTORY)
+                EXPECT_EQ(cell(0, "warehouse_type"), "厂库");
         }
         vendor->fundamental_value = "400";
         query.set_id(std::string(name) + "-revised");

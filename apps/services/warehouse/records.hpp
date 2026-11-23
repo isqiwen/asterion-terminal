@@ -104,7 +104,7 @@ struct MemberPosition
 struct Inventory
 {
     std::string exchange, product, day;
-    Cell area, warehouse, grade, unit;
+    Cell area, warehouse, warehouse_type, grade, unit;
     Cell previous_total, previous_receipts, total, receipts, total_change, receipts_change;
     Cell previous_capacity, capacity, capacity_change;
     Cell published_ms;

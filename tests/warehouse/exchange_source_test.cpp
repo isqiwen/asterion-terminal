@@ -54,6 +54,75 @@ protected:
     std::shared_ptr<ac::Budget> budget = std::make_shared<ac::Budget>(500);
 };
 
+TEST_F(ExchangeSources, ShanghaiInventoryKeepsWarehouseDetailsAndGoldStock)
+{
+    ac::Exchange source("SHFE", budget, {}, [&](const ac::HttpRequest& request, auto) {
+        EXPECT_EQ(request.origin, "https://www.shfe.com.cn");
+        EXPECT_EQ(request.path, "/data/tradedata/future/weeklydata/20140523weeklystock.dat");
+        return ac::HttpReply{200, reference_fixture("shfe_inventory_20140523.json")};
+    });
+    const auto before = ac::observation_time();
+    const auto rows = source.inventory("SHFE", "2014-05-23");
+    ASSERT_EQ(rows.size(), 4);
+    const auto& copper = rows[0];
+    EXPECT_EQ(copper.product, "cu");
+    EXPECT_EQ(copper.area, wh::Cell{std::string("上海")});
+    EXPECT_EQ(copper.warehouse, wh::Cell{std::string("期晟公司")});
+    EXPECT_EQ(copper.unit, wh::Cell{std::string("吨")});
+    EXPECT_EQ(copper.previous_total, wh::Cell{std::string("5563")});
+    EXPECT_EQ(copper.previous_receipts, wh::Cell{std::string("1919")});
+    EXPECT_EQ(copper.total, wh::Cell{std::string("3959")});
+    EXPECT_EQ(copper.receipts, wh::Cell{std::string("199")});
+    EXPECT_EQ(copper.total_change, wh::Cell{std::string("-1604")});
+    EXPECT_EQ(copper.receipts_change, wh::Cell{std::string("-1720")});
+    EXPECT_EQ(copper.previous_capacity, wh::Cell{std::string("58081")});
+    EXPECT_EQ(copper.capacity, wh::Cell{std::string("59801")});
+    EXPECT_EQ(copper.capacity_change, wh::Cell{std::string("1720")});
+    EXPECT_EQ(rows[1].product, "bu");
+    EXPECT_EQ(rows[2].product, "bu");
+    EXPECT_EQ(rows[1].warehouse, rows[2].warehouse);
+    EXPECT_EQ(rows[1].warehouse_type, wh::Cell{std::string("仓库")});
+    EXPECT_EQ(rows[2].warehouse_type, wh::Cell{std::string("厂库")});
+    EXPECT_EQ(rows[2].total, wh::Cell{});
+    const auto& gold = rows[3];
+    EXPECT_EQ(gold.product, "au");
+    EXPECT_EQ(gold.warehouse, wh::Cell{std::string("总计")});
+    EXPECT_EQ(gold.unit, wh::Cell{std::string("千克")});
+    EXPECT_EQ(gold.previous_total, wh::Cell{std::string("426")});
+    EXPECT_EQ(gold.total, wh::Cell{std::string("420")});
+    EXPECT_EQ(gold.total_change, wh::Cell{std::string("-6")});
+    EXPECT_EQ(gold.previous_receipts, gold.previous_total);
+    EXPECT_EQ(gold.receipts, gold.total);
+    EXPECT_EQ(gold.receipts_change, gold.total_change);
+    EXPECT_EQ(gold.capacity, wh::Cell{});
+    for (const auto& row : rows) {
+        EXPECT_EQ(row.exchange, "SHFE");
+        EXPECT_EQ(row.day, "2014-05-23");
+        EXPECT_EQ(row.published_ms, wh::Cell{});
+        EXPECT_GE(row.observed_ms, before);
+    }
+}
+
+TEST_F(ExchangeSources, ShanghaiInventoryKeepsFuelGradesAndCountsGoldOnlyOnce)
+{
+    ac::Exchange source("SHFE", budget, {}, [&](const ac::HttpRequest&, auto) {
+        return ac::HttpReply{200, reference_fixture("shfe_inventory_20250103.json")};
+    });
+    const auto rows = source.inventory("SHFE", "2025-01-03");
+    ASSERT_EQ(rows.size(), 4);
+    EXPECT_EQ(rows[0].warehouse_type, wh::Cell{std::string("仓库")});
+    EXPECT_EQ(rows[1].warehouse_type, wh::Cell{std::string("厂库")});
+    EXPECT_EQ(rows[2].product, "fu");
+    EXPECT_EQ(rows[2].grade, wh::Cell{std::string("RMG380（硫Ⅰ级）")});
+    EXPECT_EQ(rows[2].total, wh::Cell{std::string("7335")});
+    EXPECT_EQ(rows[2].capacity, wh::Cell{});
+    EXPECT_EQ(rows[3].product, "au");
+    EXPECT_EQ(rows[3].total, wh::Cell{std::string("15147")});
+    EXPECT_EQ(rows[3].receipts, rows[3].total);
+    for (const auto& row : rows)
+        EXPECT_EQ(row.published_ms, wh::Cell{std::int64_t{1736236929000}});
+}
+
 TEST_F(ExchangeSources, ShanghaiReceiptsKeepAllWarehousesAndSeparateExchangeTotals)
 {
     ac::Exchange shfe("SHFE", budget, {}, [&](const ac::HttpRequest& request, auto) {
@@ -874,7 +943,12 @@ TEST_F(ExchangeSources, PublicFilesPublishThroughNativeTaskManager)
     const auto* selected_table = std::getenv("ASTERION_EXCHANGE_ACCEPTANCE_TABLE");
     bool checked = false;
     for (const auto* table :
-        {"daily", "settlement", "price_ticks", "member_positions", "warehouse_receipts"}) {
+        {"daily",
+            "settlement",
+            "price_ticks",
+            "member_positions",
+            "warehouse_receipts",
+            "inventory"}) {
         if (selected_table && std::string_view(selected_table) != table)
             continue;
         if (!ac::Exchange(exchange, online_budget, {}).supports(table, exchange))

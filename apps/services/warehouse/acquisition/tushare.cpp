@@ -365,7 +365,7 @@ std::vector<Inventory> Tushare::inventory(const std::string& exchange, const std
         const auto table = ask(
             "fut_inv_weekly",
             {{"trade_date", compact}, {"ts_code", upper(product)}},
-            "ts_code,trade_date,exchange,area,warehouse,grade,pre_total,pre_futures,cur_total,cur_futures,chg_total,chg_futures,pre_capacity,cur_capacity,chg_capacity,unit",
+            "ts_code,trade_date,fut_name,exchange,area,warehouse,grade,pre_total,pre_futures,cur_total,cur_futures,chg_total,chg_futures,pre_capacity,cur_capacity,chg_capacity,unit",
             3000);
         const auto observed = observation_time();
         for (const auto& item : table.rows) {
@@ -377,12 +377,18 @@ std::vector<Inventory> Tushare::inventory(const std::string& exchange, const std
                 throw SourceError(
                     "invalid_data",
                     "fut_inv_weekly returned a foreign day, product or exchange");
+            Cell warehouse_type;
+            if (!at("fut_name").is_null())
+                for (const std::string_view type : {"仓库", "厂库"})
+                    if (text(at("fut_name")).find(type) != std::string::npos)
+                        warehouse_type = std::string(type);
             rows.push_back(
                 {.exchange = exchange,
                     .product = product,
                     .day = day,
                     .area = label(at("area")),
                     .warehouse = label(at("warehouse")),
+                    .warehouse_type = warehouse_type,
                     .grade = label(at("grade")),
                     .unit = label(at("unit")),
                     .previous_total = reported_number(at("pre_total")),
