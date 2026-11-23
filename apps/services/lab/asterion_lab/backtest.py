@@ -64,6 +64,13 @@ def raw(value) -> int:
     return int(units)
 
 
+def limit_units(value, tick: int) -> int:
+    """Tushare stores 69 SHFE gold limits exactly 0.001 below their price tick."""
+    units = raw(value)
+    above = units + R // 1000
+    return above if above % tick == 0 and units % tick else units
+
+
 def close_ns(day: str) -> int:
     # 15:00 Asia/Shanghai is 07:00 UTC.
     return int(datetime.datetime.fromisoformat(f"{day}T07:00:00+00:00").timestamp()) * 10 ** 9
@@ -462,7 +469,8 @@ def contract_input(data: Data, config: Config, contract: str, begin: str, end: s
             continue
         if lower is None or upper is None:
             raise ValueError(f"incomplete price limits of {contract} on {day}")
-        price_limits.append((day, raw(lower), raw(upper)))
+        tick = increments[day] if config.costs is None else 1
+        price_limits.append((day, limit_units(lower, tick), limit_units(upper, tick)))
     return dict(
         venue=exchange, symbol=contract, price_increment=initial,
         quantity_increment=R, multiplier=raw(data.multiplier(exchange, contract)),

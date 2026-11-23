@@ -2116,6 +2116,24 @@ builtins.print = delayed_print
 
         asyncio.run(scenario())
 
+    def test_a_daily_limit_stored_just_below_its_tick_still_runs_at_the_tick(self):
+        contract = "SHFE/rb/2026-05"
+        writer = Warehouse(self.directory).writer()
+        writer.add_days("SHFE", "2026-01", [
+            daily(contract, DAYS[0], 3000, 1000, lower_limit=Decimal("2849.999"), upper_limit=3150),
+        ], [DAYS[0].isoformat()])
+        version = writer.commit().identity
+        config = backtest.Config(
+            repository=str(self.repository), strategy="buy_then_exit", params={},
+            symbols=(contract,), begin_day=DAYS[0].isoformat(), end_day=DAYS[0].isoformat(),
+            deposit=Decimal(100000), costs=None, slippage_ticks=0,
+            max_order_lots=Decimal(10), max_gross_lots=Decimal(10),
+            max_contract_lots=Decimal(10), max_working_orders=10, dataset_version=version,
+        )
+        data = backtest.Data(Dataset(self.directory), config.begin_day, config.end_day, version=version)
+        contracts, _, _ = backtest.prepare(data, config)
+        self.assertEqual(contracts[0]["price_limits"][0][1], 2850 * backtest.R)
+
     def test_stored_daily_price_limits_block_limit_locked_fills_and_clamp_slippage(self):
         import asterion_engine
 
