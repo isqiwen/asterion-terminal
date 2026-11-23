@@ -389,6 +389,7 @@ export function PriceChart(props: Props) {
         tickMarkFormatter: (t: Time) => when(t, true),
         tickMarkMaxCharacterLength: 16,
         rightOffset: 0,
+        lockVisibleTimeRangeOnResize: true,
         fixLeftEdge: true,
         fixRightEdge: true,
         minBarSpacing: 0.0001,
@@ -396,21 +397,8 @@ export function PriceChart(props: Props) {
       localization: { timeFormatter: (t: Time) => when(t, false) },
     });
     chart.current = api;
-    let plotWidth = api.timeScale().width();
     const rangeChanged = (range: LogicalRange | null) => {
       if (!range || updating.current) return;
-      const width = api.timeScale().width();
-      const resized = width !== plotWidth;
-      plotWidth = width;
-      // A resize keeps the bar spacing, so it narrows the range without the user choosing one.
-      if (resized && !saved.current.custom && saved.current.end > saved.current.start) {
-        updating.current = true;
-        api
-          .timeScale()
-          .setVisibleLogicalRange({ from: saved.current.start, to: saved.current.end - 1 });
-        updating.current = false;
-        return;
-      }
       const p = latest.current.series.points;
       const first = Math.max(0, Math.round(range.from));
       const last = Math.min(p.length, Math.round(range.to) + 1);
