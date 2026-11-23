@@ -215,4 +215,28 @@ std::optional<wire::StartAcquisition> contracts_request(
     return out;
 }
 
+std::optional<wire::StartAcquisition> price_ticks_request(
+    const std::filesystem::path& directory,
+    const std::vector<std::string>& exchanges,
+    const std::string& yesterday,
+    const std::string& id)
+{
+    const Store store(source_directory(directory, "research"), "research");
+    const auto open = open_days(store, store.current(), yesterday);
+    wire::StartAcquisition out;
+    std::string first;
+    for (const auto& exchange : exchanges)
+        if (const auto days = open.find(exchange); days != open.end()) {
+            out.add_exchanges(exchange);
+            first = first.empty() ? days->second.back() : std::min(first, days->second.back());
+        }
+    if (out.exchanges().empty())
+        return std::nullopt;
+    out.set_id(id);
+    out.set_table(protocol::table_of("price_ticks"));
+    out.set_first_day(first);
+    out.set_last_day(yesterday);
+    return out;
+}
+
 } // namespace asterion::warehouse::acquisition

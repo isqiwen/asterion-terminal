@@ -10,7 +10,7 @@ import {
 import { useActionError } from "../../src/host/action-error";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useErrorNotification } from "../../src/host/notifications";
-import { useWarehouse, useWarehousePoll } from "../../src/host/warehouse";
+import { backgroundTask, useWarehouse, useWarehousePoll } from "../../src/host/warehouse";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { getLocale } from "../../src/i18n";
 import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
@@ -154,9 +154,10 @@ function DatasetBody({ context }: { context: TerminalContext }) {
       const currentTasks = warehouse?.tasks ?? state.value?.tasks ?? [];
       const hasGaps = state.value?.summary.tables.some(item => item.missing > 0n);
       const hasActive = currentTasks.some(activeTask);
+      const submitted = reply.tasks.filter(task => !backgroundTask(task)).length;
       setUpdated(
-        reply.tasks.length
-          ? t("已提交 {count} 个更新任务", { count: reply.tasks.length })
+        submitted
+          ? t("已提交 {count} 个更新任务", { count: submitted })
           : hasGaps && !hasActive
             ? t("各表末日已到最新；中间缺口请点击对应缺口或“采集”补齐")
             : t("各表已是最新，或已有任务在进行"),

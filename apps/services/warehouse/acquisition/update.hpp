@@ -27,4 +27,13 @@ std::optional<::warehouse::StartAcquisition> contracts_request(
     const std::string& id,
     bool missing_only);
 
+// Checks the published price ticks of `exchanges` on their last open day through
+// `yesterday`: a new product or changed tick is still listed on any later day.
+// Nothing before a calendar is stored.
+std::optional<::warehouse::StartAcquisition> price_ticks_request(
+    const std::filesystem::path& directory,
+    const std::vector<std::string>& exchanges,
+    const std::string& yesterday,
+    const std::string& id);
+
 } // namespace asterion::warehouse::acquisition

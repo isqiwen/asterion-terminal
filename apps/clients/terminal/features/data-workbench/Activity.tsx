@@ -61,13 +61,15 @@ export type TaskBatch = {
 
 export function groupTasks(tasks: readonly AcquisitionTask[]): TaskBatch[] {
   const byBatch = new Map<string, AcquisitionTask[]>();
-  for (const task of tasks.filter(item => !backgroundTask(item))) {
+  for (const task of tasks) {
     const key = batchKey(task.request!.id);
     const list = byBatch.get(key);
     if (list) list.push(task);
     else byBatch.set(key, [task]);
   }
-  return [...byBatch.entries()].map(([key, members]) => {
+  return [...byBatch.entries()].flatMap(([key, all]) => {
+    const members = all.filter(item => !backgroundTask(item));
+    if (!members.length) return [];
     const primary = [...members].sort(
       (a, b) => primaryRank.indexOf(a.request!.table) - primaryRank.indexOf(b.request!.table),
     )[0]!;
@@ -82,17 +84,24 @@ export function groupTasks(tasks: readonly AcquisitionTask[]): TaskBatch[] {
             : members.some(item => item.state === TaskState.CANCELLED)
               ? TaskState.CANCELLED
               : TaskState.SUCCEEDED;
-    return {
-      key,
-      members,
-      primary,
-      startedMs: members.reduce((max, item) => (item.startedMs > max ? item.startedMs : max), 0n),
-      state,
-      activeIds: members.filter(activeTask).map(item => item.request!.id),
-      itemsDone: members.reduce((sum, item) => sum + item.itemsDone, 0n),
-      items: members.reduce((sum, item) => sum + item.items, 0n),
-      requestsSent: members.reduce((sum, item) => sum + item.requestsSent, 0n),
-    };
+    return [
+      {
+        key,
+        members,
+        primary,
+        startedMs: members.reduce((max, item) => (item.startedMs > max ? item.startedMs : max), 0n),
+        state,
+        // Cancelling an update also stops the hidden tables queued with it.
+        activeIds: members.some(activeTask)
+          ? all
+              .filter(item => [TaskState.QUEUED, TaskState.RUNNING].includes(item.state))
+              .map(item => item.request!.id)
+          : [],
+        itemsDone: members.reduce((sum, item) => sum + item.itemsDone, 0n),
+        items: members.reduce((sum, item) => sum + item.items, 0n),
+        requestsSent: members.reduce((sum, item) => sum + item.requestsSent, 0n),
+      },
+    ];
   });
 }
 

@@ -216,30 +216,59 @@ wire::AcquisitionTasks update(const std::filesystem::path& directory, acquisitio
     return result;
 }
 
+// The exchanges an automatic task on `table` can cover; none while one already runs.
+std::vector<std::string> idle_exchanges(acquisition::Manager& tasks, wire::Table table)
+{
+    const auto configured = tasks.options();
+    const auto offered = std::find_if(
+        configured.tables().begin(),
+        configured.tables().end(),
+        [table](const auto& item) {
+            return item.table() == table;
+        });
+    if (offered == configured.tables().end() || tasks.busy(table))
+        return {};
+    return {offered->exchanges().begin(), offered->exchanges().end()};
+}
+
+std::string automatic_id(const std::string& name)
+{
+    return name + "-"
+        + std::to_string(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch())
+                .count());
+}
+
 // The product list comes from the contract table, so it is kept without being asked for.
 void refresh_contracts(
     const std::filesystem::path& directory,
     acquisition::Manager& tasks,
     bool missing_only)
 {
-    const auto configured = tasks.options();
-    const auto offered =
-        std::find_if(configured.tables().begin(), configured.tables().end(), [](const auto& item) {
-            return item.table() == wire::TABLE_CONTRACTS;
-        });
-    if (offered == configured.tables().end() || tasks.busy(wire::TABLE_CONTRACTS))
+    const auto exchanges = idle_exchanges(tasks, wire::TABLE_CONTRACTS);
+    if (exchanges.empty())
         return;
-    const auto id = "contracts-"
-        + std::to_string(
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::system_clock::now().time_since_epoch())
-                .count());
     if (auto request = acquisition::contracts_request(
             directory,
-            std::vector<std::string>(offered->exchanges().begin(), offered->exchanges().end()),
+            exchanges,
             yesterday(),
-            id,
+            automatic_id("contracts"),
             missing_only))
+        tasks.submit(std::move(*request));
+}
+
+// Backtests use the verified table, so a tick it does not know must surface as a failed task.
+void check_price_ticks(const std::filesystem::path& directory, acquisition::Manager& tasks)
+{
+    const auto exchanges = idle_exchanges(tasks, wire::TABLE_PRICE_TICKS);
+    if (exchanges.empty())
+        return;
+    if (auto request = acquisition::price_ticks_request(
+            directory,
+            exchanges,
+            yesterday(),
+            automatic_id("price-ticks")))
         tasks.submit(std::move(*request));
 }
 
@@ -357,6 +386,11 @@ struct WarehouseService::Running
                         refresh_contracts(this->settings.directory, acquisitions, false);
                     } catch (const std::exception& error) {
                         log::error("contract table not requested: {}", error.what());
+                    }
+                    try {
+                        check_price_ticks(this->settings.directory, acquisitions);
+                    } catch (const std::exception& error) {
+                        log::error("price tick check not requested: {}", error.what());
                     }
                     try {
                         const auto tasks = update(this->settings.directory, acquisitions);

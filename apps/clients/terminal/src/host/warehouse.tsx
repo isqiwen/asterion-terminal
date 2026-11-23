@@ -31,10 +31,10 @@ const tableLabel: Partial<Record<Table, string>> = {
   [Table.MINUTES]: "分钟 K 线",
 };
 
-// Warehouse keeps the contract table itself; only a failure concerns the operator.
+// Everything but market bars follows them automatically; only a stopped task concerns the user.
 export const backgroundTask = (task: AcquisitionTask) =>
-  !!task.request?.id.startsWith("contracts-") &&
-  ![TaskState.FAILED, TaskState.INTERRUPTED].includes(task.state);
+  ![Table.DAILY, Table.MINUTES].includes(task.request!.table) &&
+  ![TaskState.FAILED, TaskState.INTERRUPTED, TaskState.CANCELLED].includes(task.state);
 
 export type WarehouseActivity = {
   done: bigint;

@@ -98,7 +98,7 @@ test("failed exchange change does not present the previous exchange's rows as th
   expect(screen.queryByText("SHFE/rb/2027-01")).toBeNull();
 });
 
-test("inventory distinguishes the report date, unknown release time and observed time", async () => {
+test("inventory shows the report date and unknown release time, not when it was collected", async () => {
   request.mockReset();
   request.mockResolvedValue({
     columns: ["day", "unit", "total", "published_ms", "observed_ms"],
@@ -113,5 +113,6 @@ test("inventory distinguishes the report date, unknown release time and observed
   expect(screen.getByRole("columnheader", { name: "发布时间（北京时间）" })).toBeTruthy();
   expect(screen.getByRole("cell", { name: "353.123456" })).toBeTruthy();
   expect(screen.getByRole("cell", { name: "—" })).toBeTruthy();
-  expect(screen.getByRole("cell", { name: "2026-11-21 16:00:00" })).toBeTruthy();
+  expect(screen.getAllByRole("columnheader")).toHaveLength(4);
+  expect(screen.queryByRole("cell", { name: "2026-11-21 16:00:00" })).toBeNull();
 });

@@ -50,7 +50,7 @@ test(
       const report = page.getByRole("table", { name, exact: true });
       await expect(report.getByRole("cell", { name: value, exact: true })).toBeVisible();
       await expect(
-        report.getByRole("columnheader", { name: "采集时间（北京时间）" }),
+        report.getByRole("columnheader", { name: "发布时间（北京时间）" }),
       ).toBeAttached();
     }
   },

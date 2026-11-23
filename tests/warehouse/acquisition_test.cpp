@@ -1693,6 +1693,29 @@ TEST_F(Acquisition, ContractTablesAreRequestedForExchangesWithoutOneOrAllOnRefre
     EXPECT_EQ(again.commit().identity, research.current().identity);
 }
 
+TEST_F(Acquisition, ThePriceTickCheckCoversEachExchangesLastOpenDay)
+{
+    EXPECT_FALSE(ac::price_ticks_request(root, {"SHFE"}, "2026-11-01", "price-ticks-0"));
+    wh::Store research(wh::source_directory(root, "research"), "research");
+    {
+        auto writer = research.writer();
+        std::vector<wh::CalendarDay> calendar;
+        for (const auto* day : {"2026-10-29", "2026-10-30", "2026-11-02"})
+            calendar.push_back({"SHFE", day, true, {}});
+        writer.put("calendar/SHFE/2026", wh::rows(calendar));
+        writer.commit();
+    }
+
+    const auto request =
+        ac::price_ticks_request(root, {"SHFE", "DCE"}, "2026-11-01", "price-ticks-1");
+    ASSERT_TRUE(request);
+    EXPECT_EQ(request->table(), ac::wire::TABLE_PRICE_TICKS);
+    ASSERT_EQ(request->exchanges_size(), 1);
+    EXPECT_EQ(request->exchanges(0), "SHFE");
+    EXPECT_EQ(request->first_day(), "2026-10-30");
+    EXPECT_EQ(request->last_day(), "2026-11-01");
+}
+
 TEST_F(Acquisition, AnEmptyWarehouseListsProductsAfterItsContractRefresh)
 {
     auto vendor = std::make_shared<Vendor>();

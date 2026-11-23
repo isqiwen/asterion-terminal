@@ -75,7 +75,6 @@ const columnLabels: Record<string, string> = {
   capacity: "可用库容",
   capacity_change: "库容变化",
   published_ms: "发布时间（北京时间）",
-  observed_ms: "采集时间（北京时间）",
 };
 
 const timestamp = (value: string) =>
@@ -104,6 +103,9 @@ export function ReferenceTable({
   const [result, setResult] = useState<{ query: string; rows?: TableRows; error: DisplayError }>();
   const rows = result?.query === query ? result.rows : undefined;
   const error = result?.query === query ? result.error : "";
+  const shown = (rows?.columns ?? [])
+    .map((column, index) => ({ column, index }))
+    .filter(({ column }) => column !== "observed_ms");
   useEffect(() => {
     let active = true;
     void warehouseData({
@@ -177,7 +179,7 @@ export function ReferenceTable({
             <table className="data-table" aria-label={name}>
               <thead>
                 <tr>
-                  {rows.columns.map(column => (
+                  {shown.map(({ column }) => (
                     <th scope="col" key={column}>
                       {column === "day" && table === Table.INVENTORY
                         ? t("报告日期")
@@ -193,12 +195,9 @@ export function ReferenceTable({
               <tbody>
                 {rows.rows.map((row, index) => (
                   <tr key={offset + index}>
-                    {row.values.map((value, column) => (
+                    {shown.map(({ column, index: at }) => (
                       <td key={column}>
-                        {rows.columns[column] === "published_ms" ||
-                        rows.columns[column] === "observed_ms"
-                          ? timestamp(value)
-                          : value}
+                        {column === "published_ms" ? timestamp(row.values[at]!) : row.values[at]}
                       </td>
                     ))}
                   </tr>
