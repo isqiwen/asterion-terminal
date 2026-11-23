@@ -7,7 +7,7 @@ import {
   type DatasetChange,
 } from "../../src/generated/asterion/warehouse_pb";
 import { ActionError, useActionError } from "../../src/host/action-error";
-import { backgroundTask } from "../../src/host/warehouse";
+import { automaticTable, automaticTask } from "../../src/host/warehouse";
 import { ErrorNotice, remoteError } from "../../src/i18n/errors";
 import { listSeparator } from "../../src/i18n";
 import { Icon } from "../../src/ui/Icon";
@@ -40,12 +40,15 @@ const primaryRank = [
   Table.CONTRACTS,
   Table.CALENDAR,
 ];
-export const activeTask = (task: AcquisitionTask) =>
-  !backgroundTask(task) && [TaskState.QUEUED, TaskState.RUNNING].includes(task.state);
+const pendingTask = (task: AcquisitionTask) =>
+  [TaskState.QUEUED, TaskState.RUNNING].includes(task.state);
+export const activeTask = (task: AcquisitionTask) => !automaticTask(task) && pendingTask(task);
 const batchKey = (id: string) =>
   /^(acq-[A-Za-z0-9]+|update-\d+)-(?:daily|minutes|settlement|price_ticks|contracts|calendar|warehouse_receipts|member_positions|inventory)$/.exec(
     id,
   )?.[1] ?? id;
+
+const backgroundKey = "background";
 
 export type TaskBatch = {
   key: string;
@@ -62,17 +65,20 @@ export type TaskBatch = {
 export function groupTasks(tasks: readonly AcquisitionTask[]): TaskBatch[] {
   const byBatch = new Map<string, AcquisitionTask[]>();
   for (const task of tasks) {
-    const key = batchKey(task.request!.id);
+    // Automatic work is one row while it runs and leaves no record unless it stops early.
+    if (automaticTask(task) && task.state === TaskState.SUCCEEDED) continue;
+    const key =
+      automaticTask(task) && pendingTask(task) ? backgroundKey : batchKey(task.request!.id);
     const list = byBatch.get(key);
     if (list) list.push(task);
     else byBatch.set(key, [task]);
   }
-  return [...byBatch.entries()].flatMap(([key, all]) => {
-    const members = all.filter(item => !backgroundTask(item));
-    if (!members.length) return [];
-    const primary = [...members].sort(
-      (a, b) => primaryRank.indexOf(a.request!.table) - primaryRank.indexOf(b.request!.table),
-    )[0]!;
+  return [...byBatch.entries()].map(([key, members]) => {
+    const primary =
+      (key === backgroundKey && members.find(item => item.state === TaskState.RUNNING)) ||
+      [...members].sort(
+        (a, b) => primaryRank.indexOf(a.request!.table) - primaryRank.indexOf(b.request!.table),
+      )[0]!;
     const state = members.some(item => item.state === TaskState.RUNNING)
       ? TaskState.RUNNING
       : members.some(item => item.state === TaskState.QUEUED)
@@ -84,24 +90,17 @@ export function groupTasks(tasks: readonly AcquisitionTask[]): TaskBatch[] {
             : members.some(item => item.state === TaskState.CANCELLED)
               ? TaskState.CANCELLED
               : TaskState.SUCCEEDED;
-    return [
-      {
-        key,
-        members,
-        primary,
-        startedMs: members.reduce((max, item) => (item.startedMs > max ? item.startedMs : max), 0n),
-        state,
-        // Cancelling an update also stops the hidden tables queued with it.
-        activeIds: members.some(activeTask)
-          ? all
-              .filter(item => [TaskState.QUEUED, TaskState.RUNNING].includes(item.state))
-              .map(item => item.request!.id)
-          : [],
-        itemsDone: members.reduce((sum, item) => sum + item.itemsDone, 0n),
-        items: members.reduce((sum, item) => sum + item.items, 0n),
-        requestsSent: members.reduce((sum, item) => sum + item.requestsSent, 0n),
-      },
-    ];
+    return {
+      key,
+      members,
+      primary,
+      startedMs: members.reduce((max, item) => (item.startedMs > max ? item.startedMs : max), 0n),
+      state,
+      activeIds: members.filter(pendingTask).map(item => item.request!.id),
+      itemsDone: members.reduce((sum, item) => sum + item.itemsDone, 0n),
+      items: members.reduce((sum, item) => sum + item.items, 0n),
+      requestsSent: members.reduce((sum, item) => sum + item.requestsSent, 0n),
+    };
   });
 }
 
@@ -152,9 +151,13 @@ export function Activity({
   const current = versions[0]?.dataset?.version;
   const batches = groupTasks(tasks);
   const running = batches.filter(batch => batch.activeIds.length > 0).length;
+  // A version made only by automatic work is not news; it stays readable by its id.
+  const shownVersions = versions.filter(
+    version => !version.tables.length || !version.tables.every(automaticTable),
+  );
   const items = [
     ...batches.map(batch => ({ at: batch.startedMs, batch })),
-    ...versions.map(version => ({ at: version.dataset!.createdMs, version })),
+    ...shownVersions.map(version => ({ at: version.dataset!.createdMs, version })),
   ]
     .sort((a, b) => Number(b.at - a.at))
     .slice(0, shown);
@@ -306,11 +309,14 @@ function TaskRow({
     .sort();
   const span = `${firstDays[0] || t("上市日")} – ${lastDays.at(-1) || t("摘牌日")}`;
   const isUpdate = batch.key.startsWith("update-");
-  const title = isUpdate
-    ? batch.members.length > 1
-      ? t("更新到最新")
-      : `${t("更新")} ${tableName(request.table)}`
-    : `${t("采集")} ${tableName(request.table)}`;
+  const title =
+    batch.key === backgroundKey
+      ? `${t("后台更新")} · ${tableName(request.table)}`
+      : isUpdate
+        ? batch.members.length > 1
+          ? t("更新到最新")
+          : `${t("更新")} ${tableName(request.table)}`
+        : `${t("采集")} ${tableName(request.table)}`;
   return (
     <tr
       data-kind="task"

@@ -2,6 +2,7 @@
 #include "records.hpp"
 #include <filesystem>
 #include <map>
+#include <set>
 #include <mutex>
 #include <span>
 #include <vector>
@@ -38,6 +39,7 @@ struct VersionHead
 struct Change
 {
     std::uint32_t added = 0, replaced = 0, removed = 0;
+    std::set<std::string> tables;
 };
 
 class Writer;

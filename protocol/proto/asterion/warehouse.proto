@@ -172,6 +172,8 @@ message DatasetChange {
   uint32 added = 3;
   uint32 replaced = 4;
   uint32 removed = 5;
+  // The tables whose partitions differ from the base.
+  repeated Table tables = 6;
 }
 
 // A page of a reference table of one exchange, limited to the days given;

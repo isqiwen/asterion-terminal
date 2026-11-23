@@ -1716,6 +1716,71 @@ TEST_F(Acquisition, ThePriceTickCheckCoversEachExchangesLastOpenDay)
     EXPECT_EQ(request->last_day(), "2026-11-01");
 }
 
+TEST_F(Acquisition, AMarketTaskRunsAheadOfAReportBackfillWhichThenContinues)
+{
+    auto vendor = std::make_shared<Vendor>();
+    vendor->fundamental_value = "353.123456";
+    ac::Manager manager(root, {{"tushare", factory(vendor)}});
+    bool submitted = false;
+    vendor->before = [&](const Json& query, std::stop_token) {
+        if (query.at("api_name") == "fut_inv_weekly" && !std::exchange(submitted, true)) {
+            auto market = request("market");
+            market.set_first_day("2026-01-05");
+            market.set_last_day("2026-01-05");
+            manager.submit(market);
+        }
+    };
+    auto reports = request("reports");
+    reports.set_table(::warehouse::TABLE_INVENTORY);
+    reports.set_first_day("2026-01-05");
+    reports.set_last_day("2026-01-09");
+    manager.submit(reports);
+
+    ASSERT_EQ(finished(manager, "reports").state(), ac::wire::TASK_STATE_SUCCEEDED);
+    ASSERT_EQ(finished(manager, "market").state(), ac::wire::TASK_STATE_SUCCEEDED);
+    const auto first = std::ranges::find(vendor->calls, "fut_inv_weekly");
+    const auto market = std::ranges::find(vendor->calls, "fut_daily");
+    const auto last = std::ranges::find(vendor->calls | std::views::reverse, "fut_inv_weekly");
+    ASSERT_NE(market, vendor->calls.end());
+    EXPECT_LT(first, market);
+    EXPECT_GT(last.base() - 1, market);
+}
+
+TEST_F(Acquisition, AReportTaskThatGaveWayKeepsTheMarketTasksNewerData)
+{
+    auto vendor = std::make_shared<Vendor>();
+    vendor->fundamental_value = "353.123456";
+    std::mutex mutex;
+    wh::SourceVersions published;
+    ac::Manager manager(
+        root,
+        {{"tushare", factory(vendor)}},
+        [&](const wh::SourceVersions& committed) {
+            std::lock_guard lock(mutex);
+            for (const auto& [provider, version] : committed)
+                published[provider] = version;
+        });
+    bool submitted = false;
+    vendor->before = [&](const Json& query, std::stop_token) {
+        if (query.at("api_name") == "fut_inv_weekly" && !std::exchange(submitted, true)) {
+            auto market = request("market");
+            market.set_first_day("2026-01-05");
+            market.set_last_day("2026-01-05");
+            manager.submit(market);
+        }
+    };
+    auto reports = request("reports");
+    reports.set_table(::warehouse::TABLE_INVENTORY);
+    reports.set_first_day("2026-01-05");
+    reports.set_last_day("2026-01-05");
+    manager.submit(reports);
+
+    ASSERT_EQ(finished(manager, "reports").state(), ac::wire::TASK_STATE_SUCCEEDED);
+    ASSERT_EQ(finished(manager, "market").state(), ac::wire::TASK_STATE_SUCCEEDED);
+    std::lock_guard lock(mutex);
+    EXPECT_EQ(published.at("tushare"), wh::source_versions(root).at("tushare"));
+}
+
 TEST_F(Acquisition, AnEmptyWarehouseListsProductsAfterItsContractRefresh)
 {
     auto vendor = std::make_shared<Vendor>();

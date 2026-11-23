@@ -5,6 +5,7 @@
 #include "freshness.hpp"
 #include <asterion/warehouse.pb.h>
 #include <asterion/system/thread_pool.hpp>
+#include <condition_variable>
 #include <functional>
 #include <set>
 
@@ -15,7 +16,8 @@ namespace wire = ::warehouse;
 // Market-bar tasks acquire their prerequisite calendar, contract and settlement
 // tables first; each table goes through its sources in priority order, filling
 // only what earlier ones lack. Tasks run one at a time, and a full queue
-// refuses admission.
+// refuses admission. Market-bar tasks go first: any other task gives way after
+// the partition it is on and continues where it stopped.
 class Manager
 {
 public:
@@ -43,6 +45,7 @@ private:
         std::shared_future<void> finished;
         SourceVersions versions;
         std::map<std::string, std::unique_ptr<Source>> sources;
+        bool has_turn = false;
     };
 
     // What a task covers once its instruments are resolved: days of whole
@@ -57,6 +60,11 @@ private:
     };
 
     void work(Active&, const wire::StartAcquisition&);
+    // Waits for the one running slot; a cancelled task returns without it.
+    void take_turn(Active&);
+    void give_turn(Active&);
+    // With `mutex_` held.
+    bool market_waiting() const;
     std::set<std::string> planned_keys(
         Active&,
         const std::string& name,
@@ -111,7 +119,9 @@ private:
     mutable std::mutex mutex_;
     std::map<std::string, std::unique_ptr<Active>> active_;
     bool stopped_ = false;
-    ThreadPool workers_{1, 16};
+    std::condition_variable_any turn_;
+    bool turn_taken_ = false;
+    ThreadPool workers_{1, 16}, background_{1, 16};
 };
 
 } // namespace asterion::warehouse::acquisition

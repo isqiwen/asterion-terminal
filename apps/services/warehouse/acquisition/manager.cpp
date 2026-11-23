@@ -22,6 +22,11 @@ std::int64_t now_ms()
         .count();
 }
 
+bool market_bars(const wire::StartAcquisition& request)
+{
+    return request.table() == wire::TABLE_DAILY || request.table() == wire::TABLE_MINUTES;
+}
+
 void require_id(const std::string& id)
 {
     static const std::regex pattern("[A-Za-z0-9_-]{1,64}");
@@ -237,15 +242,52 @@ wire::AcquisitionTask Manager::submit(wire::StartAcquisition request)
     const auto accepted = active->task;
     auto* current = active.get();
     active_.emplace(request.id(), std::move(active));
-    current->finished = workers_
+    current->finished = (market_bars(request) ? workers_ : background_)
                             .submit([this, current, request](std::stop_token shutdown) {
                                 std::stop_callback cancel(shutdown, [&] {
                                     current->cancel.request_stop();
                                 });
+                                struct Turn
+                                {
+                                    Manager& manager;
+                                    Active& active;
+                                    ~Turn()
+                                    {
+                                        manager.give_turn(active);
+                                    }
+                                };
+                                take_turn(*current);
+                                const Turn turn{*this, *current};
                                 work(*current, request);
                             })
                             .share();
     return accepted;
+}
+
+bool Manager::market_waiting() const
+{
+    return std::ranges::any_of(active_, [](const auto& entry) {
+        const auto& active = *entry.second;
+        return market_bars(active.task.request()) && pending(active.task) && !active.has_turn;
+    });
+}
+
+void Manager::take_turn(Active& active)
+{
+    std::unique_lock lock(mutex_);
+    const bool first = market_bars(active.task.request());
+    active.has_turn = turn_.wait(lock, active.cancel.get_token(), [&] {
+        return !turn_taken_ && (first || !market_waiting());
+    });
+    turn_taken_ = turn_taken_ || active.has_turn;
+}
+
+void Manager::give_turn(Active& active)
+{
+    std::lock_guard lock(mutex_);
+    if (active.has_turn)
+        turn_taken_ = active.has_turn = false;
+    turn_.notify_all();
 }
 
 void Manager::work(Active& active, const wire::StartAcquisition& request)
@@ -344,6 +386,9 @@ void Manager::work(Active& active, const wire::StartAcquisition& request)
     }
     task.set_finished_ms(now_ms());
     active.sources.clear();
+    // A task that gave way must not hand over a version older than the market task's.
+    for (auto& [provider, version] : active.versions)
+        version = stores_.at(provider)->current_identity();
     if (finished_)
         finished_(active.versions);
     // The source may have committed data immediately before a status write
@@ -526,7 +571,9 @@ bool Manager::acquire_table(
     // late, or after a holiday.
     if (!step_failed && name != "calendar" && name != "contracts") {
         const auto open = calendar().second;
-        auto record = answered;
+        // A market task that ran while this one gave way may have recorded days too.
+        const auto recorded = warehouse::empty_keys(directory_.parent_path(), name);
+        auto record = recorded;
         for (const auto& key : empty) {
             const auto exchange = key.find('/') + 1, day = key.find('/', exchange) + 1;
             const auto days = open.find(key.substr(exchange, day - exchange - 1));
@@ -542,7 +589,7 @@ bool Manager::acquire_table(
         std::erase_if(record, [&](const auto& key) {
             return covered.contains(key);
         });
-        if (record != answered) {
+        if (record != recorded) {
             std::string text;
             for (const auto& key : record)
                 text += key + '\n';
@@ -639,6 +686,7 @@ void Manager::stop()
         stopped_ = true;
     }
     workers_.shutdown();
+    background_.shutdown();
 }
 
 Source& Manager::source(Active& active, const std::string& provider)
@@ -767,10 +815,10 @@ void Manager::run(
     const auto first = scope.first, last = std::min(scope.last, today - std::chrono::days{1});
     if (last < first)
         return;
-    auto writer = store.writer();
+    std::optional writer{store.writer()};
     auto version = store.current();
     const auto commit = [&] {
-        version = writer.commit();
+        version = writer->commit();
         active.versions[store.provider()] = version.identity;
         task.set_requests_sent(previous_requests + (source.requests() - source_start));
         publish(task, active);
@@ -786,12 +834,12 @@ void Manager::run(
                     const auto key = "calendar/" + exchange + "/" + std::to_string(year);
                     if (refetch || !version.partitions.contains(key)
                         || year == int(std::chrono::year_month_day(today).year())) {
-                        writer.put(key, warehouse::rows(source.calendar(exchange, year)));
+                        writer->put(key, warehouse::rows(source.calendar(exchange, year)));
                         wrote = true;
                     }
                 }
             } else if (refetch || !scope.listed_exchanges.contains(exchange)) {
-                writer.put("contracts/" + exchange, warehouse::rows(source.contracts(exchange)));
+                writer->put("contracts/" + exchange, warehouse::rows(source.contracts(exchange)));
                 wrote = true;
             }
         }
@@ -881,7 +929,7 @@ void Manager::run(
                                 task.set_items_empty(task.items_empty() + 1);
                         }
                     } else {
-                        writer.put(key, fetched, {day});
+                        writer->put(key, fetched, {day});
                         ++unpublished;
                         resolved = true;
                     }
@@ -898,6 +946,24 @@ void Manager::run(
             task.set_requests_sent(previous_requests + (source.requests() - source_start));
             if (need_fetch || progressed)
                 publish(task, active);
+            const bool give_way = [&] {
+                std::lock_guard lock(mutex_);
+                return !market_bars(task.request()) && market_waiting();
+            }();
+            if (give_way) {
+                publish_batch();
+                // The market task may write to this same source.
+                writer.reset();
+                task.set_state(wire::TASK_STATE_QUEUED);
+                publish(task, active);
+                give_turn(active);
+                take_turn(active);
+                check_stop(stop);
+                task.set_state(wire::TASK_STATE_RUNNING);
+                publish(task, active);
+                writer.emplace(store.writer());
+                version = store.current();
+            }
         }
     } catch (...) {
         publish_batch();

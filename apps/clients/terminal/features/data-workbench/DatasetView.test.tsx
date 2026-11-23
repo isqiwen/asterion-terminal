@@ -196,8 +196,8 @@ function serve({
         case "listDatasetVersions":
           return {
             versions: [
-              { dataset: { version: current, createdMs: 3n }, added: 1 },
-              { dataset: { version: older, createdMs: 2n }, added: 2 },
+              { dataset: { version: current, createdMs: 3n }, added: 1, tables: [Table.DAILY] },
+              { dataset: { version: older, createdMs: 2n }, added: 2, tables: [Table.DAILY] },
             ],
             nextVersion: "",
           };

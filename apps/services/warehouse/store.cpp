@@ -290,6 +290,7 @@ Change Store::compare(const VersionHead& version, const VersionHead& base) const
     Change change;
     for (const auto& name : changed) {
         const auto now = load(version, name), before = load(base, name);
+        const auto counted = change.added + change.replaced + change.removed;
         for (const auto& [key, part] : now) {
             const auto old = before.find(key);
             if (old == before.end())
@@ -299,6 +300,8 @@ Change Store::compare(const VersionHead& version, const VersionHead& base) const
         }
         for (const auto& [key, part] : before)
             change.removed += !now.contains(key);
+        if (change.added + change.replaced + change.removed != counted)
+            change.tables.insert(name.substr(0, name.find('/')));
     }
     return change;
 }

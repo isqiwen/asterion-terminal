@@ -37,6 +37,8 @@ change_of(const Store& store, const VersionHead& version, const VersionHead& bas
     out.set_added(counts.added);
     out.set_replaced(counts.replaced);
     out.set_removed(counts.removed);
+    for (const auto& table : counts.tables)
+        out.add_tables(protocol::table_of(table));
     return out;
 }
 

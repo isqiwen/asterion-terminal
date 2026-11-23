@@ -29,12 +29,18 @@ const batchOf = (id: string) =>
 const tableLabel: Partial<Record<Table, string>> = {
   [Table.DAILY]: "日线",
   [Table.MINUTES]: "分钟 K 线",
+  [Table.CALENDAR]: "交易日历",
+  [Table.CONTRACTS]: "合约表",
+  [Table.SETTLEMENT]: "结算参数",
+  [Table.PRICE_TICKS]: "历史报价单位",
+  [Table.WAREHOUSE_RECEIPTS]: "仓单",
+  [Table.MEMBER_POSITIONS]: "会员持仓",
+  [Table.INVENTORY]: "库存周报",
 };
 
-// Everything but market bars follows them automatically; only a stopped task concerns the user.
-export const backgroundTask = (task: AcquisitionTask) =>
-  ![Table.DAILY, Table.MINUTES].includes(task.request!.table) &&
-  ![TaskState.FAILED, TaskState.INTERRUPTED, TaskState.CANCELLED].includes(task.state);
+// Everything but market bars follows them without being asked for.
+export const automaticTable = (table: Table) => table !== Table.DAILY && table !== Table.MINUTES;
+export const automaticTask = (task: AcquisitionTask) => automaticTable(task.request!.table);
 
 export type WarehouseActivity = {
   done: bigint;
@@ -55,20 +61,20 @@ export type WarehouseView = {
 };
 
 function summarizeActive(tasks: readonly AcquisitionTask[]): WarehouseActivity | null {
-  const active = tasks.filter(
-    item => !backgroundTask(item) && [TaskState.QUEUED, TaskState.RUNNING].includes(item.state),
-  );
+  const active = tasks.filter(item => [TaskState.QUEUED, TaskState.RUNNING].includes(item.state));
   if (!active.length) return null;
   const groups = new Map<string, AcquisitionTask[]>();
   for (const item of active) {
-    const key = batchOf(item.request?.id ?? "");
+    const key = automaticTask(item) ? "background" : batchOf(item.request?.id ?? "");
     const list = groups.get(key);
     if (list) list.push(item);
     else groups.set(key, [item]);
   }
   const batches = [...groups.values()];
   const current =
-    batches.find(group => group.some(item => item.state === TaskState.RUNNING)) ?? batches[0]!;
+    batches.find(group => group.some(item => item.state === TaskState.RUNNING)) ??
+    batches.find(group => !automaticTask(group[0]!)) ??
+    batches[0]!;
   const running = current.some(item => item.state === TaskState.RUNNING);
   const done = current.reduce((sum, item) => sum + (item.itemsDone ?? 0n), 0n);
   const total = current.reduce((sum, item) => sum + (item.items ?? 0n), 0n);
@@ -83,6 +89,7 @@ function summarizeActive(tasks: readonly AcquisitionTask[]): WarehouseActivity |
   const primary =
     current.find(item => item.request?.table === Table.MINUTES) ??
     current.find(item => item.request?.table === Table.DAILY) ??
+    current.find(item => item.state === TaskState.RUNNING) ??
     current[0];
   const targets = [
     ...new Set(
@@ -96,7 +103,9 @@ function summarizeActive(tasks: readonly AcquisitionTask[]): WarehouseActivity |
     primary?.request?.table && tableLabel[primary.request.table]
       ? th(tableLabel[primary.request.table]!)
       : th("数据");
-  const heading = `${th(running ? "采集中" : "等待")} · ${kind}${targets ? ` ${targets}` : ""}`;
+  const heading = automaticTask(current[0]!)
+    ? `${th("后台更新")} · ${kind}`
+    : `${th(running ? "采集中" : "等待")} · ${kind}${targets ? ` ${targets}` : ""}`;
   const parts = [
     heading,
     total > 0n && th("{done} / {total} 个分区", { done: done.toString(), total: total.toString() }),
