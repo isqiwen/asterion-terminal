@@ -3,10 +3,23 @@
 #include "source.hpp"
 #include <asterion/protocol/warehouse.hpp>
 #include <algorithm>
+#include <map>
+#include <ranges>
 #include <set>
 
 namespace asterion::warehouse::acquisition {
 namespace wire = ::warehouse;
+
+namespace {
+
+// Each exchange or contract resumes at its own gap, not at another's earlier one.
+void set_starts(wire::StartAcquisition& out, const std::map<std::string, std::string>& starts)
+{
+    out.set_first_day(std::ranges::min(starts | std::views::values));
+    out.mutable_first_days()->insert(starts.begin(), starts.end());
+}
+
+} // namespace
 
 std::vector<wire::StartAcquisition> update_requests(
     const std::filesystem::path& directory,
@@ -65,39 +78,32 @@ std::vector<wire::StartAcquisition> update_requests(
             if (!inserted && day < it->second)
                 it->second = day;
         }
-    std::string daily_first;
-    std::set<std::string> daily_exchanges;
+    std::map<std::string, std::string> daily_starts;
     for (const std::string table : {"daily", "minutes"}) {
         const auto empty_table = empty_keys(directory, table);
-        std::string first;
-        std::set<std::string> due;
+        std::map<std::string, std::string> due;
         for (const auto& [holder, holding] : holdings(store, version, table, open, empty_table))
-            if (!holding.first_missing.empty()) {
-                due.insert(holder);
-                first =
-                    first.empty() ? holding.first_missing : std::min(first, holding.first_missing);
-            }
+            if (!holding.first_missing.empty())
+                due[holder] = holding.first_missing;
         if (table == "minutes")
             for (const auto& [contract, day] :
                 rolled_dominant_minutes(store, version, open, empty_table, yesterday)) {
-                due.insert(contract);
-                first = first.empty() ? day : std::min(first, day);
+                const auto [at, _] = due.try_emplace(contract, day);
+                at->second = std::min(at->second, day);
             }
         if (due.empty())
             continue;
         auto& out = request(table);
-        out.set_first_day(first);
+        set_starts(out, due);
         // A contract without a last day runs to its delisting.
         if (table == "minutes")
-            for (const auto& contract : due)
+            for (const auto& [contract, _] : due)
                 out.add_instruments(contract);
         else {
-            if (table == "daily") {
-                daily_first = first;
-                daily_exchanges.insert(due.begin(), due.end());
-            }
+            if (table == "daily")
+                daily_starts = due;
             out.set_last_day(yesterday);
-            for (const auto& exchange : due)
+            for (const auto& [exchange, _] : due)
                 out.add_exchanges(exchange);
         }
     }
@@ -124,8 +130,7 @@ std::vector<wire::StartAcquisition> update_requests(
             exchanges.insert(exchange);
         for (const auto& [exchange, _] : market_first)
             exchanges.insert(exchange);
-        std::string first;
-        std::vector<std::string> due;
+        std::map<std::string, std::string> due;
         for (const auto& exchange : exchanges) {
             const auto cal = open.find(exchange);
             if (cal == open.end())
@@ -147,24 +152,23 @@ std::vector<wire::StartAcquisition> update_requests(
                 }
             if (missing.empty())
                 continue;
-            if (daily_exchanges.contains(exchange) && daily_first <= missing)
+            if (const auto daily = daily_starts.find(exchange);
+                daily != daily_starts.end() && daily->second <= missing)
                 continue;
-            due.push_back(exchange);
-            first = first.empty() ? missing : std::min(first, missing);
+            due[exchange] = missing;
         }
         if (!due.empty()) {
             auto& out = request(table);
-            out.set_first_day(first);
+            set_starts(out, due);
             out.set_last_day(yesterday);
-            for (const auto& exchange : due)
+            for (const auto& [exchange, _] : due)
                 out.add_exchanges(exchange);
         }
     }
     // Last in the queue: a first backfill takes hours and must not hold up market bars.
     for (const std::string table : {"warehouse_receipts", "member_positions", "inventory"}) {
         const auto answered = empty_keys(directory, table);
-        std::string first;
-        std::vector<std::string> due;
+        std::map<std::string, std::string> due;
         for (const auto& [exchange, from] : market_first) {
             const auto days = open.find(exchange);
             if (days == open.end())
@@ -178,15 +182,14 @@ std::vector<wire::StartAcquisition> update_requests(
                 });
             if (missing == days->second.end())
                 continue;
-            due.push_back(exchange);
-            first = first.empty() ? *missing : std::min(first, *missing);
+            due[exchange] = *missing;
         }
         if (due.empty())
             continue;
         auto& out = request(table);
-        out.set_first_day(first);
+        set_starts(out, due);
         out.set_last_day(yesterday);
-        for (const auto& exchange : due)
+        for (const auto& [exchange, _] : due)
             out.add_exchanges(exchange);
     }
     return result;

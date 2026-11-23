@@ -1831,6 +1831,72 @@ TEST_F(Acquisition, FundamentalReportsFollowTheDaysAnExchangeHasMarketBarsFor)
     EXPECT_EQ(requests.back().table(), ac::wire::TABLE_INVENTORY);
 }
 
+TEST_F(Acquisition, AnUpdateResumesEachExchangeAtItsOwnGap)
+{
+    struct Daily final : ac::Source
+    {
+        explicit Daily(std::set<std::string>& asked)
+            : asked(asked)
+        {}
+
+        bool supports(std::string_view table, std::string_view) const override
+        {
+            return table == "daily";
+        }
+
+        std::vector<wh::DailyBar>
+        daily(const std::string& exchange, const std::string& day) override
+        {
+            asked.insert(exchange + " " + day);
+            return {
+                {.exchange = exchange,
+                    .product = "x",
+                    .contract = exchange + "/x/2027-01",
+                    .day = day}
+            };
+        }
+
+        std::set<std::string>& asked;
+    };
+
+    wh::Store research(wh::source_directory(root, "research"), "research");
+    {
+        auto writer = research.writer();
+        for (const std::string exchange : {"SHFE", "DCE"}) {
+            std::vector<wh::CalendarDay> calendar;
+            for (const auto* day :
+                {"2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30"})
+                calendar.push_back({exchange, day, true, {}});
+            writer.put("calendar/" + exchange + "/2026", wh::rows(calendar));
+        }
+        const auto held = [&](const std::string& exchange, const std::string& day) {
+            writer.put(
+                "daily/" + exchange + "/" + day,
+                wh::rows(std::vector<wh::DailyBar>{{exchange, "x", exchange + "/x/2027-01", day}}));
+        };
+        held("SHFE", "2026-10-26");
+        held("SHFE", "2026-10-30");
+        held("DCE", "2026-10-28");
+        held("DCE", "2026-10-30");
+        writer.commit();
+    }
+    const auto update = market_requests(root, "2026-10-30", "own");
+    ASSERT_FALSE(update.empty());
+    ASSERT_EQ(update[0].table(), ac::wire::TABLE_DAILY);
+    EXPECT_EQ(update[0].first_day(), "2026-10-27");
+
+    std::set<std::string> asked;
+    ac::Manager manager(root, {{"shfe", [&](auto) {
+                                    return std::make_unique<Daily>(asked);
+                                }}});
+    manager.submit(update[0]);
+    ASSERT_EQ(finished(manager, "own-daily").state(), ac::wire::TASK_STATE_SUCCEEDED);
+    EXPECT_TRUE(asked.contains("SHFE 2026-10-27"));
+    EXPECT_TRUE(asked.contains("DCE 2026-10-29"));
+    EXPECT_FALSE(asked.contains("DCE 2026-10-27"));
+    EXPECT_FALSE(asked.contains("DCE 2026-10-28"));
+}
+
 TEST_F(Acquisition, AnUpdateBackfillsInteriorGapsAndFollowsRolledDominantMinutes)
 {
     wh::Store research(wh::source_directory(root, "research"), "research");

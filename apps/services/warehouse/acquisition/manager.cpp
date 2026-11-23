@@ -56,6 +56,9 @@ void validate(const wire::StartAcquisition& request)
     for (const auto* day : {&request.first_day(), &request.last_day()})
         if (!day->empty() && day_of(*day) < day_of("1990-01-01"))
             throw std::invalid_argument("acquisition days start in 1990");
+    for (const auto& [holder, day] : request.first_days())
+        if (day_of(day) < day_of("1990-01-01"))
+            throw std::invalid_argument("acquisition days start in 1990");
     if (!request.first_day().empty() && !request.last_day().empty()
         && request.first_day() > request.last_day())
         throw std::invalid_argument("acquisition ends before it starts");
@@ -467,7 +470,7 @@ std::set<std::string> Manager::planned_keys(
     } else {
         for (auto day = first; day <= last; day += std::chrono::days(1))
             for (const auto& exchange : whole.exchanges)
-                if (trading(exchange, day))
+                if (day >= whole.starts.at(exchange) && trading(exchange, day))
                     consider(exchange, day_text(day), "");
     }
     return result;
@@ -727,13 +730,18 @@ Manager::Scope Manager::scope(Active& active, const wire::StartAcquisition& requ
 {
     Scope result;
     if (request.instruments().empty()) {
-        for (const auto* exchange : all_exchanges) {
-            const auto& named = request.exchanges();
-            if (named.empty() || std::find(named.begin(), named.end(), exchange) != named.end())
-                result.exchanges.push_back(exchange);
-        }
         result.first = day_of(request.first_day());
         result.last = day_of(request.last_day());
+        for (const auto* exchange : all_exchanges) {
+            const auto& named = request.exchanges();
+            if (!named.empty() && std::find(named.begin(), named.end(), exchange) == named.end())
+                continue;
+            result.exchanges.push_back(exchange);
+            const auto start = request.first_days().find(exchange);
+            result.starts[exchange] = start == request.first_days().end()
+                ? result.first
+                : std::max(result.first, day_of(start->second));
+        }
         return result;
     }
     // A contract with both days given needs no listing; products and open
@@ -754,6 +762,9 @@ Manager::Scope Manager::scope(Active& active, const wire::StartAcquisition& requ
             first = std::max(first, request.first_day());
         if (!request.last_day().empty())
             last = std::min(last, request.last_day());
+        if (const auto start = request.first_days().find(contract);
+            start != request.first_days().end())
+            first = std::max(first, start->second);
         if (first <= last)
             spans[contract] = {day_of(first), day_of(last)};
     };
@@ -773,13 +784,14 @@ Manager::Scope Manager::scope(Active& active, const wire::StartAcquisition& requ
     }
     if (spans.empty())
         throw SourceError("not_found", "no contract of these instruments is listed in these days");
-    std::set<std::string> named;
     for (const auto& [contract, days] : spans) {
-        named.insert(contract.substr(0, contract.find('/')));
+        const auto [start, _] =
+            result.starts.try_emplace(contract.substr(0, contract.find('/')), days.first);
+        start->second = std::min(start->second, days.first);
         result.contracts.emplace_back(contract, days.first, days.second);
     }
     for (const auto* exchange : all_exchanges)
-        if (named.contains(exchange))
+        if (result.starts.contains(exchange))
             result.exchanges.push_back(exchange);
     result.first = std::ranges::min(spans | std::views::values | std::views::keys);
     result.last = std::ranges::max(spans | std::views::values | std::views::elements<1>);
@@ -828,7 +840,7 @@ void Manager::run(
         for (const auto& exchange : scope.exchanges) {
             check_stop(stop);
             if (name == "calendar") {
-                for (int year = int(std::chrono::year_month_day(first).year());
+                for (int year = int(std::chrono::year_month_day(scope.starts.at(exchange)).year());
                     year <= int(std::chrono::year_month_day(last).year());
                     ++year) {
                     const auto key = "calendar/" + exchange + "/" + std::to_string(year);
@@ -870,7 +882,7 @@ void Manager::run(
         // Day-outer so multi-exchange daily reports are fetched once per day.
         for (auto day = first; day <= last; day += std::chrono::days(1))
             for (const auto& exchange : scope.exchanges)
-                if (trading(exchange, day))
+                if (day >= scope.starts.at(exchange) && trading(exchange, day))
                     plan.emplace_back(exchange, day_text(day), "");
     }
     // Every version lists all partitions: publish in batches, and on

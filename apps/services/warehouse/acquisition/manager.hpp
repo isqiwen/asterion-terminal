@@ -57,6 +57,7 @@ private:
         std::vector<std::tuple<std::string, std::chrono::sys_days, std::chrono::sys_days>>
             contracts;
         std::set<std::string> listed_exchanges;
+        std::map<std::string, std::chrono::sys_days> starts;
     };
 
     void work(Active&, const wire::StartAcquisition&);
