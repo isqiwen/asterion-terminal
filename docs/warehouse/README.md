@@ -31,6 +31,12 @@
 - **孤立数据块清理（GC）**：停服后以服务运行账户执行 `sudo -u <服务账户> /opt/asterion/warehouse/bin/asterion_warehouse gc [--data-dir <数据目录>] [--keep-last 5] [--keep-source-last 1] [--keep-version <sha256>] [--keep-file <清单>] [--apply]`（默认干跑不删除，`--data-dir` 省略时直接读取 `config/warehouse.json` 的 `data` 路径，不依赖 systemd 凭据），持 `warehouse.lock` 互斥锁校验保留版本清单与分片摘要及 Parquet 文件存在性后，按“版本清单 → 分片 → Parquet 文件”的顺序安全回收重采替换下来的无引用旧数据，并保护最新及显式固定的版本（版本历史浏览遇到已清理的父版本时自动截断停止）。
 - 开发期无需保留的旧快照可在采集和研究任务结束后用 `--keep-last 1 --keep-source-last 1 --apply` 清理，只保留统一数据集及各来源的当前版本；Lab 的旧缓存也可删除。后续采集仍发布固定版本，保证运行中的数据一致性。
 
+### 中金所早期日历
+
+Tushare 的 CFFEX 2010～2014 年日历只返回开市日。正式上市后的未返回日期与中金所公告的周末及节假日休市一致，不能据此补采行情；理由：缺少休市行不等于缺少交易日。[2010-04-16 正式交易之前](http://www.cffex.com.cn/cn/jystz/20100331/10718.html)的日历记录属于上市前区间，研究范围仍按合约上市日截断。
+
+休市口径依据中金所的 [2010 年劳动节](http://www.cffex.com.cn/cn/jystz/20100427/10715.html)、[端午节](http://www.cffex.com.cn/cn/jystz/20100602/10733.html)、[中秋及国庆](http://www.cffex.com.cn/cn/jystz/20100917/13115.html)，以及 [2011](http://www.cffex.com.cn/cn/jystz/20101229/14637.html)、[2012](http://www.cffex.com.cn/cn/jystz/20111229/16211.html)、[2013](http://www.cffex.com.cn/cn/jystz/20121228/16922.html)、[2014](http://www.cffex.com.cn/cn/jystz/20131226/17482.html) 年休市公告。
+
 ### 历史最小变动价位
 
 Warehouse 的 `price_ticks` 表保存交易所、品种、交割合约、最小变动价位、来源网址以及有效交易日区间 `[effective_from, effective_until)`。交割合约为空表示适用于该品种各交割月；价格单位与合约的报价单位一致。
