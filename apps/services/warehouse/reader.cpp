@@ -492,17 +492,22 @@ wire::TableRows Reader::rows(const wire::GetTableRows& query) const
     const auto prefix = table + '/' + query.exchange();
     std::string files;
     std::uint64_t total = 0;
-    // Keys sort by period, so a page opens only the newest files it reaches.
+    std::uint64_t skipped = 0;
+    const bool daily_partitions =
+        table == "warehouse_receipts" || table == "member_positions" || table == "inventory";
+    // Daily reports have disjoint dates, so earlier pages need not be opened or sorted.
     for (const auto& [key, part] : version.partitions | std::views::reverse) {
         if (key != prefix && !key.starts_with(prefix + '/'))
             continue;
-        if (total < std::uint64_t{query.offset()} + 100)
+        if (daily_partitions && total + part.rows <= query.offset())
+            skipped += part.rows;
+        else if (total < std::uint64_t{query.offset()} + 100)
             files += (files.empty() ? "" : ",") + parquet::literal(store.file(version, key));
         total += part.rows;
     }
+    result.set_total(static_cast<std::uint32_t>(total));
     if (files.empty())
         return result;
-    result.set_total(static_cast<std::uint32_t>(total));
     parquet::Engine engine;
     engine.run("CREATE TEMP VIEW t AS SELECT * FROM read_parquet([" + files + "])");
     const auto rows = engine.run(
@@ -516,7 +521,7 @@ wire::TableRows Reader::rows(const wire::GetTableRows& query) const
                 : table == "member_positions" ? "product, contract, member"
                 : table == "inventory"        ? "product, area, warehouse, grade, unit"
                                               : "contract")
-        + " LIMIT 100 OFFSET " + std::to_string(query.offset()));
+        + " LIMIT 100 OFFSET " + std::to_string(query.offset() - skipped));
     for (duckdb::idx_t row = 0; row < rows->RowCount(); ++row) {
         auto* out = result.add_rows();
         for (duckdb::idx_t column = 0; column < rows->ColumnCount(); ++column) {

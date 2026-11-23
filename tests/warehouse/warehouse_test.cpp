@@ -7,6 +7,7 @@
 #include <asterion/base/error.hpp>
 #include <asterion/futures/trading_days.hpp>
 #include <asterion/protocol/common.hpp>
+#include <asterion/protocol/warehouse.hpp>
 #include <asterion/system/process/artifact.hpp>
 #include <asterion/system/process/file_lock.hpp>
 #include <asterion/warehouse.pb.h>
@@ -438,6 +439,48 @@ TEST_F(Warehouse, ReferenceTablesPageByExchangeAndDays)
     query.set_offset(0);
     query.set_table(wire::TABLE_MINUTES);
     EXPECT_THROW(reader.rows(query), std::invalid_argument);
+}
+
+TEST_F(Warehouse, ReportPagesCrossDatesAndKeepTotalAtTheEnd)
+{
+    wh::Store store(wh::source_directory(root, "research"), "research");
+    for (const auto* table : {"warehouse_receipts", "member_positions", "inventory"}) {
+        const auto day_column = std::string_view(table) == "member_positions" ? 3 : 2;
+        {
+            auto writer = store.writer();
+            for (const auto& [day, count] :
+                {std::pair{"2026-10-28", 80}, {"2026-10-29", 120}, {"2026-10-30", 80}}) {
+                auto record = row(table);
+                record[0] = std::string("SHFE");
+                record[day_column] = std::string(day);
+                writer.put(
+                    std::string(table) + "/SHFE/" + day,
+                    std::vector<wh::Row>(count, record));
+            }
+            writer.commit();
+        }
+        wh::Reader reader(root);
+        wire::GetTableRows query;
+        query.set_table(protocol::table_of(table));
+        query.set_exchange("SHFE");
+        query.set_offset(50);
+        const auto crossing = reader.rows(query);
+        ASSERT_EQ(crossing.total(), 280);
+        ASSERT_EQ(crossing.rows_size(), 100);
+        EXPECT_EQ(crossing.rows(29).values(day_column), "2026-10-30");
+        EXPECT_EQ(crossing.rows(30).values(day_column), "2026-10-29");
+        query.set_offset(180);
+        const auto last = reader.rows(query);
+        ASSERT_EQ(last.rows_size(), 100);
+        EXPECT_EQ(last.rows(19).values(day_column), "2026-10-29");
+        EXPECT_EQ(last.rows(20).values(day_column), "2026-10-28");
+        query.set_offset(250);
+        EXPECT_EQ(reader.rows(query).rows_size(), 30);
+        query.set_offset(280);
+        const auto end = reader.rows(query);
+        EXPECT_EQ(end.total(), 280);
+        EXPECT_EQ(end.rows_size(), 0);
+    }
 }
 
 TEST_F(Warehouse, ReadingAPartitionLoadsOnlyTheShardsItNeeds)
