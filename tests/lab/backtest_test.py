@@ -93,6 +93,10 @@ class Chart(unittest.TestCase):
                 self.assertEqual(bar["time_ms"], midnight + (opening + 5) * 60_000)
                 del rows[1]
                 self.assertTrue(chart.minute_bars(rows, 5, contract)[0]["partial"])
+                rows = [minute(opening - 1, 99, 0),
+                        *(minute(opening + n, 100 + n, 1) for n in range(5))]
+                bar, = chart.minute_bars(rows, 5, contract)
+                self.assertEqual((bar["open"], bar["low"], bar["volume"]), (100, 100, 5))
 
     def test_macd_waits_for_33_bars(self):
         values = chart.macd([Decimal(n) for n in range(40)])

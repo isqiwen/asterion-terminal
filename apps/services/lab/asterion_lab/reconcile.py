@@ -366,6 +366,7 @@ def _replay_backtest(
             engine.decide()
         engine.settle()
 
+    backtest.held_without_prices(engine, contracts)
     fills_table = backtest.tables(engine, contracts)["fills"]
     return {
         "data": data,

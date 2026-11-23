@@ -44,22 +44,20 @@ def _observed_periods(rows, minutes, sessions):
     full = set(range(minutes))
     span = minutes * 60_000
     openings = [start for start, _ in sessions if start == sessions[0][0] or start >= 18 * 60]
-    def period(row):
-        start = row[1]
+    def until_open(start):
         minute = (start // 60_000 + 8 * 60) % 1440
-        for opening in openings:
-            if opening - 5 <= minute < opening:
-                start += (opening - minute) * 60_000
-                break
-        return row[0], start // span
-    for (day, bucket), group in groupby(rows, period):
+        return next((opening - minute for opening in openings if opening - 5 <= minute < opening), 0)
+    def period(row):
+        return row[0], (row[1] + until_open(row[1]) * 60_000) // span
+    # A zero-volume auction row carries a quote that never traded.
+    traded = (row for row in rows if row[7] or not until_open(row[1]))
+    for (day, bucket), group in groupby(traded, period):
         end_ms = (bucket + 1) * span
         observed = set()
         bar = None
         partial = False
         for _, start, source_partial, open_, high, low, close, volume, *interest in group:
-            minute = (start // 60_000 + 8 * 60) % 1440
-            if not any(opening - 5 <= minute < opening for opening in openings):
+            if not until_open(start):
                 observed.add(start // 60_000 % minutes)
             last_interest = interest[0] if interest else None
             partial = partial or bool(source_partial)

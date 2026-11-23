@@ -3,6 +3,7 @@
 Run with the bundled interpreter:
 python3 -I -B reconcile_test.py <source> <generated-python> <engine-directory>
 """
+from dataclasses import replace
 from decimal import Decimal
 import json
 from pathlib import Path
@@ -25,6 +26,7 @@ from asterion.strategy_pb2 import (  # noqa: E402
     SeriesContract,
 )
 from asterion_lab import backtest, package, reconcile, repository  # noqa: E402
+from asterion_strategy import Strategy  # noqa: E402
 from warehouse_fixture import DAYS, warehouse  # noqa: E402
 from warehouse_writer import Warehouse  # noqa: E402
 
@@ -292,6 +294,31 @@ class ReconcileTest(unittest.TestCase):
         )
         self.assertTrue(report_pkg["ok"], report_pkg)
         self.assertIn("通过", reconcile.format_report(report_pkg))
+
+    def test_replay_fails_when_a_position_is_held_through_a_month_without_prices(self):
+        cfg, _ = self._run_reference_backtest("bt-unpriced")
+        store = Warehouse(self.lab_dir)
+        writer = store.writer()
+        rows = store.read(writer.base, "daily/SHFE/2026-01").to_dicts()
+        for row in rows:
+            if row["contract"] == "SHFE/rb/2026-05" and row["day"] >= DAYS[18]:
+                row["open"] = None
+            row["day"] = row["day"].isoformat()
+        writer.put_rows("daily/SHFE/2026-01", "daily", rows,
+                        days=[day.isoformat() for day in DAYS])
+        writer.commit()
+
+        class Pause(Strategy):
+            def on_bar(self, ctx, bar):
+                if bar.time.date() == DAYS[2]:
+                    ctx.target(bar.symbol, 1)
+
+            def ready(self, ctx):
+                return ctx.time.date() <= DAYS[2]
+
+        config = replace(cfg, dataset_version=Warehouse(self.lab_dir).current().identity)
+        with self.assertRaisesRegex(ValueError, "prices of SHFE/rb/2026-05 are missing on .*while it is held"):
+            reconcile._replay_backtest(Warehouse(self.lab_dir), config, Pause())
 
     def test_detects_bar_decision_and_fill_discrepancies_and_respects_tolerances(self):
         cfg, replayed = self._run_reference_backtest("bt-diff")
