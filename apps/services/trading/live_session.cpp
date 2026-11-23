@@ -1121,6 +1121,10 @@ AccountCommand LiveAccountState::finish_submit(
             throw Error(
                 ErrorCode::unavailable,
                 "broker exposure changed; evaluate pre-trade risk again");
+        if (strategy && result.code == broker_code::permit_refused)
+            throw Error(
+                ErrorCode::conflict,
+                "order permission changed before dispatch; the order was not sent");
         throw Error(
             ErrorCode::conflict,
             "order dispatch was refused before the SDK call; the order was not sent");

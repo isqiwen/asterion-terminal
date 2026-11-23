@@ -1551,8 +1551,6 @@ struct Trader::Impl final : CThostFtdcTraderSpi
         }
         if (command.kind != Kind::insert)
             command.request_id = ++request_id;
-        if (command.kind == Kind::insert || command.kind == Kind::cancel)
-            next_order_at = current + order_spacing;
         if (is_query(command.kind)) {
             query_outstanding = true;
             query_started = current;
@@ -1579,6 +1577,8 @@ struct Trader::Impl final : CThostFtdcTraderSpi
 
     void returned(Command& command, int code, bool invoked)
     {
+        if (invoked && (command.kind == Kind::insert || command.kind == Kind::cancel))
+            next_order_at = now() + order_spacing;
         if (is_query(command.kind) && (code == -2 || code == -3) && !closing
             && command.generation == generation) {
             query_outstanding = false;

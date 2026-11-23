@@ -3034,6 +3034,49 @@ TEST_F(StrategyTarget, PausingRevokesAnOpeningQueuedToTheBrokerButNotAReduction)
     }
 }
 
+TEST_F(StrategyTarget, ConcurrentBrokerReportBeforeDurableSubmissionReevaluatesWithoutAbandoning)
+{
+    auto definition = manifest(4);
+    definition["policy"]["max_margin_ratio"] = "0.8";
+    definition["policy"]["contracts"].push_back(contract("cu2611", "cu", "2026-11"));
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, definition);
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    // A resting order whose fill advances the send gate while another leg submits.
+    act(session, submit("seed.resting", "3"));
+    ASSERT_EQ(wait_for(session, resting(1)).at("orders").size(), 1U);
+
+    const InstrumentId cu{"SHFE", "cu2611"};
+    auto owner = session.register_strategy("concurrent", {cu}).get();
+    ::strategy::Decision decision;
+    decision.set_sequence(1);
+    decision.set_ready(true);
+    auto* target = decision.add_targets();
+    target->mutable_instrument()->set_exchange("SHFE");
+    target->mutable_instrument()->set_symbol("cu2611");
+    target->set_lots(1);
+    auto cu_quote = quote();
+    cu_quote.instrument = cu;
+    session.accept_target(owner, decision, {cu_quote});
+
+    auto first = session.advance_target(owner);
+    wait_for(session, [](const Json& s) {
+        return std::ranges::any_of(s.at("costs"), [](const Json& c) {
+            return c.at("symbol") == "cu2611" && c.at("state") == "querying";
+        });
+    });
+    exchange.call<void (*)(int, int)>("asterion_fake_trader_fill", 0, 1);
+    EXPECT_NO_THROW(first.get());
+
+    const auto state = progress(session, owner, filled(2));
+    ASSERT_EQ(state.at("orders").size(), 2U);
+    EXPECT_EQ(state.at("orders")[1].at("symbol"), "cu2611");
+    EXPECT_EQ(state.at("orders")[1].at("status"), "filled");
+    for (const auto& ev : session.strategy_events(owner))
+        EXPECT_NE(ev.kind(), ::trading::INSTANCE_EVENT_KIND_BATCH_ABANDONED) << ev.text();
+    EXPECT_TRUE(session.strategy_failure(owner).empty());
+}
+
 TEST_F(StrategyTarget, FlatteningBeforeTheFirstDecisionClosesOnlyFromAFreshQuote)
 {
     LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());

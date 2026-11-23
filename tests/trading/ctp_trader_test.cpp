@@ -471,6 +471,43 @@ TEST_F(CtpTrader, RevokedPermissionNeverInvokesTheSdkOrInventsABrokerOrder)
     EXPECT_EQ(fake.call<int (*)()>("asterion_fake_catalog_side_effects"), effects);
 }
 
+TEST_F(CtpTrader, RefusedOrderDoesNotConsumeOrderSpacing)
+{
+    ctp::Trader trader(ASTERION_TEST_CTP_TRADER, flow, gate, [] {}, clock);
+    trader.connect(configuration());
+    const auto state = wait_for(trader, ready, 15s);
+    ASSERT_EQ(state.phase, BrokerPhase::ready);
+    auto refused = trader.prepare(
+        order("revoked", "SHFE", "rb2610", Side::buy, "1", "3500"),
+        Offset::open,
+        state.connection_generation,
+        state.exposure_revision,
+        dispatch_deadline());
+    auto permit = gate.issue(gate.revision(), "revoked");
+    gate.invalidate();
+    const auto first = await(trader, trader.dispatch(std::move(refused), std::move(permit), 1));
+    ASSERT_FALSE(first.invoked);
+    ASSERT_EQ(first.code, broker_code::permit_refused);
+    auto next = trader.prepare(
+        order("sent", "SHFE", "rb2610", Side::buy, "1", "3500"),
+        Offset::open,
+        state.connection_generation,
+        state.exposure_revision,
+        dispatch_deadline());
+    auto sending = dispatch_with_permission(trader, gate, std::move(next));
+    // No clock advance: an uninvoked refusal must not hold back the next order.
+    const auto deadline = std::chrono::steady_clock::now() + 3s;
+    while (sending.wait_for(0s) != std::future_status::ready
+        && std::chrono::steady_clock::now() < deadline) {
+        trader.poll();
+        std::this_thread::sleep_for(5ms);
+    }
+    ASSERT_EQ(sending.wait_for(0s), std::future_status::ready);
+    const auto second = sending.get();
+    EXPECT_TRUE(second.invoked);
+    EXPECT_EQ(second.code, 0);
+}
+
 TEST_F(CtpTrader, SdkLifecycleHasOneOwnerAndBlockedReleaseDoesNotBlockControl)
 {
     {
