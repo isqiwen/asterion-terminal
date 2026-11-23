@@ -740,7 +740,13 @@ function RunDetails({
       <dl>
         <dt>{t("策略")}</dt>
         <dd>
-          {value.strategy.id} @ <code>{value.strategy.commit.slice(0, 12)}</code>
+          {value.strategy.id}
+          {value.strategy.commit && (
+            <>
+              {" @ "}
+              <code>{value.strategy.commit.slice(0, 12)}</code>
+            </>
+          )}
           {value.strategy.changes
             ? ` · ${t("含未提交改动")} ${value.strategy.changes.slice(0, 12)}`
             : ""}
