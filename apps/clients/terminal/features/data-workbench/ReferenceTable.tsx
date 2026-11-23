@@ -98,10 +98,9 @@ export function ReferenceTable({
   const [exchange, setExchange] = useState(exchanges[0] ?? "");
   const [first, setFirst] = useState(() => `${today().slice(0, 4)}-01-01`);
   const [last, setLast] = useState(today);
-  const [pagination, setPagination] = useState({ version, offset: 0 });
-  const offset = pagination.version === version ? pagination.offset : 0;
-  const setOffset = (offset: number) => setPagination({ version, offset });
-  const query = JSON.stringify([version, table, exchange, first, last, offset]);
+  const [offset, setOffset] = useState(0);
+  // A followed version replaces the rows in place.
+  const query = JSON.stringify([table, exchange, first, last, offset]);
   const [result, setResult] = useState<{ query: string; rows?: TableRows; error: DisplayError }>();
   const rows = result?.query === query ? result.rows : undefined;
   const error = result?.query === query ? result.error : "";
@@ -120,7 +119,10 @@ export function ReferenceTable({
     })
       .then(rows => {
         if (!active) return;
-        setResult({ query, rows, error: "" });
+        // A newer version can have fewer rows than the open page.
+        if (offset && !rows.rows.length)
+          setOffset(Math.floor(Math.max(rows.total - 1, 0) / page) * page);
+        else setResult({ query, rows, error: "" });
       })
       .catch(reason => active && setResult({ query, error: asDisplayError(reason) }));
     return () => {

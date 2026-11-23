@@ -73,9 +73,19 @@ test("new reports appear without reopening the browser or losing its filters", a
       case "getDatasetCoverage":
         return { products: [] };
       case "getTableRows":
+        if (latest === "after" && body.value.offset)
+          return { columns: ["warehouse"], rows: [], total: 1 };
         return {
           columns: ["warehouse"],
-          rows: [{ values: [latest === "after" ? "新报告" : `原报告 ${body.value.offset}`] }],
+          rows: [
+            {
+              values: [
+                latest === "after"
+                  ? "新报告"
+                  : `${latest === "same" ? "同页" : "原报告"} ${body.value.offset}`,
+              ],
+            },
+          ],
           total: latest === "after" ? 1 : 101,
         };
       default:
@@ -94,6 +104,19 @@ test("new reports appear without reopening the browser or losing its filters", a
     fireEvent.click(screen.getByRole("button", { name: "下一页" }));
   });
   expect(screen.getByText("原报告 100")).toBeTruthy();
+  const coverageReads = () =>
+    request.mock.calls.filter(([body]) => body.case === "getDatasetCoverage").length;
+  expect(coverageReads()).toBe(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(6000);
+  });
+  expect(coverageReads()).toBe(1);
+  latest = "same";
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(3000);
+  });
+  expect(screen.getByText("同页 100")).toBeTruthy();
+  expect(coverageReads()).toBe(2);
   latest = "after";
   await act(async () => {
     await vi.advanceTimersByTimeAsync(3000);

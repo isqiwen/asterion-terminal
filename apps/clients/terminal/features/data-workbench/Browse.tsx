@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { warehouseData } from "../../src/bridge/warehouse-data";
 import { Table } from "../../src/generated/asterion/warehouse_pb";
 import type { TerminalContext } from "../../src/host/feature-registry";
@@ -43,28 +43,29 @@ function BrowseBody({ context }: { context: TerminalContext }) {
     context.navigate("workspace.data-browse", {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paramVersion, paramTable]);
+  const ordered = useRef({ version: "", exchanges: [...exchanges] });
   const state = useWarehousePoll(
     async () => {
       const current = await warehouseData({ case: "getDatasetSummary", value: {} });
       const latest = current.dataset?.version ?? "";
       const version = viewed || latest;
       // Parameter and listing tables open on an exchange that has data.
-      const coverage = version
-        ? await warehouseData({ case: "getDatasetCoverage", value: { version } })
-        : undefined;
-      const held = new Set(
-        (coverage?.products ?? [])
-          .filter(item => item.daily?.held || item.minutes?.held)
-          .map(item => item.product.split("/")[0]),
-      );
-      return {
-        latest,
-        version,
-        exchanges: [
-          ...exchanges.filter(item => held.has(item)),
-          ...exchanges.filter(item => !held.has(item)),
-        ],
-      };
+      if (version && ordered.current.version !== version) {
+        const coverage = await warehouseData({ case: "getDatasetCoverage", value: { version } });
+        const held = new Set(
+          coverage.products
+            .filter(item => item.daily?.held || item.minutes?.held)
+            .map(item => item.product.split("/")[0]),
+        );
+        ordered.current = {
+          version,
+          exchanges: [
+            ...exchanges.filter(item => held.has(item)),
+            ...exchanges.filter(item => !held.has(item)),
+          ],
+        };
+      }
+      return { latest, version, exchanges: ordered.current.exchanges };
     },
     [viewed],
     !!viewed,
@@ -128,15 +129,11 @@ function BrowseBody({ context }: { context: TerminalContext }) {
         ) : !state.value.version ? (
           <p className="subtle">{t("还没有数据")}</p>
         ) : tab === "contracts" ? (
-          <StoredContracts
-            key={state.value.version}
-            version={state.value.version}
-            context={context}
-          />
+          <StoredContracts key={viewed} version={viewed || state.value.version} context={context} />
         ) : (
           <ReferenceTable
             key={`${viewed}/${tab}`}
-            version={state.value.version}
+            version={viewed || state.value.version}
             table={tab}
             name={tableName(tab)}
             exchanges={state.value.exchanges}

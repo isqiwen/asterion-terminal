@@ -75,7 +75,8 @@ export function ContractHistory({
     endpoint && "host" in endpoint
       ? `${endpoint.host}:${endpoint.port}/${endpoint.fingerprint}`
       : "";
-  const storedKey = JSON.stringify([address, contractId, datasetVersion, retry]);
+  // A new dataset version refreshes the chart in place, keeping its period and page.
+  const storedKey = JSON.stringify([address, contractId, retry]);
   useEffect(() => {
     if (!contractId) return;
     let active = true;
@@ -110,7 +111,7 @@ export function ContractHistory({
   const available = daily ? hasDays : hasMinutes;
   const [showMacd, setShowMacd] = useWorkspaceDraft(`${preferenceKey}.macd`, true);
   const [showAverages, setShowAverages] = useWorkspaceDraft(`${preferenceKey}.averages`, true);
-  const barsKey = JSON.stringify([address, contractId, datasetVersion, activePeriod, retry]);
+  const barsKey = JSON.stringify([address, contractId, activePeriod, retry]);
   const [drawn, setDrawn] = useState<{ key: string; bars?: ChartBars; error: DisplayError }>();
   useEffect(() => {
     if (!contractId || activePeriod === undefined || !available) return;
