@@ -550,14 +550,15 @@ wire::ProductContracts Reader::product_coverage(const wire::ProductRef& query) c
 {
     require_identity(query.version());
     static const std::regex product("[A-Z]+/[a-zA-Z]{1,3}");
-    if (!std::regex_match(query.product(), product))
+    if (!query.product().empty() && !std::regex_match(query.product(), product))
         throw std::invalid_argument("a product must be EXCHANGE/product");
     const auto store = dataset(directory_);
     const auto version = store.version(query.version());
     wire::ProductContracts result;
     auto found = contract_coverage(directory_, store, version, query.product());
-    for (auto& contract : found[query.product()])
-        *result.add_contracts() = std::move(contract);
+    for (auto& [name, contracts] : found)
+        for (auto& contract : contracts)
+            *result.add_contracts() = std::move(contract);
     return result;
 }
 

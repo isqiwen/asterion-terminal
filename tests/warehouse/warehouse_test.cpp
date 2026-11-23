@@ -297,6 +297,11 @@ TEST_F(Warehouse, CoverageSummarizesProductsAndListsEachContractsMinutes)
     EXPECT_EQ(detail.contracts(0).minutes().days(), 3);
     EXPECT_EQ(detail.contracts(0).minutes().first_day(), "2026-09-30");
     EXPECT_EQ(detail.contracts(0).minutes().last_day(), "2026-10-30");
+    product.clear_product();
+    const auto all = wh::Reader(root).product_coverage(product);
+    ASSERT_EQ(all.contracts_size(), 2);
+    EXPECT_EQ(all.contracts(0).contract(), "SHFE/cu/2026-12");
+    EXPECT_EQ(all.contracts(1).SerializeAsString(), detail.contracts(0).SerializeAsString());
 }
 
 TEST_F(Warehouse, MinuteCoverageIncludesEmptyDaysBeforeFirstStoredDay)

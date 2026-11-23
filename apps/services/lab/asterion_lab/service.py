@@ -655,13 +655,8 @@ class Service:
             version = warehouse.version(pinned) if pinned else warehouse.current()
             found = {}
             if include_daily:
-                target_exchanges = [only.split("/")[0]] if only else (sorted(exchanges) if exchanges else [""])
-                for exchange in target_exchanges:
-                    for contract, first, last, days in warehouse.query(version, """
-                            select contract, min(day), max(day), count(distinct day) from daily
-                            where ? = '' or contract = ? group by contract""", ("daily",), (only, only),
-                            exchange=exchange):
-                        found.setdefault(contract, {})["daily"] = (first.isoformat(), last.isoformat(), days)
+                for contract, coverage in warehouse.daily_coverage(version, only, exchanges).items():
+                    found.setdefault(contract, {})["daily"] = coverage
             for contract, coverage in version.minute_coverage(only).items():
                 found.setdefault(contract, {})["minutes"] = coverage
             names = {}

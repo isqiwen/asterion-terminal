@@ -888,7 +888,7 @@ export type ProductRef = Message<"warehouse.ProductRef"> & {
   version: string;
 
   /**
-   * EXCHANGE/product
+   * EXCHANGE/product; empty selects every product.
    *
    * @generated from field: string product = 2;
    */

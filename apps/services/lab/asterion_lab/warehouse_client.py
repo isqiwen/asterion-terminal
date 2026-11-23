@@ -52,7 +52,8 @@ class Client:
                 self.verified = False
 
     def call(self, operation, **values):
-        if operation not in ("get_status", "get_dataset_version", "read_dataset_file", "get_dataset_summary"):
+        if operation not in ("get_status", "get_dataset_version", "read_dataset_file",
+                             "get_dataset_summary", "get_product_coverage"):
             raise ValueError("Lab only reads Warehouse datasets")
         if operation != "get_status" and not self.verified:
             status = self._invoke("get_status")
@@ -281,6 +282,35 @@ class Dataset(ParquetTables):
             finally:
                 if temporary is not None:
                     temporary.unlink(missing_ok=True)
+
+    def daily_coverage(self, version, only="", exchanges=None):
+        exchanges = {only.split("/")[0]} if only else set(exchanges or ())
+        keys = [key for key in version.keys("daily")
+                if not exchanges or key.split("/")[1] in exchanges]
+        if not keys:
+            return {}
+        # Fully cached versions remain usable while their Warehouse is offline.
+        if all((self.root / version.manifest["partitions"][key]["file"]).exists() for key in keys):
+            found = {}
+            for exchange in sorted(exchanges) or [""]:
+                for contract, first, last, days in self.query(version, """
+                        select contract, min(day), max(day), count(distinct day) from daily
+                        where ? = '' or contract = ? group by contract""", ("daily",), (only, only),
+                        exchange=exchange):
+                    found[contract] = (first.isoformat(), last.isoformat(), days)
+            return found
+        with self.client(version.manifest["origin"]) as client:
+            coverage = client.call("get_product_coverage", version=version.identity,
+                                   product=only.rpartition("/")[0])
+        found = {}
+        for item in coverage.contracts:
+            if only and item.contract != only:
+                continue
+            if exchanges and item.contract.split("/")[0] not in exchanges:
+                continue
+            if item.daily.days:
+                found[item.contract] = (item.daily.first_day, item.daily.last_day, item.daily.days)
+        return found
 
     def query(self, version, sql, tables, parameters=(), **scope):
         # Only the partitions this query reads are downloaded.

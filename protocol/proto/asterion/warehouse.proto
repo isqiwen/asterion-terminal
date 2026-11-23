@@ -225,7 +225,7 @@ message SeriesSummary {
 
 message ProductRef {
   string version = 1;
-  // EXCHANGE/product
+  // EXCHANGE/product; empty selects every product.
   string product = 2;
 }
 

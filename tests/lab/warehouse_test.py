@@ -25,7 +25,7 @@ from asterion_lab.service import Service
 from asterion_lab.runs import Runs
 from warehouse_installation import warehouse_host
 import warehouse_tls
-from warehouse_fixture import warehouse, DAYS, daily, price_tick
+from warehouse_fixture import warehouse, DAYS, contract_row, daily, price_tick
 from warehouse_writer import Warehouse
 
 
@@ -143,6 +143,45 @@ class RemoteResearch(unittest.TestCase):
             return await service.reply(request)
         answer = asyncio.run(scenario())
         self.assertEqual(answer.get_dataset_summary.dataset.version, self.original.identity, answer)
+
+    def test_cold_contract_catalog_reads_fixed_coverage_without_downloading_daily_bars(self):
+        writer = Warehouse(self.data).writer()
+        symbols = ['SHFE/rb/2026-05', 'SHFE/rb/2026-10', 'DCE/m/2026-05']
+        writer.put_rows('contracts/DCE', 'contracts', [contract_row(symbols[2])])
+        writer.put_rows('daily/DCE/2026-01-05', 'daily',
+                        [daily(symbols[2], DAYS[0], 3000, 100)], days=[DAYS[0].isoformat()])
+        version = writer.commit()
+        self.publish_incomplete()
+
+        async def scenario():
+            service = Service('lab', self.lab, Log(), self.warehouse)
+            request = Request(id=1, list_stored_contracts=dict(dataset_version=version.identity))
+            try:
+                answer = await service.reply(request)
+                self.assertEqual(answer.WhichOneof('result'), 'list_stored_contracts', answer)
+                self.assertEqual(answer.list_stored_contracts.dataset_version, version.identity)
+                stored = {item.contract: item for item in answer.list_stored_contracts.contracts}
+                self.assertEqual(sorted(stored), sorted(symbols))
+                self.assertEqual((stored[symbols[0]].name, stored[symbols[0]].daily.days,
+                                  stored[symbols[0]].daily.first_day, stored[symbols[0]].daily.last_day),
+                                 (symbols[0], 30, DAYS[0].isoformat(), DAYS[-1].isoformat()))
+                self.assertEqual(stored[symbols[2]].daily.days, 1)
+                request.list_stored_contracts.contract = symbols[0]
+                single = await service.reply(request)
+                self.assertEqual(list(single.list_stored_contracts.contracts), [stored[symbols[0]]])
+                pinned = self.dataset.version(version.identity)
+                self.assertEqual(set(self.dataset.daily_coverage(pinned, exchanges={'DCE'})), {symbols[2]})
+                files = {path.name for path in (self.dataset.root / 'files').glob('*.parquet')}
+                expected = {f'{part["sha256"]}.parquet' for key, part in version.manifest['partitions'].items()
+                            if key.startswith('contracts/')}
+                self.assertEqual(files, expected)
+                self.count(self.dataset, pinned)
+                request.list_stored_contracts.contract = ''
+                with patch.object(Client, 'call', side_effect=WarehouseError('unavailable', 'offline')):
+                    self.assertEqual(await service.reply(request), answer)
+            finally:
+                service.reads.shutdown(wait=True)
+        asyncio.run(scenario())
 
     def test_price_tick_history_downloads_with_its_exact_value_and_fixed_version(self):
         symbol = 'SHFE/rb/2026-05'
