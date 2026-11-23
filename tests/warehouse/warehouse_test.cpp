@@ -5,11 +5,11 @@
 #include "support/warehouse_host.hpp"
 #include "parquet_engine.hpp"
 #include <asterion/base/error.hpp>
+#include <asterion/futures/trading_days.hpp>
 #include <asterion/protocol/common.hpp>
 #include <asterion/system/process/artifact.hpp>
 #include <asterion/system/process/file_lock.hpp>
 #include <asterion/warehouse.pb.h>
-#include <format>
 #include <fstream>
 #include <gtest/gtest.h>
 
@@ -408,8 +408,8 @@ TEST_F(Warehouse, ReferenceTablesPageByExchangeAndDays)
         writer.put("contracts/DCE", std::vector<wh::Row>{with("contracts", 0, std::string("DCE"))});
         std::vector<wh::Row> days;
         for (int day = 1; day <= 25; ++day)
-            for (const auto* month : {"07", "08", "09", "10"})
-                days.push_back(with("calendar", 1, std::format("2026-{}-{:02}", month, day)));
+            for (int month = 7; month <= 10; ++month)
+                days.push_back(with("calendar", 1, format_trading_date(2026y / month / day)));
         writer.put("calendar/SHFE/2026", days);
         writer.put(
             "calendar/SHFE/2025",
