@@ -540,6 +540,78 @@ TEST_F(Acquisition, CopperReceiptsKeepShfeAndIneWarehousesSeparate)
     EXPECT_EQ(ine[0].volume, wh::Cell{std::string("50")});
 }
 
+TEST_F(Acquisition, TushareReceiptsKeepReportedWarehouseTypes)
+{
+    ac::Tushare source(token, std::make_shared<ac::Budget>(500), {}, [&](const auto& body, auto) {
+        const auto query = Json::parse(body);
+        if (query.at("api_name") == "fut_basic")
+            return table(
+                contract_fields,
+                {contract("BU1606.SHF", "SHFE", "BU", "201606", "20150101", "20160615")});
+        return table(
+            "trade_date,symbol,fut_name,warehouse,wh_id,pre_vol,vol,vol_chg,area,year,grade,brand,place,pd,is_ct,unit,exchange,fore_vol",
+            {{"20160104",
+                 "BU",
+                 "沥青仓库",
+                 "金海宏业",
+                 nullptr,
+                 20000,
+                 20000,
+                 0,
+                 "江苏",
+                 nullptr,
+                 nullptr,
+                 nullptr,
+                 nullptr,
+                 nullptr,
+                 nullptr,
+                 "吨",
+                 "SHFE",
+                 nullptr},
+                {"20160104",
+                    "BU",
+                    "沥青厂库",
+                    "金海宏业",
+                    nullptr,
+                    5740,
+                    5440,
+                    -300,
+                    "江苏",
+                    nullptr,
+                    nullptr,
+                    nullptr,
+                    nullptr,
+                    nullptr,
+                    nullptr,
+                    "吨",
+                    "SHFE",
+                    nullptr},
+                {"20160104",
+                    "BU",
+                    "沥青",
+                    "总计",
+                    nullptr,
+                    nullptr,
+                    25440,
+                    -300,
+                    nullptr,
+                    nullptr,
+                    nullptr,
+                    nullptr,
+                    nullptr,
+                    nullptr,
+                    nullptr,
+                    "吨",
+                    "SHFE",
+                    nullptr}});
+    });
+    const auto rows = source.warehouse_receipts("SHFE", "2016-01-04");
+    ASSERT_EQ(rows.size(), 3);
+    EXPECT_EQ(rows[0].warehouse_type, wh::Cell{std::string("仓库")});
+    EXPECT_EQ(rows[1].warehouse_type, wh::Cell{std::string("厂库")});
+    EXPECT_EQ(rows[2].warehouse_type, wh::Cell{});
+}
+
 TEST_F(Acquisition, CzceMemberPositionsKeepContractRanksAndProductSummaries)
 {
     ac::Tushare source(token, std::make_shared<ac::Budget>(500), {}, [&](const auto& body, auto) {

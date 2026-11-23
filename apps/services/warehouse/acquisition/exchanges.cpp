@@ -278,9 +278,12 @@ shanghai_receipts(const std::string& exchange, const std::string& day, const Jso
         if (text(row.at("ROWSTATUS")) != "0")
             continue;
         auto name = label(row.at("VARNAME"));
+        Cell warehouse_type;
         for (const std::string_view suffix : {"仓库", "厂库"})
-            if (name.ends_with(suffix))
+            if (name.ends_with(suffix)) {
+                warehouse_type = std::string(suffix);
                 name.resize(name.size() - suffix.size());
+            }
         const auto product = row.contains("VARID") ? text(row.at("VARID")) : products.at(name);
         if (ine_products.contains(product) != (exchange == "INE"))
             continue;
@@ -295,6 +298,7 @@ shanghai_receipts(const std::string& exchange, const std::string& day, const Jso
                 .product = product,
                 .day = day,
                 .warehouse = label(row.at("WHABBRNAME")),
+                .warehouse_type = warehouse_type,
                 .area = area.empty() ? Cell{} : Cell{area},
                 .unit = units.at(text(row.at("WGHTUNIT"))),
                 .previous_volume = previous,

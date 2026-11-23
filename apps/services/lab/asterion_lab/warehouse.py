@@ -39,7 +39,7 @@ SCHEMAS["settlement"] = {"exchange": pl.String, "product": pl.String, "contract"
     "day": pl.Date, **{name: NUMBER for name in ("long_margin_rate", "short_margin_rate",
         "fee_rate", "fee_per_lot", "close_today_fee_rate", "close_today_fee_per_lot")}}
 SCHEMAS["warehouse_receipts"] = {"exchange": pl.String, "product": pl.String, "day": pl.Date,
-    **{name: pl.String for name in ("warehouse", "warehouse_id", "area", "crop_year", "grade",
+    **{name: pl.String for name in ("warehouse", "warehouse_id", "warehouse_type", "area", "crop_year", "grade",
         "brand", "origin", "unit", "converted")},
     **{name: NUMBER for name in ("previous_volume", "volume", "volume_change", "forecast_volume", "premium")},
     "published_ms": pl.Int64, "observed_ms": pl.Int64}

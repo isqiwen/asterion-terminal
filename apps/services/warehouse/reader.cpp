@@ -512,7 +512,7 @@ wire::TableRows Reader::rows(const wire::GetTableRows& query) const
                                        : "")
         + (table == "calendar" ? "exchange"
                 : table == "warehouse_receipts"
-                ? "product, warehouse, warehouse_id, area, crop_year, grade, brand, origin, converted, unit"
+                ? "product, warehouse, warehouse_id, warehouse_type, area, crop_year, grade, brand, origin, converted, unit"
                 : table == "member_positions" ? "product, contract, member"
                 : table == "inventory"        ? "product, area, warehouse, grade, unit"
                                               : "contract")

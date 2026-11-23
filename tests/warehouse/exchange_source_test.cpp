@@ -103,6 +103,23 @@ TEST_F(ExchangeSources, ShanghaiReceiptsKeepAllWarehousesAndSeparateExchangeTota
     }
 }
 
+TEST_F(ExchangeSources, ShanghaiReceiptsDistinguishWarehouseAndFactoryAtTheSameLocation)
+{
+    ac::Exchange source("SHFE", budget, {}, [&](const ac::HttpRequest&, auto) {
+        return ac::HttpReply{200, reference_fixture("shfe_receipts_20160104.json")};
+    });
+    const auto rows = source.warehouse_receipts("SHFE", "2016-01-04");
+    ASSERT_EQ(rows.size(), 2);
+    for (const auto& row : rows) {
+        EXPECT_EQ(row.product, "bu");
+        EXPECT_EQ(row.warehouse, wh::Cell{std::string("金海宏业")});
+    }
+    EXPECT_EQ(rows[0].warehouse_type, wh::Cell{std::string("仓库")});
+    EXPECT_EQ(rows[0].volume, wh::Cell{std::string("20000")});
+    EXPECT_EQ(rows[1].warehouse_type, wh::Cell{std::string("厂库")});
+    EXPECT_EQ(rows[1].volume, wh::Cell{std::string("5440")});
+}
+
 TEST_F(ExchangeSources, ShanghaiReceiptsKeepBondedCopperOutOfShfe)
 {
     const auto fetch = [&](const ac::HttpRequest&, auto) {

@@ -264,12 +264,17 @@ Tushare::warehouse_receipts(const std::string& exchange, const std::string& day)
             // Tushare labels both copper reports CU; the name identifies INE bonded copper.
             if (symbol == "CU" && (at("fut_name") == "铜(BC)") != (product == "bc"))
                 continue;
+            Cell warehouse_type;
+            for (const std::string_view suffix : {"仓库", "厂库"})
+                if (text(at("fut_name")).ends_with(suffix))
+                    warehouse_type = std::string(suffix);
             rows.push_back(
                 {.exchange = exchange,
                     .product = product,
                     .day = day,
                     .warehouse = label(at("warehouse")),
                     .warehouse_id = label(at("wh_id")),
+                    .warehouse_type = warehouse_type,
                     .area = label(at("area")),
                     .crop_year = label(at("year")),
                     .grade = label(at("grade")),

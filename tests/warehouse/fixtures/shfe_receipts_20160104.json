@@ -1,0 +1,38 @@
+{
+  "o_cursor": [
+    {
+      "VARNAME": "沥青仓库$$BITUMEN Warehouse",
+      "VARSORT": 8,
+      "REGNAME": "江苏$$Jiangsu",
+      "REGSORT": 2,
+      "WHABBRNAME": "金海宏业$$Golden Sea",
+      "WHROWS": 5,
+      "WGHTUNIT": "2",
+      "WRTWGHTS": 20000,
+      "WRTCHANGE": 0,
+      "ROWORDER": 502,
+      "ROWSTATUS": "0"
+    },
+    {
+      "VARNAME": "沥青厂库$$BITUMEN Factory Warehouse",
+      "VARSORT": 8,
+      "REGNAME": "江苏$$Jiangsu",
+      "REGSORT": 2,
+      "WHABBRNAME": "金海宏业$$Golden Sea",
+      "WHROWS": 4,
+      "WGHTUNIT": "2",
+      "WRTWGHTS": 5440,
+      "WRTCHANGE": -300,
+      "ROWORDER": 523,
+      "ROWSTATUS": "0"
+    }
+  ],
+  "o_tradingday": "20160104",
+  "o_issueno": "1",
+  "o_totalissueno": "1764",
+  "o_code": "0",
+  "o_msg": "期货仓单日报查询成功",
+  "report_date": "20160104",
+  "update_date": "20160104 20:55:46",
+  "print_date": "20160104 20:55:55"
+}

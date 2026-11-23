@@ -84,7 +84,8 @@ struct PriceTick
 struct WarehouseReceipt
 {
     std::string exchange, product, day;
-    Cell warehouse, warehouse_id, area, crop_year, grade, brand, origin, unit, converted;
+    Cell warehouse, warehouse_id, warehouse_type, area, crop_year, grade, brand, origin, unit,
+        converted;
     Cell previous_volume, volume, volume_change, forecast_volume, premium;
     Cell published_ms;
     std::int64_t observed_ms = 0;

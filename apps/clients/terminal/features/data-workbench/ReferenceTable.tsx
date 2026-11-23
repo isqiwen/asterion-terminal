@@ -40,6 +40,7 @@ const columnLabels: Record<string, string> = {
   source_url: "来源链接",
   warehouse: "仓库",
   warehouse_id: "仓库编号",
+  warehouse_type: "仓库类型",
   area: "地区",
   crop_year: "作物年度",
   grade: "等级",
