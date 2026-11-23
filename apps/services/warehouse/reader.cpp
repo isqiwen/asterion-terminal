@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <fstream>
 #include <map>
+#include <ranges>
 #include <regex>
 #include <sstream>
 #include <set>
@@ -483,11 +484,6 @@ wire::TableRows Reader::rows(const wire::GetTableRows& query) const
         && table != "price_ticks" && table != "warehouse_receipts" && table != "member_positions"
         && table != "inventory")
         throw std::invalid_argument("only reference tables can be browsed");
-    const bool dated = table != "contracts";
-    if (dated) {
-        require_day(query.first_day());
-        require_day(query.last_day());
-    }
     const auto store = dataset(directory_);
     const auto version = selected(store, query.dataset().version());
     wire::TableRows result;
@@ -495,36 +491,25 @@ wire::TableRows Reader::rows(const wire::GetTableRows& query) const
         result.add_columns(column.name);
     const auto prefix = table + '/' + query.exchange();
     std::string files;
-    for (const auto& [key, part] : version.partitions) {
+    std::uint64_t total = 0;
+    // Keys sort by period, so a page opens only the newest files it reaches.
+    for (const auto& [key, part] : version.partitions | std::views::reverse) {
         if (key != prefix && !key.starts_with(prefix + '/'))
             continue;
-        const auto period = key.substr(std::min(key.size(), prefix.size() + 1));
-        if (dated && table != "price_ticks"
-            && (period < query.first_day().substr(0, period.size())
-                || period > query.last_day().substr(0, period.size())))
-            continue;
-        files += (files.empty() ? "" : ",") + parquet::literal(store.file(version, key));
+        if (total < std::uint64_t{query.offset()} + 100)
+            files += (files.empty() ? "" : ",") + parquet::literal(store.file(version, key));
+        total += part.rows;
     }
     if (files.empty())
         return result;
-    const auto filter = table == "price_ticks" ? " WHERE effective_from <= DATE '"
-            + query.last_day() + "' AND effective_until > DATE '" + query.first_day() + "'"
-        : dated
-        ? " WHERE day BETWEEN DATE '" + query.first_day() + "' AND DATE '" + query.last_day() + "'"
-        : std::string{};
+    result.set_total(static_cast<std::uint32_t>(total));
     parquet::Engine engine;
-    engine.run(
-        "CREATE TEMP VIEW t AS SELECT * FROM read_parquet([" + files
-        + "])"
-        // Both days were validated as YYYY-MM-DD.
-        + filter);
-    result.set_total(
-        engine.run("SELECT count(*) FROM t")->GetValue(0, 0).GetValue<std::uint32_t>());
+    engine.run("CREATE TEMP VIEW t AS SELECT * FROM read_parquet([" + files + "])");
     const auto rows = engine.run(
         std::string("SELECT * FROM t ORDER BY ")
-        + (table == "price_ticks" ? "effective_from, product, "
-                : dated           ? "day, "
-                                  : "")
+        + (table == "price_ticks"      ? "effective_from DESC, product, "
+                : table != "contracts" ? "day DESC, "
+                                       : "")
         + (table == "calendar" ? "exchange"
                 : table == "warehouse_receipts"
                 ? "product, warehouse, warehouse_id, area, crop_year, grade, brand, origin, converted, unit"

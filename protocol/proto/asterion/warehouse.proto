@@ -176,15 +176,12 @@ message DatasetChange {
   repeated Table tables = 6;
 }
 
-// A page of a reference table of one exchange, limited to the days given;
-// price tick rules are selected by overlap with their effective interval.
+// A page of a reference table of one exchange, newest first.
 message GetTableRows {
   DatasetRef dataset = 1;
   Table table = 2;
   string exchange = 3;
-  string first_day = 4;
-  string last_day = 5;
-  uint32 offset = 6;
+  uint32 offset = 4;
 }
 
 message TableRows {

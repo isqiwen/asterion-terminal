@@ -97,8 +97,6 @@ test("new reports appear without reopening the browser or losing its filters", a
   });
   await act(async () => {
     fireEvent.change(screen.getByLabelText("交易所"), { target: { value: "INE" } });
-    fireEvent.change(screen.getByLabelText("开始日期"), { target: { value: "2018-11-13" } });
-    fireEvent.change(screen.getByLabelText("结束日期"), { target: { value: "2018-11-16" } });
   });
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "下一页" }));
@@ -128,14 +126,10 @@ test("new reports appear without reopening the browser or losing its filters", a
       dataset: { version: "after" },
       table: Table.INVENTORY,
       exchange: "INE",
-      firstDay: "2018-11-13",
-      lastDay: "2018-11-16",
       offset: 0,
     },
   });
   expect((screen.getByLabelText("交易所") as HTMLSelectElement).value).toBe("INE");
-  expect((screen.getByLabelText("开始日期") as HTMLInputElement).value).toBe("2018-11-13");
-  expect((screen.getByLabelText("结束日期") as HTMLInputElement).value).toBe("2018-11-16");
 });
 
 test("tables are grouped by what they are for, and a table opened by link shows its group", async () => {

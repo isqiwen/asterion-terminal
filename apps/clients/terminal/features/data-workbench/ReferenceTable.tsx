@@ -1,21 +1,13 @@
-import { DateInput } from "../../src/ui/DateInput";
 import { useEffect, useState } from "react";
 import { Table, type TableRows } from "../../src/generated/asterion/warehouse_pb";
 import { warehouseData } from "../../src/bridge/warehouse-data";
 import { useErrorNotification } from "../../src/host/notifications";
 import { type MessageValues, translate } from "../../src/i18n";
-import {
-  BackendError,
-  ErrorNotice,
-  type DisplayError,
-  asDisplayError,
-} from "../../src/i18n/errors";
-import { beijingDay } from "./dataset";
+import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.data-workbench", key, values);
 const page = 100;
-const today = () => beijingDay(0);
 const columnLabels: Record<string, string> = {
   exchange: "交易所",
   product: "品种",
@@ -82,7 +74,7 @@ const timestamp = (value: string) =>
     ? new Date(Number(value)).toLocaleString("sv-SE", { timeZone: "Asia/Shanghai", hour12: false })
     : "—";
 
-// Browse one table of one exchange in a fixed version, limited to the selected dates.
+// Browse one table of one exchange in a fixed version, newest first.
 export function ReferenceTable({
   version,
   table,
@@ -95,11 +87,9 @@ export function ReferenceTable({
   exchanges: string[];
 }) {
   const [exchange, setExchange] = useState(exchanges[0] ?? "");
-  const [first, setFirst] = useState(() => `${today().slice(0, 4)}-01-01`);
-  const [last, setLast] = useState(today);
   const [offset, setOffset] = useState(0);
   // A followed version replaces the rows in place.
-  const query = JSON.stringify([table, exchange, first, last, offset]);
+  const query = JSON.stringify([table, exchange, offset]);
   const [result, setResult] = useState<{ query: string; rows?: TableRows; error: DisplayError }>();
   const rows = result?.query === query ? result.rows : undefined;
   const error = result?.query === query ? result.error : "";
@@ -114,8 +104,6 @@ export function ReferenceTable({
         dataset: { version },
         table,
         exchange,
-        firstDay: table === Table.CONTRACTS ? "" : first,
-        lastDay: table === Table.CONTRACTS ? "" : last,
         offset,
       },
     })
@@ -130,17 +118,8 @@ export function ReferenceTable({
     return () => {
       active = false;
     };
-  }, [query, version, table, exchange, first, last, offset]);
-  // Any change of what is shown starts from its first page.
-  const choose = (apply: () => void) => {
-    apply();
-    setOffset(0);
-  };
-  const inputError =
-    error instanceof BackendError &&
-    error.code === "invalid_request" &&
-    error.diagnostic !== "unknown Protobuf field";
-  useErrorNotification(!inputError && error ? error : "", "asterion.terminal.data-workbench");
+  }, [query, version, table, exchange, offset]);
+  useErrorNotification(error, "asterion.terminal.data-workbench");
   return (
     <>
       <div className="data-fields">
@@ -148,31 +127,17 @@ export function ReferenceTable({
           {t("交易所")}
           <select
             value={exchange}
-            onChange={event => choose(() => setExchange(event.target.value))}
+            onChange={event => {
+              setExchange(event.target.value);
+              setOffset(0);
+            }}
           >
             {exchanges.map(item => (
               <option key={item}>{item}</option>
             ))}
           </select>
         </label>
-        {table !== Table.CONTRACTS && (
-          <>
-            <label>
-              {t("开始日期")}
-              <DateInput value={first} onChange={value => choose(() => setFirst(value))} />
-            </label>
-            <label>
-              {t("结束日期")}
-              <DateInput value={last} onChange={value => choose(() => setLast(value))} />
-            </label>
-          </>
-        )}
       </div>
-      {inputError && (
-        <p className="action-error" role="alert">
-          <ErrorNotice error={error} namespace="asterion.terminal.data-workbench" />
-        </p>
-      )}
       {rows?.rows.length ? (
         <>
           <div className="reference-table" role="region" aria-label={name} tabIndex={0}>

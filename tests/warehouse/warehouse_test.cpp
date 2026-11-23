@@ -9,6 +9,7 @@
 #include <asterion/system/process/artifact.hpp>
 #include <asterion/system/process/file_lock.hpp>
 #include <asterion/warehouse.pb.h>
+#include <format>
 #include <fstream>
 #include <gtest/gtest.h>
 
@@ -405,12 +406,14 @@ TEST_F(Warehouse, ReferenceTablesPageByExchangeAndDays)
                 with("contracts", 1, std::string("SHFE/cu/2026-12"))
             });
         writer.put("contracts/DCE", std::vector<wh::Row>{with("contracts", 0, std::string("DCE"))});
+        std::vector<wh::Row> days;
+        for (int day = 1; day <= 25; ++day)
+            for (const auto* month : {"07", "08", "09", "10"})
+                days.push_back(with("calendar", 1, std::format("2026-{}-{:02}", month, day)));
+        writer.put("calendar/SHFE/2026", days);
         writer.put(
-            "calendar/SHFE/2026",
-            std::vector<wh::Row>{
-                with("calendar", 1, std::string("2026-10-29")),
-                with("calendar", 1, std::string("2026-10-30"))
-            });
+            "calendar/SHFE/2025",
+            std::vector<wh::Row>{with("calendar", 1, std::string("2025-12-31"))});
         writer.commit();
     }
     wh::Reader reader(root);
@@ -422,11 +425,12 @@ TEST_F(Warehouse, ReferenceTablesPageByExchangeAndDays)
     ASSERT_EQ(contracts.total(), 2);
     EXPECT_EQ(contracts.rows(0).values(1), "SHFE/cu/2026-12");
     query.set_table(wire::TABLE_CALENDAR);
-    query.set_first_day("2026-10-30");
-    query.set_last_day("2026-12-31");
     const auto calendar = reader.rows(query);
-    ASSERT_EQ(calendar.total(), 1);
-    EXPECT_EQ(calendar.rows(0).values(1), "2026-10-30");
+    ASSERT_EQ(calendar.total(), 101);
+    EXPECT_EQ(calendar.rows(0).values(1), "2026-10-25");
+    query.set_offset(100);
+    EXPECT_EQ(reader.rows(query).rows(0).values(1), "2025-12-31");
+    query.set_offset(0);
     query.set_table(wire::TABLE_MINUTES);
     EXPECT_THROW(reader.rows(query), std::invalid_argument);
 }

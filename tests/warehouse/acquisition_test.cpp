@@ -421,8 +421,6 @@ TEST_F(Acquisition, FundamentalReportsAreAcquiredAndBrowsedInFixedVersions)
         browse.mutable_dataset()->set_version(version);
         browse.set_table(table);
         browse.set_exchange(exchange);
-        browse.set_first_day("2026-01-05");
-        browse.set_last_day("2026-01-05");
         const auto rows = reader.rows(browse);
         ASSERT_EQ(rows.total(), 2);
         const auto cell = [&](int row, const std::string& field) {
