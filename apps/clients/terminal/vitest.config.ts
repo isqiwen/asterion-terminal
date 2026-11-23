@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import { availableParallelism } from "node:os";
 import terminal from "./vite.config";
 
 // Unit and component tests: the Terminal's sources under jsdom. They take the
@@ -11,5 +12,7 @@ export default defineConfig({
     include: ["src/**/*.test.{ts,tsx}", "features/**/*.test.{ts,tsx}"],
     environment: "jsdom",
     setupFiles: ["src/testing/setup.ts"],
+    // More concurrent jsdom renders starve component tests of CPU time.
+    maxWorkers: Math.min(2, availableParallelism()),
   },
 });

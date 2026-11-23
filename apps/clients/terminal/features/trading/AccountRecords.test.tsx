@@ -58,7 +58,12 @@ test("changing a historical trading day cannot leave the previous day's fills ex
   fireEvent.change(day, { target: { value: "2026-11-12" } });
   expect(await screen.findByText("11-12 09:01:00")).toBeTruthy();
   fireEvent.change(day, { target: { value: "2026-11-13" } });
-  await waitFor(() => expect(tradingRequest).toHaveBeenCalledTimes(3));
+  await waitFor(() =>
+    expect(tradingRequest).toHaveBeenLastCalledWith("sim", {
+      case: "getDay",
+      value: { tradingDay: "2026-11-13", offset: 0, limit: 50 },
+    }),
+  );
   expect(screen.queryByText("11-12 09:01:00")).toBeNull();
   expect(screen.queryByRole("button", { name: "导出 CSV" })).toBeNull();
 });
