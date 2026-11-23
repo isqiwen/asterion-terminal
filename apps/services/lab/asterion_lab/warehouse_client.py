@@ -24,7 +24,9 @@ from asterion_lab.version import WAREHOUSE_PROTOCOL
 from asterion_lab.warehouse import ParquetTables, Version, canonical, write_durably
 
 IDENTITY = re.compile(r"[0-9a-f]{64}")
+PRODUCT = re.compile(r"[A-Z]+/[a-zA-Z]{1,3}")
 CHUNK = 1024 * 1024
+MAX_FRAME = 64 * 1024 * 1024
 
 
 class WarehouseError(ValueError):
@@ -99,7 +101,7 @@ class Client:
             payload = request.SerializeToString()
             self.stream.sendall(struct.pack("!I", len(payload)) + payload)
             size, = struct.unpack("!I", self.receive(4))
-            if not 0 < size <= 2 * CHUNK:
+            if not 0 < size <= MAX_FRAME:
                 raise WarehouseError("invalid_data", "invalid Warehouse dataset response size")
             response = Response.FromString(self.receive(size))
         except OSError as error:
@@ -299,9 +301,12 @@ class Dataset(ParquetTables):
                         exchange=exchange):
                     found[contract] = (first.isoformat(), last.isoformat(), days)
             return found
+        product = only.rpartition("/")[0]
+        if only and not PRODUCT.fullmatch(product):
+            return {}
         with self.client(version.manifest["origin"]) as client:
             coverage = client.call("get_product_coverage", version=version.identity,
-                                   product=only.rpartition("/")[0])
+                                   product=product)
         found = {}
         for item in coverage.contracts:
             if only and item.contract != only:

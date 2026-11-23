@@ -41,6 +41,7 @@ Lane lane(const wire::Request& request)
     switch (request.call_case()) {
         case wire::Request::kGetDatasetSummary:
         case wire::Request::kGetDatasetCoverage:
+        case wire::Request::kGetProductCoverage:
         case wire::Request::kGetTableRows:
         case wire::Request::kListDatasetVersions:
         case wire::Request::kCompareDatasetVersions:

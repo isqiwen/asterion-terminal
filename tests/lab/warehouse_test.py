@@ -19,7 +19,7 @@ sys.path[:0] = [str(source / 'apps/services/lab'), str(build / 'generated-python
                str(build / 'engine-python'), str(source / 'tests/support'), str(Path(__file__).parent)]
 from asterion.lab_pb2 import Request
 from asterion.common_pb2 import Period
-from asterion_lab.warehouse_client import Client, Dataset, Endpoint, WarehouseError
+from asterion_lab.warehouse_client import CHUNK, Client, Dataset, Endpoint, WarehouseError
 from asterion_lab.warehouse import SCHEMAS
 from asterion_lab.service import Service
 from asterion_lab.runs import Runs
@@ -169,6 +169,10 @@ class RemoteResearch(unittest.TestCase):
                 request.list_stored_contracts.contract = symbols[0]
                 single = await service.reply(request)
                 self.assertEqual(list(single.list_stored_contracts.contracts), [stored[symbols[0]]])
+                request.list_stored_contracts.contract = 'SHFE/rb'
+                non_contract = await service.reply(request)
+                self.assertEqual(non_contract.WhichOneof('result'), 'list_stored_contracts', non_contract)
+                self.assertEqual(list(non_contract.list_stored_contracts.contracts), [])
                 pinned = self.dataset.version(version.identity)
                 self.assertEqual(set(self.dataset.daily_coverage(pinned, exchanges={'DCE'})), {symbols[2]})
                 files = {path.name for path in (self.dataset.root / 'files').glob('*.parquet')}
@@ -179,9 +183,25 @@ class RemoteResearch(unittest.TestCase):
                 request.list_stored_contracts.contract = ''
                 with patch.object(Client, 'call', side_effect=WarehouseError('unavailable', 'offline')):
                     self.assertEqual(await service.reply(request), answer)
+                    request.list_stored_contracts.contract = 'SHFE/rb'
+                    self.assertEqual(await service.reply(request), non_contract)
             finally:
                 service.reads.shutdown(wait=True)
         asyncio.run(scenario())
+
+    def test_cold_contract_catalog_accepts_coverage_larger_than_two_megabytes(self):
+        writer = Warehouse(self.data).writer()
+        rows = [contract_row('SHFE/rb/2026-05'), contract_row('SHFE/rb/2026-10')]
+        rows.extend(contract_row(f'SHFE/rb/{year:04d}-{month:02d}')
+                    for year in range(2027, 5800) for month in range(1, 13))
+        writer.put_rows('contracts/SHFE', 'contracts', rows)
+        version = writer.commit()
+        with Client(self.warehouse.selected()) as client:
+            raw = client.call('get_product_coverage', version=version.identity, product='')
+        self.assertGreater(raw.ByteSize(), 2 * CHUNK)
+        pinned = self.dataset.version(version.identity)
+        coverage = self.dataset.daily_coverage(pinned)
+        self.assertEqual(sorted(coverage), ['SHFE/rb/2026-05', 'SHFE/rb/2026-10'])
 
     def test_price_tick_history_downloads_with_its_exact_value_and_fixed_version(self):
         symbol = 'SHFE/rb/2026-05'
