@@ -885,7 +885,9 @@ AccountCommand LiveAccountState::advance_strategy_target(
         const bool transient_basis = !strategy_->paused && observed([&](const BrokerSnapshot& now) {
             return authorized(now);
         })
-            && (msg == "order execution basis changed during durable submission; the order was not sent"
+            && (msg == "order execution basis changed before durable submission; the order was not sent"
+                || msg
+                    == "order execution basis changed during durable submission; the order was not sent"
                 || msg == "order permission changed before dispatch; the order was not sent"
                 || msg == "account changed after strategy order admission");
         if (transient_basis || msg == "broker exposure changed; evaluate pre-trade risk again"
