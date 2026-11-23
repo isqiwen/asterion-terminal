@@ -2,6 +2,7 @@
 #include <asterion/protocol/warehouse.hpp>
 #include "acquisition/exchanges.hpp"
 #include "acquisition/manager.hpp"
+#include "acquisition/values.hpp"
 #include <asterion/system/durable_file.hpp>
 #include <asterion/system/process/child.hpp>
 #include <gtest/gtest.h>
@@ -9,6 +10,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <future>
+#include <sstream>
 #include <thread>
 
 namespace {
@@ -329,6 +331,101 @@ TEST_F(ExchangeSources, IneRankingReadsReportTimeWithoutSeparator)
     const auto rows = source.member_positions("INE", "2024-01-02");
     ASSERT_EQ(rows.size(), 1);
     EXPECT_EQ(rows[0].published_ms, wh::Cell{std::int64_t{1704196860000}});
+}
+
+TEST_F(ExchangeSources, GfexMemberRanksIncludeLithiumAndPreserveUnrankedSides)
+{
+    using Json = ac::values::Json;
+    ac::Exchange source("GFEX", budget, {}, [&](const ac::HttpRequest& request, auto) {
+        EXPECT_EQ(request.origin, "http://www.gfex.com.cn");
+        EXPECT_EQ(request.method, "POST");
+        Json params = Json::object();
+        std::istringstream form(request.body);
+        for (std::string field; std::getline(form, field, '&');) {
+            const auto at = field.find('=');
+            params[field.substr(0, at)] = Json::array({field.substr(at + 1)});
+        }
+        Json rows;
+        if (request.path == "/u/interfacesWebVariety/loadList")
+            rows = Json::array({{{"varietyId", "si"}}, {{"varietyId", "lc"}}});
+        else if (request.path.ends_with("loadListContract_id")) {
+            EXPECT_EQ(params.at("trade_date").at(0), "20231110");
+            rows = Json::array({params.at("variety").at(0) == "si" ? "si2312" : "lc2401"});
+        } else {
+            EXPECT_EQ(request.path, "/u/interfacesWebTiMemberDealPosiQuotes/loadList");
+            EXPECT_EQ(params.at("trade_type").at(0), "0");
+            const auto side = params.at("data_type").at(0).get<std::string>();
+            rows = Json::array(
+                {{{"contractId", "1"},
+                     {"abbr", side == "2" ? "乙会员" : "甲会员"},
+                     {"todayQty", side == "1" ? 10 : 20},
+                     {"qtySub", -1}},
+                    {{"contractId", "总计"}, {"abbr", ""}, {"todayQty", 20}, {"qtySub", -1}}});
+        }
+        return ac::HttpReply{200, Json{{"code", "0"}, {"param", params}, {"data", rows}}.dump()};
+    });
+    const auto before = ac::observation_time();
+    const auto rows = source.member_positions("GFEX", "2023-11-10");
+    ASSERT_EQ(rows.size(), 4);
+    EXPECT_EQ(source.requests(), 9);
+    for (const auto& row : rows) {
+        EXPECT_EQ(row.exchange, "GFEX");
+        EXPECT_EQ(
+            row.contract,
+            wh::Cell{
+                row.product == "si" ? std::string("GFEX/si/2023-12")
+                                    : std::string("GFEX/lc/2024-01")
+            });
+        EXPECT_EQ(row.published_ms, wh::Cell{});
+        EXPECT_GE(row.observed_ms, before);
+        if (row.member == "甲会员") {
+            EXPECT_EQ(row.volume, wh::Cell{std::string("10")});
+            EXPECT_EQ(row.long_position, wh::Cell{});
+            EXPECT_EQ(row.short_position, wh::Cell{std::string("20")});
+            EXPECT_EQ(row.short_change, wh::Cell{std::string("-1")});
+        } else {
+            EXPECT_EQ(row.volume, wh::Cell{});
+            EXPECT_EQ(row.long_position, wh::Cell{std::string("20")});
+            EXPECT_EQ(row.short_position, wh::Cell{});
+        }
+    }
+}
+
+TEST_F(ExchangeSources, GfexWithoutPublishedRanksHasNoMemberRows)
+{
+    ac::Exchange source("GFEX", budget, {}, [](const ac::HttpRequest& request, auto) {
+        return ac::HttpReply{
+            200,
+            request.path == "/u/interfacesWebVariety/loadList"
+                ? R"({"code":"0","param":{},"data":[{"varietyId":"si"}]})"
+                : R"({"code":"0","param":{"variety":["si"],"trade_date":["20221222"]},"data":[]})"
+        };
+    });
+    EXPECT_TRUE(source.member_positions("GFEX", "2022-12-22").empty());
+    EXPECT_EQ(source.requests(), 2);
+}
+
+TEST_F(ExchangeSources, RefusedGfexRankingDoesNotReturnPartialMembers)
+{
+    ac::Exchange source("GFEX", budget, {}, [](const ac::HttpRequest& request, auto) {
+        if (request.path == "/u/interfacesWebVariety/loadList")
+            return ac::HttpReply{200, R"({"code":"0","param":{},"data":[{"varietyId":"lc"}]})"};
+        if (request.path.ends_with("loadListContract_id"))
+            return ac::HttpReply{
+                200,
+                R"({"code":"0","param":{"variety":["lc"],"trade_date":["20231110"]},"data":["lc2401"]})"
+            };
+        if (request.body.find("data_type=1") != std::string::npos)
+            return ac::HttpReply{
+                200,
+                R"({"code":"0","param":{"variety":["lc"],"trade_date":["20231110"],"trade_type":["0"],"contract_id":["lc2401"],"data_type":["1"]},"data":[{"contractId":"1","abbr":"甲会员","todayQty":20,"qtySub":2}]})"
+            };
+        return ac::HttpReply{
+            200,
+            R"({"code":"1","msg":"查询的合约号成交量不能小于20000","data":null})"
+        };
+    });
+    EXPECT_THROW(source.member_positions("GFEX", "2023-11-10"), ac::SourceError);
 }
 
 TEST_F(ExchangeSources, ExactDecimalsMissingPricesAndFeeBasesReachParquet)

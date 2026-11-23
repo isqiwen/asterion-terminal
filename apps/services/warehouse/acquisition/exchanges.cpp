@@ -746,7 +746,7 @@ HttpReply exchange_fetch(const HttpRequest& request, std::stop_token stop)
     std::stop_callback cancel(stop, [&] {
         client.stop();
     });
-    auto result = request.body.empty()
+    auto result = request.method == "GET"
         ? client.Get(request.path)
         : client.Post(request.path, request.body, request.content_type);
     check_stop(stop);
@@ -775,6 +775,7 @@ bool Exchange::supports(std::string_view table, std::string_view exchange) const
     return exchange == exchange_
         && (table == "daily" || (table == "price_ticks" && exchange == "CZCE")
             || (table == "inventory" && exchange == "SHFE")
+            || (table == "member_positions" && exchange == "GFEX")
             || ((table == "member_positions" || table == "warehouse_receipts")
                 && (exchange == "SHFE" || exchange == "INE"))
             || (table == "settlement"
@@ -814,6 +815,123 @@ std::vector<Inventory> Exchange::inventory(const std::string& exchange, const st
     return read("inventory", exchange, day).inventory;
 }
 
+HttpReply Exchange::fetch(const HttpRequest& request)
+{
+    budget_->acquire(stop_);
+    ++requests_;
+    HttpReply reply;
+    try {
+        reply = fetch_(request, stop_);
+    } catch (const SourceError&) {
+        throw;
+    } catch (...) {
+        throw SourceError("unavailable", "exchange transport failed");
+    }
+    check_stop(stop_);
+    if (reply.status != 200 && reply.status != 404)
+        throw SourceError(
+            "unavailable",
+            "exchange file refused (HTTP " + std::to_string(reply.status) + ")");
+    if (reply.body.size() > values::response_limit)
+        throw SourceError("invalid_data", "exchange file too large");
+    return reply;
+}
+
+std::vector<MemberPosition> Exchange::gfex_members(const std::string& day)
+{
+    try {
+        const auto ask = [&](const std::string& path, const Json& params) {
+            HttpRequest request{
+                "http://www.gfex.com.cn",
+                "/u/" + path,
+                {},
+                "application/x-www-form-urlencoded",
+                "POST"
+            };
+            for (const auto& [key, value] : params.items()) {
+                if (!request.body.empty())
+                    request.body += '&';
+                request.body += key + "=" + text(value);
+            }
+            const auto reply = fetch(request);
+            if (reply.status != 200)
+                throw SourceError("unavailable", "GFEX member ranking endpoint is unavailable");
+            auto root = values::parse(reply.body);
+            if (root.at("code") != "0" || !root.at("data").is_array())
+                throw std::invalid_argument("GFEX member ranking request was refused");
+            for (const auto& [key, value] : params.items())
+                if (root.at("param").at(key).at(0) != value)
+                    throw std::invalid_argument("wrong GFEX member ranking parameters");
+            return std::move(root.at("data"));
+        };
+        const std::pair<Cell MemberPosition::*, Cell MemberPosition::*> metrics[] = {
+            {&MemberPosition::volume, &MemberPosition::volume_change},
+            {&MemberPosition::long_position, &MemberPosition::long_change},
+            {&MemberPosition::short_position, &MemberPosition::short_change}
+        };
+        std::vector<MemberPosition> result;
+        std::set<std::string> seen;
+        for (const auto& variety : ask("interfacesWebVariety/loadList", Json::object())) {
+            const auto product = text(variety.at("varietyId"));
+            if (product.empty()
+                || product.find_first_not_of("abcdefghijklmnopqrstuvwxyz") != std::string::npos)
+                throw std::invalid_argument("invalid GFEX variety");
+            for (const auto& item :
+                ask("interfacesWebTiMemberDealPosiQuotes/loadListContract_id",
+                    {{"variety", product}, {"trade_date", compact(day)}})) {
+                const auto code = text(item);
+                const auto contract = contract_of("GFEX", code, day);
+                if (!contract || product_of(*contract) != product)
+                    throw std::invalid_argument("invalid GFEX ranked contract");
+                unique(seen, *contract);
+                std::map<std::string, MemberPosition> members;
+                for (std::size_t i = 0; i < std::size(metrics); ++i) {
+                    const auto rows =
+                        ask("interfacesWebTiMemberDealPosiQuotes/loadList",
+                            {{"variety", product},
+                                {"trade_date", compact(day)},
+                                {"trade_type", "0"},
+                                {"contract_id", code},
+                                {"data_type", std::to_string(i + 1)}});
+                    for (const auto& row : rows) {
+                        const auto name = text(row.at("abbr"));
+                        if (text(row.at("contractId")) == "总计")
+                            continue;
+                        if (name.empty())
+                            throw std::invalid_argument("missing GFEX ranked member");
+                        auto [at, inserted] = members.try_emplace(
+                            name,
+                            MemberPosition{
+                                .exchange = "GFEX",
+                                .product = product,
+                                .contract = *contract,
+                                .day = day,
+                                .member = name
+                            });
+                        const auto [quantity, change] = metrics[i];
+                        if (at->second.*quantity != Cell{})
+                            throw std::invalid_argument("duplicate GFEX ranked member");
+                        at->second.*quantity = number(row.at("todayQty"));
+                        at->second.*change = number(row.at("qtySub"));
+                    }
+                }
+                const auto observed = observation_time();
+                for (auto& [name, row] : members) {
+                    row.observed_ms = observed;
+                    result.push_back(std::move(row));
+                }
+            }
+        }
+        return result;
+    } catch (const SourceError&) {
+        throw;
+    } catch (const std::exception& error) {
+        throw SourceError(
+            "invalid_data",
+            "invalid GFEX member ranking: " + std::string(error.what()));
+    }
+}
+
 Exchange::Parsed
 Exchange::read(const std::string& table, const std::string& exchange, const std::string& day)
 {
@@ -821,6 +939,8 @@ Exchange::read(const std::string& table, const std::string& exchange, const std:
     if (!supports(table, exchange))
         throw SourceError("unsupported", "exchange source does not provide the requested table");
     check_stop(stop_);
+    if (exchange == "GFEX" && table == "member_positions")
+        return {.member_positions = gfex_members(day)};
     const bool archived = exchange == "CZCE" && table == "daily" && day <= "2010-08-24";
     if (archived && archive_year_ == day.substr(0, 4)) {
         try {
@@ -862,12 +982,14 @@ Exchange::read(const std::string& table, const std::string& exchange, const std:
         request.path =
             "/sj/hqsj/rtj/" + date.substr(0, 6) + "/" + date.substr(6) + "/" + date + "_1.csv";
     } else if (exchange == "GFEX") {
+        request.method = "POST";
         request.origin = "http://www.gfex.com.cn";
         request.path = table == "daily" ? "/u/interfacesWebTiDayQuotes/loadList"
                                         : "/u/interfacesWebTiFutAndOptSettle/loadList";
         request.body = "trade_date=" + date + "&trade_type=0";
         request.content_type = "application/x-www-form-urlencoded";
     } else {
+        request.method = "POST";
         request.origin = "http://www.dce.com.cn";
         request.path = "/dcereport/publicweb/dailystat/dayQuotes";
         request.body =
@@ -883,17 +1005,7 @@ Exchange::read(const std::string& table, const std::string& exchange, const std:
                 .dump();
         request.content_type = "application/json";
     }
-    budget_->acquire(stop_);
-    ++requests_;
-    HttpReply reply;
-    try {
-        reply = fetch_(request, stop_);
-    } catch (const SourceError&) {
-        throw;
-    } catch (...) {
-        throw SourceError("unavailable", "exchange transport failed");
-    }
-    check_stop(stop_);
+    const auto reply = fetch(request);
     if (reply.status == 404) {
         if (archived) {
             archive_year_ = day.substr(0, 4);
@@ -901,13 +1013,7 @@ Exchange::read(const std::string& table, const std::string& exchange, const std:
         }
         return {};
     } // No publication is not proof of a closed day.
-    if (reply.status != 200)
-        throw SourceError(
-            "unavailable",
-            "exchange file refused (HTTP " + std::to_string(reply.status) + ")");
     try {
-        if (reply.body.size() > values::response_limit)
-            throw std::invalid_argument("exchange file too large");
         if (table == "price_ticks")
             return {
                 .price_ticks = czce_price_ticks(day, reply.body, request.origin + request.path)

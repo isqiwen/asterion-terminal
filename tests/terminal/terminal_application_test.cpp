@@ -751,7 +751,8 @@ TEST(TerminalMarket, RequestsAndTheWatchUseSavedTlsWithoutStartingLab)
         {"TABLE_DAILY", "TABLE_MINUTES", "TABLE_SETTLEMENT", "TABLE_PRICE_TICKS"})
         tables.push_back({{"table", name}, {"exchanges", Json::array({"SHFE", "GFEX"})}});
     tables.push_back({{"table", "TABLE_WAREHOUSE_RECEIPTS"}, {"exchanges", Json::array({"SHFE"})}});
-    tables.push_back({{"table", "TABLE_MEMBER_POSITIONS"}, {"exchanges", Json::array({"SHFE"})}});
+    tables.push_back(
+        {{"table", "TABLE_MEMBER_POSITIONS"}, {"exchanges", Json::array({"SHFE", "GFEX"})}});
     tables.push_back({{"table", "TABLE_INVENTORY"}, {"exchanges", Json::array({"SHFE"})}});
     EXPECT_EQ(options.at("tables"), tables);
     EXPECT_TRUE(second.get().at("warehouse").contains("getDatasetVersion"));

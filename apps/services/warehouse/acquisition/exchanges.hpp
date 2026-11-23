@@ -8,6 +8,7 @@ namespace asterion::warehouse::acquisition {
 struct HttpRequest
 {
     std::string origin, path, body, content_type;
+    std::string method = "GET";
 };
 
 struct HttpReply
@@ -49,6 +50,8 @@ public:
 
 private:
     Parsed read(const std::string& table, const std::string& exchange, const std::string& day);
+    HttpReply fetch(const HttpRequest&);
+    std::vector<MemberPosition> gfex_members(const std::string& day);
     std::string exchange_;
     std::shared_ptr<Budget> budget_;
     std::stop_token stop_;
