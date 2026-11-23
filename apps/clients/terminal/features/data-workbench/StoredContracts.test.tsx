@@ -1,4 +1,4 @@
-import { render, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 import { expect, test, vi } from "vitest";
 import { ChartBarsSchema, StoredContractsSchema } from "../../src/generated/asterion/lab_pb";
@@ -49,4 +49,32 @@ test("an earlier version lists its own contracts and draws its own bars", async 
     ["listStoredContracts", "earlier"],
     ["getChartBars", "earlier"],
   ]);
+});
+
+test("stored contracts can be found by short code, identity or product name", async () => {
+  vi.mocked(lab).mockImplementation(async operation => {
+    if (operation?.case === "listStoredContracts")
+      return create(StoredContractsSchema, {
+        contracts: [
+          { contract: "SHFE/rb/2026-10", daily: { days: 3 } },
+          { contract: "SHFE/au/2025-12", daily: { days: 263 } },
+        ],
+      }) as never;
+    if (operation?.case === "getChartBars") return create(ChartBarsSchema) as never;
+    return new Promise(() => {}) as never;
+  });
+  const context = { snapshot: {}, navigate: vi.fn() } as unknown as TerminalContext;
+  render(
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.data-browse">
+      <StoredContracts version="" context={context} />
+    </WorkspaceDraftScope>,
+  );
+  const search = await screen.findByRole("searchbox", { name: "搜索已采集合约" });
+  for (const value of [" Au2512 ", "SHFE/au/2025-12", "沪金"]) {
+    fireEvent.change(search, { target: { value } });
+    const contracts = within(screen.getByRole("group", { name: "已采集合约" }));
+    expect(contracts.getAllByRole("button")).toHaveLength(1);
+    expect(contracts.getByRole("button").title).toBe("SHFE/au/2025-12");
+    expect(contracts.getByRole("button").getAttribute("aria-pressed")).toBe("true");
+  }
 });

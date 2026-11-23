@@ -7,6 +7,7 @@ import { type MessageValues, translate } from "../../src/i18n";
 import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
 import { identityName } from "../../src/ui/contract-names";
 import { ContractHistory } from "../futures-market/ContractHistory";
+import { contractCode } from "./CoverageList";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.data-workbench", key, values);
 
@@ -54,7 +55,9 @@ export function StoredContracts({
   useErrorNotification(stored?.error ?? "", "asterion.terminal.data-workbench");
   const nameFor = (item: Stored) => identityName(item.contract, item.name) || item.contract;
   const matched = items.filter(item =>
-    `${item.contract} ${nameFor(item)}`.toUpperCase().includes(search.trim().toUpperCase()),
+    `${item.contract} ${contractCode(item.contract)} ${nameFor(item)}`
+      .toUpperCase()
+      .includes(search.trim().toUpperCase()),
   );
   const visible = matched.slice(0, shownAtOnce);
   const active = matched.some(item => item.contract === selected) ? selected : visible[0]?.contract;
