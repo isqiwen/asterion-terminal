@@ -136,6 +136,10 @@ target_compile_definitions(asterion_acquisition_tests PRIVATE
   ASTERION_WAREHOUSE_PATH="$<TARGET_FILE:asterion_warehouse>"
   ASTERION_WAREHOUSE_RULES_PATH="${CMAKE_SOURCE_DIR}/apps/services/warehouse/config/exchange_rules.json")
 add_dependencies(asterion_acquisition_tests asterion_warehouse)
+if(APPLE)
+  set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/warehouse/serial_acquisition.cmake")
+endif()
 asterion_unit_tests(asterion_warehouse_settings_tests warehouse/settings_test.cpp asterion_warehouse_settings)
 target_include_directories(asterion_warehouse_settings_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/services/warehouse)
 target_compile_definitions(asterion_warehouse_settings_tests PRIVATE
