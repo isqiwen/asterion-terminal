@@ -588,7 +588,7 @@ TEST_F(Acquisition, TushareReceiptsKeepReportedWarehouseTypes)
                     nullptr},
                 {"20160104",
                     "BU",
-                    "沥青",
+                    nullptr,
                     "总计",
                     nullptr,
                     nullptr,

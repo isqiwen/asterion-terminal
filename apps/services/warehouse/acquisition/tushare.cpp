@@ -265,9 +265,10 @@ Tushare::warehouse_receipts(const std::string& exchange, const std::string& day)
             if (symbol == "CU" && (at("fut_name") == "铜(BC)") != (product == "bc"))
                 continue;
             Cell warehouse_type;
-            for (const std::string_view suffix : {"仓库", "厂库"})
-                if (text(at("fut_name")).ends_with(suffix))
-                    warehouse_type = std::string(suffix);
+            if (!at("fut_name").is_null())
+                for (const std::string_view suffix : {"仓库", "厂库"})
+                    if (text(at("fut_name")).ends_with(suffix))
+                        warehouse_type = std::string(suffix);
             rows.push_back(
                 {.exchange = exchange,
                     .product = product,
