@@ -3086,24 +3086,26 @@ TEST_F(StrategyTarget, MultiLegOpeningPacesWithinWorkingOrderLimitWithoutAbandon
     act(session, authorize());
     const InstrumentId first{"SHFE", "rb2610"}, second{"SHFE", "rb2611"};
     auto owner = session.register_strategy("paced", {first, second}).get();
-    auto decision = lots(1);
+    // Three lots rest on the fake exchange until filled explicitly.
+    auto decision = lots(3);
     auto* leg2 = decision.add_targets();
     leg2->mutable_instrument()->set_exchange("SHFE");
     leg2->mutable_instrument()->set_symbol("rb2611");
     leg2->set_lots(1);
     auto other = quote();
     other.instrument = second;
-    exchange.call<void (*)(int)>("asterion_fake_trader_hold_trades", 1);
     session.accept_target(owner, decision, {quote(), other});
     session.advance_target(owner).get();
-    ASSERT_EQ(wait_for(session, resting(1)).at("orders").size(), 1U);
+    const auto waiting = wait_for(session, resting(1));
+    ASSERT_EQ(waiting.at("orders").size(), 1U);
+    ASSERT_EQ(waiting.at("orders")[0].at("status"), "accepted");
     // Polling while the first leg occupies the only working-order slot must wait, not abandon.
     EXPECT_NO_THROW(session.advance_target(owner).get());
     EXPECT_EQ(session.snapshot().at("orders").size(), 1U);
     const auto first_events = session.strategy_events(owner);
     ASSERT_EQ(first_events.size(), 1U);
     EXPECT_EQ(first_events[0].kind(), ::trading::INSTANCE_EVENT_KIND_ORDER_SENT);
-    exchange.call<void (*)(int)>("asterion_fake_trader_hold_trades", 0);
+    exchange.call<void (*)(int, int)>("asterion_fake_trader_fill", 0, 3);
     const auto state = progress(session, owner, filled(2));
     ASSERT_EQ(state.at("orders").size(), 2U);
     EXPECT_EQ(state.at("orders")[1].at("symbol"), "rb2611");
