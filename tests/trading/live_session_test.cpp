@@ -3077,6 +3077,72 @@ TEST_F(StrategyTarget, ConcurrentBrokerReportBeforeDurableSubmissionReevaluatesW
     EXPECT_TRUE(session.strategy_failure(owner).empty());
 }
 
+TEST_F(StrategyTarget, MultiLegOpeningPacesWithinWorkingOrderLimitWithoutAbandoning)
+{
+    auto definition = manifest(1);
+    definition["policy"]["contracts"].push_back(contract("rb2611", "rb", "2026-11"));
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, definition);
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    const InstrumentId first{"SHFE", "rb2610"}, second{"SHFE", "rb2611"};
+    auto owner = session.register_strategy("paced", {first, second}).get();
+    auto decision = lots(1);
+    auto* leg2 = decision.add_targets();
+    leg2->mutable_instrument()->set_exchange("SHFE");
+    leg2->mutable_instrument()->set_symbol("rb2611");
+    leg2->set_lots(1);
+    auto other = quote();
+    other.instrument = second;
+    exchange.call<void (*)(int)>("asterion_fake_trader_hold_trades", 1);
+    session.accept_target(owner, decision, {quote(), other});
+    session.advance_target(owner).get();
+    ASSERT_EQ(wait_for(session, resting(1)).at("orders").size(), 1U);
+    // Polling while the first leg occupies the only working-order slot must wait, not abandon.
+    EXPECT_NO_THROW(session.advance_target(owner).get());
+    EXPECT_EQ(session.snapshot().at("orders").size(), 1U);
+    const auto first_events = session.strategy_events(owner);
+    ASSERT_EQ(first_events.size(), 1U);
+    EXPECT_EQ(first_events[0].kind(), ::trading::INSTANCE_EVENT_KIND_ORDER_SENT);
+    exchange.call<void (*)(int)>("asterion_fake_trader_hold_trades", 0);
+    const auto state = progress(session, owner, filled(2));
+    ASSERT_EQ(state.at("orders").size(), 2U);
+    EXPECT_EQ(state.at("orders")[1].at("symbol"), "rb2611");
+    EXPECT_EQ(state.at("orders")[1].at("status"), "filled");
+    for (const auto& ev : session.strategy_events(owner))
+        EXPECT_NE(ev.kind(), ::trading::INSTANCE_EVENT_KIND_BATCH_ABANDONED) << ev.text();
+    EXPECT_TRUE(session.strategy_failure(owner).empty());
+}
+
+TEST_F(StrategyTarget, ExternalRestingOrderStillRejectsStrategyOpeningOnWorkingOrderLimit)
+{
+    auto definition = manifest(1);
+    definition["policy"]["contracts"].push_back(contract("cu2611", "cu", "2026-11"));
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, definition);
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    act(session, submit("external.resting", "3"));
+    ASSERT_EQ(wait_for(session, resting(1)).at("orders").size(), 1U);
+    const InstrumentId cu{"SHFE", "cu2611"};
+    auto owner = session.register_strategy("blocked", {cu}).get();
+    ::strategy::Decision decision;
+    decision.set_sequence(1);
+    decision.set_ready(true);
+    auto* target = decision.add_targets();
+    target->mutable_instrument()->set_exchange("SHFE");
+    target->mutable_instrument()->set_symbol("cu2611");
+    target->set_lots(1);
+    auto cu_quote = quote();
+    cu_quote.instrument = cu;
+    session.accept_target(owner, decision, {cu_quote});
+    EXPECT_NO_THROW(session.advance_target(owner).get());
+    EXPECT_EQ(session.snapshot().at("orders").size(), 1U);
+    const auto events = session.strategy_events(owner);
+    ASSERT_EQ(events.size(), 1U);
+    EXPECT_EQ(events[0].kind(), ::trading::INSTANCE_EVENT_KIND_BATCH_ABANDONED);
+    EXPECT_NE(events[0].text().find("working_orders"), std::string::npos);
+    EXPECT_TRUE(session.strategy_failure(owner).empty());
+}
+
 TEST_F(StrategyTarget, FlatteningBeforeTheFirstDecisionClosesOnlyFromAFreshQuote)
 {
     LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());

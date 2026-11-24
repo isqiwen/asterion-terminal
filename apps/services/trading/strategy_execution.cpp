@@ -743,6 +743,11 @@ AccountCommand LiveAccountState::advance_strategy_target(
         }
         if (!chosen)
             co_return;
+        // Pace opening legs to the working-order limit while this batch's own orders are in flight.
+        if (chosen->offset == Offset::open && !batch.active_orders.empty()
+            && static_cast<std::size_t>(std::ranges::count_if(state.orders, working_order))
+                >= policy_->definition.limits.max_working_orders)
+            co_return;
         // Above the order limit, the move goes out in whole-lot legs replanned after each fill.
         auto leg = *chosen;
         leg.quantity = std::min(
