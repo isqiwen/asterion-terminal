@@ -14,6 +14,7 @@
 #include <asterion/system/process/file_lock.hpp>
 #include <map>
 #include <optional>
+#include <tuple>
 #include <unordered_set>
 
 namespace asterion::trading {
@@ -240,6 +241,12 @@ private:
         std::uint32_t cancels = 0, rejected_cancels = 0;
     };
 
+    struct RecordedTrade
+    {
+        std::string order_id;
+        std::size_t index = 0;
+    };
+
     struct Valuation
     {
         Decimal dynamic_equity;
@@ -377,7 +384,7 @@ private:
     std::map<std::string, Intent> intents_;
     // Recorded fills by trading day, oldest first; rebuilt from the journal on start.
     std::map<std::string, std::vector<::trading::Trade>> trades_;
-    std::map<std::string, std::map<std::pair<std::string, Side>, std::string>> recorded_ids_;
+    std::map<std::string, std::map<std::pair<std::string, Side>, RecordedTrade>> recorded_ids_;
     // The leading broker fills known recorded. The broker rebuilds its list on
     // a new connection or trading day, which restarts the check.
     mutable std::size_t recorded_through_ = 0;
@@ -403,8 +410,13 @@ private:
     mutable Decimal pre_cashflow_peak_;
     mutable Decimal last_effective_peak_;
     mutable std::chrono::steady_clock::time_point latest_saved_at_;
-    mutable std::string latest_saved_day_, latest_saved_peak_;
+    mutable std::string latest_saved_day_;
     std::shared_ptr<const Clock> clock_;
+    mutable std::uint64_t close_state_revision_ = 0;
+    mutable std::optional<std::tuple<std::uint64_t, std::uint64_t, std::uint64_t>>
+        last_close_basis_;
+    mutable bool latest_dirty_ = false;
+    mutable std::optional<std::pair<std::uint64_t, std::uint64_t>> unrecorded_clean_basis_;
 };
 
 } // namespace asterion::trading

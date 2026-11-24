@@ -104,6 +104,8 @@ private:
     std::size_t count_ = 0;
     std::uintmax_t bytes_ = 0, header_bytes_ = 0;
     std::uint64_t first_ = 1, segments_ = 0;
+    mutable std::string cached_archive_name_;
+    mutable std::unique_ptr<sqlite::Database> cached_archive_;
 };
 
 } // namespace asterion

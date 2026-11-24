@@ -202,23 +202,13 @@ wire::QuoteFrame Live::frame(const wire::StreamQuotes& selection, Sent& sent) co
     // Rows whose one-minute change moved are sent even if their quote did not.
     const auto moved =
         sent.catalog ? minutes_.changed_after(sent.minutes) : std::vector<InstrumentId>{};
-    const auto state = feed_.snapshot(sent.feed, moved);
+    std::vector<InstrumentId> only;
+    only.reserve(static_cast<std::size_t>(selection.instruments_size()));
+    for (const auto& id : selection.instruments())
+        only.push_back(protocol::instrument(id));
+    const auto state = feed_.snapshot(sent.feed, moved, only);
     auto board = protocol::encode_board(state);
     *board.mutable_feed() = feed_state();
-    if (!selection.instruments().empty()) {
-        std::set<InstrumentId> selected;
-        for (const auto& id : selection.instruments())
-            selected.insert(protocol::instrument(id));
-        auto& rows = *board.mutable_rows();
-        rows.erase(
-            std::remove_if(
-                rows.begin(),
-                rows.end(),
-                [&](const auto& row) {
-                    return !selected.contains(protocol::instrument(row.instrument()));
-                }),
-            rows.end());
-    }
     for (auto& row : *board.mutable_rows())
         if (const auto change = minutes_.change_1m_percent(protocol::instrument(row.instrument())))
             *row.mutable_change_1m_percent() = protocol::decimal(*change);

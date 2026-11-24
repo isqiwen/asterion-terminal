@@ -57,7 +57,10 @@ TEST(Ctp, VendorPricesPreserveDecimalPrecisionAndBounds)
              {0.00000001, "0.00000001"},
              {1.234567894, "1.23456789"},
              {1.234567896, "1.2345679"},
-             {1e10, "10000000000"}
+             {0.999999996, "1"},
+             {-0.999999996, "-1"},
+             {1e10, "10000000000"},
+             {-1e10, "-10000000000"}
          }) {
         const auto converted = asterion::ctp::price(input);
         ASSERT_TRUE(converted) << input;

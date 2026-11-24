@@ -226,8 +226,6 @@ LiveAccountState::LiveAccountState(
             if (latest_.ParseFromString(bytes) && latest_.trading_day().size() == 10) {
                 latest_close_bytes_ = std::move(bytes);
                 latest_saved_day_ = latest_.trading_day();
-                if (latest_.has_funds() && latest_.funds().has_peak_equity())
-                    latest_saved_peak_ = latest_.funds().peak_equity().text();
             } else
                 latest_.Clear();
         }
@@ -523,6 +521,7 @@ LiveAccountState::revise_policy(const AccountRequest& request, const ChangePolic
         send_gate_.invalidate();
         co_await append(policy_entry(request, policy_->revision, next->revision));
         policy_.swap(next);
+        ++close_state_revision_;
     }
 }
 
@@ -623,10 +622,11 @@ AccountCommand LiveAccountState::cancel(const AccountRequest& request, const std
     const auto origin = order_origins_.find(order_id);
     if (origin != order_origins_.end())
         ++cancels_[origin->second.day][origin->second.instrument].cancels;
+    cancel_awaited_.insert(order_id);
+    ++close_state_revision_;
     trader_->observe([&](const BrokerSnapshot& state) {
         evaluate_risk_alerts(state);
     });
-    cancel_awaited_.insert(order_id);
     auto& intent = intents_.at(order_id);
     intent.cancel_requested = true;
     intent.stop_cancel_pending = false;
@@ -643,8 +643,11 @@ AccountCommand LiveAccountState::cancel(const AccountRequest& request, const std
     // SDK acceptance is not exchange cancellation. Broker reports own status.
     co_await append(entry(CancelResult{request.id, !failure}));
     if (failure) {
-        if (cancel_awaited_.erase(order_id) && origin != order_origins_.end())
-            ++cancels_[origin->second.day][origin->second.instrument].rejected_cancels;
+        if (cancel_awaited_.erase(order_id)) {
+            if (origin != order_origins_.end())
+                ++cancels_[origin->second.day][origin->second.instrument].rejected_cancels;
+            ++close_state_revision_;
+        }
         std::rethrow_exception(failure);
     }
 }
@@ -1031,8 +1034,11 @@ AccountCommand LiveAccountState::finish_submit(
             ErrorCode::unavailable,
             "broker fills are awaiting position reconciliation; opening orders are paused");
     check_price(order, quote, state);
-    if (quote && quote->last && *quote->last > Decimal{} && quote->trading_day == state.trading_day)
+    if (quote && quote->last && *quote->last > Decimal{}
+        && quote->trading_day == state.trading_day) {
         market_marks_[id] = {quote->trading_day, *quote->last};
+        ++close_state_revision_;
+    }
     if (offset != Offset::open)
         check_closable_lots(state, order, offset);
     check_pre_trade_risk(state, terms, order, offset, check_margin);
@@ -1317,23 +1323,25 @@ void LiveAccountState::record_trade(::trading::Trade trade)
     const auto& day = trade.trading_day();
     const auto& id = trade.id();
     const auto side = trade.side() == ::common::SIDE_SELL ? Side::sell : Side::buy;
-    recorded_ids_[day][{id, side}] = trade.order_id();
     auto& list = trades_[day];
-    if (const auto existing = std::ranges::find_if(
-            list,
-            [&](const ::trading::Trade& item) {
-                return item.id() == id && item.side() == trade.side();
-            });
-        existing != list.end())
-        *existing = std::move(trade);
-    else
+    auto [it, inserted] = recorded_ids_[day].try_emplace(
+        std::pair{id, side},
+        RecordedTrade{trade.order_id(), list.size()});
+    if (inserted) {
         list.push_back(std::move(trade));
+    } else {
+        it->second.order_id = trade.order_id();
+        list[it->second.index] = std::move(trade);
+    }
 }
 
 std::vector<::trading::Trade> LiveAccountState::unrecorded() const
 {
     return observed([&](const BrokerSnapshot& state) {
         if (!identities_ready(state))
+            return std::vector<::trading::Trade>{};
+        const std::pair basis{state.connection_generation, state.sequence};
+        if (unrecorded_clean_basis_ == basis)
             return std::vector<::trading::Trade>{};
         const std::pair list{state.connection_generation, state.trading_day};
         if (list != recorded_list_ || recorded_through_ > state.trades.size()) {
@@ -1347,7 +1355,7 @@ std::vector<::trading::Trade> LiveAccountState::unrecorded() const
             if (day != recorded_ids_.end()) {
                 const auto found = day->second.find({trade.trade_id, trade.side});
                 if (found != day->second.end()
-                    && (found->second == trade.order_id || trade.order_id.empty())) {
+                    && (found->second.order_id == trade.order_id || trade.order_id.empty())) {
                     if (result.empty() && !trade.order_id.empty())
                         recorded_through_ = i + 1;
                     continue;
@@ -1363,6 +1371,10 @@ std::vector<::trading::Trade> LiveAccountState::unrecorded() const
             if (result.size() == TradesRecorded::batch)
                 break;
         }
+        if (result.empty())
+            unrecorded_clean_basis_ = basis;
+        else
+            unrecorded_clean_basis_.reset();
         return result;
     });
 }
@@ -1403,19 +1415,41 @@ void LiveAccountState::attach_cancels(::trading::DayClose& close, const BrokerSn
 
 void LiveAccountState::observe_quotes(std::span<const MarketQuote> quotes)
 {
+    bool marks_changed = false;
     for (const auto& q : quotes)
-        if (q.last && *q.last > Decimal{} && !q.trading_day.empty())
-            market_marks_[q.instrument] = {q.trading_day, *q.last};
+        if (q.last && *q.last > Decimal{} && !q.trading_day.empty()) {
+            const std::pair mark{q.trading_day, *q.last};
+            auto [it, inserted] = market_marks_.try_emplace(q.instrument, mark);
+            if (inserted) {
+                marks_changed = true;
+            } else if (it->second != mark) {
+                it->second = mark;
+                marks_changed = true;
+            }
+        }
+    if (marks_changed)
+        ++close_state_revision_;
     std::optional<::trading::DayClose> to_save;
     trader_->observe([&](const BrokerSnapshot& state) {
+        const auto basis =
+            std::tuple{state.connection_generation, state.sequence, close_state_revision_};
+        const bool basis_changed = last_close_basis_ != basis;
         const auto today = dashed(state.trading_day);
-        if (state.funds && state.positions_reconciled && !today.empty()
-            && today >= latest_.trading_day()) {
-            latest_ = close_with_valuation(state);
-            attach_cancels(latest_, &state);
+        if (basis_changed) {
+            const auto day = latest_.trading_day();
+            if (state.funds && state.positions_reconciled && !today.empty() && today >= day) {
+                latest_ = close_with_valuation(state);
+                attach_cancels(latest_, &state);
+                to_save = latest_;
+            }
+            if (day.empty() || today.empty() || today <= day || closes_.contains(day))
+                last_close_basis_ = basis;
+        } else if (latest_dirty_
+            && steady_now(*clock_) - latest_saved_at_ >= std::chrono::seconds{1}) {
             to_save = latest_;
         }
-        evaluate_risk_alerts(state);
+        if (basis_changed)
+            evaluate_risk_alerts(state);
     });
     if (to_save)
         save_latest_close(*to_save);
@@ -1599,25 +1633,25 @@ void LiveAccountState::evaluate_risk_alerts(const BrokerSnapshot& state) const
 
 void LiveAccountState::save_latest_close(const ::trading::DayClose& close, bool force) const
 {
-    const auto bytes = close.SerializeAsString();
-    if (bytes == latest_close_bytes_)
-        return;
-    const auto peak = close.has_funds() && close.funds().has_peak_equity()
-        ? close.funds().peak_equity().text()
-        : std::string{};
     const auto now = steady_now(*clock_);
-    const bool immediate =
-        force || close.trading_day() != latest_saved_day_ || peak != latest_saved_peak_;
+    const bool immediate = force || close.trading_day() != latest_saved_day_;
     if (!immediate && latest_saved_at_ != std::chrono::steady_clock::time_point{}
-        && now - latest_saved_at_ < std::chrono::seconds{1})
+        && now - latest_saved_at_ < std::chrono::seconds{1}) {
+        latest_dirty_ = true;
         return;
+    }
+    const auto bytes = close.SerializeAsString();
+    if (bytes == latest_close_bytes_) {
+        latest_dirty_ = false;
+        return;
+    }
     try {
         create_directories_durably(directory_ / "ctp-flow");
         replace_file_durably(directory_ / "ctp-flow/latest_close.pb", bytes);
         latest_close_bytes_ = bytes;
         latest_saved_at_ = now;
         latest_saved_day_ = close.trading_day();
-        latest_saved_peak_ = peak;
+        latest_dirty_ = false;
     } catch (const std::exception& error) {
         log::warn("latest close snapshot could not be saved: {}", error.what());
     }
@@ -1627,6 +1661,13 @@ std::optional<::trading::DayClose> LiveAccountState::unclosed() const
 {
     std::optional<::trading::DayClose> to_save;
     auto closing = observed([&](const BrokerSnapshot& state) -> std::optional<::trading::DayClose> {
+        const auto basis =
+            std::tuple{state.connection_generation, state.sequence, close_state_revision_};
+        if (last_close_basis_ == basis) {
+            if (latest_dirty_ && steady_now(*clock_) - latest_saved_at_ >= std::chrono::seconds{1})
+                to_save = latest_;
+            return std::nullopt;
+        }
         const auto day = latest_.trading_day();
         const auto today = dashed(state.trading_day);
         if (!day.empty() && !today.empty() && today > day && !closes_.contains(day)) {
@@ -1639,6 +1680,7 @@ std::optional<::trading::DayClose> LiveAccountState::unclosed() const
             attach_cancels(latest_, &state);
             to_save = latest_;
         }
+        last_close_basis_ = basis;
         return std::nullopt;
     });
     if (to_save)
@@ -1687,11 +1729,16 @@ std::optional<::trading::DayClose> LiveAccountState::unclosed() const
             for (std::size_t index = offset; index < end; ++index)
                 *result.add_trades() = wire_trade(state.trades[state.trades.size() - index - 1]);
             const auto today = dashed(state.trading_day);
-            if (state.funds && state.positions_reconciled && !today.empty()
-                && today >= latest_.trading_day()) {
+            const auto basis =
+                std::tuple{state.connection_generation, state.sequence, close_state_revision_};
+            if (last_close_basis_ != basis && state.funds && state.positions_reconciled
+                && !today.empty() && today >= latest_.trading_day()) {
+                const auto prev_day = latest_.trading_day();
                 latest_ = close_with_valuation(state);
                 attach_cancels(latest_, &state);
                 to_save = latest_;
+                if (prev_day.empty() || today <= prev_day || closes_.contains(prev_day))
+                    last_close_basis_ = basis;
             }
             if (!today.empty() && latest_.trading_day() == today) {
                 *result.mutable_close() = latest_;
@@ -1785,11 +1832,14 @@ AccountCommand LiveAccountState::advance_storage()
         if (!terminal.orders.empty()) {
             co_await append(entry(terminal));
             for (const auto& order : terminal.orders) {
-                if (cancel_awaited_.erase(order.order_id)
-                    && order.status != BrokerOrderStatus::cancelled)
-                    if (const auto origin = order_origins_.find(order.order_id);
-                        origin != order_origins_.end())
-                        ++cancels_[origin->second.day][origin->second.instrument].rejected_cancels;
+                if (cancel_awaited_.erase(order.order_id)) {
+                    if (order.status != BrokerOrderStatus::cancelled)
+                        if (const auto origin = order_origins_.find(order.order_id);
+                            origin != order_origins_.end())
+                            ++cancels_[origin->second.day][origin->second.instrument]
+                                  .rejected_cancels;
+                    ++close_state_revision_;
+                }
                 intents_.erase(order.order_id);
             }
             co_return;
@@ -1803,6 +1853,7 @@ AccountCommand LiveAccountState::advance_storage()
         if (auto close = unclosed()) {
             co_await append(entry(DayClosed{*close}));
             closes_[close->trading_day()] = std::move(*close);
+            ++close_state_revision_;
             co_return;
         }
         const auto scope = attribution_;

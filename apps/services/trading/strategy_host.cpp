@@ -21,9 +21,11 @@
 #include <cmath>
 #include <fstream>
 #include <limits>
+#include <optional>
 #include <regex>
 #include <map>
 #include <set>
+#include <tuple>
 #include <unistd.h>
 
 namespace asterion::trading {
@@ -629,6 +631,8 @@ struct StrategyHost::State
         local_bars = std::make_unique<sqlite::Database>(root / "bars.sqlite");
         local_bars->execute(
             "CREATE TABLE IF NOT EXISTS bars (" "period INTEGER NOT NULL, " "end_ms INTEGER NOT NULL, " "exchange TEXT NOT NULL, " "symbol TEXT NOT NULL, " "bar BLOB NOT NULL, " "PRIMARY KEY(period, end_ms, exchange, symbol))");
+        local_bars->execute(
+            "CREATE INDEX IF NOT EXISTS bars_contract_end ON bars(period, exchange, symbol, end_ms DESC)");
         if (fs::exists(root / "instance.pb")) {
             if (!instance.ParseFromString(read(root / "instance.pb", 131072)))
                 throw std::invalid_argument(
@@ -769,28 +773,38 @@ struct StrategyHost::State
     void store_local_bars(::common::Period period, const wire::Bars& input)
     {
         const auto keep = local_bar_retention(period);
+        const auto period_value = static_cast<std::int64_t>(period);
         sqlite::Database::Transaction transaction(*local_bars);
+        sqlite::Database::Statement insert(
+            *local_bars,
+            "INSERT OR REPLACE INTO bars(period, end_ms, exchange, symbol, bar) VALUES(?,?,?,?,?)");
+        std::optional<sqlite::Database::Statement> prune;
         for (const auto& bar : input.bars()) {
-            sqlite::Database::Statement insert(
-                *local_bars,
-                "INSERT OR REPLACE INTO bars(period, end_ms, exchange, symbol, bar) VALUES(?,?,?,?,?)");
-            insert.bind(1, static_cast<std::int64_t>(period))
+            const auto& exchange = bar.instrument().exchange();
+            const auto& symbol = bar.instrument().symbol();
+            insert.reset();
+            insert.bind(1, period_value)
                 .bind(2, bar.end_ms())
-                .bind(3, bar.instrument().exchange())
-                .bind(4, bar.instrument().symbol())
+                .bind(3, exchange)
+                .bind(4, symbol)
                 .bind_blob(5, bar.SerializeAsString())
                 .step();
-            sqlite::Database::Statement prune(
-                *local_bars,
-                "DELETE FROM bars WHERE period=? AND exchange=? AND symbol=? AND end_ms < (" "SELECT end_ms FROM bars WHERE period=? AND exchange=? AND symbol=? " "ORDER BY end_ms DESC LIMIT 1 OFFSET ?)");
-            prune.bind(1, static_cast<std::int64_t>(period))
-                .bind(2, bar.instrument().exchange())
-                .bind(3, bar.instrument().symbol())
-                .bind(4, static_cast<std::int64_t>(period))
-                .bind(5, bar.instrument().exchange())
-                .bind(6, bar.instrument().symbol())
-                .bind(7, keep - 1)
-                .step();
+            if (++bar_write_counts[{static_cast<int>(period), exchange, symbol}] % 64 == 0) {
+                if (!prune)
+                    prune.emplace(
+                        *local_bars,
+                        "DELETE FROM bars WHERE period=? AND exchange=? AND symbol=? AND end_ms < (" "SELECT end_ms FROM bars WHERE period=? AND exchange=? AND symbol=? " "ORDER BY end_ms DESC LIMIT 1 OFFSET ?)");
+                else
+                    prune->reset();
+                prune->bind(1, period_value)
+                    .bind(2, exchange)
+                    .bind(3, symbol)
+                    .bind(4, period_value)
+                    .bind(5, exchange)
+                    .bind(6, symbol)
+                    .bind(7, keep - 1)
+                    .step();
+            }
         }
         transaction.commit();
     }
@@ -1020,7 +1034,10 @@ struct StrategyHost::State
     }
 
     // `execute` false replays a recorded input: state only, no targets reach the account.
-    void decide(const wire::Bars& input, bool execute = true)
+    void decide(
+        const wire::Bars& input,
+        bool execute = true,
+        sqlite::Database::Statement* warmup_insert = nullptr)
     {
         for (const auto& bar : input.bars()) {
             const InstrumentId id{bar.instrument().exchange(), bar.instrument().symbol()};
@@ -1037,15 +1054,16 @@ struct StrategyHost::State
             }
         }
         const auto expires_at = steady_now(*clock) + 10s;
-        // Commit the exact input before delivering it. A missing reply remains
+        const auto input_bytes = input.SerializeAsString();
+        // Commit live inputs before delivering them. A missing reply remains
         // unknown in the record and is never replayed into a live child.
-        {
+        if (!warmup_insert) {
             sqlite::Database::Transaction transaction(*records);
             sqlite::Database::Statement insert(
                 *records,
                 "INSERT INTO steps(sequence,input) VALUES(?,?)");
             insert.bind(1, static_cast<std::int64_t>(input.sequence()))
-                .bind_blob(2, input.SerializeAsString())
+                .bind_blob(2, input_bytes)
                 .step();
             transaction.commit();
         }
@@ -1073,7 +1091,13 @@ struct StrategyHost::State
                 throw std::runtime_error("strategy decision has invalid targets");
             mode = target.size_case();
         }
-        {
+        if (warmup_insert) {
+            warmup_insert->reset();
+            warmup_insert->bind(1, static_cast<std::int64_t>(input.sequence()))
+                .bind_blob(2, input_bytes)
+                .bind_blob(3, decision.SerializeAsString())
+                .step();
+        } else {
             sqlite::Database::Transaction transaction(*records);
             sqlite::Database::Statement update(
                 *records,
@@ -1090,7 +1114,6 @@ struct StrategyHost::State
             decision.ready() ? pb::INSTANCE_STATE_READY : pb::INSTANCE_STATE_WARMING);
         if (!execute)
             return;
-        save();
         auto exec_decision = decision;
         for (std::size_t s = 0; s < live_series.size(); ++s) {
             const auto& series = live_series[s];
@@ -1116,6 +1139,7 @@ struct StrategyHost::State
         }
         account->accept_strategy_target(authority, exec_decision, latest_quotes(), expires_at)
             .get();
+        save();
     }
 
     void advance()
@@ -1563,9 +1587,16 @@ struct StrategyHost::State
                 throw std::invalid_argument(
                     reply.has_error() ? reply.error().message() : "strategy did not load");
             std::uint64_t sequence = 0;
-            for (auto input : replay) {
-                input.set_sequence(++sequence);
-                decide(input, false);
+            if (!replay.empty()) {
+                sqlite::Database::Transaction warmup_tx(*records);
+                sqlite::Database::Statement warmup_insert(
+                    *records,
+                    "INSERT INTO steps(sequence,input,decision) VALUES(?,?,?)");
+                for (auto input : replay) {
+                    input.set_sequence(++sequence);
+                    decide(input, false, &warmup_insert);
+                }
+                warmup_tx.commit();
             }
             live_sequence = sequence;
             bars = std::make_unique<StrategyBars>(
@@ -1639,6 +1670,7 @@ struct StrategyHost::State
     std::vector<InstrumentId> subscribed_contracts;
     std::chrono::steady_clock::time_point next_subscription_retry{}, next_feed_reconnect{};
     std::shared_ptr<const Clock> clock;
+    std::map<std::tuple<int, std::string, std::string>, std::uint64_t> bar_write_counts;
 };
 
 StrategyHost::StrategyHost(

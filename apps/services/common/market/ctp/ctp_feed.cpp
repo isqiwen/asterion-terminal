@@ -6,18 +6,17 @@
 #include <asterion/base/error.hpp>
 #include <asterion/futures/trading_days.hpp>
 #include <asterion/system/process/child.hpp>
+#include <algorithm>
 #include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstring>
 #include <deque>
 #include <limits>
-#include <locale>
 #include <map>
 #include <mutex>
 #include <regex>
 #include <set>
-#include <sstream>
 #include <thread>
 #include <utility>
 #include <unordered_map>
@@ -52,20 +51,12 @@ std::optional<Decimal> price(double value)
 {
     if (!std::isfinite(value) || std::abs(value) > 1e10)
         return {};
-    try {
-        // Floating-point to_chars requires macOS 13.3; the desktop supports 13.0.
-        // Keep the vendor boundary's eight decimal places independent of UI locale.
-        std::ostringstream text;
-        text.imbue(std::locale::classic());
-        text.setf(std::ios::fixed, std::ios::floatfield);
-        text.precision(8);
-        text << value;
-        if (!text)
-            return {};
-        return Decimal::parse(text.str());
-    } catch (...) {
-        return {};
-    }
+    double whole = 0.0;
+    const double frac = std::modf(value, &whole);
+    constexpr std::int64_t scale = 100000000LL;
+    const auto raw = static_cast<std::int64_t>(whole) * scale
+        + static_cast<std::int64_t>(std::llround(frac * static_cast<double>(scale)));
+    return Decimal::from_raw(raw);
 }
 
 std::optional<Decimal> open_interest_change(double current, double previous)
@@ -819,30 +810,46 @@ void Feed::set_multipliers(std::map<InstrumentId, int> values)
     impl_->multipliers = std::move(values);
 }
 
-LiveMarketSnapshot
-Feed::snapshot(std::optional<std::uint64_t> after, std::span<const InstrumentId> forced) const
+LiveMarketSnapshot Feed::snapshot(
+    std::optional<std::uint64_t> after,
+    std::span<const InstrumentId> forced,
+    std::span<const InstrumentId> only) const
 {
     const auto& state = impl_->state;
     if (after && *after > state.sequence)
         throw std::invalid_argument("invalid market snapshot cursor");
-    if (!after || *after < impl_->membership_sequence)
+    const bool full = !after || *after < impl_->membership_sequence;
+    if (full && only.empty())
         return state;
     LiveMarketSnapshot out;
     out.phase = state.phase;
     out.error_code = state.error_code;
     out.sequence = state.sequence;
     out.out_of_order = state.out_of_order;
-    out.subscriptions_delta = true;
-    // Scanning compact revision counters does not copy unchanged quote trees.
+    out.subscriptions_delta = !full;
     std::vector<std::size_t> selected;
-    for (std::size_t i = 0; i < impl_->subscription_revisions.size(); ++i)
-        if (impl_->subscription_revisions[i] > *after)
-            selected.push_back(i);
-    for (const auto& id : forced) {
-        const auto found = impl_->subscription_index.find(id.symbol);
-        if (found != impl_->subscription_index.end()
-            && state.subscriptions[found->second].instrument == id)
-            selected.push_back(found->second);
+    if (!only.empty()) {
+        selected.reserve(only.size());
+        for (const auto& id : only) {
+            const auto found = impl_->subscription_index.find(id.symbol);
+            if (found == impl_->subscription_index.end()
+                || state.subscriptions[found->second].instrument != id)
+                continue;
+            if (full || impl_->subscription_revisions[found->second] > *after
+                || std::ranges::find(forced, id) != forced.end())
+                selected.push_back(found->second);
+        }
+    } else {
+        // Scanning compact revision counters does not copy unchanged quote trees.
+        for (std::size_t i = 0; i < impl_->subscription_revisions.size(); ++i)
+            if (impl_->subscription_revisions[i] > *after)
+                selected.push_back(i);
+        for (const auto& id : forced) {
+            const auto found = impl_->subscription_index.find(id.symbol);
+            if (found != impl_->subscription_index.end()
+                && state.subscriptions[found->second].instrument == id)
+                selected.push_back(found->second);
+        }
     }
     std::sort(selected.begin(), selected.end());
     selected.erase(std::unique(selected.begin(), selected.end()), selected.end());

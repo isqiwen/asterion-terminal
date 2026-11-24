@@ -34,6 +34,7 @@ public:
         Statement& bind(int index, std::string_view text);
         // True while a row is available.
         Statement& bind_blob(int index, std::string_view bytes);
+        void reset();
         std::string blob(int column) const;
         bool step();
         std::int64_t integer(int column) const;

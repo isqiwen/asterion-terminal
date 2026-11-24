@@ -172,6 +172,12 @@ Database::Statement& Database::Statement::bind_blob(int index, std::string_view 
     return *this;
 }
 
+void Database::Statement::reset()
+{
+    sqlite3_reset(statement_);
+    sqlite3_clear_bindings(statement_);
+}
+
 std::string Database::Statement::blob(int column) const
 {
     const auto* data = static_cast<const char*>(sqlite3_column_blob(statement_, column));

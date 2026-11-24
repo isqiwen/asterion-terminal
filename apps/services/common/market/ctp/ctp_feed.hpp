@@ -70,7 +70,8 @@ public:
     std::uint32_t failed_subscriptions() const;
     LiveMarketSnapshot snapshot(
         std::optional<std::uint64_t> after = {},
-        std::span<const InstrumentId> forced = {}) const;
+        std::span<const InstrumentId> forced = {},
+        std::span<const InstrumentId> only = {}) const;
     MarketPhase phase() const;
     void disconnect();
 

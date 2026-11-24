@@ -1603,14 +1603,47 @@ struct Trader::Impl final : CThostFtdcTraderSpi
             fail(code);
     }
 
+    std::optional<std::chrono::steady_clock::time_point> command_due(
+        std::chrono::steady_clock::time_point current) const
+    {
+        std::optional<std::chrono::steady_clock::time_point> due;
+        for (const auto& c : queue) {
+            if (!is_query(c.kind)) {
+                const auto at = (c.kind == Kind::insert || c.kind == Kind::cancel)
+                    ? next_order_at
+                    : std::chrono::steady_clock::time_point::min();
+                if (at <= current)
+                    return current;
+                due = due ? std::min(*due, at) : at;
+            } else if (!query_outstanding) {
+                if (next_query_at <= current)
+                    return current;
+                due = due ? std::min(*due, next_query_at) : next_query_at;
+            }
+        }
+        return due;
+    }
+
     void run(std::stop_token stop)
     {
         while (!stop.stop_requested()) {
             {
                 std::unique_lock lock(mutex);
-                wake.wait_for(lock, 50ms);
-                if (closing)
-                    return;
+                for (;;) {
+                    if (stop.stop_requested() || closing)
+                        return;
+                    const auto current = now();
+                    const auto due = command_due(current);
+                    if (due && *due <= current)
+                        break;
+                    if (due) {
+                        const auto delay =
+                            std::min<std::chrono::steady_clock::duration>(*due - current, 50ms);
+                        wake.wait_for(lock, delay);
+                    } else {
+                        wake.wait(lock);
+                    }
+                }
             }
             auto next = on_owner([this] {
                 return next_command();

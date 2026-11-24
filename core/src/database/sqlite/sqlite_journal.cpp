@@ -57,6 +57,9 @@ archive_rows(sqlite::Database& source, sqlite::Database* destination, std::uint6
     sqlite::Database::Statement rows(
         source,
         "SELECT sequence, length(CAST(body AS BLOB)), " "CASE WHEN length(CAST(body AS BLOB)) <= 65536 THEN body END " "FROM records WHERE sequence > 0 ORDER BY sequence");
+    std::optional<sqlite::Database::Statement> insert;
+    if (destination)
+        insert.emplace(*destination, "INSERT INTO records VALUES(?, ?)");
     while (rows.step()) {
         const auto bytes = rows.integer(1);
         if (rows.integer(0) != static_cast<std::int64_t>(first + result.records)
@@ -68,9 +71,9 @@ archive_rows(sqlite::Database& source, sqlite::Database* destination, std::uint6
         result.digest = sha256_bytes(
             result.digest + ":" + std::to_string(first + result.records) + ":"
             + std::to_string(bytes) + ":" + sha256_bytes(body));
-        if (destination) {
-            sqlite::Database::Statement insert(*destination, "INSERT INTO records VALUES(?, ?)");
-            insert.bind(1, static_cast<std::int64_t>(first + result.records)).bind(2, body).step();
+        if (insert) {
+            insert->reset();
+            insert->bind(1, static_cast<std::int64_t>(first + result.records)).bind(2, body).step();
         }
         ++result.records;
         result.bytes += static_cast<std::uint64_t>(bytes);
@@ -276,6 +279,8 @@ Json read_journal_header(
 
 void SqliteJournal::stop() noexcept
 {
+    cached_archive_.reset();
+    cached_archive_name_.clear();
     database_.reset();
 }
 
@@ -353,7 +358,6 @@ std::vector<Json> SqliteJournal::read_records(std::uint64_t first, std::size_t c
         return {};
     if (first == 0)
         return {read_header(*database_)};
-    std::unique_ptr<sqlite::Database> archive;
     auto* source = database_.get();
     if (first < first_) {
         sqlite::Database::Statement segment(
@@ -361,10 +365,16 @@ std::vector<Json> SqliteJournal::read_records(std::uint64_t first, std::size_t c
             "SELECT name FROM segments WHERE first <= ? ORDER BY first DESC LIMIT 1");
         segment.bind(1, static_cast<std::int64_t>(first));
         segment.step();
-        archive = std::make_unique<sqlite::Database>(
-            directory_ / "archives" / segment.text(0),
-            sqlite::Database::Access::read_only);
-        source = archive.get();
+        const auto name = segment.text(0);
+        if (!cached_archive_ || cached_archive_name_ != name) {
+            cached_archive_.reset();
+            cached_archive_name_.clear();
+            cached_archive_ = std::make_unique<sqlite::Database>(
+                directory_ / "archives" / name,
+                sqlite::Database::Access::read_only);
+            cached_archive_name_ = name;
+        }
+        source = cached_archive_.get();
     }
     sqlite::Database::Statement query(
         *source,
