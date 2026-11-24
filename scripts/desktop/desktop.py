@@ -337,7 +337,9 @@ def main():
             # Linux uses the Conan profile's compiler. Dependencies build optimized.
             install += ["-s", "&:build_type=" + configuration, "-s", "build_type=Release"]
             # Conan's prebuilt cpptrace lacks the host glibc's signal-safe _dl_find_object.
-            install += ["--build=cpptrace/*"]
+            # On a CI Conan cache hit for this runner image, the cached package was built from source.
+            if env.get("ASTERION_CONAN_CACHE_HIT") != "1":
+                install += ["--build=cpptrace/*"]
         run(install)
         run(["pnpm", "exec", "node-gyp", "install", "--ensure", "--target=" + electron_version,
              "--dist-url=https://electronjs.org/headers", "--devdir=" + str(sdk)])

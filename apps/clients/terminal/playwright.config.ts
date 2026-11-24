@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 const origin = `http://127.0.0.1:${process.env.ASTERION_DEV_PORT ?? "1423"}`;
 export default defineConfig({
   testDir: "./e2e",
-  outputDir: "./test-results",
+  outputDir: process.env.ASTERION_E2E_OUTPUT_DIR ?? "./test-results",
   fullyParallel: false,
   workers: 1,
   use: {
