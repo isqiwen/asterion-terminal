@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <chrono>
 #include <fstream>
-#include <regex>
 #include <set>
 
 namespace asterion::warehouse {
@@ -158,14 +157,21 @@ std::string shard_of(const std::string& key)
 
 void require_day(std::string_view day)
 {
-    static const std::regex syntax(R"(\d{4}-\d{2}-\d{2})");
-    const std::string value(day);
-    if (!std::regex_match(value, syntax))
+    const auto digit = [](char c) {
+        return c >= '0' && c <= '9';
+    };
+    if (day.size() != 10 || day[4] != '-' || day[7] != '-' || !digit(day[0]) || !digit(day[1])
+        || !digit(day[2]) || !digit(day[3]) || !digit(day[5]) || !digit(day[6]) || !digit(day[8])
+        || !digit(day[9]))
         throw std::invalid_argument("warehouse date must be YYYY-MM-DD");
+    const int year =
+        (day[0] - '0') * 1000 + (day[1] - '0') * 100 + (day[2] - '0') * 10 + (day[3] - '0');
+    const unsigned month = static_cast<unsigned>((day[5] - '0') * 10 + (day[6] - '0'));
+    const unsigned mday = static_cast<unsigned>((day[8] - '0') * 10 + (day[9] - '0'));
     const std::chrono::year_month_day date{
-        std::chrono::year(std::stoi(value.substr(0, 4))),
-        std::chrono::month(std::stoul(value.substr(5, 2))),
-        std::chrono::day(std::stoul(value.substr(8, 2)))
+        std::chrono::year(year),
+        std::chrono::month(month),
+        std::chrono::day(mday)
     };
     if (!date.ok() || date.year() == std::chrono::year(0))
         throw std::invalid_argument("invalid warehouse date");
@@ -173,8 +179,10 @@ void require_day(std::string_view day)
 
 void require_provider(std::string_view provider)
 {
-    static const std::regex syntax("[a-z][a-z0-9_-]{0,31}");
-    if (!std::regex_match(std::string(provider), syntax))
+    if (provider.empty() || provider.size() > 32 || provider.front() < 'a' || provider.front() > 'z'
+        || !std::all_of(provider.begin() + 1, provider.end(), [](char c) {
+               return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-';
+           }))
         throw std::invalid_argument("invalid dataset provider");
 }
 
@@ -424,7 +432,10 @@ Writer::Writer(Store& store)
     : store_(store),
       lock_(store.writes_),
       base_(store.current()),
-      pending_(base_)
+      pending_(base_),
+      base_shards_(
+          base_.identity.empty() ? std::map<std::string, std::string>{}
+                                 : store_.head(base_.identity).shards)
 {}
 
 void Writer::put(std::string key, std::span<const Row> rows, std::vector<std::string> days)
@@ -485,11 +496,15 @@ void Writer::adopt(const std::string& key, const Store& from, const Version& ver
 {
     const auto& part = version.partitions.at(key);
     // Files are named by their digest, so an existing name holds the same bytes.
-    const auto target = store_.root_ / part.file;
-    if (!fs::exists(target)) {
-        create_directories_durably(target.parent_path());
-        fs::create_hard_link(from.file(version, key), target);
-        sync_directory(target.parent_path());
+    const auto existing = base_.partitions.find(key);
+    if (existing == base_.partitions.end() || existing->second.file != part.file
+        || existing->second.sha256 != part.sha256) {
+        const auto target = store_.root_ / part.file;
+        if (!fs::exists(target)) {
+            create_directories_durably(target.parent_path());
+            fs::create_hard_link(from.file(version, key), target);
+            sync_directory(target.parent_path());
+        }
     }
     pending_.partitions[key] = {part.file, part.sha256, part.rows, part.days, from.provider()};
 }
@@ -503,16 +518,45 @@ Version Writer::commit()
 {
     if (pending_.partitions == base_.partitions)
         return base_;
+    std::set<std::string> changed_shards;
+    auto old_it = base_.partitions.begin();
+    auto new_it = pending_.partitions.begin();
+    while (old_it != base_.partitions.end() && new_it != pending_.partitions.end()) {
+        if (old_it->first < new_it->first) {
+            changed_shards.insert(shard_of(old_it->first));
+            ++old_it;
+        } else if (new_it->first < old_it->first) {
+            changed_shards.insert(shard_of(new_it->first));
+            ++new_it;
+        } else {
+            if (old_it->second != new_it->second)
+                changed_shards.insert(shard_of(new_it->first));
+            ++old_it;
+            ++new_it;
+        }
+    }
+    for (; old_it != base_.partitions.end(); ++old_it)
+        changed_shards.insert(shard_of(old_it->first));
+    for (; new_it != pending_.partitions.end(); ++new_it)
+        changed_shards.insert(shard_of(new_it->first));
+
     pending_.parent = base_.identity;
     pending_.created_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::system_clock::now().time_since_epoch())
                               .count();
-    std::map<std::string, Json> shards;
-    for (const auto& [key, part] : pending_.partitions)
-        shards[shard_of(key)][key] = entry(part);
-    Json names = Json::object();
+    auto next_shards = base_shards_;
     create_directories_durably(store_.root_ / "shards");
-    for (const auto& [name, partitions] : shards) {
+    for (const auto& name : changed_shards) {
+        Json partitions = Json::object();
+        for (auto at = pending_.partitions.lower_bound(name);
+            at != pending_.partitions.end() && at->first.starts_with(name);
+            ++at)
+            if (shard_of(at->first) == name)
+                partitions[at->first] = entry(at->second);
+        if (partitions.empty()) {
+            next_shards.erase(name);
+            continue;
+        }
         const auto content = partitions.dump();
         if (content.size() > manifest_limit)
             throw Error(ErrorCode::resource_exhausted, "dataset shard is too large: " + name);
@@ -520,8 +564,11 @@ Version Writer::commit()
         // Named by content: an existing shard holds the same bytes.
         if (!fs::exists(store_.root_ / "shards" / (digest + ".json")))
             replace_file_durably(store_.root_ / "shards" / (digest + ".json"), content);
-        names[name] = digest;
+        next_shards[name] = digest;
     }
+    Json names = Json::object();
+    for (const auto& [name, digest] : next_shards)
+        names[name] = digest;
     const auto content = Json{
         {"format", 2},
         {"provider", pending_.provider},
@@ -534,6 +581,7 @@ Version Writer::commit()
     replace_file_durably(store_.root_ / "versions" / (pending_.identity + ".json"), content);
     replace_file_durably(store_.root_ / "current", pending_.identity);
     base_ = pending_;
+    base_shards_ = std::move(next_shards);
     return base_;
 }
 

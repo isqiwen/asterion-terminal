@@ -90,6 +90,9 @@ public:
         bool oldest_first = false) const;
 
     bool recovery_required() const noexcept;
+    bool strategy_batch_active() const noexcept;
+    bool strategy_events_pending() const noexcept;
+    bool strategy_has_failure() const noexcept;
 
     Health health() const noexcept;
 

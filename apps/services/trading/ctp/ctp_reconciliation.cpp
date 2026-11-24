@@ -17,7 +17,7 @@ bool current_day(const std::string& day, const BrokerSnapshot& state)
 
 Decimal lots(int value)
 {
-    return Decimal::parse(std::to_string(std::max(0, value)));
+    return Decimal::from_integer(std::max(0, value));
 }
 
 Side side_of(char direction)
@@ -95,9 +95,12 @@ Decimal ReportReconciler::open_fills() const
             filled = std::max(filled, traded->second);
         total = total + filled;
     }
-    for (const auto& trade : state_.trades)
-        if (trade.offset == Offset::open && !exchange_.contains(trade.exchange_order_id))
-            total = total + trade.quantity;
+    for (const auto& [_, indices] : orphan_trades_)
+        for (const auto index : indices) {
+            const auto& trade = state_.trades[index];
+            if (trade.offset == Offset::open)
+                total = total + trade.quantity;
+        }
     return total;
 }
 
@@ -114,10 +117,13 @@ BrokerSnapshot::CloseLots ReportReconciler::close_fills() const
         totals[{order.instrument, order.side, order.offset}] =
             totals[{order.instrument, order.side, order.offset}] + filled;
     }
-    for (const auto& trade : state_.trades)
-        if (trade.offset != Offset::open && !exchange_.contains(trade.exchange_order_id))
-            totals[{trade.instrument, trade.side, trade.offset}] =
-                totals[{trade.instrument, trade.side, trade.offset}] + trade.quantity;
+    for (const auto& [_, indices] : orphan_trades_)
+        for (const auto index : indices) {
+            const auto& trade = state_.trades[index];
+            if (trade.offset != Offset::open)
+                totals[{trade.instrument, trade.side, trade.offset}] =
+                    totals[{trade.instrument, trade.side, trade.offset}] + trade.quantity;
+        }
     return totals;
 }
 
@@ -170,10 +176,15 @@ bool ReportReconciler::apply(const CThostFtdcOrderField& report)
     if (const auto id = trimmed(report.OrderSysID); !id.empty()) {
         order.exchange_order_id = order.instrument.venue + ":" + id;
         exchange_[order.exchange_order_id] = order.broker_key;
+        orphan_trades_.erase(order.exchange_order_id);
         // A trade can arrive before its order's first report.
-        for (auto& trade : state_.trades)
-            if (trade.order_id.empty() && trade.exchange_order_id == order.exchange_order_id)
-                trade.order_id = order.order_id;
+        if (!order.order_id.empty() && unattributed_trades_ > 0) {
+            for (auto& trade : state_.trades)
+                if (trade.order_id.empty() && trade.exchange_order_id == order.exchange_order_id) {
+                    trade.order_id = order.order_id;
+                    --unattributed_trades_;
+                }
+        }
         auto& raw = raw_order_ids_[order.broker_key];
         std::copy(std::begin(report.OrderSysID), std::end(report.OrderSysID), raw.begin());
     }
@@ -209,8 +220,15 @@ bool ReportReconciler::apply(const CThostFtdcTradeField& report)
         return false;
     trade.instrument = {venue, field(report.InstrumentID)};
     trade.exchange_order_id = venue + ":" + trimmed(report.OrderSysID);
-    if (const auto found = exchange_.find(trade.exchange_order_id); found != exchange_.end())
-        trade.order_id = state_.orders[order_at_.at(found->second)].order_id;
+    const bool known_exchange = [&] {
+        if (const auto found = exchange_.find(trade.exchange_order_id); found != exchange_.end()) {
+            trade.order_id = state_.orders[order_at_.at(found->second)].order_id;
+            return true;
+        }
+        return false;
+    }();
+    if (trade.order_id.empty())
+        ++unattributed_trades_;
     trade.offset = offset_of(report.OffsetFlag);
     trade.quantity = lots(report.Volume);
     const auto fill = price(report.Price);
@@ -225,6 +243,8 @@ bool ReportReconciler::apply(const CThostFtdcTradeField& report)
     traded_quantities_[trade.exchange_order_id] =
         traded_quantities_[trade.exchange_order_id] + trade.quantity;
     const auto instrument = trade.instrument;
+    if (!known_exchange)
+        orphan_trades_[trade.exchange_order_id].push_back(state_.trades.size());
     state_.trades.push_back(std::move(trade));
     update_close_lots();
     ++state_.exposure_revision;
@@ -275,6 +295,8 @@ void ReportReconciler::clear_reports()
     state_.unreconciled_open_lots = Decimal{};
     reconciled_close_lots_.clear();
     state_.unreconciled_close_lots.clear();
+    unattributed_trades_ = 0;
+    orphan_trades_.clear();
 }
 
 void ReportReconciler::abandon_positions()
@@ -372,9 +394,17 @@ void ReportReconciler::remember(OrderIdentity identity, KnownOrder order)
             auto& reported = state_.orders[at->second];
             if (reported.order_id != order.order_id) {
                 reported.order_id = order.order_id;
-                for (auto& trade : state_.trades)
-                    if (trade.exchange_order_id == reported.exchange_order_id)
-                        trade.order_id = order.order_id;
+                if (!reported.exchange_order_id.empty()) {
+                    for (auto& trade : state_.trades)
+                        if (trade.exchange_order_id == reported.exchange_order_id) {
+                            if (trade.order_id.empty() && !order.order_id.empty()
+                                && unattributed_trades_ > 0)
+                                --unattributed_trades_;
+                            else if (!trade.order_id.empty() && order.order_id.empty())
+                                ++unattributed_trades_;
+                            trade.order_id = order.order_id;
+                        }
+                }
                 ++state_.sequence;
                 ++state_.exposure_revision;
             }

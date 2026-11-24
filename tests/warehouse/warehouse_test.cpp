@@ -1239,4 +1239,62 @@ TEST_F(Warehouse, CachedSummaryAndCoverageRefreshWhenVersionOrEmptyKeysChange)
     EXPECT_EQ(detail2.contracts(0).daily().empty_days(), 1U);
 }
 
+TEST_F(Warehouse, IncrementalCommitAndCachedComposeMatchFreshCompose)
+{
+    wh::Store tushare(wh::source_directory(root, "tushare"), "tushare");
+    wh::Store shfe(wh::source_directory(root, "shfe"), "shfe");
+    wh::Store cached_research(wh::source_directory(root, "research"), "research");
+    {
+        auto w = tushare.writer();
+        auto bar = row("daily");
+        bar[0] = std::string("SHFE");
+        bar[1] = std::string("rb");
+        bar[2] = std::string("SHFE/rb/2026-05");
+        bar[3] = std::string("2026-01-05");
+        w.put("daily/SHFE/2026-01-05", std::vector<wh::Row>{bar}, {"2026-01-05"});
+        bar[3] = std::string("2026-02-02");
+        w.put("daily/SHFE/2026-02-02", std::vector<wh::Row>{bar}, {"2026-02-02"});
+        w.commit();
+    }
+    wh::SourceCache cache;
+    const auto v1 = wh::compose(root, cached_research, wh::source_versions(root), cache);
+    const auto v1_head = cached_research.head(v1.identity);
+    ASSERT_EQ(v1.partitions.size(), 2U);
+    ASSERT_EQ(v1_head.shards.size(), 2U);
+
+    // Updating one shard in tushare and adding a fallback day in shfe preserves the untouched shard digest.
+    {
+        auto w = tushare.writer();
+        auto bar = row("daily");
+        bar[0] = std::string("SHFE");
+        bar[1] = std::string("rb");
+        bar[2] = std::string("SHFE/rb/2026-05");
+        bar[3] = std::string("2026-02-03");
+        w.put("daily/SHFE/2026-02-03", std::vector<wh::Row>{bar}, {"2026-02-03"});
+        w.commit();
+    }
+    {
+        auto w = shfe.writer();
+        auto bar = row("daily");
+        bar[0] = std::string("SHFE");
+        bar[1] = std::string("rb");
+        bar[2] = std::string("SHFE/rb/2026-05");
+        bar[3] = std::string("2026-01-06");
+        w.put("daily/SHFE/2026-01-06", std::vector<wh::Row>{bar}, {"2026-01-06"});
+        w.commit();
+    }
+    const auto versions = wh::source_versions(root);
+    const auto v2 = wh::compose(root, cached_research, versions, cache);
+    const auto v2_head = cached_research.head(v2.identity);
+    EXPECT_EQ(v2.partitions.size(), 4U);
+    EXPECT_NE(v2_head.shards.at("daily/SHFE/2026-01"), v1_head.shards.at("daily/SHFE/2026-01"));
+    EXPECT_NE(v2_head.shards.at("daily/SHFE/2026-02"), v1_head.shards.at("daily/SHFE/2026-02"));
+
+    // Fresh compose on the exact same inputs yields the exact same partitions and shard digests.
+    wh::Store fresh_research(root / "fresh", "research");
+    const auto fresh = wh::compose(root, fresh_research, versions);
+    EXPECT_EQ(fresh.partitions, v2.partitions);
+    EXPECT_EQ(fresh_research.head(fresh.identity).shards, v2_head.shards);
+}
+
 } // namespace

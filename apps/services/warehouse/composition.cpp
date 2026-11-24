@@ -61,11 +61,14 @@ SourceVersions source_versions(const std::filesystem::path& data)
     return versions;
 }
 
-Version compose(const std::filesystem::path& data, Store& unified, const SourceVersions& versions)
+Version compose(
+    const std::filesystem::path& data,
+    Store& unified,
+    const SourceVersions& versions,
+    SourceCache& sources)
 {
     auto writer = unified.writer();
     writer.clear();
-    std::map<std::string, std::pair<std::unique_ptr<Store>, Version>> sources;
     for (const auto* table :
         {"contracts",
             "calendar",
@@ -80,20 +83,69 @@ Version compose(const std::filesystem::path& data, Store& unified, const SourceV
         const auto prefix = std::string(table) + "/";
         for (const auto& provider : sources_of(table)) {
             auto& source = sources[provider];
-            if (!source.first) {
-                source.first = std::make_unique<Store>(source_directory(data, provider), provider);
-                const auto& identity = versions.at(provider);
-                source.second = identity.empty() ? Version{} : source.first->version(identity);
+            if (!source.store)
+                source.store = std::make_unique<Store>(source_directory(data, provider), provider);
+            const auto& identity = versions.at(provider);
+            if (source.version.identity != identity) {
+                if (identity.empty()) {
+                    source.head = {};
+                    source.version = {};
+                } else if (source.head.identity.empty()) {
+                    auto next_head = source.store->head(identity);
+                    Version next_version{
+                        next_head.identity,
+                        provider,
+                        next_head.parent,
+                        next_head.created_ns,
+                        {}
+                    };
+                    for (const auto& [name, digest] : next_head.shards)
+                        next_version.partitions.merge(source.store->shard(name, digest));
+                    source.head = std::move(next_head);
+                    source.version = std::move(next_version);
+                } else {
+                    auto next_head = source.store->head(identity);
+                    std::vector<std::map<std::string, Partition>> loaded;
+                    for (const auto& [name, digest] : next_head.shards) {
+                        const auto found = source.head.shards.find(name);
+                        if (found == source.head.shards.end() || found->second != digest)
+                            loaded.push_back(source.store->shard(name, digest));
+                    }
+                    for (const auto& [name, digest] : source.head.shards) {
+                        const auto found = next_head.shards.find(name);
+                        if (found == next_head.shards.end() || found->second != digest) {
+                            for (auto at = source.version.partitions.lower_bound(name);
+                                at != source.version.partitions.end()
+                                && at->first.starts_with(name);)
+                                at = shard_of(at->first) == name
+                                    ? source.version.partitions.erase(at)
+                                    : std::next(at);
+                        }
+                    }
+                    for (auto& shard_parts : loaded)
+                        source.version.partitions.merge(shard_parts);
+                    source.head = std::move(next_head);
+                    source.version.identity = source.head.identity;
+                    source.version.provider = provider;
+                    source.version.parent = source.head.parent;
+                    source.version.created_ns = source.head.created_ns;
+                }
             }
-            const auto& version = source.second;
+            const auto& version = source.version;
             for (auto at = version.partitions.lower_bound(prefix);
                 at != version.partitions.end() && at->first.starts_with(prefix);
                 ++at)
                 if (taken.insert(at->first).second)
-                    writer.adopt(at->first, *source.first, version);
+                    writer.adopt(at->first, *source.store, version);
         }
     }
     return writer.commit();
+}
+
+Version compose(const std::filesystem::path& data, Store& unified, const SourceVersions& versions)
+{
+    SourceCache sources;
+    return compose(data, unified, versions, sources);
 }
 
 std::string

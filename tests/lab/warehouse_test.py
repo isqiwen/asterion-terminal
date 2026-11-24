@@ -356,10 +356,11 @@ class RemoteResearch(unittest.TestCase):
             self.assertEqual(len(connects), 1)
         self.assertEqual(fetched, ['minutes/SHFE/2026-01-06/rb/2026-05',
                                    'minutes/SHFE/2026-01-07/rb/2026-05'])
-        # Cold-cache multi-month preparation reuses a single TLS session across all missing partitions.
+        # Cold-cache multi-month preparation bounds TLS sessions to at most 4 workers across all missing partitions.
         cold_lab = self.node / 'cold-prepare'
         cold = Dataset(cold_lab, history=self.warehouse)
         pinned = cold.version(version.identity)
+        self.assertIs(cold.version(version.identity), pinned)
         connects.clear()
         config = backtest.Config(
             repository='', strategy='', params={}, symbols=('SHFE/rb/2026-05', 'SHFE/rb/2026-10'),
@@ -371,7 +372,10 @@ class RemoteResearch(unittest.TestCase):
             contracts, _, _ = backtest.prepare(
                 backtest.Data(cold, config.begin_day, config.end_day, version=pinned.identity), config)
         self.assertEqual(len(contracts), 2)
-        self.assertEqual(len(connects), 1)
+        self.assertGreaterEqual(len(connects), 1)
+        self.assertLessEqual(len(connects), 4)
+        (cold.root / 'versions' / f'{pinned.identity}.json').unlink()
+        self.assertIsNot(cold.version(version.identity), pinned)
 
     def test_concurrent_chunk_downloads_publish_once_and_missing_versions_never_use_latest(self):
         version = self.dataset.current()

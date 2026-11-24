@@ -75,6 +75,7 @@ private:
         // Observations were lost since the last one; the next bar is partial.
         bool lost = false;
         bool continued = false;
+        const std::vector<std::pair<int, int>>* sessions = nullptr;
     };
 
     std::map<InstrumentId, State> states_;

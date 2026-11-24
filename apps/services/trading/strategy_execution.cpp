@@ -332,7 +332,7 @@ void LiveAccountState::accept_strategy_target(
             if (weighted) {
                 parsed_weights[*selected] = Decimal::parse(target.weight().text());
             } else {
-                const auto quantity = Decimal::parse(std::to_string(target.lots()));
+                const auto quantity = Decimal::from_integer(target.lots());
                 if (!quantity.multiple_of(allowed(*selected).quantity_increment))
                     throw std::invalid_argument("strategy target is not a whole contract lot");
                 const auto held = std::ranges::find_if(targets, [&](const auto& item) {
@@ -780,8 +780,7 @@ AccountCommand LiveAccountState::advance_strategy_target(
                 lower = quantize(lower, terms.price_increment, Rounding::ceiling);
                 if (lower <= upper) {
                     const int step = 1 + batch.flatten_retries[leg.instrument];
-                    const auto cushion =
-                        terms.price_increment * Decimal::parse(std::to_string(step));
+                    const auto cushion = terms.price_increment * Decimal::from_integer(step);
                     if (price && *price > Decimal{} && liquidity > 0) {
                         const auto candidate =
                             leg.side == Side::buy ? *price + cushion : *price - cushion;

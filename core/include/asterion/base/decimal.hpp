@@ -25,6 +25,7 @@ class Decimal final
 public:
     constexpr Decimal() = default;
     static Decimal parse(std::string_view text);
+    static Decimal from_integer(std::int64_t value);
 
     static constexpr Decimal from_raw(std::int64_t raw)
     {

@@ -146,6 +146,21 @@ public:
     }
 
 private:
+    struct Prepared
+    {
+        std::vector<ContractBars> contracts;
+        std::vector<PaperExecution::Event> events;
+    };
+
+    static Prepared prepare(std::vector<ContractBars> contracts);
+
+    Replay(
+        Decimal deposit,
+        Prepared prepared,
+        const std::vector<std::vector<DaySettlement>>& days,
+        std::vector<DominantSeries> series,
+        OrderLimitsConfig limits,
+        std::map<std::string, Decimal> margins);
     void issue(const Bar& bar);
     std::optional<Decimal> target(std::size_t contract) const;
     Decimal held(std::size_t contract) const;

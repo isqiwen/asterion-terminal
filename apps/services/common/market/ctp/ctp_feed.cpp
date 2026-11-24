@@ -78,7 +78,7 @@ average_price(double value, const std::string& venue, std::optional<int> multipl
         return raw;
     if (!multiplier || *multiplier <= 0)
         return {};
-    return divide(*raw, Decimal::parse(std::to_string(*multiplier)), Rounding::half_even);
+    return divide(*raw, Decimal::from_integer(*multiplier), Rounding::half_even);
 }
 
 MarketDepthLevel depth_level(double value, int quantity)
@@ -395,6 +395,7 @@ struct Feed::Impl final
             return;
         closing = true;
         logged_in = login_pending = subscription_pending = false;
+        sdk_dirty = true;
         state.phase = MarketPhase::disconnected;
         ++state.sequence;
         record_status();
@@ -554,7 +555,10 @@ struct Feed::Impl final
         q.high = traded_price(tick->HighestPrice);
         q.low = traded_price(tick->LowestPrice);
         q.open_interest = tick->OpenInterest >= 0 ? price(tick->OpenInterest) : std::nullopt;
-        q.open_interest_change = open_interest_change(tick->OpenInterest, tick->PreOpenInterest);
+        if (q.open_interest && tick->PreOpenInterest >= 0) {
+            if (const auto before = price(tick->PreOpenInterest))
+                q.open_interest_change = *q.open_interest - *before;
+        }
         q.previous_close = price(tick->PreClosePrice);
         const auto multiplier = multipliers.find(s.instrument);
         q.average_price = average_price(
@@ -605,6 +609,8 @@ struct Feed::Impl final
                             config.password.empty() ? MarketPhase::error : MarketPhase::logging_in;
                         state.error_code = 0;
                         login_pending = !config.password.empty();
+                        if (login_pending)
+                            sdk_dirty = true;
                         ++state.sequence;
                     } else if constexpr (std::is_same_v<T, Disconnected>) {
                         logged_in = false;
@@ -627,6 +633,7 @@ struct Feed::Impl final
                             state.phase = MarketPhase::connected;
                             state.error_code = 0;
                             subscription_pending = true;
+                            sdk_dirty = true;
                             ++state.sequence;
                         }
                     } else if constexpr (std::is_same_v<T, Subscription>) {
@@ -670,23 +677,37 @@ struct Feed::Impl final
             state.phase = MarketPhase::error;
             state.error_code = -1000;
             ++state.sequence;
+            std::lock_guard lock(mutex);
+            sdk_dirty = true;
         }
+        bool more = true;
         for (unsigned i = 0; i < 1024; ++i) {
             auto event = incoming.try_pop();
-            if (!event)
+            if (!event) {
+                more = false;
                 break;
+            }
             if (!closing && !ingress_failed && event->generation == generation)
                 apply(*event);
         }
-        if (!pending.valid()
-            || pending.wait_for(std::chrono::milliseconds{0}) == std::future_status::ready) {
-            if (pending.valid())
-                pending.get();
-            pending = sdk_owner.submit([this](std::stop_token stop) {
-                advance_sdk(stop);
-            });
+        if (pending.valid()
+            && pending.wait_for(std::chrono::milliseconds{0}) == std::future_status::ready)
+            pending.get();
+        if (!pending.valid()) {
+            bool dispatch = false;
+            {
+                std::lock_guard lock(mutex);
+                if (sdk_dirty) {
+                    sdk_dirty = false;
+                    dispatch = true;
+                }
+            }
+            if (dispatch)
+                pending = sdk_owner.submit([this](std::stop_token stop) {
+                    advance_sdk(stop);
+                });
         }
-        return {std::exchange(events, {}), ingress_failed};
+        return {std::exchange(events, {}), ingress_failed, more};
     }
 
     // Only SDK command handoff uses this mutex. Normalized state belongs to poll().
@@ -720,6 +741,7 @@ struct Feed::Impl final
     ThreadPool& sdk_owner;
     std::unique_ptr<SdkState> sdk_state = std::make_unique<SdkState>();
     std::future<void> pending;
+    bool sdk_dirty = false;
 };
 
 Feed::Feed(
@@ -769,6 +791,7 @@ void Feed::connect(Configuration config, const std::vector<InstrumentId>& ids)
     impl_->select_subscriptions(ids, false);
     ++impl_->generation;
     impl_->closing = false;
+    impl_->sdk_dirty = true;
     impl_->state.phase = MarketPhase::connecting;
     impl_->state.error_code = 0;
     ++impl_->state.sequence;
@@ -783,6 +806,7 @@ void Feed::subscribe(const std::vector<InstrumentId>& ids)
         throw Error(ErrorCode::conflict, "connect market data first");
     impl_->select_subscriptions(ids, true);
     impl_->subscription_pending = true;
+    impl_->sdk_dirty = true;
     ++impl_->state.sequence;
     impl_->record_status();
 }
@@ -794,6 +818,7 @@ void Feed::retry_failed_subscriptions()
         if (subscription.state == SubscriptionState::error) {
             subscription.state = SubscriptionState::pending;
             impl_->retrying.push_back(subscription.instrument.symbol);
+            impl_->sdk_dirty = true;
         }
 }
 

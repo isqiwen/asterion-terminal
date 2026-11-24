@@ -110,6 +110,7 @@ private:
     Store& store_;
     std::unique_lock<std::mutex> lock_;
     Version base_, pending_;
+    std::map<std::string, std::string> base_shards_;
 };
 
 // Data paths are service-owned; provider/partition/version identities arrive

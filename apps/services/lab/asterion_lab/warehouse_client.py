@@ -5,17 +5,19 @@ Warehouse; children open the exact version selected by admission. A cached versi
 retains its original endpoint, so changing Terminal's selection cannot redirect
 an in-flight download. Removing a file fetches the same artifact again.
 """
+import collections
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 import fcntl
 import hashlib
 import json
-import os
 from pathlib import Path
 import re
 import socket
 import ssl
 import struct
 import tempfile
+import threading
 import time
 
 from asterion.common_pb2 import ErrorCode
@@ -27,6 +29,9 @@ IDENTITY = re.compile(r"[0-9a-f]{64}")
 PRODUCT = re.compile(r"[A-Z]+/[a-zA-Z]{1,3}")
 CHUNK = 1024 * 1024
 MAX_FRAME = 64 * 1024 * 1024
+_VERSION_CACHE_LIMIT = 4
+_VERSION_CACHE = collections.OrderedDict()
+_VERSION_CACHE_LOCK = threading.Lock()
 
 
 class WarehouseError(ValueError):
@@ -165,38 +170,47 @@ class Dataset(ParquetTables):
     def __init__(self, directory: Path, history=None, origin=None):
         self.root = directory / "warehouse-cache" / self.provider
         self.history, self.origin = history, origin
-        self.clients, self.depth = {}, 0
+        self._client_local = threading.local()
+
+    def _client_state(self):
+        state = self._client_local
+        if not hasattr(state, "depth"):
+            state.depth = 0
+            state.clients = {}
+        return state
 
     def __enter__(self):
-        self.depth += 1
+        self._client_state().depth += 1
         super().__enter__()
         return self
 
     def __exit__(self, *ignored):
-        self.depth -= 1
+        state = self._client_state()
+        state.depth -= 1
         try:
-            if not self.depth:
-                while self.clients:
-                    _, client = self.clients.popitem()
+            if not state.depth:
+                while state.clients:
+                    _, client = state.clients.popitem()
                     client.__exit__()
         finally:
             super().__exit__(*ignored)
 
     @contextmanager
     def client(self, origin):
-        if not self.depth:
+        state = self._client_state()
+        if not state.depth:
             with Client(origin) as single:
                 yield single
             return
         key = canonical(origin)
-        client = self.clients.get(key)
+        client = state.clients.get(key)
         if client is None:
             client = Client(origin)
-            self.clients[key] = client
+            state.clients[key] = client
         try:
             yield client
         except BaseException:
-            self.clients.pop(key, None)
+            state.clients.pop(key, None)
             client.__exit__()
             raise
 
@@ -209,8 +223,25 @@ class Dataset(ParquetTables):
         if not IDENTITY.fullmatch(identity):
             raise ValueError("dataset version must be a 64-digit lowercase SHA-256 identity")
         path = self.root / "versions" / f"{identity}.json"
-        if path.exists():
-            return Version(identity, json.loads(path.read_text()))
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            stat = None
+        if stat is not None:
+            cache_key = (str(path), stat.st_mtime_ns, stat.st_size)
+            with _VERSION_CACHE_LOCK:
+                cached = _VERSION_CACHE.get(cache_key)
+                if cached is not None:
+                    _VERSION_CACHE.move_to_end(cache_key)
+                    return cached
+            loaded = Version(identity, json.loads(path.read_text()))
+            loaded._ensure_index()
+            with _VERSION_CACHE_LOCK:
+                _VERSION_CACHE[cache_key] = loaded
+                _VERSION_CACHE.move_to_end(cache_key)
+                while len(_VERSION_CACHE) > _VERSION_CACHE_LIMIT:
+                    _VERSION_CACHE.popitem(last=False)
+            return loaded
         if self.origin is None and self.history is None:
             raise ValueError(f"unreadable dataset version: {path}; select this exact version from Warehouse again")
         return self.fetch(identity, self.origin if self.origin is not None else self.history.selected())
@@ -280,13 +311,8 @@ class Dataset(ParquetTables):
                     if digest.hexdigest() != part["sha256"]:
                         raise WarehouseError("invalid_data", "Warehouse partition digest mismatch")
                     output.flush()
-                    os.fsync(output.fileno())
-                os.replace(temporary, path)
-                directory = os.open(path.parent, os.O_RDONLY)
-                try:
-                    os.fsync(directory)
-                finally:
-                    os.close(directory)
+                # Disposable content-addressed cache: atomic rename suffices without per-file fsync.
+                temporary.replace(path)
             finally:
                 if temporary is not None:
                     temporary.unlink(missing_ok=True)
@@ -326,8 +352,33 @@ class Dataset(ParquetTables):
     def query(self, version, sql, tables, parameters=(), **scope):
         # Only the partitions this query reads are downloaded.
         with self:
+            missing = []
+            seen = set()
+            partitions = version.manifest["partitions"]
             for table in tables:
                 for key in version.keys(table, **scope):
+                    if key in seen:
+                        continue
+                    if not (self.root / partitions[key]["file"]).exists():
+                        seen.add(key)
+                        missing.append(key)
+            if len(missing) >= 16:
+                workers = min(4, len(missing))
+                slices = [missing[i::workers] for i in range(workers)]
+
+                def fetch_slice(keys):
+                    with self:
+                        for key in keys:
+                            self.ensure(version, key)
+
+                with ThreadPoolExecutor(max_workers=workers - 1) as pool:
+                    futures = [pool.submit(fetch_slice, batch) for batch in slices[1:]]
+                    for key in slices[0]:
+                        self.ensure(version, key)
+                    for future in futures:
+                        future.result()
+            else:
+                for key in missing:
                     self.ensure(version, key)
             return super().query(version, sql, tables, parameters, **scope)
 

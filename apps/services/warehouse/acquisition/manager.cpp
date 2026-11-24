@@ -610,10 +610,17 @@ bool Manager::acquire_table(
     return offered;
 }
 
-void Manager::publish(const wire::AcquisitionTask& task, Active& active)
+void Manager::publish(const wire::AcquisitionTask& task, Active& active, bool durable)
 {
     std::lock_guard lock(mutex_);
-    persist(task);
+    const auto now = std::chrono::steady_clock::now();
+    if (durable || task.state() != active.task.state()
+        || now - active.persisted_at >= std::chrono::seconds{1}) {
+        persist(task);
+        active.persisted_at = now;
+    } else {
+        stored_[task.request().id()] = task;
+    }
     active.task = task;
 }
 
@@ -962,7 +969,7 @@ void Manager::run(
                 publish_batch();
             task.set_requests_sent(previous_requests + (source.requests() - source_start));
             if (need_fetch || progressed)
-                publish(task, active);
+                publish(task, active, false);
             const bool give_way = [&] {
                 std::lock_guard lock(mutex_);
                 return !market_bars(task.request()) && market_waiting();

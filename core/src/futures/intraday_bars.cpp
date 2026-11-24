@@ -63,24 +63,14 @@ const std::map<std::pair<std::string, std::string>, SessionRanges>& session_tabl
     return table;
 }
 
-} // namespace
-
-const std::vector<std::pair<int, int>>& trading_sessions(const InstrumentId& instrument)
-{
-    const auto& table = session_table();
-    const auto found = table.find({instrument.venue, lower_product(instrument.symbol)});
-    static const SessionRanges none;
-    return found == table.end() ? none : found->second;
-}
-
-std::int64_t minute_bucket_ms(const InstrumentId& instrument, std::int64_t source_ms)
+std::int64_t
+minute_bucket_ms_with(std::string_view venue, const SessionRanges& ranges, std::int64_t source_ms)
 {
     constexpr std::int64_t day_ms = 86400000;
     constexpr std::int64_t hour_ms = 3600000;
     const auto start = source_ms - source_ms % minute_ms;
     const auto clock_ms = ((source_ms + 8 * hour_ms) % day_ms + day_ms) % day_ms;
     const auto minute = static_cast<int>(clock_ms / minute_ms);
-    const auto& ranges = trading_sessions(instrument);
     if (!ranges.empty()) {
         const auto day_open = ranges.front().first;
         if (minute >= day_open - 5 && minute < day_open)
@@ -93,24 +83,23 @@ std::int64_t minute_bucket_ms(const InstrumentId& instrument, std::int64_t sourc
             return start - minute_ms;
         return start;
     }
-    const int day_open = instrument.venue == "CFFEX" ? 9 * 60 + 30 : 9 * 60;
+    const int day_open = venue == "CFFEX" ? 9 * 60 + 30 : 9 * 60;
     if (minute >= day_open - 5 && minute < day_open)
         return start + (day_open - minute) * minute_ms;
-    if (instrument.venue != "CFFEX" && minute >= 21 * 60 - 5 && minute < 21 * 60)
+    if (venue != "CFFEX" && minute >= 21 * 60 - 5 && minute < 21 * 60)
         return start + (21 * 60 - minute) * minute_ms;
     if (clock_ms % minute_ms < 1000
         && (minute == 11 * 60 + 30 || minute == 15 * 60
-            || (instrument.venue != "CFFEX" && minute == 10 * 60 + 15)))
+            || (venue != "CFFEX" && minute == 10 * 60 + 15)))
         return start - minute_ms;
     return start;
 }
 
-namespace {
-
 // A quote folded forward into the trading day's very first session open carries
 // only that opening auction's volume, even after a cold start or overnight gap.
-bool is_trading_day_open_auction(
-    const InstrumentId& instrument,
+bool is_trading_day_open_auction_with(
+    std::string_view venue,
+    const SessionRanges& ranges,
     std::int64_t source_ms,
     std::int64_t start)
 {
@@ -120,17 +109,28 @@ bool is_trading_day_open_auction(
     constexpr std::int64_t hour_ms = 3600000;
     const auto start_minute =
         static_cast<int>((((start + 8 * hour_ms) % day_ms + day_ms) % day_ms) / minute_ms);
-    const auto& ranges = trading_sessions(instrument);
-    const bool has_night =
-        !ranges.empty() ? ranges.back().first == 21 * 60 : instrument.venue != "CFFEX";
-    const int first_open = has_night  ? 21 * 60
-        : !ranges.empty()             ? ranges.front().first
-        : instrument.venue == "CFFEX" ? 9 * 60 + 30
-                                      : 9 * 60;
+    const bool has_night = !ranges.empty() ? ranges.back().first == 21 * 60 : venue != "CFFEX";
+    const int first_open = has_night ? 21 * 60
+        : !ranges.empty()            ? ranges.front().first
+        : venue == "CFFEX"           ? 9 * 60 + 30
+                                     : 9 * 60;
     return start_minute == first_open;
 }
 
 } // namespace
+
+const std::vector<std::pair<int, int>>& trading_sessions(const InstrumentId& instrument)
+{
+    const auto& table = session_table();
+    const auto found = table.find({instrument.venue, lower_product(instrument.symbol)});
+    static const SessionRanges none;
+    return found == table.end() ? none : found->second;
+}
+
+std::int64_t minute_bucket_ms(const InstrumentId& instrument, std::int64_t source_ms)
+{
+    return minute_bucket_ms_with(instrument.venue, trading_sessions(instrument), source_ms);
+}
 
 void IntradayBars::observe(const MarketQuote& quote)
 {
@@ -140,15 +140,23 @@ void IntradayBars::observe(const MarketQuote& quote)
     auto& series = state.series;
     if (!series.trading_day.empty() && quote.trading_day < series.trading_day)
         return;
-    const auto start = minute_bucket_ms(quote.instrument, quote.source_ms);
+    if (!state.sessions)
+        state.sessions = &trading_sessions(quote.instrument);
+    const auto* sessions = state.sessions;
+    const auto start = minute_bucket_ms_with(quote.instrument.venue, *sessions, quote.source_ms);
     if (series.trading_day != quote.trading_day) {
         // A new trading day starts a new series; the old one is not joined to it.
         // The provider's counter restarts each day, so after a day observed to its
         // end—or during the day's first opening auction—the first quote's volume
         // belongs to this minute; mid-day or after a gap it may carry unseen minutes.
         const bool continued = (!series.trading_day.empty() && !state.lost)
-            || is_trading_day_open_auction(quote.instrument, quote.source_ms, start);
+            || is_trading_day_open_auction_with(
+                quote.instrument.venue,
+                *sessions,
+                quote.source_ms,
+                start);
         state = {};
+        state.sessions = sessions;
         series.instrument = quote.instrument;
         series.trading_day = quote.trading_day;
         series.first_observation_ms = quote.source_ms;
@@ -246,7 +254,7 @@ std::optional<Decimal> IntradayBars::change_1m_percent(const InstrumentId& instr
     if (anchor_ms > latest_ms - minute_ms || anchor <= Decimal{})
         return std::nullopt;
     return divide(
-        multiply(latest - anchor, Decimal::parse("100"), Rounding::half_even),
+        multiply(latest - anchor, Decimal::from_integer(100), Rounding::half_even),
         anchor,
         Rounding::half_even);
 }

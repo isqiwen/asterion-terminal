@@ -20,24 +20,35 @@ std::vector<std::size_t> series_of(std::size_t contracts, const std::vector<Domi
     return result;
 }
 
+std::vector<PaperExecution::Event> ordered_events(const std::vector<ContractBars>& contracts)
+{
+    std::vector<const std::vector<MarketBar>*> bars;
+    bars.reserve(contracts.size());
+    for (const auto& contract : contracts)
+        bars.push_back(&contract.bars);
+    return replay_order(bars);
+}
+
 PaperReplaySchedule schedule_of(
     const std::vector<ContractBars>& contracts,
+    std::span<const PaperExecution::Event> events,
     const std::vector<std::vector<DaySettlement>>& days,
     const std::vector<std::size_t>& series)
 {
     std::vector<Instrument> instruments;
-    std::vector<const std::vector<MarketBar>*> bars;
-    for (const auto& contract : contracts) {
+    instruments.reserve(contracts.size());
+    for (const auto& contract : contracts)
         instruments.push_back(contract.terms.instrument);
-        bars.push_back(&contract.bars);
-    }
     std::vector<std::string> event_days;
     std::vector<std::size_t> event_contracts;
-    for (const auto& event : replay_order(bars)) {
+    event_days.reserve(events.size());
+    event_contracts.reserve(events.size());
+    for (const auto& event : events) {
         event_days.push_back(contracts[event.contract].bars[event.bar].trading_day);
         event_contracts.push_back(event.contract);
     }
     std::vector<bool> sparse;
+    sparse.reserve(series.size());
     for (const auto item : series)
         sparse.push_back(item != none);
     return PaperReplaySchedule(instruments, event_days, event_contracts, days, sparse);
@@ -57,6 +68,12 @@ const DominantRoll& DominantSeries::on(const std::string& trading_day) const
     return next == rolls.begin() ? rolls.at(0) : *std::prev(next);
 }
 
+Replay::Prepared Replay::prepare(std::vector<ContractBars> contracts)
+{
+    auto events = ordered_events(contracts);
+    return {std::move(contracts), std::move(events)};
+}
+
 Replay::Replay(
     Decimal deposit,
     std::vector<ContractBars> contracts,
@@ -64,11 +81,27 @@ Replay::Replay(
     std::vector<DominantSeries> series,
     OrderLimitsConfig limits,
     std::map<std::string, Decimal> margins)
-    : series_(series_of(contracts.size(), series)),
-      unit_(contracts.size()),
+    : Replay(
+          deposit,
+          prepare(std::move(contracts)),
+          days,
+          std::move(series),
+          limits,
+          std::move(margins))
+{}
+
+Replay::Replay(
+    Decimal deposit,
+    Prepared prepared,
+    const std::vector<std::vector<DaySettlement>>& days,
+    std::vector<DominantSeries> series,
+    OrderLimitsConfig limits,
+    std::map<std::string, Decimal> margins)
+    : series_(series_of(prepared.contracts.size(), series)),
+      unit_(prepared.contracts.size()),
       rolls_(std::move(series)),
-      schedule_(schedule_of(contracts, days, series_)),
-      execution_(deposit, std::move(contracts), limits),
+      schedule_(schedule_of(prepared.contracts, prepared.events, days, series_)),
+      execution_(deposit, std::move(prepared.contracts), limits, std::move(prepared.events)),
       margins_(std::move(margins)),
       pending_(series_.size()),
       last_(series_.size()),

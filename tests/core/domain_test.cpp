@@ -35,6 +35,16 @@ TEST(Domain, decimal_contract)
         EXPECT_TRUE((Decimal::parse(value).str() == value)) << "decimal must roundtrip exactly";
     }
     EXPECT_TRUE((d("1.25000000").str() == "1.25")) << "decimal formatting";
+    EXPECT_EQ(Decimal::from_integer(0), d("0"));
+    EXPECT_EQ(Decimal::from_integer(42), d("42"));
+    EXPECT_EQ(Decimal::from_integer(-42), d("-42"));
+    EXPECT_EQ(Decimal::from_integer(92233720368LL), d("92233720368"));
+    EXPECT_EQ(Decimal::from_integer(-92233720368LL), d("-92233720368"));
+    EXPECT_THROW((void)Decimal::from_integer(92233720369LL), std::overflow_error);
+    EXPECT_THROW((void)Decimal::from_integer(-92233720369LL), std::overflow_error);
+    EXPECT_THROW(
+        (void)Decimal::from_integer(std::numeric_limits<std::int64_t>::min()),
+        std::overflow_error);
     for (const char* value :
         {"", "-", "+1", " 1", "1 ", "1e3", "1.", ".1", "01", "1.000000000", "nan", "1.2.3"}) {
         EXPECT_THROW(

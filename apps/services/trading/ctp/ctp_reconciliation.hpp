@@ -63,6 +63,8 @@ private:
     std::map<std::string, Decimal> traded_quantities_;
     std::map<std::pair<InstrumentId, Side>, BrokerPosition> positions_in_progress_;
     BrokerSnapshot::CloseLots reconciled_close_lots_;
+    std::size_t unattributed_trades_ = 0;
+    std::map<std::string, std::vector<std::size_t>> orphan_trades_;
 };
 
 } // namespace asterion::ctp

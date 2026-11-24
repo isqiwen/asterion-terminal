@@ -134,6 +134,21 @@ public:
 
     bool business_ready() const;
 
+    bool strategy_batch_active() const noexcept
+    {
+        return strategy_ && strategy_->batch.has_value();
+    }
+
+    bool strategy_events_pending() const noexcept
+    {
+        return strategy_ && !strategy_->events.empty();
+    }
+
+    bool strategy_has_failure() const noexcept
+    {
+        return strategy_ && !strategy_->failure.empty();
+    }
+
 private:
     template <class T>
     struct BrokerWait

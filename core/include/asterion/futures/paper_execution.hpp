@@ -202,12 +202,19 @@ public:
     std::optional<std::int64_t> timestamp_ns() const;
 
 private:
+    friend class Replay;
+
     struct Data
     {
         std::vector<ContractBars> contracts;
         std::vector<Event> events;
     };
 
+    PaperExecution(
+        Decimal deposit,
+        std::vector<ContractBars> contracts,
+        OrderLimitsConfig limits,
+        std::vector<Event> events);
     void require_running() const;
     // What every contract costs and trades at on a trading day: its costs by
     // its schedule, its price increment by its changes. Within a transaction.

@@ -43,6 +43,8 @@ struct FeedEvents
     std::vector<FeedEvent> events;
     // SDK callbacks were dropped: the stream is incomplete and never recovers in place.
     bool failed = false;
+    // True when poll() hit its per-call batch cap and more callbacks may be queued.
+    bool more = false;
 };
 
 class Feed final

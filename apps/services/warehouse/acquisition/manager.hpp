@@ -46,6 +46,7 @@ private:
         SourceVersions versions;
         std::map<std::string, std::unique_ptr<Source>> sources;
         bool has_turn = false;
+        std::chrono::steady_clock::time_point persisted_at{};
     };
 
     // What a task covers once its instruments are resolved: days of whole
@@ -109,7 +110,7 @@ private:
     // through yesterday; empty without one.
     std::pair<warehouse::Version, warehouse::OpenDays> calendar() const;
     void persist(const wire::AcquisitionTask&);
-    void publish(const wire::AcquisitionTask&, Active&);
+    void publish(const wire::AcquisitionTask&, Active&, bool durable = true);
     void reap();
     wire::AcquisitionTask load(const std::filesystem::path&) const;
     std::filesystem::path directory_;

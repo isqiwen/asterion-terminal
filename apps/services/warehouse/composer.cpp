@@ -16,7 +16,7 @@ Composer::Composer(std::filesystem::path data)
     });
     if (any_source)
         try {
-            compose(data_, research_, versions_);
+            compose(data_, research_, versions_, sources_);
             requested_ = false;
         } catch (const std::exception& error) {
             log::error("warehouse research dataset not composed: {}", error.what());
@@ -60,7 +60,7 @@ void Composer::run(std::stop_token stop)
             versions = versions_;
         }
         try {
-            compose(data_, research_, versions);
+            compose(data_, research_, versions, sources_);
         } catch (const std::exception& error) {
             // The sources are intact; a damaged or full disk may recover.
             log::error("warehouse research dataset not composed: {}", error.what());

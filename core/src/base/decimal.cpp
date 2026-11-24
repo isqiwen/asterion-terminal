@@ -79,6 +79,14 @@ Decimal Decimal::parse(std::string_view text)
     return signed_value(value, negative);
 }
 
+Decimal Decimal::from_integer(std::int64_t value)
+{
+    constexpr std::int64_t limit = max_value / static_cast<std::int64_t>(scale);
+    if (value < -limit || value > limit)
+        throw std::overflow_error("decimal overflow");
+    return Decimal(value * static_cast<std::int64_t>(scale));
+}
+
 std::string Decimal::str() const
 {
     const auto value = magnitude(raw_);

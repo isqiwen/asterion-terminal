@@ -72,7 +72,7 @@ PortfolioTargets fixed_weight_targets(
         const auto per_lot = member.price * member.multiplier;
         // Both operands have the same exact scale. Integer division chooses
         // whole lots directly, without first rounding a fractional Decimal lot.
-        auto quantity = Decimal::parse(std::to_string(requested.raw() / per_lot.raw()));
+        auto quantity = Decimal::from_integer(requested.raw() / per_lot.raw());
         if (min_rebalance_weight > Decimal{} && member.weight != Decimal{}
             && quantity != member.current_quantity) {
             const bool sign_flip = member.current_quantity != Decimal{}

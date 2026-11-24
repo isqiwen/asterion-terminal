@@ -2,6 +2,7 @@
 #include <asterion/futures/position_target.hpp>
 #include <asterion/futures/trading_days.hpp>
 #include <algorithm>
+#include <queue>
 #include <stdexcept>
 
 namespace asterion {
@@ -29,8 +30,7 @@ Decimal increment_on(const ContractBars& contract, const std::string& trading_da
 // What a fill gives up on a day.
 Decimal slippage_on(const ContractBars& contract, const std::string& trading_day)
 {
-    return increment_on(contract, trading_day)
-        * Decimal::parse(std::to_string(contract.slippage_ticks));
+    return increment_on(contract, trading_day) * Decimal::from_integer(contract.slippage_ticks);
 }
 
 const DayPriceLimits* price_limits_on(const ContractBars& contract, const std::string& trading_day)
@@ -66,6 +66,14 @@ PaperExecution::PaperExecution(
     Decimal deposit,
     std::vector<ContractBars> contracts,
     OrderLimitsConfig limits)
+    : PaperExecution(deposit, std::move(contracts), limits, {})
+{}
+
+PaperExecution::PaperExecution(
+    Decimal deposit,
+    std::vector<ContractBars> contracts,
+    OrderLimitsConfig limits,
+    std::vector<Event> events)
     : account_(deposit, terms_of(contracts)),
       risk_(limits),
       max_order_quantity_(limits.max_order_quantity)
@@ -121,10 +129,15 @@ PaperExecution::PaperExecution(
         if (contract.bars.empty())
             throw std::invalid_argument("every portfolio contract requires historical bars");
     // One clock for the engine, its schedule and strategy replays.
-    std::vector<const std::vector<MarketBar>*> series;
-    for (const auto& contract : data->contracts)
-        series.push_back(&contract.bars);
-    data->events = replay_order(series);
+    if (events.empty()) {
+        std::vector<const std::vector<MarketBar>*> series;
+        series.reserve(data->contracts.size());
+        for (const auto& contract : data->contracts)
+            series.push_back(&contract.bars);
+        data->events = replay_order(series);
+    } else {
+        data->events = std::move(events);
+    }
     for (std::size_t i = 1; i < data->events.size(); ++i)
         if (bar_of(*data, data->events[i]).trading_day
             < bar_of(*data, data->events[i - 1]).trading_day)
@@ -585,8 +598,7 @@ void PaperExecution::reconcile_target(
     // On the increment the account trades the contract at now: a price decided
     // before it changed is moved onto it against the order.
     const auto increment = spec.price_increment;
-    const auto slippage =
-        increment * Decimal::parse(std::to_string(data_->contracts[index].slippage_ticks));
+    const auto slippage = increment * Decimal::from_integer(data_->contracts[index].slippage_ticks);
     const auto orders = target_orders(target, held, account_.close_policy(instrument));
     const auto leg = quantize(max_order_quantity_, spec.quantity_increment, Rounding::floor);
     const auto working = std::ranges::any_of(account_.working_orders(), [&](const auto index) {
@@ -640,7 +652,53 @@ PaperExecution::Snapshot PaperExecution::snapshot() const
 std::vector<PaperExecution::Event> replay_order(
     const std::vector<const std::vector<MarketBar>*>& contracts)
 {
+    std::size_t total = 0;
+    bool per_contract_sorted = true;
+    for (const auto* series : contracts) {
+        total += series->size();
+        for (std::size_t i = 1; per_contract_sorted && i < series->size(); ++i)
+            if ((*series)[i].timestamp_ns < (*series)[i - 1].timestamp_ns)
+                per_contract_sorted = false;
+    }
     std::vector<PaperExecution::Event> events;
+    events.reserve(total);
+    if (contracts.size() == 1 && per_contract_sorted) {
+        for (std::size_t b = 0; b < contracts[0]->size(); ++b)
+            events.push_back({0, b});
+        return events;
+    }
+    if (per_contract_sorted && contracts.size() > 1) {
+        struct Entry
+        {
+            bool operator>(const Entry& other) const noexcept
+            {
+                if (timestamp_ns != other.timestamp_ns)
+                    return timestamp_ns > other.timestamp_ns;
+                if (contract != other.contract)
+                    return contract > other.contract;
+                return bar > other.bar;
+            }
+
+            std::int64_t timestamp_ns;
+            std::size_t contract;
+            std::size_t bar;
+        };
+
+        std::priority_queue<Entry, std::vector<Entry>, std::greater<Entry>> heap;
+        for (std::size_t c = 0; c < contracts.size(); ++c)
+            if (!contracts[c]->empty())
+                heap.push({(*contracts[c])[0].timestamp_ns, c, 0});
+        while (!heap.empty()) {
+            const auto top = heap.top();
+            heap.pop();
+            events.push_back({top.contract, top.bar});
+            const auto next_bar = top.bar + 1;
+            if (next_bar < contracts[top.contract]->size())
+                heap.push(
+                    {(*contracts[top.contract])[next_bar].timestamp_ns, top.contract, next_bar});
+        }
+        return events;
+    }
     for (std::size_t c = 0; c < contracts.size(); ++c)
         for (std::size_t b = 0; b < contracts[c]->size(); ++b)
             events.push_back({c, b});

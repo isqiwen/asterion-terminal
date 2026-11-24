@@ -171,7 +171,8 @@ struct MarketService::Running
             }
             if (publish(live, now) || answered)
                 service::wake_io_owner();
-            std::this_thread::sleep_for(10ms);
+            if (!update.more)
+                std::this_thread::sleep_for(10ms);
         }
     }
 

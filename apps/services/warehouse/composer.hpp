@@ -22,6 +22,7 @@ private:
     std::condition_variable_any changed_;
     SourceVersions versions_;
     bool requested_ = true;
+    SourceCache sources_;
     std::jthread thread_;
 };
 

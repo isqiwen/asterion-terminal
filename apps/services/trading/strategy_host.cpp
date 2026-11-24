@@ -10,6 +10,7 @@
 #include <asterion/base/id.hpp>
 #include <asterion/base/serialization.hpp>
 #include <algorithm>
+#include <atomic>
 #include <asterion/system/durable_file.hpp>
 #include <asterion/system/process/artifact.hpp>
 #include <asterion/system/process/child.hpp>
@@ -698,6 +699,9 @@ struct StrategyHost::State
         subscribed_contracts.clear();
         next_subscription_retry = {};
         next_feed_reconnect = {};
+        next_target_heartbeat = {};
+        last_awaited_day.clear();
+        running.store(false, std::memory_order_release);
         channel.close();
         if (child) {
             child->request_stop();
@@ -843,22 +847,37 @@ struct StrategyHost::State
         const auto day = observed.trading_day.substr(0, 4) + "-" + observed.trading_day.substr(4, 2)
             + "-" + observed.trading_day.substr(6, 2);
         bool matched = false;
+        bool awaited_changed = day != last_awaited_day;
         for (auto& series : live_series) {
             const auto found = std::ranges::find(series.candidates, observed.instrument);
             if (found == series.candidates.end())
                 continue;
             matched = true;
-            auto& stats =
-                series.history[static_cast<std::size_t>(found - series.candidates.begin())][day];
-            if (observed.open_interest)
-                stats.open_interest = observed.open_interest;
+            auto [it, inserted] =
+                series.history[static_cast<std::size_t>(found - series.candidates.begin())]
+                    .try_emplace(day);
+            auto& stats = it->second;
+            if (inserted)
+                awaited_changed = true;
             if (observed.previous_settlement && *observed.previous_settlement > Decimal{})
                 stats.prev_settlement = observed.previous_settlement;
-            if (observed.open_interest && observed.open_interest_change)
-                stats.prev_open_interest = *observed.open_interest - *observed.open_interest_change;
+            if (observed.open_interest && observed.open_interest_change) {
+                const auto prev_oi = *observed.open_interest - *observed.open_interest_change;
+                if (stats.prev_open_interest != prev_oi) {
+                    stats.prev_open_interest = prev_oi;
+                    awaited_changed = true;
+                }
+            }
+            if (observed.open_interest) {
+                if (!stats.prev_open_interest && stats.open_interest != observed.open_interest)
+                    awaited_changed = true;
+                stats.open_interest = observed.open_interest;
+            }
         }
-        if (matched && bars)
+        if (matched && bars && awaited_changed) {
+            last_awaited_day = day;
             bars->set_awaited(awaited_contracts(day));
+        }
     }
 
     static std::optional<Decimal>
@@ -1151,11 +1170,15 @@ struct StrategyHost::State
             // The account detects execution faults independently of the child
             // and has already fenced sends and scheduled its cancellations.
             if (authority) {
-                const auto failure = account->strategy_failure(authority).get();
-                if (!failure.empty())
-                    throw std::runtime_error(failure);
-                for (const auto& event : account->take_strategy_events(authority).get())
-                    record_event(event.kind(), event.text());
+                if (account->strategy_has_failure()) {
+                    const auto failure = account->strategy_failure(authority).get();
+                    if (!failure.empty())
+                        throw std::runtime_error(failure);
+                }
+                if (account->strategy_events_pending()) {
+                    for (const auto& event : account->take_strategy_events(authority).get())
+                        record_event(event.kind(), event.text());
+                }
             }
             const auto now = steady_now(*clock);
             if (next_feed_reconnect != std::chrono::steady_clock::time_point{}
@@ -1166,6 +1189,7 @@ struct StrategyHost::State
             const auto update = feed->poll();
             if (update.failed)
                 throw std::runtime_error("strategy market stream lost observations");
+            bool quotes_changed = false;
             for (const auto& event : update.events) {
                 if (const auto* status = std::get_if<ctp::FeedStatus>(&event)) {
                     // CTP reconnects by itself; the window continues across the gap.
@@ -1221,17 +1245,20 @@ struct StrategyHost::State
                         && observed.source_ms - observed.received_ms <= 2000
                         && (held == quotes.end() || observed.source_ms >= held->second.source_ms)) {
                         quotes.insert_or_assign(observed.instrument, observed);
+                        quotes_changed = true;
                         observe_series_quote(observed);
                     }
                     for (const auto& input : bars->observe(observed)) {
                         store_local_bars(instance.instance().period(), input);
                         if (live_series.empty()) {
                             decide(input);
+                            quotes_changed = true;
                         } else {
                             auto filtered = filter_and_roll_bars(input);
                             if (filtered.bars_size() > 0) {
                                 filtered.set_sequence(++live_sequence);
                                 decide(filtered);
+                                quotes_changed = true;
                             }
                         }
                     }
@@ -1252,7 +1279,11 @@ struct StrategyHost::State
                     return;
                 execution.get();
             }
-            execution = account->advance_strategy_target(authority, latest_quotes());
+            if (quotes_changed || account->strategy_batch_active()
+                || now >= next_target_heartbeat) {
+                execution = account->advance_strategy_target(authority, latest_quotes());
+                next_target_heartbeat = now + 500ms;
+            }
         } catch (const std::exception& error) {
             instance.set_state(pb::INSTANCE_STATE_FAILED);
             instance.set_error(error.what());
@@ -1613,8 +1644,11 @@ struct StrategyHost::State
             subscribed_contracts = subscribed;
             next_subscription_retry = {};
             next_feed_reconnect = {};
+            next_target_heartbeat = {};
+            last_awaited_day.clear();
             connect_deadline = steady_now(*clock) + 30s;
             feed->connect(market, subscribed_contracts);
+            running.store(true, std::memory_order_release);
             if (replay.empty())
                 instance.set_state(pb::INSTANCE_STATE_WARMING);
             instance.set_process_id(child->id());
@@ -1671,6 +1705,9 @@ struct StrategyHost::State
     std::chrono::steady_clock::time_point next_subscription_retry{}, next_feed_reconnect{};
     std::shared_ptr<const Clock> clock;
     std::map<std::tuple<int, std::string, std::string>, std::uint64_t> bar_write_counts;
+    std::atomic<bool> running{false};
+    std::string last_awaited_day;
+    std::chrono::steady_clock::time_point next_target_heartbeat{};
 };
 
 StrategyHost::StrategyHost(
@@ -1828,7 +1865,7 @@ std::future<pb::Strategies> StrategyHost::request(pb::Request request, LiveSessi
 
 void StrategyHost::poll()
 {
-    if (closing_)
+    if (closing_ || !state_->running.load(std::memory_order_acquire))
         return;
     if (observation_.valid()) {
         if (observation_.wait_for(0s) != std::future_status::ready)

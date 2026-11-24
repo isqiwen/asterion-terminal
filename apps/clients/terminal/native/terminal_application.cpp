@@ -81,6 +81,34 @@ Payload encode_response(const json& envelope, const PayloadBudget& budget)
     }
 }
 
+bool routine_command(std::string_view method, const json& params)
+{
+    if (method == "runtime.snapshot" || method == "market.watch" || method == "market.call"
+        || method == "runtime.python.status" || method == "lab.endpoint")
+        return true;
+    if (!params.is_object() || !params.contains("request") || !params.at("request").is_object())
+        return false;
+    const auto& req = params.at("request");
+    if (method == "warehouse.call")
+        return !req.contains("startAcquisition") && !req.contains("cancelAcquisition")
+            && !req.contains("startUpdate");
+    if (method == "trading.call") {
+        for (const char* key :
+            {"getAccount",
+                "getHealth",
+                "getStrategies",
+                "getDay",
+                "getOrders",
+                "getCatalog",
+                "getRecordedBars",
+                "getStrategyRun",
+                "getEmergency"})
+            if (req.contains(key))
+                return true;
+    }
+    return false;
+}
+
 } // namespace
 
 void fields(const json& object, std::initializer_list<std::string_view> names)
@@ -134,8 +162,7 @@ Application::Impl::invoke(const std::string& method, const json& params)
         try {
             if (success)
                 log::emit(
-                    method == "runtime.snapshot" || method == "market.watch" ? log::Level::debug
-                                                                             : log::Level::info,
+                    routine_command(method, params) ? log::Level::debug : log::Level::info,
                     "{} completed: trace_id={} duration_ns={}",
                     operation,
                     trace,

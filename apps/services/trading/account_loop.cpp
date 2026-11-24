@@ -88,6 +88,13 @@ struct LiveSession::Loop
         --bounded_commands;
     }
 
+    void publish_strategy_flags(const LiveAccountState& account) noexcept
+    {
+        strategy_batch_active.store(account.strategy_batch_active(), std::memory_order_release);
+        strategy_events_pending.store(account.strategy_events_pending(), std::memory_order_release);
+        strategy_has_failure.store(account.strategy_has_failure(), std::memory_order_release);
+    }
+
     void start(
         LiveAccountState& account,
         std::shared_ptr<Mutation> request,
@@ -150,6 +157,7 @@ struct LiveSession::Loop
                 }
                 active.reset();
                 command_progress.finish();
+                publish_strategy_flags(account);
                 if (!error) {
                     if (auto deferred = account.take_deferred_quote()) {
                         waiting_quote.emplace(
@@ -303,9 +311,13 @@ struct LiveSession::Loop
                 advance(*account);
                 failed = account->recovery_required();
                 business_ready = account->business_ready();
+                publish_strategy_flags(*account);
                 state_progress.finish();
             }
             business_ready = false;
+            strategy_batch_active.store(false, std::memory_order_release);
+            strategy_events_pending.store(false, std::memory_order_release);
+            strategy_has_failure.store(false, std::memory_order_release);
             state_progress.begin();
             account.reset(); // Keep the owner alive while SDK callbacks and the writer stop.
             state_progress.finish();
@@ -355,6 +367,7 @@ struct LiveSession::Loop
                     ~PublishHealth()
                     {
                         loop.failed = account.recovery_required();
+                        loop.publish_strategy_flags(account);
                     }
 
                     Loop& loop;
@@ -419,6 +432,9 @@ struct LiveSession::Loop
     std::atomic<bool> failed{false};
     Progress state_progress, persistence_progress, command_progress;
     std::atomic<bool> business_ready{false};
+    std::atomic<bool> strategy_batch_active{false};
+    std::atomic<bool> strategy_events_pending{false};
+    std::atomic<bool> strategy_has_failure{false};
     std::shared_future<void> initialized, stopped;
     std::shared_ptr<const Clock> clock;
     std::jthread thread;
@@ -692,6 +708,21 @@ std::future<::trading::Day> LiveSession::day(
 bool LiveSession::recovery_required() const noexcept
 {
     return loop_->failed.load();
+}
+
+bool LiveSession::strategy_batch_active() const noexcept
+{
+    return loop_->strategy_batch_active.load(std::memory_order_acquire);
+}
+
+bool LiveSession::strategy_events_pending() const noexcept
+{
+    return loop_->strategy_events_pending.load(std::memory_order_acquire);
+}
+
+bool LiveSession::strategy_has_failure() const noexcept
+{
+    return loop_->strategy_has_failure.load(std::memory_order_acquire);
 }
 
 LiveSession::Health LiveSession::health() const noexcept
