@@ -52,7 +52,7 @@ export function LimitFields({
   const bring = (id: string) =>
     void lab({ case: "getRun", value: { id } })
       .then(detail => change({ ...limits, ...backtestLimits(detail.record) }))
-      .catch(notify);
+      .catch(failure => notify(failure, { namespace: "asterion.terminal.trading" }));
   const field = (
     [name, label, unit]:
       (typeof requiredLimitFields)[number] | (typeof optionalLimitFields)[number],

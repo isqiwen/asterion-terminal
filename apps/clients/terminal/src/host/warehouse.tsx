@@ -235,9 +235,19 @@ export function WarehouseProvider({
           const id = task.request!.id;
           if (seen.current.ids.has(id)) continue;
           seen.current.ids.add(id);
-          notify(task.error ? remoteError(task.error) : new BackendError("operation_failed", id), {
-            namespace: "asterion.terminal.data-workbench",
-          });
+          notify(
+            task.error
+              ? remoteError(task.error)
+              : new BackendError(
+                  "operation_failed",
+                  task.state === TaskState.INTERRUPTED
+                    ? `acquisition task interrupted: ${id}`
+                    : `acquisition task failed: ${id}`,
+                ),
+            {
+              namespace: "asterion.terminal.data-workbench",
+            },
+          );
         }
       } catch (failure) {
         if (active && !isDeselectedService(failure)) {

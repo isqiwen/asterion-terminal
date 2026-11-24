@@ -33,12 +33,29 @@ const errors: Record<string, string> = {
   operation_failed: "操作失败",
 };
 // These messages carry operation-specific evidence after a stable prefix.
-// Keep that evidence in Details; do not expose service identifiers as UI copy.
-export const prefixedDiagnostics = [
-  ["CTP catalog not initialized: ", "CTP catalog not initialized"],
-  ["CTP catalog front inactive: ", "CTP catalog front inactive"],
-  ["CTP catalog disconnected: ", "CTP catalog disconnected"],
+// Pass false as the third tuple item only when the translated summary already
+// states the cause and appending the raw suffix would duplicate noisy text.
+export const prefixedDiagnostics: readonly (readonly [string, string, boolean?])[] = [
+  ["CTP catalog not initialized: ", "CTP catalog not initialized", false],
+  ["CTP catalog front inactive: ", "CTP catalog front inactive", false],
+  ["CTP catalog disconnected: ", "CTP catalog disconnected", false],
   ["CTP catalog instrument query timed out after ", "CTP catalog instrument query timed out"],
+  ["RPC address resolution failed: ", "RPC address resolution failed"],
+  ["RPC connection failed before sending: ", "RPC connection failed before sending"],
+  ["RPC TLS handshake failed: ", "RPC TLS handshake failed"],
+  ["RPC stream failed: ", "RPC stream failed"],
+  ["RPC read connection failed: ", "RPC read connection failed"],
+  [
+    "RPC connection failed; command outcome may be unknown: ",
+    "RPC connection failed; command outcome may be unknown",
+  ],
+  ["TCP/TLS connection failed: ", "TCP/TLS connection failed"],
+  ["lab runs database schema is outdated: ", "lab runs database schema is outdated"],
+  ["acquisition task failed: ", "acquisition task failed"],
+  ["acquisition task interrupted: ", "acquisition task interrupted"],
+  ["cannot read configuration default: ", "cannot read configuration default"],
+  ["cannot download ", "cannot download runtime file"],
+  ["not a PEM certificate: ", "not a PEM certificate"],
   ["a module of this name already exists: ", "a module of this name already exists"],
   ["a built-in module cannot be changed: ", "a built-in module cannot be changed"],
   ["a built-in module cannot be deleted: ", "a built-in module cannot be deleted"],
@@ -96,7 +113,7 @@ export const prefixedDiagnostics = [
   ["invalid daily cancel limit: ", "invalid daily cancel limit"],
   ["futures.daily has no settlement price for ", "daily bars lack settlement price"],
   ["instruments cannot be read: ", "instruments cannot be read"],
-] as const;
+];
 
 const ctpReasons: Record<number, string> = {
   [-1000]: "CTP market SDK failed",
@@ -135,7 +152,23 @@ export function diagnosticSummary(message: string) {
   if (ctp)
     return `${translate("diagnostics", `CTP catalog ${ctp[1]} rejected`)}: ${ctpErrorSummary(Number(ctp[2]), ctp[3])}`;
   const match = prefixedDiagnostics.find(([prefix]) => body.startsWith(prefix));
-  return match ? translate("diagnostics", match[1]) : undefined;
+  if (!match) return undefined;
+  const summary = translate("diagnostics", match[1]);
+  const detail = match[2] === false ? "" : body.slice(match[0].length).trim();
+  return detail ? `${summary.replace(/[。.]$/, "")}: ${detail}` : summary;
+}
+function formatRiskBreachDiagnostic(diagnostic: string) {
+  const split = diagnostic.indexOf(": ");
+  if (split < 0) return diagnostic;
+  const account = diagnostic.slice(0, split);
+  const breach = diagnostic.slice(split + 2);
+  if (breach === "daily_loss" || breach === "drawdown" || breach === "margin_ratio")
+    return `${account} (${translate("diagnostics", `risk_breach_${breach}`)})`;
+  if (breach.startsWith("daily_cancels:"))
+    return `${account} (${translate("diagnostics", "risk_breach_daily_cancels", {
+      contract: breach.slice("daily_cancels:".length),
+    })})`;
+  return diagnostic;
 }
 export function asDisplayError(value: unknown): DisplayError {
   return value instanceof Error ? value : String(value);
@@ -143,13 +176,16 @@ export function asDisplayError(value: unknown): DisplayError {
 // What a person reads of an error: a known message in the current language.
 export function errorSummary(error: DisplayError, namespace = "host") {
   const text = error instanceof Error ? error.message : error;
-  if (error instanceof BackendError)
-    return (
-      diagnosticSummary(error.diagnostic) ??
-      [translate("host", errors[error.code] ?? errors.operation_failed), error.diagnostic]
-        .filter(Boolean)
-        .join(": ")
-    );
+  if (error instanceof BackendError) {
+    const known = diagnosticSummary(error.diagnostic);
+    if (known) return known;
+    const prefix = translate("host", errors[error.code] ?? errors.operation_failed);
+    const detail =
+      error.code === "risk_breached"
+        ? formatRiskBreachDiagnostic(error.diagnostic)
+        : error.diagnostic;
+    return detail ? `${prefix.replace(/[。.]$/, "")}: ${detail}` : prefix;
+  }
   const known = localizeText(namespace, text) ?? localizeText("host", text);
   if (known) return known;
   return getLocale() === "en-US" && /\p{Script=Han}/u.test(text)

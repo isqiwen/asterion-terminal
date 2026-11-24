@@ -809,6 +809,23 @@ class Records(unittest.TestCase):
         with self.assertRaises(ValueError):
             runs.end("run-1", "succeeded", "")
 
+    def test_outdated_runs_schema_reports_clear_path(self):
+        import sqlite3
+
+        db = self.directory / "runs.sqlite"
+        with sqlite3.connect(db) as con:
+            con.execute("""
+                create table runs (
+                    id text primary key, strategy text not null, commit_id text not null,
+                    changes text not null, dataset_version text not null, state text not null,
+                    error text not null default '', started_ns integer not null,
+                    finished_ns integer)""")
+        runs = Runs(self.directory)
+        runs.interrupt()
+        with self.assertRaises(RuntimeError) as caught:
+            runs.recent()
+        self.assertEqual(str(caught.exception), f"lab runs database schema is outdated: {db}")
+
     def test_liquid_symbols_excludes_all_nan_volume_without_warning(self):
         import warnings
         from asterion_strategy import Bar, Context, liquid_symbols, observe

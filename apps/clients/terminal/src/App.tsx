@@ -120,16 +120,10 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     const before = reported.current;
     const lab = snapshot.lab?.state === "ready";
     if (before.lab && !lab && !snapshot.lab?.error)
-      notify(
-        new BackendError(
-          "service_restarted",
-          snapshot.lab?.state ? `lab: ${snapshot.lab.state}` : "lab",
-        ),
-        {
-          severity: "warning",
-          namespace: "asterion.terminal.research",
-        },
-      );
+      notify(new BackendError("service_restarted", ""), {
+        severity: "warning",
+        namespace: "asterion.terminal.research",
+      });
     const { log_failures: logs, refresh_failed: refresh } = snapshot.diagnostics;
     if (logs > before.logs)
       notify("本次运行有日志写入失败，诊断记录可能不完整。请检查日志目录的空间和权限。", {

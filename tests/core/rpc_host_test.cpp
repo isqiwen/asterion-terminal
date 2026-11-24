@@ -1011,6 +1011,129 @@ TEST(RpcClient, KeepAliveTlsReusesConnectionAndRecoversAfterIdleClose)
     }
 }
 
+TEST(RpcClient, DistinguishesConnectionTlsStreamAndCommandFailures)
+{
+    const auto expect_error = [](auto&& future, auto& client, std::string_view expected) {
+        const auto deadline = std::chrono::steady_clock::now() + 6s;
+        while (future.wait_for(0ms) != std::future_status::ready
+            && std::chrono::steady_clock::now() < deadline) {
+            client.poll();
+            std::this_thread::sleep_for(1ms);
+        }
+        ASSERT_EQ(future.wait_for(0ms), std::future_status::ready);
+        try {
+            static_cast<void>(future.get());
+            FAIL() << "expected RPC error: " << expected;
+        } catch (const Error& error) {
+            EXPECT_EQ(error.code(), ErrorCode::unavailable);
+            EXPECT_EQ(std::string_view(error.what()), expected);
+        }
+    };
+
+    // Unbound port reports connection refused without implying an uncertain command outcome.
+    {
+        asio::io_context io;
+        asio::ip::tcp::acceptor reserve(io, {asio::ip::make_address("127.0.0.1"), 0});
+        const auto closed_port = reserve.local_endpoint().port();
+        reserve.close();
+        ipc::RpcClient client("127.0.0.1", closed_port, {}, 1, PayloadBudget{128 * 1024 * 1024});
+        auto pending = client.request("ping", 500ms);
+        expect_error(pending, client, "RPC connection refused");
+    }
+
+    // TLS fingerprint mismatch vs server rejection of client certificate are distinguished.
+    {
+        const auto root =
+            std::filesystem::temp_directory_path() / ("ast-client-err-" + unique_process_id());
+        std::filesystem::create_directory(root);
+
+        struct Remove
+        {
+            ~Remove()
+            {
+                std::filesystem::remove_all(root);
+            }
+
+            std::filesystem::path root;
+        } remove{root};
+
+        std::map<std::string, std::string> fingerprints;
+        for (const auto* name : {"server", "client", "other"})
+            fingerprints[name] = ipc::create_identity(
+                root / (std::string(name) + ".crt"),
+                root / (std::string(name) + ".key"),
+                name);
+        const auto identity = [&](std::string name, std::string peer) {
+            return ipc::TlsIdentity{
+                (root / (name + ".crt")).string(),
+                (root / (name + ".key")).string(),
+                {fingerprints[peer]}
+            };
+        };
+
+        TcpEcho echo(identity("server", "client"));
+        {
+            ipc::RpcClient wrong_server(
+                "127.0.0.1",
+                echo.transport.port,
+                identity("client", "other"),
+                1,
+                PayloadBudget{128 * 1024 * 1024});
+            auto pending = wrong_server.request("ping", 1s);
+            expect_error(pending, wrong_server, "RPC server certificate fingerprint mismatch");
+        }
+        {
+            ipc::RpcClient unregistered(
+                "127.0.0.1",
+                echo.transport.port,
+                identity("other", "server"),
+                1,
+                PayloadBudget{128 * 1024 * 1024});
+            auto pending = unregistered.request("ping", 1s);
+            expect_error(pending, unregistered, "RPC client certificate rejected by server");
+        }
+    }
+
+    // Silent server distinguishes stream frame timeout, read-only timeout and mutating timeout.
+    {
+        service::reset_stop_request();
+        service::Transport transport;
+        transport.endpoint = "/tmp/ast-timeout-" + unique_process_id() + ".sock";
+        Progress progress;
+        service::RpcHost server(
+            transport,
+            [](const auto&, std::string) -> service::RpcHost::Reply {
+                return []() -> std::optional<service::RpcHost::Message> {
+                    return std::nullopt;
+                };
+            },
+            {},
+            progress);
+        std::jthread worker([&] {
+            static_cast<void>(server.run());
+        });
+
+        struct Stop
+        {
+            ~Stop()
+            {
+                service::request_stop();
+            }
+        } stop;
+
+        ipc::RpcClient client(transport.endpoint, 4, PayloadBudget{128 * 1024 * 1024});
+        auto stream = client.watch("stream", 60ms, [](Payload) {});
+        expect_error(stream, client, "RPC stream timed out waiting for next frame");
+
+        auto read =
+            client.request("read", 60ms, std::chrono::steady_clock::time_point::max(), 5s, true);
+        expect_error(read, client, "RPC read timed out");
+
+        auto command = client.request("order", 60ms);
+        expect_error(command, client, "RPC request timed out; command outcome may be unknown");
+    }
+}
+
 TEST(Fingerprint, AcceptsTheCommonSpellings)
 {
     const std::string hex(64, 'a');

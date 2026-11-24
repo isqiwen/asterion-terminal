@@ -75,7 +75,9 @@ export function StrategyLab(context: TerminalContext) {
     setRuns(reply.runs);
   }, []);
   useEffect(() => {
-    void readRecentRuns().catch(notify);
+    void readRecentRuns().catch(failure =>
+      notify(failure, { namespace: "asterion.terminal.research" }),
+    );
   }, [readRecentRuns]);
 
   const loadRunId = context.workspaceParams?.loadRun;
@@ -105,7 +107,7 @@ export function StrategyLab(context: TerminalContext) {
         shownScope.current = JSON.stringify(conditions.adopt(scopeOf(loaded.form)));
         context.navigate("workspace.lab-strategies", {});
       })
-      .catch(failure => active && notify(failure));
+      .catch(failure => active && notify(failure, { namespace: "asterion.terminal.research" }));
     return () => {
       active = false;
     };

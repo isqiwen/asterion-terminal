@@ -70,14 +70,20 @@ class Plan:
 
 # A batch's run names its strategy here among its swept values.
 BATCH_STRATEGY = "__strategy__"
+RUN_COLUMNS = frozenset({
+    "id", "strategy", "commit_id", "changes", "dataset_version", "state", "error",
+    "started_ns", "finished_ns", "params", "symbols", "begin_day", "end_day",
+    "period", "settings",
+})
 
 
 class Runs:
     def __init__(self, directory: Path):
         self.root = directory / "runs"
         self.root.mkdir(parents=True, exist_ok=True)
+        self.path = directory / "runs.sqlite"
         # Shared cached statements can lose rows during concurrent reads (CPython #118172).
-        self.index = sqlite3.connect(directory / "runs.sqlite", check_same_thread=False,
+        self.index = sqlite3.connect(self.path, check_same_thread=False,
                                      isolation_level=None, cached_statements=0)
         self.index.executescript("""
             pragma journal_mode = wal;
@@ -98,15 +104,24 @@ class Runs:
                 params text not null, primary key (sweep, position));
             create table if not exists labels (run text primary key, label text not null);
             create index if not exists runs_started on runs(started_ns desc, id desc);""")
+        columns = {row[1] for row in self.index.execute("pragma table_info(runs)")}
+        self._schema_error = "" if RUN_COLUMNS.issubset(columns) else \
+            f"lab runs database schema is outdated: {self.path}"
+
+    def _require_schema(self):
+        if self._schema_error:
+            raise RuntimeError(self._schema_error)
 
     def used(self, identity: str) -> bool:
         """An admitted run keeps its identity, even if its sweep was cancelled
         before the child started or the service restarted."""
+        self._require_schema()
         return (self.root / identity).exists() or self.index.execute(
             "select 1 from runs where id = ? union all "
             "select 1 from sweeps where run = ? limit 1", (identity, identity)).fetchone() is not None
 
     def start(self, identity: str, plan: Plan):
+        self._require_schema()
         if not IDENTITY.fullmatch(identity):
             raise ValueError(f"invalid run id: {identity}")
         directory = self.root / identity
@@ -147,6 +162,7 @@ class Runs:
              json.dumps(settings, ensure_ascii=False)))
 
     def fail_start(self, identity: str, plan: Plan, error: str, state: str = "failed"):
+        self._require_schema()
         # The child may have written run.json before dying at its index insert.
         record = self.record(identity) if (self.root / identity / "run.json").exists() \
             else self._write_record(identity, plan)
@@ -211,6 +227,7 @@ class Runs:
 
     def delete(self, identities: list):
         """Removes ended runs: their index rows, metrics, sweep places and results."""
+        self._require_schema()
         with self.index:
             self.index.execute("begin")
             for run in identities:
@@ -225,12 +242,15 @@ class Runs:
     def interrupt(self):
         """Marks the runs a stopped service left running as interrupted; they
         are not run again."""
+        if self._schema_error:
+            return
         self.index.execute(
             "update runs set state = 'interrupted', error = 'the lab service stopped',"
             " finished_ns = ? where state = 'running'", (time.time_ns(),))
 
     def plan_sweep(self, sweep: str, runs: list):
         """The runs of a sweep, each (run id, parameter values), before any starts."""
+        self._require_schema()
         if self.index.execute("select 1 from sweeps where sweep = ?", (sweep,)).fetchone():
             raise ValueError(f"sweep {sweep} already exists")
         with self.index:
@@ -243,6 +263,7 @@ class Runs:
     def sweep(self, sweep: str) -> list:
         """A sweep's runs in order, each with its parameter values; a run not
         started yet, or never started, has no state."""
+        self._require_schema()
         rows = self.index.execute(
             "select run, params from sweeps where sweep = ? order by position", (sweep,)).fetchall()
         if not rows:
@@ -253,6 +274,7 @@ class Runs:
 
     def rename(self, identity: str, label: str):
         """Names a run; an empty label gives it back its id."""
+        self._require_schema()
         label = label.strip()
         if len(label) > 64:
             raise ValueError("a run name has at most 64 characters")
@@ -270,6 +292,7 @@ class Runs:
     def recent(self):
         """Each strategy's last three runs outside parameter sweeps and, under each
         settings, its latest outcome and success, so a ranking can return to them."""
+        self._require_schema()
         places, outcomes, measured, kept = {}, set(), set(), []
         for identity, strategy, state, symbols_json, begin_day, end_day, period, settings_json in \
                 self.index.execute(f"""
@@ -295,6 +318,7 @@ class Runs:
         return self.list(kept)
 
     def page(self, limit, offset, strategy, search, order_by, ascending):
+        self._require_schema()
         direction = "asc" if ascending else "desc"
         order = "r.started_ns" if order_by == "started" else "m.value"
         candidates = self.index.execute(f"""
@@ -356,6 +380,7 @@ class Runs:
         return rows, len(identities) > limit, strategies
 
     def list(self, identities=None) -> list:
+        self._require_schema()
         if identities == []:
             return []
         selected = "" if identities is None else \

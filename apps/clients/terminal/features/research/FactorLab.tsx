@@ -94,7 +94,13 @@ export function FactorLab(context: TerminalContext) {
     async () => setKept((await lab({ case: "listFactorResults", value: {} })).results),
     [],
   );
-  useEffect(() => void readKept().catch(notify), [readKept]);
+  useEffect(
+    () =>
+      void readKept().catch(failure =>
+        notify(failure, { namespace: "asterion.terminal.research" }),
+      ),
+    [readKept],
+  );
   const catalog = useStoredCatalog(context, false, true);
   const enteredSymbols = symbolsOf(form.symbols);
   const [scopeBegin, scopeEnd] = datePlaceholders(catalog, enteredSymbols, false);

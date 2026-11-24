@@ -1,4 +1,5 @@
 import { listSeparator } from "../../src/i18n";
+import { ctpErrorSummary } from "../../src/i18n/errors";
 import { useEffect, useRef, useState } from "react";
 import type { TradingConnection } from "../../src/bridge/client";
 import { BrokerState, Environment, type Account } from "../../src/generated/asterion/trading_pb";
@@ -231,7 +232,7 @@ export function LiveAccount({
         <p className="alert" role="alert">
           {live.ctpError === -1008
             ? t("柜台回报队列已满，已停止报单；重连后核对账户")
-            : t("CTP 错误 {code}", { code: live.ctpError })}
+            : ctpErrorSummary(live.ctpError)}
         </p>
       )}
       {live.riskBreaches.length > 0 && (

@@ -65,7 +65,7 @@ void fail(wire::Response& response, const std::exception& error)
 {
     *response.mutable_error() = protocol::error(error);
     if (!dynamic_cast<const Error*>(&error) && classify(error) != ErrorCode::invalid_request) {
-        log::warn("market request {} failed: {}", response.id(), error.what());
+        log::warn("warehouse request {} failed: {}", response.id(), error.what());
         response.mutable_error()->set_message("Warehouse request failed; check service logs");
     }
 }
@@ -105,7 +105,7 @@ Reply waiting(std::future<Message> result, std::uint64_t id)
         try {
             return result->get();
         } catch (const std::exception& error) {
-            // The market thread stopped before it answered.
+            // The warehouse thread stopped before it answered.
             wire::Response response;
             response.set_id(id);
             *response.mutable_error() = protocol::error(error);
@@ -449,7 +449,7 @@ WarehouseService::Reply WarehouseService::serve(std::string frame, bool known)
             throw std::invalid_argument("malformed Protobuf request");
         protocol::validate_message(request);
         if (request.call_case() == wire::Request::CALL_NOT_SET)
-            throw std::invalid_argument("missing market operation");
+            throw std::invalid_argument("missing warehouse operation");
         if (!known)
             throw Error(ErrorCode::permission_denied, "this client is not registered");
         return running_->ask(

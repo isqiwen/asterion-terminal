@@ -107,11 +107,84 @@ test("known UI notices stay plain text without raw diagnostic copy buttons in En
 test("every prefixed diagnostic resolves cleanly in both locales without throwing", () => {
   for (const locale of ["zh-CN", "en-US"] as const) {
     setLocale(locale);
-    for (const [prefix] of prefixedDiagnostics) {
+    for (const [prefix, , includeDetail] of prefixedDiagnostics) {
       const summary = diagnosticSummary(`${prefix}sample-detail`);
       expect(summary, `${locale}: ${prefix}`).toBeTruthy();
       expect(summary).not.toContain("全市场数据");
+      if (includeDetail !== false)
+        expect(summary, `${locale}: ${prefix}`).toContain("sample-detail");
     }
   }
+  setLocale("zh-CN");
+});
+
+test("RPC, stream, TLS and Lab schema failures state exact causes in both languages", () => {
+  const cases = [
+    ["RPC connection refused", "服务拒绝连接，请求未发送", "Connection refused by the service"],
+    [
+      "RPC server certificate fingerprint mismatch",
+      "服务端证书指纹与设置不匹配",
+      "Server certificate fingerprint does not match",
+    ],
+    [
+      "RPC client certificate rejected by server",
+      "服务端拒绝了本机客户端证书",
+      "rejected this client's certificate",
+    ],
+    [
+      "RPC stream timed out waiting for next frame",
+      "实时推送流超过 5 秒未收到新数据，正在自动重连",
+      "Live stream received no data for over 5 seconds",
+    ],
+    ["RPC read timed out", "查询服务超时", "Query timed out waiting for the service"],
+    [
+      "RPC request timed out; command outcome may be unknown",
+      "命令是否已生效尚不确定",
+      "command outcome may be unknown",
+    ],
+    [
+      "lab runs database schema is outdated: /tmp/runs.sqlite",
+      "研究运行索引数据库表结构已过期",
+      "Lab runs index database schema is outdated",
+    ],
+  ] as const;
+  for (const [diagnostic, zh, en] of cases) {
+    setLocale("zh-CN");
+    const zhText = diagnosticSummary(diagnostic);
+    expect(zhText).toContain(zh);
+    if (diagnostic.includes("/tmp/runs.sqlite")) expect(zhText).toContain("/tmp/runs.sqlite");
+    setLocale("en-US");
+    expect(diagnosticSummary(diagnostic)).toContain(en);
+  }
+  setLocale("zh-CN");
+});
+
+test("prefixed evidence and risk breaches stay visible without raw punctuation joins", () => {
+  setLocale("zh-CN");
+  const { container, rerender } = render(
+    <ErrorNotice
+      error={new BackendError("operation_failed", "Tushare reported an error: 超过每分钟请求上限")}
+    />,
+  );
+  const notice = () => container.querySelector(".error-notice") as HTMLElement;
+  expect(notice().textContent).toBe("Tushare 返回了错误: 超过每分钟请求上限");
+
+  rerender(<ErrorNotice error={new BackendError("risk_breached", "acct1: daily_loss")} />);
+  expect(notice().textContent).toBe("账户触发硬风控，已暂停新增开仓: acct1 (日内亏损达限)");
+
+  rerender(
+    <ErrorNotice
+      error={new BackendError("risk_breached", "acct1: daily_cancels:SHFE/rb/2026-05")}
+    />,
+  );
+  expect(notice().textContent).toBe(
+    "账户触发硬风控，已暂停新增开仓: acct1 (SHFE/rb/2026-05 日撤单达限)",
+  );
+
+  setLocale("en-US");
+  rerender(<ErrorNotice error={new BackendError("risk_breached", "acct1: daily_loss")} />);
+  expect(notice().textContent).toBe(
+    "Hard risk limit triggered on an account; new opening orders are paused: acct1 (Daily loss limit reached)",
+  );
   setLocale("zh-CN");
 });

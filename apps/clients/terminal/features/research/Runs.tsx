@@ -107,7 +107,8 @@ export function Runs(context: TerminalContext) {
         setStrategies(reply.strategies);
       }
     } catch (failure) {
-      if (currentQuery.current === query) notify(failure);
+      if (currentQuery.current === query)
+        notify(failure, { namespace: "asterion.terminal.research" });
     } finally {
       if (currentQuery.current === query) setLoading(false);
     }
@@ -138,7 +139,7 @@ export function Runs(context: TerminalContext) {
           active: reply.active,
         });
       })
-      .catch(failure => active && notify(failure));
+      .catch(failure => active && notify(failure, { namespace: "asterion.terminal.research" }));
     return () => {
       active = false;
     };

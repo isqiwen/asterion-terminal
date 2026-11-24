@@ -53,7 +53,7 @@ export function useLabActiveReport(report: LabActiveReportTarget | null, onCompl
         if (!stillRunning && isActive()) onComplete();
         return stillRunning;
       } catch (failure) {
-        if (isActive()) notify(failure);
+        if (isActive()) notify(failure, { namespace: "asterion.terminal.research" });
         return false;
       }
     },

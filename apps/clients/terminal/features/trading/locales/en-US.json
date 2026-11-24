@@ -229,7 +229,6 @@
   "连接行情服务后可选择合约": "Connect the market service to choose contracts",
   "柜台回报队列已满，已停止报单；重连后核对账户": "Counter reply queue full; new orders stopped. Reconnect and check the account",
   "{n} 笔委托未出现在柜台回报，不会重发，仍占用在途额度：{ids}": "{n} orders missing from counter replies; never resent, still counted as working: {ids}",
-  "CTP 错误 {code}": "CTP error {code}",
   "保存后断开柜台连接，需重新允许下单": "Saving disconnects the counter; allow orders again afterwards",
   "合约目录未就绪，暂不能新增合约": "Contract catalog not ready; contracts cannot be added",
   "状态未确认，显示的是上次读到的状态": "Unconfirmed; showing the last state read",

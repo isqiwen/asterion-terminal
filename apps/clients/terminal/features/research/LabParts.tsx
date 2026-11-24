@@ -43,7 +43,7 @@ export function useModules(repository: string) {
     try {
       setModules(await lab({ case: "listStrategies", value: { path: repository } }));
     } catch (failure) {
-      notify(failure);
+      notify(failure, { namespace: "asterion.terminal.research" });
     }
   }, [repository]);
   const forget = useCallback((path: string) => {
@@ -554,7 +554,7 @@ export function useModuleMenu({
       })
       .catch(failure => {
         if (requestRef.current === id) setMenu(null);
-        notify(failure);
+        notify(failure, { namespace: "asterion.terminal.research" });
       });
   };
   const copy = (path: string, content: string, symbol?: string) => {
@@ -571,7 +571,7 @@ export function useModuleMenu({
         source.forget(path);
         deleted(path);
       })
-      .catch(notify);
+      .catch(failure => notify(failure, { namespace: "asterion.terminal.research" }));
   };
   const overlay = menu && (
     <div

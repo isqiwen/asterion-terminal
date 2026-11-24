@@ -60,7 +60,7 @@ export function StrategyPackages({
     let current = true;
     void lab({ case: "listStrategies", value: { path: repository } }).then(
       listed => current && setStrategies(listed.strategies.map(item => item.id)),
-      reason => current && notify(reason),
+      reason => current && notify(reason, { namespace: "asterion.terminal.trading" }),
     );
     return () => {
       current = false;

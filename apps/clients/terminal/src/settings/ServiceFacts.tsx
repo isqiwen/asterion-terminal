@@ -4,8 +4,8 @@ import { tradingCall } from "../bridge/trading";
 import { warehouseData } from "../bridge/warehouse-data";
 import { getLocale, translate } from "../i18n";
 import {
+  ErrorNotice,
   asDisplayError,
-  errorSummary,
   isDeselectedService,
   type DisplayError,
 } from "../i18n/errors";
@@ -58,7 +58,9 @@ export function ServiceFacts(
       {error && (
         <>
           <dt>{t("状态")}</dt>
-          <dd>{errorSummary(error)}</dd>
+          <dd>
+            <ErrorNotice error={error} />
+          </dd>
         </>
       )}
       {build && <Build build={build} />}

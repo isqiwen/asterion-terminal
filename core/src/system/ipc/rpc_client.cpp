@@ -5,6 +5,8 @@
 #include "tls_security.hpp"
 #include <asio.hpp>
 #include <asio/ssl.hpp>
+#include <openssl/err.h>
+#include <openssl/ssl.h>
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -69,6 +71,15 @@ struct RpcClient::Impl
     template <class Stream, class Result>
     struct Exchange final : Pending, std::enable_shared_from_this<Exchange<Stream, Result>>
     {
+        enum class Phase
+        {
+            resolving,
+            connecting,
+            handshaking,
+            sending,
+            receiving
+        };
+
         Exchange(
             Impl& client,
             Stream stream,
@@ -110,12 +121,76 @@ struct RpcClient::Impl
             result.set_exception(std::move(error));
         }
 
+        std::string timeout_message() const
+        {
+            switch (phase) {
+                case Phase::resolving:
+                    return "RPC address resolution timed out";
+                case Phase::connecting:
+                    return "RPC connection timed out";
+                case Phase::handshaking:
+                    return "RPC TLS handshake timed out";
+                case Phase::sending:
+                case Phase::receiving:
+                    if constexpr (std::is_void_v<Result>)
+                        return "RPC stream timed out waiting for next frame";
+                    if (keep_alive)
+                        return "RPC read timed out";
+                    return "RPC request timed out; command outcome may be unknown";
+            }
+            return "RPC request timed out; command outcome may be unknown";
+        }
+
+        std::string failure_message(asio::error_code error) const
+        {
+            if (error.category() == asio::error::get_ssl_category()) {
+                const auto reason = ERR_GET_REASON(error.value());
+                if (reason == SSL_R_CERTIFICATE_VERIFY_FAILED)
+                    return "RPC server certificate fingerprint mismatch";
+                if (reason == SSL_R_TLSV13_ALERT_CERTIFICATE_REQUIRED
+                    || reason == SSL_R_SSLV3_ALERT_BAD_CERTIFICATE
+                    || reason == SSL_R_TLSV1_ALERT_UNKNOWN_CA)
+                    return "RPC client certificate rejected by server";
+            }
+            switch (phase) {
+                case Phase::resolving:
+                    return "RPC address resolution failed: " + error.message();
+                case Phase::connecting:
+                    if (error == asio::error::connection_refused)
+                        return "RPC connection refused";
+                    if (error == asio::error::host_unreachable
+                        || error == asio::error::network_unreachable)
+                        return "RPC host unreachable";
+                    return "RPC connection failed before sending: " + error.message();
+                case Phase::handshaking:
+                    return "RPC TLS handshake failed: " + error.message();
+                case Phase::sending:
+                case Phase::receiving:
+                    if constexpr (std::is_void_v<Result>) {
+                        if (error == asio::error::eof || error == asio::error::connection_reset
+                            || error == asio::ssl::error::stream_truncated)
+                            return "RPC stream disconnected";
+                        return "RPC stream failed: " + error.message();
+                    }
+                    if (keep_alive)
+                        return "RPC read connection failed: " + error.message();
+                    return "RPC connection failed; command outcome may be unknown: "
+                        + error.message();
+            }
+            return "RPC connection failed; command outcome may be unknown: " + error.message();
+        }
+
         void cancel() override
         {
-            fail(
-                std::make_exception_ptr(Error(
-                    ErrorCode::unavailable,
-                    "RPC request cancelled; command outcome may be unknown")));
+            const char* message = "RPC request cancelled; command outcome may be unknown";
+            if (phase == Phase::resolving || phase == Phase::connecting
+                || phase == Phase::handshaking)
+                message = "RPC connection cancelled";
+            else if constexpr (std::is_void_v<Result>)
+                message = "RPC stream cancelled";
+            else if (keep_alive)
+                message = "RPC read cancelled";
+            fail(std::make_exception_ptr(Error(ErrorCode::unavailable, message)));
         }
 
         void advance() override
@@ -133,10 +208,7 @@ struct RpcClient::Impl
             if (this->done)
                 return false;
             if (std::chrono::steady_clock::now() >= expires) {
-                fail(
-                    std::make_exception_ptr(Error(
-                        ErrorCode::unavailable,
-                        "RPC request timed out; command outcome may be unknown")));
+                fail(std::make_exception_ptr(Error(ErrorCode::unavailable, timeout_message())));
                 return false;
             }
             if (error) {
@@ -162,9 +234,7 @@ struct RpcClient::Impl
                     }
                 }
                 fail(
-                    std::make_exception_ptr(Error(
-                        ErrorCode::unavailable,
-                        "RPC connection failed; command outcome may be unknown")));
+                    std::make_exception_ptr(Error(ErrorCode::unavailable, failure_message(error))));
                 return false;
             }
             return true;
@@ -176,9 +246,8 @@ struct RpcClient::Impl
             timer.async_wait([self = this->shared_from_this()](asio::error_code error) {
                 if (!error)
                     self->fail(
-                        std::make_exception_ptr(Error(
-                            ErrorCode::unavailable,
-                            "RPC request timed out; command outcome may be unknown")));
+                        std::make_exception_ptr(
+                            Error(ErrorCode::unavailable, self->timeout_message())));
             });
         }
 
@@ -195,6 +264,7 @@ struct RpcClient::Impl
             deadline(5s);
             const auto self = this->shared_from_this();
             if constexpr (!std::is_same_v<Stream, Local::socket>) {
+                phase = Phase::resolving;
                 resolver.async_resolve(
                     client.address,
                     std::to_string(client.port),
@@ -210,24 +280,27 @@ struct RpcClient::Impl
                             [](const Tcp::endpoint& endpoint) {
                                 return endpoint.address().is_v4();
                             });
+                        self->phase = Phase::connecting;
                         asio::async_connect(
                             self->stream.lowest_layer(),
                             self->endpoints,
                             [self](asio::error_code error, const Tcp::endpoint&) {
                                 if (!self->accepted(error))
                                     return;
-                                if constexpr (std::is_same_v<Stream, Tls>)
+                                if constexpr (std::is_same_v<Stream, Tls>) {
+                                    self->phase = Phase::handshaking;
                                     self->stream.async_handshake(
                                         asio::ssl::stream_base::client,
                                         [self](asio::error_code error) {
                                             if (self->accepted(error))
                                                 self->send();
                                         });
-                                else
+                                } else
                                     self->send();
                             });
                     });
             } else {
+                phase = Phase::connecting;
                 stream.async_connect(
                     Local::endpoint(client.address),
                     [self](asio::error_code error) {
@@ -245,6 +318,7 @@ struct RpcClient::Impl
 
         void send()
         {
+            phase = Phase::sending;
             deadline(send_timeout);
             const auto size = static_cast<std::uint32_t>(payload->size());
             header = {
@@ -270,6 +344,7 @@ struct RpcClient::Impl
 
         void receive()
         {
+            phase = Phase::receiving;
             payload.reset();
             deadline(reply_timeout);
             asio::async_read(
@@ -354,6 +429,7 @@ struct RpcClient::Impl
         const std::chrono::steady_clock::time_point expires;
         const bool keep_alive = false;
         bool reused = false;
+        Phase phase = Phase::connecting;
     };
 
     struct IdleTls
@@ -514,14 +590,16 @@ struct RpcClient::Impl
                 reply_timeout,
                 deadline,
                 send_timeout,
-                std::move(frame));
+                std::move(frame),
+                reuse_connection);
         return begin<Result>(
             Local::socket(io),
             std::move(payload),
             reply_timeout,
             deadline,
             send_timeout,
-            std::move(frame));
+            std::move(frame),
+            reuse_connection);
     }
 
     // A client pumped on its own has its own loop.

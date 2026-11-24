@@ -4,6 +4,7 @@
 #include <asterion/protocol/common.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <asterion/system/ipc/rpc_client.hpp>
+#include <asterion/system/log.hpp>
 #include <asterion/system/trace.hpp>
 #include <asterion/version.hpp>
 #include <google/protobuf/util/json_util.h>
@@ -67,7 +68,7 @@ struct MarketWatch::Impl
                 relay_identify(request);
                 std::optional<Payload> frame;
                 auto watching =
-                    transport->watch(request.SerializeAsString(), 2s, [&](Payload bytes) {
+                    transport->watch(request.SerializeAsString(), 5s, [&](Payload bytes) {
                         frame = std::move(bytes);
                     });
                 // A new stream starts with a complete frame; older ones are not needed.
@@ -105,8 +106,10 @@ struct MarketWatch::Impl
                 transport->cancel();
                 online = false;
                 // Ending the stream here on purpose is not a failure to report.
-                if (!restarting)
+                if (!restarting) {
                     error = failure.what();
+                    log::warn("market quote stream interrupted: {}", error);
+                }
             }
             frames.clear();
             const auto next = std::chrono::steady_clock::now() + 2s;
