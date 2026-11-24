@@ -109,13 +109,14 @@ jobs:
           install: binary
           max-size: 1G
           key: ${{ runner.os }}-${{ runner.arch }}-${{ steps.runner-image.outputs.version }}-${{ github.job }}
+      # Bump v1 when Conan version or install flags in this workflow change.
       - &conan-cache
         name: Cache Conan packages
         id: conan-cache
         uses: actions/cache@v5
         with:
           path: ${{ runner.temp }}/conan-packages.tgz
-          key: conan-${{ runner.os }}-${{ runner.arch }}-${{ steps.runner-image.outputs.version }}-${{ github.job }}-${{ hashFiles('VERSION', 'conan.lock', 'conanfile.py', 'conan/**', 'scripts/prepare_ctp.py', 'scripts/desktop/desktop.py', '.github/workflows/ci.yml') }}
+          key: conan-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.runner-image.outputs.version }}-${{ github.job }}-${{ hashFiles('VERSION', 'conan.lock', 'conanfile.py', 'conan/**', 'scripts/prepare_ctp.py', 'scripts/desktop/desktop.py') }}
       - &conan-restore
         name: Restore Conan packages
         if: steps.conan-cache.outputs.cache-hit == 'true'
@@ -183,6 +184,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       python-runtime-key: ${{ steps.python-runtime-cache.outputs.cache-primary-key }}
+      test-bundle-key: ${{ steps.linux-test-bundle.outputs.key }}
     env:
       ASTERION_CPP_BUILD: ${{ github.workspace }}/build/Release
       CMAKE_C_COMPILER_LAUNCHER: ccache
@@ -252,8 +254,10 @@ jobs:
           ./build/Release/asterion_market --version
           ldd build/Release/asterion_market
       - name: Package Linux test bundle
+        id: linux-test-bundle
         run: |
-          ZSTD_CLEVEL=1 ZSTD_NBTHREADS=0 tar --zstd -cf "${{ runner.temp }}/linux-test-bundle.tar.zst" \
+          echo "key=linux-test-bundle-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
+          tar -cf "${{ runner.temp }}/linux-test-bundle.tar" \
             --exclude='CMakeFiles' \
             --exclude='*.a' \
             --exclude='build/Release/*.sh' \
@@ -270,13 +274,11 @@ jobs:
             build/electron-resources/runtime \
             build/crash-tools \
             apps/clients/terminal/dist
-      - name: Upload Linux test bundle
-        uses: actions/upload-artifact@v7
+      - name: Cache Linux test bundle
+        uses: actions/cache/save@v5
         with:
-          archive: false
-          if-no-files-found: error
-          retention-days: 1
-          path: ${{ runner.temp }}/linux-test-bundle.tar.zst
+          path: ${{ runner.temp }}/linux-test-bundle.tar
+          key: ${{ steps.linux-test-bundle.outputs.key }}
       - name: Upload Terminal installer
         uses: actions/upload-artifact@v7
         with:
@@ -322,15 +324,16 @@ jobs:
           path: build/electron-resources/python
           key: ${{ needs.build-linux.outputs.python-runtime-key }}
           fail-on-cache-miss: true
-      - &linux-test-bundle-download
-        name: Download Linux test bundle
-        uses: actions/download-artifact@v8
+      - &linux-test-bundle-restore
+        name: Restore Linux test bundle
+        uses: actions/cache/restore@v5
         with:
-          name: linux-test-bundle.tar.zst
-          path: ${{ runner.temp }}
+          path: ${{ runner.temp }}/linux-test-bundle.tar
+          key: ${{ needs.build-linux.outputs.test-bundle-key }}
+          fail-on-cache-miss: true
       - &linux-test-bundle-extract
         name: Extract Linux test bundle
-        run: tar --zstd -xf "${{ runner.temp }}/linux-test-bundle.tar.zst"
+        run: tar -xf "${{ runner.temp }}/linux-test-bundle.tar" && rm -f "${{ runner.temp }}/linux-test-bundle.tar"
       - name: Disable kernel core pipe
         # RLIMIT_CORE does not stop the kernel from piping cores to systemd-coredump.
         run: sudo sysctl -w kernel.core_pattern=core
@@ -347,7 +350,7 @@ jobs:
         with:
           python-version: "3.12"
       - *linux-python-runtime-restore
-      - *linux-test-bundle-download
+      - *linux-test-bundle-restore
       - *linux-test-bundle-extract
       - name: Run real-clock Trading stream tests
         run: ctest --preset conan-release --output-on-failure -j 2 -R '^(strategy_stream_process|cross_session_portfolio_process)$'
@@ -378,7 +381,7 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
-      - *linux-test-bundle-download
+      - *linux-test-bundle-restore
       - *linux-test-bundle-extract
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec install-electron

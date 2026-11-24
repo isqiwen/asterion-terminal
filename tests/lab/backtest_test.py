@@ -268,20 +268,116 @@ class Readiness(unittest.TestCase):
                 self.assertEqual(engine.positions[-1][2], 2 * backtest.R)
 
 
-class Backtests(unittest.TestCase):
+class BacktestCase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls._template = tempfile.TemporaryDirectory()
+        root = Path(cls._template.name)
+        cls._template_lab = root / "lab"
+        cls._template_lab.mkdir()
+        warehouse(cls._template_lab)
+        cls._template_repo = root / "strategies"
+        shutil.copytree(EXAMPLES, cls._template_repo)
+        git(cls._template_repo, "init", "-q")
+        git(cls._template_repo, "add", ".")
+        git(cls._template_repo, "commit", "-qm", "examples")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._template.cleanup()
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.directory = Path(self.temporary.name) / "lab"
-        self.directory.mkdir()
-        warehouse(self.directory)
+        shutil.copytree(self._template_lab, self.directory)
         self.repository = Path(self.temporary.name) / "strategies"
-        shutil.copytree(EXAMPLES, self.repository)
-        git(self.repository, "init", "-q")
-        git(self.repository, "add", ".")
-        git(self.repository, "commit", "-qm", "examples")
+        shutil.copytree(self._template_repo, self.repository)
 
     def tearDown(self):
         self.temporary.cleanup()
+
+    def config(self, symbols, **changes):
+        values = dict(repository=str(self.repository), strategy="ma_cross.MaCross",
+                      params={"fast": 2, "slow": 4}, symbols=symbols,
+                      begin_day=DAYS[0].isoformat(), end_day=DAYS[-1].isoformat(),
+                      deposit=Decimal(1_000_000), costs=None, slippage_ticks=0,
+                      max_order_lots=Decimal(10), max_gross_lots=Decimal(10),
+                      max_contract_lots=Decimal(10), max_working_orders=10)
+        values.update(changes)
+        values.setdefault("dataset_version", Dataset(self.directory).current().identity)
+        if "source" not in values:
+            # As the service does at admission: runs import this copy, never the repository.
+            source = Path(tempfile.mkdtemp(dir=self.directory))
+            taken = repository.snapshot(self.repository, source,
+                                        f"strategies/{values['strategy'].split('.')[0]}.py")
+            values.update(source=str(source), commit=taken.commit, changes=taken.changes)
+        return backtest.Config(**values)
+
+    def publish_incomplete(self):
+        writer = Warehouse(self.directory).writer()
+        writer.put_rows("daily/SHFE/2026-01", "daily", [], days=[])
+        return writer.commit().identity
+
+    def fill(self, run):
+        """Daily bars of every day, with the test's deposit and limits."""
+        run.first_day, run.last_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
+        run.period = Period.PERIOD_DAY
+        run.deposit.text = "1000000"
+        run.limits.max_order_lots.text = run.limits.max_gross_lots.text = "10"
+        run.limits.max_contract_lots.text = "10"
+        run.limits.max_working_orders = 10
+
+    def sweep_request(self, identity, fast, slow, processes):
+        request = Request(id=1)
+        sweep = request.start_sweep
+        sweep.id, sweep.processes = identity, processes
+        run = sweep.base
+        run.repository, run.strategy = str(self.repository), "ma_cross.MaCross"
+        run.symbols.append("SHFE/rb/2026-05")
+        self.fill(run)
+        run.periods_per_year, run.zero_risk_free_rate, run.holdout_day = 252, True, DAYS[20].isoformat()
+        for name, values in (("fast", fast), ("slow", slow)):
+            item = sweep.values.add(name=name)
+            for value in values:
+                item.values.add(integer=value)
+        return request
+
+    @asynccontextmanager
+    async def service(self):
+        service = Service("lab", self.directory, type("Log", (), {"write": lambda *a, **k: None})())
+        try:
+            yield service
+        finally:
+            service.waiting.clear()
+            service.rolling.clear()
+            processes = list(service.backtests.values())
+            for process in processes:
+                if process.returncode is None:
+                    process.terminate()
+            await asyncio.gather(*(process.wait() for process in processes))
+            watchers = [task for task in asyncio.all_tasks()
+                        if task.get_coro().__qualname__ == "Service.watch"]
+            await asyncio.gather(*watchers, return_exceptions=True)
+            service.reads.shutdown()
+            service.runs.index.close()
+
+    async def idle(self, service):
+        async with asyncio.timeout(30):
+            while service.backtests or service.waiting or service.rolling:
+                await asyncio.sleep(0.01)
+
+    def child_before(self, code):
+        child = worker.command
+
+        def command(module):
+            result = child(module)
+            start, call = result[-1].rsplit("; main(", 1)
+            result[-1] = start + "\n" + code + "\nmain(" + call
+            return result
+        return patch.object(worker, "command", command)
+
+
+class Backtests(BacktestCase):
 
     def test_warmup_reads_recent_bars_of_explicit_contracts(self):
         writer = Warehouse(self.directory).writer()
@@ -342,23 +438,6 @@ class Backtests(unittest.TestCase):
         self.assertFalse(result.bars[1].bars[0].HasField("open_interest"))
         service.reads.shutdown()
         service.runs.index.close()
-
-    def config(self, symbols, **changes):
-        values = dict(repository=str(self.repository), strategy="ma_cross.MaCross",
-                      params={"fast": 2, "slow": 4}, symbols=symbols,
-                      begin_day=DAYS[0].isoformat(), end_day=DAYS[-1].isoformat(),
-                      deposit=Decimal(1_000_000), costs=None, slippage_ticks=0,
-                      max_order_lots=Decimal(10), max_gross_lots=Decimal(10),
-                      max_contract_lots=Decimal(10), max_working_orders=10)
-        values.update(changes)
-        values.setdefault("dataset_version", Dataset(self.directory).current().identity)
-        if "source" not in values:
-            # As the service does at admission: runs import this copy, never the repository.
-            source = Path(tempfile.mkdtemp(dir=self.directory))
-            taken = repository.snapshot(self.repository, source,
-                                        f"strategies/{values['strategy'].split('.')[0]}.py")
-            values.update(source=str(source), commit=taken.commit, changes=taken.changes)
-        return backtest.Config(**values)
 
     def test_a_run_imports_the_code_copied_at_admission(self):
         config = self.config(("SHFE/rb/2026-05",), params={"fast": 2, "slow": 4})
@@ -540,11 +619,6 @@ class Backtests(unittest.TestCase):
         contracts, _, _ = backtest.prepare(backtest.open_data(self.directory, later), later)
         self.assertEqual(contracts[0]["price_increment"], 2 * backtest.R)
         self.assertEqual(contracts[0]["increments"], [])
-
-    def publish_incomplete(self):
-        writer = Warehouse(self.directory).writer()
-        writer.put_rows("daily/SHFE/2026-01", "daily", [], days=[])
-        return writer.commit().identity
 
     def test_a_run_reads_its_pinned_version_when_new_data_are_published(self):
         config = self.config(("SHFE/rb/2026-05",))
@@ -1269,6 +1343,8 @@ class Backtests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "max_order_lots must be a number, not ''"):
             backtest.config_of(AdmittedRun(backtest=run))
 
+
+class BacktestService(BacktestCase):
     def test_stored_contracts_and_their_minutes_are_listed(self):
         class Log:
             def write(self, *args, **kwargs):
@@ -1470,64 +1546,6 @@ class Backtests(unittest.TestCase):
 
         asyncio.run(scenario())
 
-    def fill(self, run):
-        """Daily bars of every day, with the test's deposit and limits."""
-        run.first_day, run.last_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
-        run.period = Period.PERIOD_DAY
-        run.deposit.text = "1000000"
-        run.limits.max_order_lots.text = run.limits.max_gross_lots.text = "10"
-        run.limits.max_contract_lots.text = "10"
-        run.limits.max_working_orders = 10
-
-    def sweep_request(self, identity, fast, slow, processes):
-        request = Request(id=1)
-        sweep = request.start_sweep
-        sweep.id, sweep.processes = identity, processes
-        run = sweep.base
-        run.repository, run.strategy = str(self.repository), "ma_cross.MaCross"
-        run.symbols.append("SHFE/rb/2026-05")
-        self.fill(run)
-        run.periods_per_year, run.zero_risk_free_rate, run.holdout_day = 252, True, DAYS[20].isoformat()
-        for name, values in (("fast", fast), ("slow", slow)):
-            item = sweep.values.add(name=name)
-            for value in values:
-                item.values.add(integer=value)
-        return request
-
-    @asynccontextmanager
-    async def service(self):
-        service = Service("lab", self.directory, type("Log", (), {"write": lambda *a, **k: None})())
-        try:
-            yield service
-        finally:
-            service.waiting.clear()
-            service.rolling.clear()
-            processes = list(service.backtests.values())
-            for process in processes:
-                if process.returncode is None:
-                    process.terminate()
-            await asyncio.gather(*(process.wait() for process in processes))
-            watchers = [task for task in asyncio.all_tasks()
-                        if task.get_coro().__qualname__ == "Service.watch"]
-            await asyncio.gather(*watchers, return_exceptions=True)
-            service.reads.shutdown()
-            service.runs.index.close()
-
-    async def idle(self, service):
-        async with asyncio.timeout(30):
-            while service.backtests or service.waiting or service.rolling:
-                await asyncio.sleep(0.01)
-
-    def child_before(self, code):
-        child = worker.command
-
-        def command(module):
-            result = child(module)
-            start, call = result[-1].rsplit("; main(", 1)
-            result[-1] = start + "\n" + code + "\nmain(" + call
-            return result
-        return patch.object(worker, "command", command)
-
     def test_a_candidate_that_cannot_spawn_is_failed_and_the_sweep_continues(self):
         async def scenario():
             spawn, calls = asyncio.create_subprocess_exec, 0
@@ -1716,6 +1734,8 @@ builtins.print = delayed_print
                 self.assertFalse(sweep.active)
         asyncio.run(scenario())
 
+
+class BacktestSweeps(BacktestCase):
     def test_a_sweep_runs_every_combination_in_parallel_and_selects_by_development_sharpe(self):
         class Log:
             def write(self, *args, **kwargs):
