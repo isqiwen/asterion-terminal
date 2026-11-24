@@ -263,6 +263,23 @@ class RemoteResearch(unittest.TestCase):
         self.assertEqual(versions, [''] + [self.original.identity] * (len(versions) - 1))
         self.assertGreater(len(versions), 1)
         self.assertEqual(self.count(self.dataset, version), 60)
+        # Once the current version is cached locally, current() stops after the first page.
+        cached = self.dataset.current()
+        cached_calls = []
+
+        def count_pages(client, operation, **values):
+            reply = call(client, operation, **values)
+            if operation == 'get_dataset_version':
+                cached_calls.append(values['dataset']['version'])
+                if len(reply.partitions) > 1:
+                    del reply.partitions[1:]
+                    reply.next_key = reply.partitions[0].key
+            return reply
+
+        with patch.object(Client, 'call', count_pages):
+            again = self.dataset.current()
+        self.assertEqual(again.identity, cached.identity)
+        self.assertEqual(cached_calls, [''])
 
     def test_daily_and_minute_admission_uses_one_market_selection(self):
         writer = Warehouse(self.data).writer()

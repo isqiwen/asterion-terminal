@@ -697,20 +697,17 @@ class Records(unittest.TestCase):
                 self.assertAlmostEqual(figures["sortino"], expected, places=6)
         runs.index.close()
 
-    def test_a_run_deleted_during_listing_does_not_break_the_other_records(self):
+    def test_listing_reads_the_index_without_touching_run_files_and_ignores_deleted_runs(self):
         runs = Runs(self.directory)
         for identity in ("kept", "deleted"):
             runs.start(identity, self.plan)
             runs.end(identity, "stopped", "")
-        read = runs.record
-
-        def concurrent_delete(identity):
-            if identity == "deleted":
-                runs.delete([identity])
-            return read(identity)
-
-        with patch.object(runs, "record", concurrent_delete):
-            self.assertEqual([row["id"] for row in runs.list()], ["kept"])
+        with patch.object(
+            runs, "record", side_effect=AssertionError("list should not read run.json")
+        ):
+            self.assertEqual([row["id"] for row in runs.list()], ["deleted", "kept"])
+        runs.delete(["deleted"])
+        self.assertEqual([row["id"] for row in runs.list()], ["kept"])
         self.assertIsNone(runs.get("deleted"))
         runs.index.close()
 

@@ -1,7 +1,5 @@
 #include <asterion/futures/trading_days.hpp>
 #include <charconv>
-#include <iomanip>
-#include <sstream>
 #include <stdexcept>
 
 namespace asterion {
@@ -21,7 +19,8 @@ std::chrono::year_month_day parse_trading_date(std::string_view value)
         return result;
     };
     const auto day = std::chrono::year(int(number(0, 4))) / number(5, 2) / number(8, 2);
-    (void)format_trading_date(day);
+    if (!day.ok() || day.year() < std::chrono::year(1970) || day.year() > std::chrono::year(9999))
+        throw std::invalid_argument("invalid historical daily trading date");
     return day;
 }
 
@@ -29,10 +28,22 @@ std::string format_trading_date(std::chrono::year_month_day day)
 {
     if (!day.ok() || day.year() < std::chrono::year(1970) || day.year() > std::chrono::year(9999))
         throw std::invalid_argument("invalid historical daily trading date");
-    std::ostringstream value;
-    value << std::setfill('0') << std::setw(4) << int(day.year()) << '-' << std::setw(2)
-          << unsigned(day.month()) << '-' << std::setw(2) << unsigned(day.day());
-    return value.str();
+    const unsigned y = static_cast<unsigned>(int(day.year()));
+    const unsigned m = static_cast<unsigned>(day.month());
+    const unsigned d = static_cast<unsigned>(day.day());
+    char text[10]{
+        static_cast<char>('0' + y / 1000 % 10),
+        static_cast<char>('0' + y / 100 % 10),
+        static_cast<char>('0' + y / 10 % 10),
+        static_cast<char>('0' + y % 10),
+        '-',
+        static_cast<char>('0' + m / 10),
+        static_cast<char>('0' + m % 10),
+        '-',
+        static_cast<char>('0' + d / 10),
+        static_cast<char>('0' + d % 10)
+    };
+    return std::string(text, sizeof(text));
 }
 
 std::int64_t trading_day_close_ns(std::string_view day)

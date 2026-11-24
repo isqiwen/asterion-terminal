@@ -2,10 +2,11 @@
 
 Warehouse owns publication. This module contains no acquisition or warehouse writer.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import os
 from pathlib import Path
+import threading
 
 import duckdb
 import polars as pl
@@ -77,26 +78,60 @@ def canonical(value) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
 
 
+DATED_TABLES = frozenset(
+    ("daily", "minutes", "settlement", "warehouse_receipts", "member_positions", "inventory")
+)
+
+
 @dataclass
 class Version:
     identity: str
     manifest: dict
+    _by_table: dict | None = field(default=None, init=False, repr=False, compare=False)
+    _minute_by_contract: dict | None = field(default=None, init=False, repr=False, compare=False)
+    _indexed_len: int = field(default=-1, init=False, repr=False, compare=False)
+
+    def _ensure_index(self):
+        partitions = self.manifest["partitions"]
+        if self._by_table is not None and self._indexed_len == len(partitions):
+            return
+        by_table = {}
+        minute_by_contract = {}
+        for key in sorted(partitions):
+            parts = key.split("/")
+            table, exchange = parts[0], parts[1]
+            date = parts[2] if table in DATED_TABLES else ""
+            by_table.setdefault(table, {}).setdefault(exchange, []).append((key, date))
+            if table == "minutes":
+                name = "/".join([exchange, *parts[3:]])
+                minute_by_contract.setdefault(name, []).append((key, exchange, date))
+        self._by_table = by_table
+        self._minute_by_contract = minute_by_contract
+        self._indexed_len = len(partitions)
 
     def keys(self, table: str, exchange: str = "", contract: str = "", begin: str = "", end: str = ""):
         """The partitions of `table`, of one exchange when named. A minute
         partition is one contract's trading day (minutes/<exchange>/<day>/<product>/<month>),
         so minutes also narrow to `contract`. Dated partitions intersect [begin, end]."""
-        for key in sorted(self.manifest["partitions"]):
-            parts = key.split("/")
-            if parts[0] != table or (exchange and parts[1] != exchange):
-                continue
-            if table in ("daily", "minutes", "settlement", "warehouse_receipts", "member_positions", "inventory"):
-                date = parts[2]
+        self._ensure_index()
+        if table == "minutes" and contract:
+            for key, part_exchange, date in self._minute_by_contract.get(contract, ()):
+                if exchange and part_exchange != exchange:
+                    continue
                 if (begin and date < begin[:len(date)]) or (end and date > end[:len(date)]):
                     continue
-            if table == "minutes" and contract and "/".join([parts[1], *parts[3:]]) != contract:
-                continue
-            yield key
+                yield key
+            return
+        by_exchange = self._by_table.get(table)
+        if not by_exchange:
+            return
+        groups = (by_exchange.get(exchange, ()),) if exchange else by_exchange.values()
+        dated = table in DATED_TABLES
+        for group in groups:
+            for key, date in group:
+                if dated and ((begin and date < begin[:len(date)]) or (end and date > end[:len(date)])):
+                    continue
+                yield key
 
     def files(self, root: Path, table: str, **scope) -> list:
         return [str(root / self.manifest["partitions"][key]["file"]) for key in self.keys(table, **scope)]
@@ -111,10 +146,11 @@ class Version:
         return {name: (min(found), max(found), len(set(found))) for name, found in days.items()}
 
     def days(self, exchange: str) -> set:
+        self._ensure_index()
+        partitions = self.manifest["partitions"]
         days = set()
-        for key, entry in self.manifest["partitions"].items():
-            if key.startswith(f"daily/{exchange}/"):
-                days.update(entry["days"])
+        for key, _ in self._by_table.get("daily", {}).get(exchange, ()):
+            days.update(partitions[key]["days"])
         return days
 
     def has(self, key: str) -> bool:
@@ -124,16 +160,40 @@ class Version:
 class ParquetTables:
     """Queries against immutable files selected by the read-only cache."""
 
+    def _state(self):
+        local = self.__dict__.get("_duckdb_local")
+        if local is None:
+            local = threading.local()
+            self.__dict__["_duckdb_local"] = local
+        if not hasattr(local, "depth"):
+            local.depth = 0
+            local.connection = None
+        return local
+
     def __enter__(self):
+        self._state().depth += 1
         return self
 
     def __exit__(self, *ignored):
-        pass
+        state = self._state()
+        state.depth = max(0, state.depth - 1)
+        if not state.depth and state.connection is not None:
+            try:
+                state.connection.close()
+            finally:
+                state.connection = None
 
     def query(self, version: Version, sql: str, tables: tuple, parameters=(), **scope):
         """Run `sql` with each of `tables` bound to the version's files, of the
         exchange, contract and days `scope` names (see Version.keys)."""
-        connection = duckdb.connect()
+        state = self._state()
+        shared = state.depth > 0
+        if shared:
+            if state.connection is None:
+                state.connection = duckdb.connect()
+            connection = state.connection
+        else:
+            connection = duckdb.connect()
         try:
             for table in tables:
                 files = version.files(self.root, table, **scope)
@@ -141,14 +201,19 @@ class ParquetTables:
                     # Views take no parameters; the paths are the warehouse's own.
                     listed = ", ".join("'" + path.replace("'", "''") + "'" for path in files)
                     connection.execute(
-                        f"create view {table} as select * from read_parquet([{listed}])")
+                        f"create or replace temp view {table} as select * from read_parquet([{listed}])")
                 else:
                     names = ", ".join(f"null::{SQL_TYPES[kind]} as {name}"
                                       for name, kind in SCHEMAS[table].items())
-                    connection.execute(f"create view {table} as select {names} where false")
+                    connection.execute(
+                        f"create or replace temp view {table} as select {names} where false")
             return connection.execute(sql, list(parameters)).fetchall()
         finally:
-            connection.close()
+            if shared:
+                for table in tables:
+                    connection.execute(f"drop view if exists {table}")
+            else:
+                connection.close()
 
     def read(self, version: Version, key: str) -> pl.DataFrame:
         return pl.read_parquet(self.root / version.manifest["partitions"][key]["file"])

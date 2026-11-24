@@ -169,14 +169,18 @@ class Dataset(ParquetTables):
 
     def __enter__(self):
         self.depth += 1
+        super().__enter__()
         return self
 
     def __exit__(self, *ignored):
         self.depth -= 1
-        if not self.depth:
-            while self.clients:
-                _, client = self.clients.popitem()
-                client.__exit__()
+        try:
+            if not self.depth:
+                while self.clients:
+                    _, client = self.clients.popitem()
+                    client.__exit__()
+        finally:
+            super().__exit__(*ignored)
 
     @contextmanager
     def client(self, origin):
@@ -225,6 +229,8 @@ class Dataset(ParquetTables):
                     raise WarehouseError("invalid_data", "Warehouse returned another dataset version")
                 if not after:
                     selected = dataset.version
+                    if (self.root / "versions" / f"{selected}.json").exists():
+                        return self.version(selected)
                     manifest = dict(provider=self.provider, parent=page.parent or None,
                                     created_ms=dataset.created_ms, origin=origin, partitions=partitions)
                 for part in page.partitions:
@@ -323,7 +329,7 @@ class Dataset(ParquetTables):
             for table in tables:
                 for key in version.keys(table, **scope):
                     self.ensure(version, key)
-        return super().query(version, sql, tables, parameters, **scope)
+            return super().query(version, sql, tables, parameters, **scope)
 
     def read(self, version, key):
         self.ensure(version, key)

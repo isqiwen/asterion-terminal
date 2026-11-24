@@ -695,10 +695,13 @@ def tables(engine, contracts: list) -> dict:
     orders = engine.orders()
     by_order = {order[0]: order for order in orders}
     fills = engine.fills()
+    equity = engine.equity
+    positions = engine.positions
+    settlements = engine.settlements
     return {
-        "equity": pl.DataFrame({"time_ns": [point[0] for point in engine.equity],
-                                "equity": amount(point[1] for point in engine.equity),
-                                "event": [point[2] for point in engine.equity]},
+        "equity": pl.DataFrame({"time_ns": [point[0] for point in equity],
+                                "equity": amount(point[1] for point in equity),
+                                "event": [point[2] for point in equity]},
                                schema=TABLES["equity"]),
         "orders": pl.DataFrame({
             "order": [order[0] for order in orders], "time_ns": [order[8] for order in orders],
@@ -719,15 +722,15 @@ def tables(engine, contracts: list) -> dict:
             "quantity": amount(fill[2] for fill in fills), "price": amount(fill[3] for fill in fills),
             "fee": amount(fill[4] for fill in fills)}, schema=TABLES["fills"]),
         "positions": pl.DataFrame({
-            "trading_day": [datetime.date.fromisoformat(row[0]) for row in engine.positions],
-            "contract": [names[row[1]] for row in engine.positions],
-            **{name: amount(row[i] for row in engine.positions)
+            "trading_day": [datetime.date.fromisoformat(row[0]) for row in positions],
+            "contract": [names[row[1]] for row in positions],
+            **{name: amount(row[i] for row in positions)
                for i, name in ((2, "long"), (3, "short"), (4, "settlement_price"), (5, "margin"))}},
             schema=TABLES["positions"]),
         "settlements": pl.DataFrame({
-            "trading_day": [datetime.date.fromisoformat(row[0]) for row in engine.settlements],
-            "time_ns": [row[1] for row in engine.settlements],
-            **{name: amount(row[i] for row in engine.settlements)
+            "trading_day": [datetime.date.fromisoformat(row[0]) for row in settlements],
+            "time_ns": [row[1] for row in settlements],
+            **{name: amount(row[i] for row in settlements)
                for i, name in ((2, "balance"), (3, "equity"), (4, "realized"), (5, "fees"),
                                (6, "margin"), (7, "available"))}}, schema=TABLES["settlements"]),
     }
@@ -738,13 +741,17 @@ STATISTICS = ("total_return", "max_drawdown", "winning_days", "annual_return",
 
 
 def segment(config: Config, engine, first: int, last: int, base: int, begin_ns: int,
-            opening: bool) -> dict:
+            opening: bool, *, marks=None, days=None, ends=None) -> dict:
     """The statistics of settled days [first, last) from `base` equity."""
     import asterion_engine
 
-    marks, days = engine.equity, engine.settlements
+    if marks is None:
+        marks = engine.equity
+    if days is None:
+        days = engine.settlements
     # Where each settlement is among the equity observations.
-    ends = [n for n, point in enumerate(marks) if point[2] == "settlement"]
+    if ends is None:
+        ends = [n for n, point in enumerate(marks) if point[2] == "settlement"]
     values = asterion_engine.performance(
         base, [(row[0], row[3]) for row in days[first:last]],
         [point[1] for point in marks[(ends[first - 1] + 1 if first else 0):ends[last - 1] + 1]],
@@ -752,10 +759,12 @@ def segment(config: Config, engine, first: int, last: int, base: int, begin_ns: 
     return {name: values[name] for name in STATISTICS}
 
 
-def segment_metrics(config: Config, engine, split: int) -> dict:
+def segment_metrics(config: Config, engine, split: int, *, marks=None, days=None, ends=None) -> dict:
     """The statistics of the days from index `split` on, from the equity before them."""
-    days = engine.settlements
-    return segment(config, engine, split, len(days), days[split - 1][3], days[split - 1][1], True)
+    if days is None:
+        days = engine.settlements
+    return segment(config, engine, split, len(days), days[split - 1][3], days[split - 1][1], True,
+                   marks=marks, days=days, ends=ends)
 
 
 def metrics(config: Config, engine) -> dict:
@@ -764,15 +773,19 @@ def metrics(config: Config, engine) -> dict:
     days = engine.settlements
     if not days:
         raise ValueError("the run settled no trading day")
-    result = segment(config, engine, 0, len(days), raw(config.deposit), engine.equity[0][0], True)
+    marks = engine.equity
+    ends = [n for n, point in enumerate(marks) if point[2] == "settlement"]
+    result = segment(config, engine, 0, len(days), raw(config.deposit), marks[0][0], True,
+                     marks=marks, days=days, ends=ends)
     if config.holdout_day:
         split = next((n for n, row in enumerate(days) if row[0] >= config.holdout_day), len(days))
         if not 0 < split < len(days):
             raise ValueError("the holdout day leaves no days before it or after it")
         for name, value in segment(config, engine, 0, split, raw(config.deposit),
-                                   engine.equity[0][0], True).items():
+                                   marks[0][0], True, marks=marks, days=days, ends=ends).items():
             result[f"development_{name}"] = value
-        for name, value in segment_metrics(config, engine, split).items():
+        for name, value in segment_metrics(config, engine, split,
+                                           marks=marks, days=days, ends=ends).items():
             result[f"holdout_{name}"] = value
     return result
 
@@ -805,8 +818,16 @@ def open_data(directory: Path, config: Config) -> Data:
 
 def held_without_prices(engine, contracts: list):
     """A position held where its month has no prices could neither close nor roll."""
+    unpriced = [set(item["unpriced"]) for item in contracts]
+    if not any(unpriced):
+        return
+    held = {}
+    for row in engine.positions:
+        index = row[1]
+        if row[0] in unpriced[index]:
+            held.setdefault(index, []).append(row[0])
     for index, item in enumerate(contracts):
-        days = [row[0] for row in engine.positions if row[1] == index and row[0] in item["unpriced"]]
+        days = held.get(index)
         if days:
             raise ValueError(f"prices of {item['symbol']} are missing on "
                              f"{spans(days, item['unpriced'])}, while it is held")

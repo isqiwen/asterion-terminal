@@ -174,6 +174,7 @@ FuturesAccount::FuturesAccount(Decimal deposit, std::vector<ContractTerms> contr
     if (contracts_.empty() || contracts_.size() > max_account_contracts || deposit <= zero)
         throw std::invalid_argument(
             "futures account requires a positive deposit and 1 to 256 contracts");
+    contract_index_.reserve(contracts_.size());
     for (std::size_t i = 0; i < contracts_.size(); ++i) {
         const auto& terms = contracts_[i];
         terms.instrument.validate();
@@ -182,9 +183,8 @@ FuturesAccount::FuturesAccount(Decimal deposit, std::vector<ContractTerms> contr
             || terms.instrument.quote_currency != contracts_.front().instrument.quote_currency)
             throw std::invalid_argument(
                 "portfolio contracts must be futures in one currency with whole-lot quantities");
-        for (std::size_t j = 0; j < i; ++j)
-            if (contracts_[j].instrument.id == terms.instrument.id)
-                throw std::invalid_argument("duplicate portfolio contract");
+        if (!contract_index_.emplace(terms.instrument.id, i).second)
+            throw std::invalid_argument("duplicate portfolio contract");
     }
 }
 
@@ -273,10 +273,10 @@ FuturesAccount::Transaction FuturesAccount::transaction()
 
 std::size_t FuturesAccount::contract_index(const InstrumentId& instrument) const
 {
-    for (std::size_t i = 0; i < contracts_.size(); ++i)
-        if (contracts_[i].instrument.id == instrument)
-            return i;
-    throw std::invalid_argument("contract is not part of this account");
+    const auto found = contract_index_.find(instrument);
+    if (found == contract_index_.end())
+        throw std::invalid_argument("contract is not part of this account");
+    return found->second;
 }
 
 ClosePolicy FuturesAccount::close_policy(const InstrumentId& instrument) const

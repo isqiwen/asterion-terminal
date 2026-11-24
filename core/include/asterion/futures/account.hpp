@@ -258,6 +258,16 @@ public:
     ClosePolicy close_policy(const InstrumentId& instrument) const;
 
 private:
+    struct InstrumentHash
+    {
+        std::size_t operator()(const InstrumentId& id) const noexcept
+        {
+            const auto h1 = std::hash<std::string_view>{}(id.venue);
+            const auto h2 = std::hash<std::string_view>{}(id.symbol);
+            return h1 ^ (h2 + 0x9e3779b97f4a7c15ULL + (h1 << 6) + (h1 >> 2));
+        }
+    };
+
     // Quantity of position_side still free to close in one contract; `today`
     // limits it to one bucket, nullopt counts both (generic close).
     Decimal
@@ -276,6 +286,7 @@ private:
     // Identity indexes into orders_ and fills_; both vectors only grow.
     std::unordered_map<std::string, std::size_t> order_index_;
     std::unordered_map<std::string, std::size_t> fill_index_;
+    std::unordered_map<InstrumentId, std::size_t, InstrumentHash> contract_index_;
 };
 
 } // namespace asterion

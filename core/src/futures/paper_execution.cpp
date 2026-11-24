@@ -365,11 +365,47 @@ std::vector<RiskDecision> PaperExecution::advance_targets(
 {
     require_running();
     const auto& day = bar(event(cursor_)).trading_day;
+    const bool new_terms = cursor_ && day != bar(event(cursor_ - 1)).trading_day && changes_terms();
+    std::vector<RiskDecision> decisions(targets.size(), {RiskReason::allowed});
+    // Skip transaction snapshot and matching passes when no working orders, term
+    // changes or position deltas exist at this timestamp.
+    bool idle = !new_terms && !account_.has_working_orders();
+    for (std::size_t i = 0; idle && i < targets.size(); ++i) {
+        if (!targets[i])
+            continue;
+        const auto& current = event(cursor_ + i);
+        const auto& spec = contract(current.contract).terms.instrument;
+        if (targets[i]->order_id.empty() || targets[i]->order_id.size() > 128
+            || !targets[i]->quantity.multiple_of(spec.quantity_increment)) {
+            idle = false;
+            break;
+        }
+        Decimal long_qty, short_qty;
+        for (const auto& lot : account_.positions()) {
+            if (lot.instrument != spec.id)
+                continue;
+            if (lot.side == Side::buy)
+                long_qty = long_qty + lot.quantity;
+            else
+                short_qty = short_qty + lot.quantity;
+        }
+        if ((long_qty > Decimal{} && short_qty > Decimal{})
+            || long_qty - short_qty != targets[i]->quantity)
+            idle = false;
+    }
+    if (idle) {
+        for (std::size_t i = 0; i < targets.size(); ++i) {
+            const auto& current = event(cursor_ + i);
+            account_.mark(contract(current.contract).terms.instrument.id, bar(current).close);
+        }
+        cursor_ += targets.size();
+        ++revision_;
+        return decisions;
+    }
     const auto previous_revision = revision_;
     auto batch = account_.transaction();
-    std::vector<RiskDecision> decisions(targets.size(), {RiskReason::allowed});
     try {
-        if (cursor_ && day != bar(event(cursor_ - 1)).trading_day && changes_terms())
+        if (new_terms)
             enter_day(day);
         std::vector<Decimal> liquidity;
         std::vector<std::size_t> legs(targets.size());

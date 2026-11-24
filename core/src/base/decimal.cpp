@@ -1,5 +1,6 @@
 #include <asterion/base/decimal.hpp>
 
+#include <charconv>
 #include <limits>
 #include <stdexcept>
 
@@ -81,15 +82,23 @@ Decimal Decimal::parse(std::string_view text)
 std::string Decimal::str() const
 {
     const auto value = magnitude(raw_);
-    auto result = (raw_ < 0 ? "-" : "") + std::to_string(value / scale);
+    char buf[32];
+    char* p = buf;
+    if (raw_ < 0)
+        *p++ = '-';
+    p = std::to_chars(p, buf + sizeof(buf), value / scale).ptr;
     auto fraction = value % scale;
     if (fraction != 0) {
-        auto tail = std::to_string(fraction + scale).substr(1);
-        while (tail.back() == '0')
-            tail.pop_back();
-        result += "." + tail;
+        *p++ = '.';
+        for (int i = 7; i >= 0; --i) {
+            p[i] = static_cast<char>('0' + fraction % 10);
+            fraction /= 10;
+        }
+        p += 8;
+        while (p[-1] == '0')
+            --p;
     }
-    return result;
+    return std::string(buf, static_cast<std::size_t>(p - buf));
 }
 
 bool Decimal::multiple_of(Decimal increment) const
@@ -161,6 +170,14 @@ Decimal divide(Decimal numerator, Decimal denominator, Rounding rounding)
         throw std::domain_error("decimal division by zero");
     const bool negative = (numerator.raw() < 0) != (denominator.raw() < 0);
     const auto limit = static_cast<std::uint64_t>(max_value) + (negative ? 1U : 0U);
+#ifdef __SIZEOF_INT128__
+    const auto scaled = static_cast<__uint128_t>(a) * scale;
+    const auto q = scaled / b;
+    if (q > limit)
+        throw std::overflow_error("decimal overflow");
+    auto result = static_cast<std::uint64_t>(q);
+    const auto remainder = static_cast<std::uint64_t>(scaled % b);
+#else
     auto result = a / b;
     auto remainder = a % b;
     // Decimal long division without a widened integer or a binary float.
@@ -176,6 +193,7 @@ Decimal divide(Decimal numerator, Decimal denominator, Rounding rounding)
         remainder = accumulated;
         result = checked_add(checked_multiply(result, 10, limit), digit, limit);
     }
+#endif
     if (round_up(remainder, b, result, negative, rounding))
         result = checked_add(result, 1, limit);
     return signed_value(result, negative);
@@ -201,13 +219,23 @@ Decimal multiply(Decimal left, Decimal right, Rounding rounding)
     const auto b = magnitude(right.raw());
     const bool negative = (left.raw() < 0) != (right.raw() < 0);
     const auto limit = static_cast<std::uint64_t>(max_value) + (negative ? 1U : 0U);
+#ifdef __SIZEOF_INT128__
+    const auto product = static_cast<__uint128_t>(a) * b;
+    const auto q = product / scale;
+    if (q > limit)
+        throw std::overflow_error("decimal overflow");
+    auto value = static_cast<std::uint64_t>(q);
+    const auto remainder = static_cast<std::uint64_t>(product % scale);
+#else
     // raw(a*b) = a*b/scale, split to avoid non-portable 128-bit integers:
     // a = A*scale + a0, b = B*scale + b0  =>  A*b + a0*B + a0*b0/scale.
     const auto fraction = (a % scale) * (b % scale);
     auto value = checked_multiply(a / scale, b, limit);
     value = checked_add(value, checked_multiply(a % scale, b / scale, limit), limit);
     value = checked_add(value, fraction / scale, limit);
-    if (round_up(fraction % scale, scale, value, negative, rounding))
+    const auto remainder = fraction % scale;
+#endif
+    if (round_up(remainder, scale, value, negative, rounding))
         value = checked_add(value, 1, limit);
     return signed_value(value, negative);
 }

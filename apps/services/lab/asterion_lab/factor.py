@@ -40,8 +40,6 @@ from asterion_strategy import (
     FIELDS,
     KINDS,
     Context,
-    cross_section_rank,
-    cross_section_zscore,
     observe,
 )
 
@@ -151,18 +149,28 @@ def standardize_frame(frame: pl.DataFrame, method: str) -> pl.DataFrame:
         return frame
     if method not in ("zscore", "rank"):
         raise ValueError(f"unknown factor standardization: {method!r}")
-    fn = cross_section_zscore if method == "zscore" else cross_section_rank
-    parts = []
-    for _, part in frame.sort("day", "symbol").group_by("day", maintain_order=True):
-        raw_map = {
-            sym: val for sym, val in zip(part["symbol"].to_list(), part["value"].to_list())
-            if val is not None and math.isfinite(val)
-        }
-        mapped = fn(raw_map) if len(raw_map) >= 2 else {}
-        parts.append(part.with_columns(
-            pl.Series("value", [mapped.get(sym) for sym in part["symbol"].to_list()], dtype=pl.Float64)
-        ))
-    return pl.concat(parts) if parts else frame
+    if frame.is_empty():
+        return frame
+    value = pl.when(pl.col("value").is_finite()).then(pl.col("value")).otherwise(None)
+    count = value.count().over("day")
+    if method == "zscore":
+        mean_val = value.mean().over("day")
+        std_val = value.std(ddof=1).over("day")
+        expr = (
+            pl.when(value.is_null() | (count < 2))
+            .then(None)
+            .when((std_val > 0) & std_val.is_finite())
+            .then(((value - mean_val) / std_val).clip(-3.0, 3.0))
+            .otherwise(0.0)
+        )
+    else:
+        ranked = value.rank(method="average").over("day") - 1.0
+        expr = (
+            pl.when(value.is_null() | (count < 2))
+            .then(None)
+            .otherwise(2.0 * ranked / (count - 1) - 1.0)
+        )
+    return frame.sort("day", "symbol").with_columns(expr.cast(pl.Float64).alias("value"))
 
 
 def factor_correlations(frames: list) -> list:
@@ -240,28 +248,36 @@ def combine_factors(frames: list, method: str, horizon: int, standardize: str = 
         )
         for d_idx, ic_val in zip(agg["day_index"].to_list(), agg["ic"].to_list()):
             daily_ics[idx][int(d_idx)] = float(ic_val)
-    weights_by_day = {}
+    if base.is_empty():
+        return base.select("symbol", "day", "bar", "close").with_columns(
+            pl.lit(None, dtype=pl.Float64).alias("value")
+        )
+    sum_ic = [0.0] * k
+    cnt_ic = [0] * k
+    weight_rows = np.empty((len(days), k), dtype=float)
     for t in range(len(days)):
-        trailing = []
-        for idx in range(k):
-            past = [ic for s, ic in daily_ics[idx].items() if s + horizon <= t]
-            trailing.append(float(np.mean(past)) if past else 0.0)
+        realized = t - horizon
+        if realized >= 0:
+            for idx in range(k):
+                ic_val = daily_ics[idx].get(realized)
+                if ic_val is not None:
+                    sum_ic[idx] += ic_val
+                    cnt_ic[idx] += 1
+        trailing = [sum_ic[idx] / cnt_ic[idx] if cnt_ic[idx] else 0.0 for idx in range(k)]
         denom = sum(abs(w) for w in trailing)
-        weights_by_day[days[t]] = [w / denom for w in trailing] if denom > 0 else [1.0 / k] * k
-    rows_day = base["day"].to_list()
-    vals_cols = [base[f"v{idx}"].to_list() for idx in range(k)]
-    combined = []
-    for row_i, d in enumerate(rows_day):
-        w = weights_by_day[d]
-        num, den = 0.0, 0.0
-        for idx in range(k):
-            v = vals_cols[idx][row_i]
-            if v is not None and math.isfinite(v):
-                num += w[idx] * v
-                den += abs(w[idx])
-        combined.append(num / den if den > 0 else None)
+        weight_rows[t] = [w / denom for w in trailing] if denom > 0 else [1.0 / k] * k
+    day_idx = base["day"].replace_strict(day_to_idx).to_numpy()
+    w_mat = weight_rows[day_idx]
+    v_mat = np.column_stack([
+        base[f"v{idx}"].cast(pl.Float64).fill_null(np.nan).to_numpy() for idx in range(k)
+    ])
+    valid = np.isfinite(v_mat)
+    num = np.sum(np.where(valid, w_mat * v_mat, 0.0), axis=1)
+    den = np.sum(np.where(valid, np.abs(w_mat), 0.0), axis=1)
+    combined = np.divide(num, den, out=np.full(len(num), np.nan), where=den > 0)
+    combined_series = pl.Series("value", combined, dtype=pl.Float64)
     return base.select("symbol", "day", "bar", "close").with_columns(
-        pl.Series("value", combined, dtype=pl.Float64)
+        pl.when(combined_series.is_finite()).then(combined_series).otherwise(None).alias("value")
     )
 
 

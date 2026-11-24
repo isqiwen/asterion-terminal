@@ -86,7 +86,10 @@ class Runs:
                 id text primary key, strategy text not null, commit_id text not null,
                 changes text not null, dataset_version text not null, state text not null,
                 error text not null default '', started_ns integer not null,
-                finished_ns integer);
+                finished_ns integer, params text not null default '{}',
+                symbols text not null default '[]', begin_day text not null default '',
+                end_day text not null default '', period text not null default '',
+                settings text not null default '{}');
             create table if not exists metrics (
                 run text not null references runs(id), name text not null, value real,
                 primary key (run, name));
@@ -128,12 +131,20 @@ class Runs:
 
     def _insert(self, record: dict, state: str, error: str = ""):
         strategy = record["strategy"]
+        data = record["data"]
+        settings = {"costs": record["costs"], "risk": record["risk"],
+                    "statistics": record["statistics"]}
         self.index.execute(
             "insert into runs (id, strategy, commit_id, changes, dataset_version, state, error,"
-            " started_ns, finished_ns) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " started_ns, finished_ns, params, symbols, begin_day, end_day, period, settings)"
+            " values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (record["id"], strategy["id"], strategy["commit"], strategy["changes"],
-             record["data"]["dataset_version"], state, error, record["started_ns"],
-             None if state == "running" else time.time_ns()))
+             data["dataset_version"], state, error, record["started_ns"],
+             None if state == "running" else time.time_ns(),
+             json.dumps(record["params"], ensure_ascii=False),
+             json.dumps(data["symbols"], ensure_ascii=False),
+             data["begin_day"], data["end_day"], data["bars"]["period"],
+             json.dumps(settings, ensure_ascii=False)))
 
     def fail_start(self, identity: str, plan: Plan, error: str, state: str = "failed"):
         # The child may have written run.json before dying at its index insert.
@@ -260,8 +271,9 @@ class Runs:
         """Each strategy's last three runs outside parameter sweeps and, under each
         settings, its latest outcome and success, so a ranking can return to them."""
         places, outcomes, measured, kept = {}, set(), set(), []
-        for identity, strategy, state in self.index.execute(f"""
-                select id, strategy, state from runs
+        for identity, strategy, state, symbols_json, begin_day, end_day, period, settings_json in \
+                self.index.execute(f"""
+                select id, strategy, state, symbols, begin_day, end_day, period, settings from runs
                 where id not in (select run from sweeps
                                  where json_extract(params, '$.{BATCH_STRATEGY}') is null)
                     and id not in (select sweep || '-rolling' from sweeps)
@@ -269,15 +281,10 @@ class Runs:
             places[strategy] = places.get(strategy, 0) + 1
             latest = places[strategy] <= 3
             if state in ("succeeded", "failed"):
-                try:
-                    record = self.record(identity)
-                except FileNotFoundError:
-                    # An old result that lost its record must not prevent the page.
-                    continue
-                data = record["data"]
-                settings = json.dumps([strategy, sorted(data["symbols"]), data["begin_day"],
-                                       data["end_day"], data["bars"]["period"], record["costs"],
-                                       record["risk"], record["statistics"]], sort_keys=True)
+                cfg = json.loads(settings_json)
+                settings = json.dumps([strategy, sorted(json.loads(symbols_json)), begin_day,
+                                       end_day, period, cfg["costs"], cfg["risk"],
+                                       cfg["statistics"]], sort_keys=True)
                 latest = latest or settings not in outcomes or (
                     state == "succeeded" and settings not in measured)
                 outcomes.add(settings)
@@ -296,22 +303,24 @@ class Runs:
                     partition by s.sweep, case when s.sweep is null then r.id end
                     order by r.started_ns desc, r.id desc) place
                 from runs r left join sweeps s on s.run = r.id)
-            select r.id, coalesce(r.sweep, ''), coalesce(l.label, '') from ranked r
+            select r.id, coalesce(r.sweep, ''), coalesce(l.label, ''), r.symbols from ranked r
             left join metrics m on m.run = r.id and m.name = ?
             left join labels l on l.run = r.id
             where place = 1 and (? = '' or strategy = ?)
             order by {order} is null, {order} {direction}, r.id {direction}
             """, (order_by, strategy, strategy))
         identities, matched, query = [], 0, search.strip().casefold()
-        for identity, sweep, label in candidates:
+        for identity, sweep, label, symbols_json in candidates:
             if query and query not in f"{identity} {sweep} {label}".casefold():
-                member_ids = (
-                    [r[0] for r in self.index.execute("select run from sweeps where sweep = ?", (sweep,))]
-                    if sweep
-                    else [identity]
-                )
-                members = self.list(member_ids)
-                if not any(query in " ".join(m["symbols"]).casefold() for m in members):
+                if sweep:
+                    member_symbols = [
+                        r[0] for r in self.index.execute(
+                            "select r.symbols from sweeps s join runs r on r.id = s.run"
+                            " where s.sweep = ?", (sweep,))
+                    ]
+                else:
+                    member_symbols = [symbols_json]
+                if not any(query in " ".join(json.loads(s)).casefold() for s in member_symbols):
                     continue
             matched += 1
             if matched <= offset:
@@ -328,23 +337,19 @@ class Runs:
                         count(json_extract(s.params, '$.{BATCH_STRATEGY}'))
                     from sweeps s left join runs r on r.id = s.run where s.sweep = ?
                     """, (row["sweep"],)).fetchone()
-                member_ids = [
-                    r[0]
-                    for r in self.index.execute(
-                        "select run from sweeps where sweep = ? order by position", (row["sweep"],)
-                    )
-                ]
-                by_id = {member["id"]: member for member in self.list(member_ids)}
-                members = [by_id[mid] for mid in member_ids if mid in by_id]
+                members = self.index.execute(
+                    "select r.symbols, r.begin_day, r.end_day from sweeps s"
+                    " join runs r on r.id = s.run where s.sweep = ? order by s.position",
+                    (row["sweep"],)).fetchall()
                 if members:
                     seen = []
-                    for member in members:
-                        for symbol in member["symbols"]:
+                    for symbols_json, _, _ in members:
+                        for symbol in json.loads(symbols_json):
                             if symbol not in seen:
                                 seen.append(symbol)
                     row["symbols"] = seen
-                    row["begin_day"] = min(member["begin_day"] for member in members)
-                    row["end_day"] = max(member["end_day"] for member in members)
+                    row["begin_day"] = min(begin for _, begin, _ in members)
+                    row["end_day"] = max(end for _, _, end in members)
                 row.update(sweep_size=count, sweep_succeeded=succeeded or 0,
                            sweep_running=bool(running), sweep_strategies=compared)
         strategies = [row[0] for row in self.index.execute("select distinct strategy from runs order by strategy")]
@@ -357,7 +362,8 @@ class Runs:
             f" where id in ({','.join('?' for _ in identities)})"
         rows = self.index.execute(
             "select id, strategy, commit_id, changes, dataset_version, state, error, started_ns,"
-            " finished_ns from runs" + selected + " order by started_ns desc, id desc",
+            " finished_ns, params, symbols, begin_day, end_day, period, settings from runs"
+            + selected + " order by started_ns desc, id desc",
             identities or ()).fetchall()
         selected = " where run in (select id from runs" + selected + ")"
         metrics = {}
@@ -368,21 +374,8 @@ class Runs:
         labels = dict(self.index.execute("select run, label from labels" + selected, identities or ()))
         names = ("id", "strategy", "commit", "changes", "dataset_version", "state", "error",
                  "started_ns", "finished_ns")
-        result = []
-        for row in rows:
-            try:
-                record = self.record(row[0])
-            except FileNotFoundError:
-                # Deletion commits its index removal before removing the record directory.
-                if self.index.execute("select 1 from runs where id = ?", (row[0],)).fetchone():
-                    raise
-                continue
-            data = record["data"]
-            result.append({**dict(zip(names, row)), "metrics": metrics.get(row[0], {}),
-                           "sweep": sweeps.get(row[0], ""), "label": labels.get(row[0], ""),
-                           "params": record["params"], "symbols": data["symbols"],
-                           "begin_day": data["begin_day"], "end_day": data["end_day"],
-                           "period": data["bars"]["period"],
-                           "settings": {"costs": record["costs"], "risk": record["risk"],
-                                        "statistics": record["statistics"]}})
-        return result
+        return [{**dict(zip(names, row[:9])), "metrics": metrics.get(row[0], {}),
+                 "sweep": sweeps.get(row[0], ""), "label": labels.get(row[0], ""),
+                 "params": json.loads(row[9]), "symbols": json.loads(row[10]),
+                 "begin_day": row[11], "end_day": row[12], "period": row[13],
+                 "settings": json.loads(row[14])} for row in rows]

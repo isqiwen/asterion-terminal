@@ -128,9 +128,38 @@ ContractBars contract_of(const py::dict& item, std::vector<DaySettlement>& days)
     return contract;
 }
 
-// What the replay did, kept for the run's tables.
+// What the replay did, kept for the run's tables in plain C++ structs so
+// Python tuples are materialized only when read.
 struct Record final : Replay::Observer
 {
+    struct EquityPoint
+    {
+        std::int64_t time_ns, equity;
+        const char* event;
+    };
+
+    struct SettlementRow
+    {
+        std::string trading_day;
+        std::int64_t time_ns, balance, equity, realized, fees, margin, available;
+    };
+
+    struct PositionRow
+    {
+        std::string trading_day;
+        std::size_t contract;
+        std::int64_t held_long, held_short, price, margin;
+    };
+
+    struct RejectionRow
+    {
+        std::int64_t time_ns;
+        std::string trading_day;
+        std::size_t contract;
+        std::int64_t lots;
+        std::string_view reason;
+    };
+
     std::int64_t value() const
     {
         const auto& account = replay->execution().account();
@@ -150,19 +179,17 @@ struct Record final : Replay::Observer
         fill_days.resize(execution.account().fills().size(), bar.trading_day);
         if (!decision.allowed() && intent)
             rejections.push_back(
-                py::make_tuple(
-                    bar.timestamp_ns,
+                {bar.timestamp_ns,
                     bar.trading_day,
                     execution.event(index).contract,
                     intent->quantity.raw(),
-                    std::string(risk_reason_name(decision.reason))));
+                    risk_reason_name(decision.reason)});
     }
 
     void marked(std::size_t index) override
     {
         const auto& execution = replay->execution();
-        equity.push_back(
-            py::make_tuple(execution.bar(execution.event(index)).timestamp_ns, value(), "mark"));
+        equity.push_back({execution.bar(execution.event(index)).timestamp_ns, value(), "mark"});
     }
 
     void settled(
@@ -171,54 +198,55 @@ struct Record final : Replay::Observer
         const std::optional<PaperExecution::MarginRevaluation>&) override
     {
         const auto& account = replay->execution().account();
-        equity.push_back(py::make_tuple(at, value(), "settlement"));
+        const auto current = value();
+        equity.push_back({at, current, "settlement"});
         settlements.push_back(
-            py::make_tuple(
-                day.trading_day,
+            {day.trading_day,
                 at,
                 account.balance().raw(),
-                value(),
+                current,
                 account.realized().raw(),
                 account.fees().raw(),
                 account.margin().raw(),
-                account.available().raw()));
-        for (std::size_t c = 0; c < account.contracts().size(); ++c) {
+                account.available().raw()});
+        if (account.positions().empty())
+            return;
+
+        struct Held
+        {
+            Decimal held_long, held_short, margin;
+        };
+
+        std::map<std::size_t, Held> by_contract;
+        for (const auto& lot : account.positions()) {
+            const auto c = account.contract_index(lot.instrument);
             if (!day.prices[c])
                 continue;
             const auto& terms = account.contracts()[c];
-            Decimal held_long, held_short, margin;
-            for (const auto& lot : account.positions())
-                if (lot.instrument == terms.instrument.id) {
-                    (lot.side == Side::buy ? held_long : held_short) =
-                        (lot.side == Side::buy ? held_long : held_short) + lot.quantity;
-                    margin = margin
-                        + terms.costs.margin(
-                            lot.side,
-                            lot.quantity,
-                            *day.prices[c],
-                            terms.instrument.multiplier);
-                }
-            if (held_long != Decimal{} || held_short != Decimal{})
+            auto& entry = by_contract[c];
+            auto& bucket = lot.side == Side::buy ? entry.held_long : entry.held_short;
+            bucket = bucket + lot.quantity;
+            entry.margin = entry.margin
+                + terms.costs
+                      .margin(lot.side, lot.quantity, *day.prices[c], terms.instrument.multiplier);
+        }
+        for (const auto& [c, entry] : by_contract) {
+            if (entry.held_long != Decimal{} || entry.held_short != Decimal{})
                 positions.push_back(
-                    py::make_tuple(
-                        day.trading_day,
+                    {day.trading_day,
                         c,
-                        held_long.raw(),
-                        held_short.raw(),
+                        entry.held_long.raw(),
+                        entry.held_short.raw(),
                         day.prices[c]->raw(),
-                        margin.raw()));
+                        entry.margin.raw()});
         }
     }
 
     const Replay* replay = nullptr;
-    // (time_ns, equity, event)
-    std::vector<py::tuple> equity;
-    // (trading_day, time_ns, balance, equity, realized, fees, margin, available)
-    std::vector<py::tuple> settlements;
-    // (trading_day, contract, long, short, settlement_price, margin)
-    std::vector<py::tuple> positions;
-    // (time_ns, trading_day, contract, lots, reason)
-    std::vector<py::tuple> rejections;
+    std::vector<EquityPoint> equity;
+    std::vector<SettlementRow> settlements;
+    std::vector<PositionRow> positions;
+    std::vector<RejectionRow> rejections;
     // When each order was placed and each fill made, and on which trading day.
     std::vector<std::int64_t> order_times, fill_times;
     std::vector<std::string> order_days, fill_days;
@@ -312,25 +340,34 @@ public:
     {
         const auto& execution = replay_->execution();
         const auto& account = execution.account();
+        std::vector<std::optional<Replay::Bar>> latest_by_unit(replay_->units());
+        for (std::size_t c = 0; c < account.contracts().size(); ++c) {
+            if (const auto& bar = replay_->last(c); bar && bar->leading) {
+                auto& slot = latest_by_unit[bar->unit];
+                if (!slot || bar->index > slot->index)
+                    slot = bar;
+            }
+        }
+        std::unordered_map<std::size_t, Decimal> held_by_contract;
+        for (const auto& lot : account.positions()) {
+            auto& qty = held_by_contract[account.contract_index(lot.instrument)];
+            qty = qty + (lot.side == Side::buy ? lot.quantity : Decimal{} - lot.quantity);
+        }
         std::vector<WeightedContract> members;
         std::vector<std::size_t> units;
+        members.reserve(wanted.size());
+        units.reserve(wanted.size());
         for (const auto& [unit, weight] : wanted) {
-            std::optional<Replay::Bar> latest;
-            for (std::size_t c = 0; c < account.contracts().size(); ++c)
-                if (const auto& bar = replay_->last(c); bar && bar->unit == unit && bar->leading
-                    && (!latest || bar->index > latest->index))
-                    latest = bar;
+            const auto& latest = unit < latest_by_unit.size() ? latest_by_unit[unit] : std::nullopt;
             if (!latest)
                 throw std::invalid_argument("a weighted symbol has had no bar yet");
             const auto& contract_terms = execution.contract(latest->contract).terms;
             const auto& terms = contract_terms.instrument;
             const auto& costs = account.contracts().at(latest->contract).costs;
             const auto margin_rate = weight < 0 ? costs.short_margin_rate : costs.margin_rate;
-            Decimal net_held{};
-            for (const auto& lot : account.positions())
-                if (lot.instrument == terms.id)
-                    net_held = net_held
-                        + (lot.side == Side::buy ? lot.quantity : Decimal{} - lot.quantity);
+            const auto found_held = held_by_contract.find(latest->contract);
+            const auto net_held =
+                found_held == held_by_contract.end() ? Decimal{} : found_held->second;
             members.push_back(
                 {terms.id,
                     Decimal::from_raw(weight),
@@ -418,14 +455,59 @@ public:
         return result;
     }
 
+    py::list equity() const
+    {
+        py::list result;
+        for (const auto& point : record_.equity)
+            result.append(py::make_tuple(point.time_ns, point.equity, point.event));
+        return result;
+    }
+
+    py::list settlements() const
+    {
+        py::list result;
+        for (const auto& row : record_.settlements)
+            result.append(
+                py::make_tuple(
+                    row.trading_day,
+                    row.time_ns,
+                    row.balance,
+                    row.equity,
+                    row.realized,
+                    row.fees,
+                    row.margin,
+                    row.available));
+        return result;
+    }
+
+    py::list positions() const
+    {
+        py::list result;
+        for (const auto& row : record_.positions)
+            result.append(
+                py::make_tuple(
+                    row.trading_day,
+                    row.contract,
+                    row.held_long,
+                    row.held_short,
+                    row.price,
+                    row.margin));
+        return result;
+    }
+
+    py::list rejections() const
+    {
+        py::list result;
+        for (const auto& row : record_.rejections)
+            result.append(
+                py::make_tuple(row.time_ns, row.trading_day, row.contract, row.lots, row.reason));
+        return result;
+    }
+
 private:
     std::size_t contract_index(const InstrumentId& id) const
     {
-        const auto& contracts = replay_->execution().account().contracts();
-        for (std::size_t c = 0; c < contracts.size(); ++c)
-            if (contracts[c].instrument.id == id)
-                return c;
-        throw std::logic_error("an order names no contract of the account");
+        return replay_->execution().account().contract_index(id);
     }
 
     std::unique_ptr<Replay> replay_;
@@ -557,22 +639,8 @@ PYBIND11_MODULE(asterion_engine, module)
         .def("settle", &Engine::settle)
         .def("orders", &Engine::orders)
         .def("fills", &Engine::fills)
-        .def_property_readonly(
-            "equity",
-            [](const Engine& e) {
-                return e.record().equity;
-            })
-        .def_property_readonly(
-            "settlements",
-            [](const Engine& e) {
-                return e.record().settlements;
-            })
-        .def_property_readonly(
-            "positions",
-            [](const Engine& e) {
-                return e.record().positions;
-            })
-        .def_property_readonly("rejections", [](const Engine& e) {
-            return e.record().rejections;
-        });
+        .def_property_readonly("equity", &Engine::equity)
+        .def_property_readonly("settlements", &Engine::settlements)
+        .def_property_readonly("positions", &Engine::positions)
+        .def_property_readonly("rejections", &Engine::rejections);
 }

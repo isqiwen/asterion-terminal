@@ -47,11 +47,14 @@ PaperReplaySchedule schedule_of(
 
 const DominantRoll& DominantSeries::on(const std::string& trading_day) const
 {
-    const auto* current = &rolls.at(0);
-    for (const auto& roll : rolls)
-        if (roll.trading_day <= trading_day)
-            current = &roll;
-    return *current;
+    const auto next = std::upper_bound(
+        rolls.begin(),
+        rolls.end(),
+        trading_day,
+        [](const std::string& day, const DominantRoll& roll) {
+            return day < roll.trading_day;
+        });
+    return next == rolls.begin() ? rolls.at(0) : *std::prev(next);
 }
 
 Replay::Replay(
@@ -162,14 +165,21 @@ const std::vector<Replay::Bar>& Replay::next(Observer& observer, std::stop_token
     const auto can_open = [&](std::size_t index) {
         const auto contract = execution_.event(index).contract;
         const auto member = series_[contract];
-        return member == none || std::ranges::none_of(rolls_[member].rolls, [&](const auto& other) {
-            return other.contract != contract && holds(other.contract);
-        });
+        if (member == none)
+            return true;
+        const auto& account = execution_.account();
+        for (const auto& lot : account.positions()) {
+            const auto held_contract = account.contract_index(lot.instrument);
+            if (held_contract != contract && series_[held_contract] == member)
+                return false;
+        }
+        return true;
     };
     const auto decisions = execution_.advance_targets(intents, can_open);
     for (std::size_t i = 0; i < bars_.size(); ++i) {
         const auto& bar = bars_[i];
-        if (series_[bar.contract] != none && bar.leading && can_open(bar.index))
+        if (series_[bar.contract] != none && bar.leading && !took_over_[bar.contract]
+            && can_open(bar.index))
             if (const auto quantity = target(bar.contract);
                 quantity && held(bar.contract) == *quantity)
                 took_over_[bar.contract] = true;

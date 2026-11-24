@@ -35,6 +35,7 @@ ctx.history is not scaled; a change of bar.contract marks the roll.
 from dataclasses import dataclass
 import datetime
 from decimal import Decimal, ROUND_HALF_EVEN
+import functools
 import inspect
 import math
 import numbers
@@ -42,9 +43,15 @@ import numbers
 import numpy as np
 
 FIELDS = ("open", "high", "low", "close", "volume", "open_interest", "roll_yield")
+FIELDS_SET = frozenset(FIELDS)
 PRICES = ("open", "high", "low", "close")
 KINDS = {bool: "bool", int: "int", float: "float", str: "str"}
 WEIGHT_STEP = Decimal("0.00000001")
+
+
+@functools.lru_cache(maxsize=256)
+def _factor_inputs(function) -> tuple[str, ...]:
+    return tuple(name for name in inspect.signature(function).parameters if name in FIELDS_SET)
 
 
 def quantize_weight(value: float) -> Decimal:
@@ -201,7 +208,7 @@ class Context:
         fewer while there are not that many. Read-only."""
         if symbol not in self.columns:
             raise KeyError(f"{symbol} is not traded by this run")
-        if field not in FIELDS:
+        if field not in FIELDS_SET:
             raise KeyError(f"no bar field {field}")
         if not isinstance(count, numbers.Integral) or isinstance(count, bool) or count < 1:
             raise ValueError("count is a positive whole number")
@@ -211,8 +218,7 @@ class Context:
         """A factor's value at the bar being decided on, computed over the
         symbol's last `count` bars: the function's parameters named after bar
         fields get that history, `settings` the rest."""
-        inputs = {name: self.history(symbol, name, count)
-                  for name in inspect.signature(function).parameters if name in FIELDS}
+        inputs = {name: self.history(symbol, name, count) for name in _factor_inputs(function)}
         return float(function(**inputs, **settings)[-1])
 
     def target(self, symbol: str, lots: int):
