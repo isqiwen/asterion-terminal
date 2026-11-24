@@ -108,17 +108,19 @@ private:
     // The calendar the first calendar source holds now, and its open days
     // through yesterday; empty without one.
     std::pair<warehouse::Version, warehouse::OpenDays> calendar() const;
-    void persist(const wire::AcquisitionTask&) const;
+    void persist(const wire::AcquisitionTask&);
     void publish(const wire::AcquisitionTask&, Active&);
     void reap();
     wire::AcquisitionTask load(const std::filesystem::path&) const;
     std::filesystem::path directory_;
     std::map<std::string, Factory> sources_;
+    wire::AcquisitionOptions options_;
     std::map<std::string, std::unique_ptr<warehouse::Store>> stores_;
     std::function<void(const SourceVersions&)> finished_;
     std::vector<PriceTick> verified_price_ticks_;
     mutable std::mutex mutex_;
     std::map<std::string, std::unique_ptr<Active>> active_;
+    std::map<std::string, wire::AcquisitionTask> stored_;
     bool stopped_ = false;
     std::condition_variable_any turn_;
     bool turn_taken_ = false;

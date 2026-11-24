@@ -158,3 +158,27 @@ test("tables are grouped by what they are for, and a table opened by link shows 
   fireEvent.click(categories.getByRole("button", { name: "行情" }));
   expect(screen.queryByRole("group", { name: "行情" })).toBeNull();
 });
+
+test("opening browse on the contracts tab skips dataset coverage until a reference table is opened", async () => {
+  const props = {
+    navigate: vi.fn(),
+    snapshot: { warehouse_endpoint: { host: "warehouse", port: 7450, fingerprint: "f" } },
+    workspaceParams: {},
+  } as unknown as TerminalContext;
+  await act(async () => {
+    render(
+      <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.data-browse">
+        <Browse {...props} />
+      </WorkspaceDraftScope>,
+    );
+  });
+  expect(request.mock.calls.filter(([body]) => body.case === "getDatasetCoverage")).toHaveLength(0);
+  await act(async () => {
+    fireEvent.click(
+      within(screen.getByRole("group", { name: "数据分类" })).getByRole("button", {
+        name: "基本面",
+      }),
+    );
+  });
+  expect(request.mock.calls.filter(([body]) => body.case === "getDatasetCoverage")).toHaveLength(1);
+});

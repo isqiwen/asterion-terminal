@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { warehouseData } from "../../src/bridge/warehouse-data";
 import { Table } from "../../src/generated/asterion/warehouse_pb";
 import type { TerminalContext } from "../../src/host/feature-registry";
@@ -43,33 +43,47 @@ function BrowseBody({ context }: { context: TerminalContext }) {
     context.navigate("workspace.data-browse", {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paramVersion, paramTable]);
-  const ordered = useRef({ version: "", exchanges: [...exchanges] });
+  const [ordered, setOrdered] = useState<{ version: string; exchanges: string[] }>({
+    version: "",
+    exchanges: [...exchanges],
+  });
   const state = useWarehousePoll(
     async () => {
       const current = await warehouseData({ case: "getDatasetSummary", value: {} });
       const latest = current.dataset?.version ?? "";
       const version = viewed || latest;
-      // Parameter and listing tables open on an exchange that has data.
-      if (version && ordered.current.version !== version) {
-        const coverage = await warehouseData({ case: "getDatasetCoverage", value: { version } });
+      return { latest, version };
+    },
+    [viewed],
+    !!viewed,
+  );
+  const activeVersion = state.value?.version ?? "";
+  const needsExchanges = tab !== "contracts";
+  useEffect(() => {
+    if (!needsExchanges || !activeVersion || ordered.version === activeVersion) return;
+    let active = true;
+    // Parameter and listing tables open on an exchange that has data.
+    void warehouseData({ case: "getDatasetCoverage", value: { version: activeVersion } })
+      .then(coverage => {
+        if (!active) return;
         const held = new Set(
           coverage.products
             .filter(item => item.daily?.held || item.minutes?.held)
             .map(item => item.product.split("/")[0]),
         );
-        ordered.current = {
-          version,
+        setOrdered({
+          version: activeVersion,
           exchanges: [
             ...exchanges.filter(item => held.has(item)),
             ...exchanges.filter(item => !held.has(item)),
           ],
-        };
-      }
-      return { latest, version, exchanges: ordered.current.exchanges };
-    },
-    [viewed],
-    !!viewed,
-  );
+        });
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [needsExchanges, activeVersion, ordered.version]);
   useErrorNotification(state.error, "asterion.terminal.data-workbench");
   const latest = state.value?.latest ?? "";
   const group = groups.find(item => item.tabs.includes(tab)) ?? groups[0]!;
@@ -136,7 +150,7 @@ function BrowseBody({ context }: { context: TerminalContext }) {
             version={viewed || state.value.version}
             table={tab}
             name={tableName(tab)}
-            exchanges={state.value.exchanges}
+            exchanges={ordered.exchanges}
           />
         )}
       </div>

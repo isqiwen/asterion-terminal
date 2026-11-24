@@ -15,6 +15,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -25,6 +26,7 @@ import { usePreferences } from "./ui/preferences";
 import { request, pollSnapshot, type Snapshot } from "@asterion/desktop-bridge/client";
 import { Settings } from "./settings/Settings";
 import { terminalFeatures, workspaces } from "./features";
+import { WorkspaceActiveContext } from "./host/polling";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "./host/workspace/drafts";
 import {
   modules,
@@ -93,6 +95,11 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   });
   const route = currentRoute(navigation);
   const view = route.view;
+  const [visitedViews, setVisitedViews] = useState<string[]>(() => [view]);
+  useEffect(() => {
+    setVisitedViews(previous => (previous.includes(view) ? previous : [...previous, view]));
+  }, [view]);
+  const mountedViews = visitedViews.includes(view) ? visitedViews : [...visitedViews, view];
   const viewsRef = useRef<HTMLElement>(null);
   // Lab leaving the ready state, lost log lines and a failed background
   // refresh are reported when they begin.
@@ -145,9 +152,9 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
       /* Navigation remains available without UI storage. */
     }
   }, [navigation, settingsWindow]);
-  function showSettings(page?: SettingsPage) {
+  const showSettings = useCallback((page?: SettingsPage) => {
     void openSettings(page).catch(reason => setError(asDisplayError(reason)));
-  }
+  }, []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<DisplayError>("");
   useErrorNotification(error);
@@ -221,7 +228,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [settingsWindow]);
+  }, [settingsWindow, showSettings]);
   const polling = !!snapshot;
   const pollInFlight = useRef(false);
   useEffect(() => {
@@ -251,57 +258,70 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
       window.clearInterval(timer);
     };
   }, [polling, accept]);
-  async function trade(...args: CommandCall) {
-    const current = ++generation.current;
-    refreshing.current = false;
-    commands.current += 1;
-    syncBusy();
-    try {
-      const next = await request(...args);
-      if (current === generation.current) accept(next);
-      const channel = new BroadcastChannel("asterion.snapshot");
-      channel.postMessage(next);
-      channel.close();
-    } catch (reason) {
-      // A durable commit can succeed even if the response is lost. Refresh state
-      // before showing the error; never automatically repeat a trading command.
-      try {
-        const next = await request("runtime.snapshot");
-        if (current === generation.current) accept(next);
-      } catch {
-        /* Keep the original command error. */
-      }
-      throw reason;
-    } finally {
-      commands.current -= 1;
+  const trade = useCallback<TerminalContext["trade"]>(
+    async (...args: CommandCall) => {
+      const current = ++generation.current;
+      refreshing.current = false;
+      commands.current += 1;
       syncBusy();
-    }
-  }
-  const context: TerminalContext = {
-    snapshot,
-    busy,
-    error,
-    workspacePage: route.options.page,
-    workspaceParams: route.options.params,
-    navigate: (id, options) => {
-      setUserNavigated(true);
-      setNavigation(previous => selectView(previous, id, options));
+      try {
+        const next = await request(...args);
+        if (current === generation.current) accept(next);
+        const channel = new BroadcastChannel("asterion.snapshot");
+        channel.postMessage(next);
+        channel.close();
+      } catch (reason) {
+        // A durable commit can succeed even if the response is lost. Refresh state
+        // before showing the error; never automatically repeat a trading command.
+        try {
+          const next = await request("runtime.snapshot");
+          if (current === generation.current) accept(next);
+        } catch {
+          /* Keep the original command error. */
+        }
+        throw reason;
+      } finally {
+        commands.current -= 1;
+        syncBusy();
+      }
     },
-    openSettings: showSettings,
-    trade,
-  };
+    [accept, syncBusy],
+  );
+  const navigate = useCallback<TerminalContext["navigate"]>((id, options) => {
+    setUserNavigated(true);
+    setNavigation(previous => selectView(previous, id, options));
+  }, []);
+  const baseContext = useMemo<TerminalContext>(
+    () => ({
+      snapshot,
+      busy,
+      error,
+      navigate,
+      openSettings: showSettings,
+      trade,
+    }),
+    [snapshot, busy, error, navigate, showSettings, trade],
+  );
+  const context = useMemo<TerminalContext>(
+    () => ({
+      ...baseContext,
+      workspacePage: route.options.page,
+      workspaceParams: route.options.params,
+    }),
+    [baseContext, route.options.page, route.options.params],
+  );
   // The selected built-in feature uses the application context.
   const currentFeature = terminalFeatures.find(feature =>
     feature.workspaces.some(item => item.id === view),
   );
   const current = currentFeature?.workspaces.find(item => item.id === view);
-  const Panel = current?.component;
   const WorkspaceToolbar = current?.toolbar;
   const marketEndpoint = snapshot?.market_endpoint;
   const warehouseEndpoint = snapshot?.warehouse_endpoint;
   const panelContext = context;
-  const tradingConnections = (snapshot?.trading_connections ?? []).flatMap(item =>
-    "error" in item ? [] : [item],
+  const tradingConnections = useMemo(
+    () => (snapshot?.trading_connections ?? []).flatMap(item => ("error" in item ? [] : [item])),
+    [snapshot?.trading_connections],
   );
   return (
     <WindowFrame
@@ -386,13 +406,26 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                     )}
                     <main className="terminal-business">
                       <h1 className="sr-only">{t(route.module.title)}</h1>
-                      {Panel && currentFeature && (
-                        <WorkspaceDraftScope store={drafts} namespace={currentFeature.id}>
-                          <Suspense fallback={null}>
-                            <Panel {...panelContext} />
-                          </Suspense>
-                        </WorkspaceDraftScope>
-                      )}
+                      {mountedViews.map(id => {
+                        const feature = terminalFeatures.find(item =>
+                          item.workspaces.some(workspace => workspace.id === id),
+                        );
+                        const workspace = feature?.workspaces.find(item => item.id === id);
+                        if (!feature || !workspace) return null;
+                        const ViewPanel = workspace.component;
+                        const isActive = id === view;
+                        return (
+                          <div key={id} className="workspace-panel" hidden={!isActive}>
+                            <WorkspaceActiveContext.Provider value={isActive}>
+                              <WorkspaceDraftScope store={drafts} namespace={feature.id}>
+                                <Suspense fallback={null}>
+                                  <ViewPanel {...(isActive ? panelContext : baseContext)} />
+                                </Suspense>
+                              </WorkspaceDraftScope>
+                            </WorkspaceActiveContext.Provider>
+                          </div>
+                        );
+                      })}
                     </main>
                   </div>
                 }

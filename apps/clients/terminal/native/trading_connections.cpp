@@ -120,7 +120,20 @@ std::string TradingConnections::fingerprint() const
     if (!fs::is_regular_file(certificate) || !fs::is_regular_file(key))
         throw std::invalid_argument(
             "Terminal TLS identity is incomplete; preserve and inspect its files");
-    return ipc::certificate_fingerprint(certificate.string());
+    const auto mtime = fs::last_write_time(certificate);
+    const auto size = fs::file_size(certificate);
+    {
+        std::lock_guard lock(fingerprint_mutex_);
+        if (!cached_fingerprint_.empty() && mtime == certificate_mtime_
+            && size == certificate_size_)
+            return cached_fingerprint_;
+    }
+    auto computed = ipc::certificate_fingerprint(certificate.string());
+    std::lock_guard lock(fingerprint_mutex_);
+    certificate_mtime_ = mtime;
+    certificate_size_ = size;
+    cached_fingerprint_ = computed;
+    return computed;
 }
 
 void TradingConnections::prepare_identity()

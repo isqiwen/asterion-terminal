@@ -450,8 +450,12 @@ TEST_F(Warehouse, ReferenceTablesPageByExchangeAndDays)
 TEST_F(Warehouse, ReportPagesCrossDatesAndKeepTotalAtTheEnd)
 {
     wh::Store store(wh::source_directory(root, "research"), "research");
-    for (const auto* table : {"warehouse_receipts", "member_positions", "inventory"}) {
-        const auto day_column = std::string_view(table) == "member_positions" ? 3 : 2;
+    for (const auto* table :
+        {"settlement", "warehouse_receipts", "member_positions", "inventory"}) {
+        const auto day_column =
+            std::string_view(table) == "member_positions" || std::string_view(table) == "settlement"
+            ? 3
+            : 2;
         {
             auto writer = store.writer();
             for (const auto& [day, count] :
@@ -1155,6 +1159,84 @@ TEST_F(Warehouse, ACommittedWarehouseRecordStillReads)
     const auto coverage = reader.coverage(query);
     ASSERT_EQ(coverage.products_size(), 1);
     EXPECT_EQ(coverage.products(0).product(), "SHFE/rb");
+}
+
+TEST_F(Warehouse, CachedSummaryAndCoverageRefreshWhenVersionOrEmptyKeysChange)
+{
+    wh::Store store(wh::source_directory(root, "research"), "research");
+    {
+        auto writer = store.writer();
+        writer.put(
+            "calendar/SHFE/2026",
+            std::vector<wh::Row>{
+                {"SHFE", "2026-01-05", true, "2026-01-02"},
+                {"SHFE", "2026-01-06", true, "2026-01-05"},
+                {"SHFE", "2026-01-07", true, "2026-01-06"}
+            });
+        writer.put(
+            "contracts/SHFE",
+            std::vector<wh::Row>{
+                {"SHFE",
+                    "SHFE/rb/2026-05",
+                    "rb",
+                    "2026-05",
+                    "rb2605",
+                    "螺纹钢",
+                    "2026-01-05",
+                    "2026-01-07",
+                    "2026-01-07",
+                    "10",
+                    "1",
+                    "吨",
+                    "元",
+                    "1",
+                    "",
+                    ""}
+            });
+        auto bar = row("daily");
+        bar[0] = std::string("SHFE");
+        bar[1] = std::string("rb");
+        bar[2] = std::string("SHFE/rb/2026-05");
+        bar[3] = std::string("2026-01-05");
+        writer.put("daily/SHFE/2026-01-05", std::vector<wh::Row>{bar}, {"2026-01-05"});
+        bar[3] = std::string("2026-01-07");
+        writer.put("daily/SHFE/2026-01-07", std::vector<wh::Row>{bar}, {"2026-01-07"});
+        writer.commit();
+    }
+    const auto v1 = store.current_identity();
+    wh::Reader reader(root);
+
+    wire::DatasetRef current_ref;
+    const auto summary1 = reader.summary(current_ref);
+    ASSERT_EQ(summary1.dataset().version(), v1);
+    EXPECT_EQ(summary1.tables(0).missing(), 1U);
+    EXPECT_EQ(summary1.tables(0).source_empty(), 0U);
+
+    wire::DatasetRef v1_ref;
+    v1_ref.set_version(v1);
+    const auto cov1 = reader.coverage(v1_ref);
+    ASSERT_EQ(cov1.products_size(), 1);
+    EXPECT_EQ(cov1.products(0).daily().with_gaps(), 1U);
+
+    // Product detail uses the cached full coverage without changing its output.
+    wire::ProductRef prod_ref;
+    prod_ref.set_version(v1);
+    prod_ref.set_product("SHFE/rb");
+    const auto detail1 = reader.product_coverage(prod_ref);
+    ASSERT_EQ(detail1.contracts_size(), 1);
+    EXPECT_EQ(detail1.contracts(0).daily().gap_days(), 1U);
+
+    // Recording a source-empty day invalidates cached summary and coverage.
+    fs::create_directories(root / "acquisition");
+    std::ofstream(root / "acquisition/empty-daily.txt") << "daily/SHFE/2026-01-06\n";
+    const auto summary2 = reader.summary(current_ref);
+    EXPECT_EQ(summary2.tables(0).missing(), 0U);
+    EXPECT_EQ(summary2.tables(0).source_empty(), 1U);
+    const auto cov2 = reader.coverage(v1_ref);
+    EXPECT_EQ(cov2.products(0).daily().with_gaps(), 0U);
+    const auto detail2 = reader.product_coverage(prod_ref);
+    EXPECT_EQ(detail2.contracts(0).daily().gap_days(), 0U);
+    EXPECT_EQ(detail2.contracts(0).daily().empty_days(), 1U);
 }
 
 } // namespace

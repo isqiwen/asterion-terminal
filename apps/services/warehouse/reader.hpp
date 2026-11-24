@@ -1,6 +1,7 @@
 #pragma once
 #include "store.hpp"
 #include <asterion/warehouse.pb.h>
+#include <memory>
 
 namespace asterion::warehouse {
 
@@ -9,10 +10,7 @@ class Reader
 {
 public:
     // A version's partitions come in pages of `page`.
-    explicit Reader(std::filesystem::path directory, int page = 512)
-        : directory_(std::move(directory)),
-          page_(page)
-    {}
+    explicit Reader(std::filesystem::path directory, int page = 512);
 
     ::warehouse::DatasetVersion version(const ::warehouse::GetDatasetVersion&) const;
     ::warehouse::DatasetFile file(const ::warehouse::ReadDatasetFile&) const;
@@ -24,8 +22,11 @@ public:
     ::warehouse::TableRows rows(const ::warehouse::GetTableRows&) const;
 
 private:
+    struct Cache;
+
     std::filesystem::path directory_;
     int page_;
+    std::shared_ptr<Cache> cache_;
 };
 
 } // namespace asterion::warehouse

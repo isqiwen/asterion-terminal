@@ -90,6 +90,7 @@ private:
     std::filesystem::path root_;
     std::string provider_;
     std::mutex writes_;
+    std::filesystem::path canonical_root_;
 };
 
 class Writer

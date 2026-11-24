@@ -7,6 +7,15 @@
   flex-direction: column;
   background: var(--canvas);
 }
+.terminal-business > .workspace-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.terminal-business > .workspace-panel[hidden] {
+  display: none;
+}
 .futures-data,
 .futures-market {
   display: flex;
@@ -70,12 +79,14 @@
   overflow: auto;
 }
 
-.terminal-business > section > .panel-heading {
+.terminal-business > section > .panel-heading,
+.terminal-business > .workspace-panel > section > .panel-heading {
   min-height: 64px;
   background: transparent;
   padding: var(--space-4) var(--space-page);
 }
-.terminal-business > section > .panel-heading h2 {
+.terminal-business > section > .panel-heading h2,
+.terminal-business > .workspace-panel > section > .panel-heading h2 {
   font-size: var(--font-size-xl);
   font-weight: 500;
   color: var(--text-strong);

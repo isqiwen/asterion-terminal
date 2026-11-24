@@ -4,12 +4,15 @@
 #include <asterion/protocol/warehouse.hpp>
 #include <asterion/base/error.hpp>
 #include <algorithm>
+#include <deque>
 #include <fstream>
 #include <map>
+#include <mutex>
 #include <ranges>
 #include <regex>
 #include <sstream>
 #include <set>
+#include <tuple>
 
 namespace asterion::warehouse {
 namespace fs = std::filesystem;
@@ -22,10 +25,61 @@ Store dataset(const fs::path& directory)
     return Store(source_directory(directory, "research"), "research");
 }
 
-Version selected(const Store& store, const std::string& identity)
+struct FileStamp
 {
-    return identity.empty() ? store.current() : store.version(identity);
+    bool operator==(const FileStamp&) const = default;
+
+    bool exists = false;
+    fs::file_time_type mtime{};
+    std::uintmax_t size = 0;
+};
+
+using EmptyStamp = std::vector<FileStamp>;
+
+EmptyStamp empty_stamp(const fs::path& directory, std::initializer_list<const char*> tables)
+{
+    EmptyStamp result;
+    result.reserve(tables.size());
+    for (const auto* table : tables) {
+        const auto path = empty_file(directory, table);
+        std::error_code ec;
+        const bool exists = fs::is_regular_file(path, ec);
+        if (ec || !exists) {
+            result.push_back({});
+            continue;
+        }
+        const auto mtime = fs::last_write_time(path, ec);
+        const auto size = ec ? 0 : fs::file_size(path, ec);
+        result.push_back(ec ? FileStamp{} : FileStamp{true, mtime, size});
+    }
+    return result;
 }
+
+template <class Key, class Value>
+struct BoundedCache
+{
+    std::optional<Value> get(const Key& key) const
+    {
+        for (const auto& [k, v] : entries)
+            if (k == key)
+                return v;
+        return std::nullopt;
+    }
+
+    void put(Key key, Value value, std::size_t capacity)
+    {
+        for (auto& [k, v] : entries)
+            if (k == key) {
+                v = std::move(value);
+                return;
+            }
+        if (entries.size() >= capacity)
+            entries.pop_front();
+        entries.emplace_back(std::move(key), std::move(value));
+    }
+
+    std::deque<std::pair<Key, Value>> entries;
+};
 
 wire::DatasetChange
 change_of(const Store& store, const VersionHead& version, const VersionHead& base)
@@ -167,30 +221,32 @@ ProductCoverages contract_coverage(
             + " AND product = " + quoted(wanted.substr(wanted.find('/') + 1));
     // Before the engine: this read takes the same one-query lane.
     const auto open = open_days(store, version, yesterday());
-    parquet::Engine engine;
-    if (!listed.empty()) {
-        const auto rows = engine.run(
-            "SELECT contract, strftime(list_date, '%Y-%m-%d'), strftime(delist_date, '%Y-%m-%d')" " FROM read_parquet(["
-            + listed + "])" + only);
-        for (duckdb::idx_t row = 0; row < rows->RowCount(); ++row) {
-            auto& entry = contracts[rows->GetValue(0, row).ToString()];
-            entry.list = rows->GetValue(1, row).ToString();
-            entry.delist = rows->GetValue(2, row).ToString();
-        }
-    }
-    for (const auto& [exchange, groups] : daily)
-        for (const auto& [group, files] : groups) {
+    {
+        parquet::Engine engine;
+        if (!listed.empty()) {
             const auto rows = engine.run(
-                "SELECT contract, strftime(min(day), '%Y-%m-%d'), strftime(max(day), '%Y-%m-%d')," " count(DISTINCT day) FROM read_parquet(["
-                + files + "])" + only + " GROUP BY contract");
+                "SELECT contract, strftime(list_date, '%Y-%m-%d'), strftime(delist_date, '%Y-%m-%d')" " FROM read_parquet(["
+                + listed + "])" + only);
             for (duckdb::idx_t row = 0; row < rows->RowCount(); ++row) {
-                auto& held = contracts[rows->GetValue(0, row).ToString()].daily;
-                const auto first = rows->GetValue(1, row).ToString();
-                held.first = held.first.empty() ? first : std::min(held.first, first);
-                held.last = std::max(held.last, rows->GetValue(2, row).ToString());
-                held.days += rows->GetValue(3, row).GetValue<std::uint32_t>();
+                auto& entry = contracts[rows->GetValue(0, row).ToString()];
+                entry.list = rows->GetValue(1, row).ToString();
+                entry.delist = rows->GetValue(2, row).ToString();
             }
         }
+        for (const auto& [exchange, groups] : daily)
+            for (const auto& [group, files] : groups) {
+                const auto rows = engine.run(
+                    "SELECT contract, strftime(min(day), '%Y-%m-%d'), strftime(max(day), '%Y-%m-%d')," " count(DISTINCT day) FROM read_parquet(["
+                    + files + "])" + only + " GROUP BY contract");
+                for (duckdb::idx_t row = 0; row < rows->RowCount(); ++row) {
+                    auto& held = contracts[rows->GetValue(0, row).ToString()].daily;
+                    const auto first = rows->GetValue(1, row).ToString();
+                    held.first = held.first.empty() ? first : std::min(held.first, first);
+                    held.last = std::max(held.last, rows->GetValue(2, row).ToString());
+                    held.days += rows->GetValue(3, row).GetValue<std::uint32_t>();
+                }
+            }
+    }
     for (const auto& [contract, days] : minute_days) {
         auto& held = contracts[contract].minutes;
         held.first = *days.begin();
@@ -226,15 +282,19 @@ ProductCoverages contract_coverage(
         }
     }
     std::map<std::string, std::set<std::string>> daily_days;
-    for (const auto& [exchange, names] : short_contracts) {
-        std::string files;
-        for (const auto& [group, part] : daily.at(exchange))
-            files += (files.empty() ? "" : ",") + part;
-        const auto rows = engine.run(
-            "SELECT DISTINCT contract, strftime(day, '%Y-%m-%d') FROM read_parquet([" + files
-            + "]) WHERE contract IN (" + names + ")");
-        for (duckdb::idx_t row = 0; row < rows->RowCount(); ++row)
-            daily_days[rows->GetValue(0, row).ToString()].insert(rows->GetValue(1, row).ToString());
+    if (!short_contracts.empty()) {
+        parquet::Engine engine;
+        for (const auto& [exchange, names] : short_contracts) {
+            std::string files;
+            for (const auto& [group, part] : daily.at(exchange))
+                files += (files.empty() ? "" : ",") + part;
+            const auto rows = engine.run(
+                "SELECT DISTINCT contract, strftime(day, '%Y-%m-%d') FROM read_parquet([" + files
+                + "]) WHERE contract IN (" + names + ")");
+            for (duckdb::idx_t row = 0; row < rows->RowCount(); ++row)
+                daily_days[rows->GetValue(0, row).ToString()].insert(
+                    rows->GetValue(1, row).ToString());
+        }
     }
     ProductCoverages result;
     for (const auto& [contract, entry] : contracts) {
@@ -315,7 +375,89 @@ void summarize(
         }
 }
 
+wire::DatasetCoverage build_coverage(const ProductCoverages& by_product)
+{
+    wire::DatasetCoverage result;
+    for (const auto& [name, contracts] : by_product) {
+        auto* product = result.add_products();
+        product->set_product(name);
+        product->set_contracts(static_cast<std::uint32_t>(contracts.size()));
+        product->set_listed(
+            static_cast<std::uint32_t>(
+                std::ranges::count_if(contracts, &wire::ContractCoverage::listed)));
+        summarize(*product->mutable_daily(), contracts, &wire::ContractCoverage::daily);
+        summarize(*product->mutable_minutes(), contracts, &wire::ContractCoverage::minutes);
+    }
+    return result;
+}
+
 } // namespace
+
+// Content-addressed versions, heads, diffs, and derived summaries/coverages are immutable
+// for a given (version, day, empty-keys stamp); caching them avoids rescanning Parquet and shards.
+struct Reader::Cache
+{
+    using Key = std::tuple<std::string, std::string, EmptyStamp>;
+    using CoverageEntry = std::pair<std::shared_ptr<const ProductCoverages>, wire::DatasetCoverage>;
+
+    std::shared_ptr<const Version> version(const Store& store, const std::string& identity)
+    {
+        if (identity.empty())
+            return std::make_shared<Version>(Version{{}, store.provider(), {}, 0, {}});
+        require_identity(identity);
+        {
+            std::lock_guard lock(mutex);
+            if (auto found = versions.get(identity))
+                return *found;
+        }
+        auto loaded = std::make_shared<Version>(store.version(identity));
+        std::lock_guard lock(mutex);
+        versions.put(identity, loaded, 2);
+        return loaded;
+    }
+
+    VersionHead head(const Store& store, const std::string& identity)
+    {
+        require_identity(identity);
+        {
+            std::lock_guard lock(mutex);
+            if (auto found = heads.get(identity))
+                return *found;
+        }
+        auto loaded = store.head(identity);
+        std::lock_guard lock(mutex);
+        heads.put(identity, loaded, 64);
+        return loaded;
+    }
+
+    wire::DatasetChange
+    change(const Store& store, const VersionHead& version, const VersionHead& base)
+    {
+        const std::pair key{version.identity, base.identity};
+        {
+            std::lock_guard lock(mutex);
+            if (auto found = changes.get(key))
+                return *found;
+        }
+        auto computed = change_of(store, version, base);
+        std::lock_guard lock(mutex);
+        changes.put(key, computed, 64);
+        return computed;
+    }
+
+    std::mutex mutex;
+    BoundedCache<std::string, std::shared_ptr<const Version>> versions;
+    BoundedCache<std::string, VersionHead> heads;
+    BoundedCache<std::pair<std::string, std::string>, wire::DatasetChange> changes;
+    BoundedCache<Key, wire::DatasetSummary> summaries;
+    BoundedCache<Key, CoverageEntry> coverages;
+};
+
+Reader::Reader(fs::path directory, int page)
+    : directory_(std::move(directory)),
+      page_(page),
+      cache_(std::make_shared<Cache>())
+{}
 
 wire::DatasetVersion Reader::version(const wire::GetDatasetVersion& query) const
 {
@@ -395,10 +537,26 @@ wire::DatasetFile Reader::file(const wire::ReadDatasetFile& query) const
 wire::DatasetSummary Reader::summary(const wire::DatasetRef& query) const
 {
     const auto store = dataset(directory_);
-    const auto version = selected(store, query.version());
+    const auto identity = query.version().empty() ? store.current_identity() : query.version();
+    if (!identity.empty())
+        require_identity(identity);
+    const auto day = yesterday();
+    const Cache::Key cache_key{
+        identity,
+        day,
+        empty_stamp(
+            directory_,
+            {"daily", "minutes", "settlement", "warehouse_receipts", "member_positions"})
+    };
+    if (!identity.empty()) {
+        std::lock_guard lock(cache_->mutex);
+        if (auto found = cache_->summaries.get(cache_key))
+            return *found;
+    }
+    const auto version = cache_->version(store, identity);
     wire::DatasetSummary result;
-    *result.mutable_dataset() = dataset_of(version);
-    const auto open = open_days(store, version, yesterday());
+    *result.mutable_dataset() = dataset_of(*version);
+    const auto open = open_days(store, *version, day);
     for (const auto* table :
         {"daily",
             "calendar",
@@ -414,24 +572,27 @@ wire::DatasetSummary Reader::summary(const wire::DatasetRef& query) const
         std::string files;
         // Partitions name the days they hold; only those that do not are read.
         std::set<std::string> days;
-        for (const auto& [key, part] : version.partitions) {
-            if (!key.starts_with(std::string(table) + '/'))
-                continue;
+        const auto prefix = std::string(table) + '/';
+        for (auto at = version->partitions.lower_bound(prefix);
+            at != version->partitions.end() && at->first.starts_with(prefix);
+            ++at) {
+            const auto& [key, part] = *at;
             item->set_partitions(item->partitions() + 1);
             item->set_rows(item->rows() + part.rows);
             if (part.days.empty())
-                files += (files.empty() ? "" : ",") + parquet::literal(store.file(version, key));
+                files += (files.empty() ? "" : ",") + parquet::literal(store.file(*version, key));
             days.insert(part.days.begin(), part.days.end());
         }
         if (!files.empty()) {
             parquet::Engine engine;
-            const std::string day = std::string_view(table) == "price_ticks" ? "effective_from"
-                : std::string_view(table) == "contracts"                     ? "list_date"
-                                                                             : "day";
+            const std::string day_col = std::string_view(table) == "price_ticks" ? "effective_from"
+                : std::string_view(table) == "contracts"                         ? "list_date"
+                                                                                 : "day";
             const std::string last =
-                std::string_view(table) == "price_ticks" ? "effective_until - 1" : day;
+                std::string_view(table) == "price_ticks" ? "effective_until - 1" : day_col;
             const auto dates = engine.run(
-                "SELECT min(" + day + "), max(" + last + ") FROM read_parquet([" + files + "])");
+                "SELECT min(" + day_col + "), max(" + last + ") FROM read_parquet([" + files
+                + "])");
             for (const auto column : {0, 1})
                 if (!dates->GetValue(column, 0).IsNull())
                     days.insert(dates->GetValue(column, 0).ToString());
@@ -444,11 +605,15 @@ wire::DatasetSummary Reader::summary(const wire::DatasetRef& query) const
             || std::string_view(table) == "price_ticks" || std::string_view(table) == "inventory")
             continue;
         for (const auto& [holder, holding] :
-            holdings(store, version, table, open, empty_keys(directory_, table))) {
+            holdings(store, *version, table, open, empty_keys(directory_, table))) {
             item->set_missing(item->missing() + holding.missing);
             item->set_source_empty(item->source_empty() + holding.empty);
             item->set_expected_last_day(std::max(item->expected_last_day(), holding.through));
         }
+    }
+    if (!identity.empty()) {
+        std::lock_guard lock(cache_->mutex);
+        cache_->summaries.put(cache_key, result, 4);
     }
     return result;
 }
@@ -457,13 +622,15 @@ wire::DatasetVersions Reader::versions(const wire::ListDatasetVersions& query) c
 {
     const auto store = dataset(directory_);
     auto next = query.after_version().empty() ? store.current_identity()
-                                              : store.head(query.after_version()).parent;
+                                              : cache_->head(store, query.after_version()).parent;
     wire::DatasetVersions result;
     while (!next.empty() && result.versions_size() < 20) {
-        const auto version = store.head(next);
+        const auto version = cache_->head(store, next);
         const bool has_parent = !version.parent.empty() && store.has_version(version.parent);
-        *result.add_versions() =
-            change_of(store, version, has_parent ? store.head(version.parent) : VersionHead{});
+        *result.add_versions() = cache_->change(
+            store,
+            version,
+            has_parent ? cache_->head(store, version.parent) : VersionHead{});
         next = has_parent ? version.parent : std::string{};
     }
     if (!next.empty())
@@ -474,7 +641,10 @@ wire::DatasetVersions Reader::versions(const wire::ListDatasetVersions& query) c
 wire::DatasetChange Reader::change(const wire::CompareDatasetVersions& query) const
 {
     const auto store = dataset(directory_);
-    return change_of(store, store.head(query.version()), store.head(query.base()));
+    return cache_->change(
+        store,
+        cache_->head(store, query.version()),
+        cache_->head(store, query.base()));
 }
 
 wire::TableRows Reader::rows(const wire::GetTableRows& query) const
@@ -485,7 +655,9 @@ wire::TableRows Reader::rows(const wire::GetTableRows& query) const
         && table != "inventory")
         throw std::invalid_argument("only reference tables can be browsed");
     const auto store = dataset(directory_);
-    const auto version = selected(store, query.dataset().version());
+    const auto identity =
+        query.dataset().version().empty() ? store.current_identity() : query.dataset().version();
+    const auto version = cache_->version(store, identity);
     wire::TableRows result;
     for (const auto& column : columns(table))
         result.add_columns(column.name);
@@ -493,16 +665,16 @@ wire::TableRows Reader::rows(const wire::GetTableRows& query) const
     std::string files;
     std::uint64_t total = 0;
     std::uint64_t skipped = 0;
-    const bool daily_partitions =
-        table == "warehouse_receipts" || table == "member_positions" || table == "inventory";
+    const bool daily_partitions = table == "settlement" || table == "warehouse_receipts"
+        || table == "member_positions" || table == "inventory";
     // Daily reports have disjoint dates, so earlier pages need not be opened or sorted.
-    for (const auto& [key, part] : version.partitions | std::views::reverse) {
+    for (const auto& [key, part] : version->partitions | std::views::reverse) {
         if (key != prefix && !key.starts_with(prefix + '/'))
             continue;
         if (daily_partitions && total + part.rows <= query.offset())
             skipped += part.rows;
         else if (total < std::uint64_t{query.offset()} + 100)
-            files += (files.empty() ? "" : ",") + parquet::literal(store.file(version, key));
+            files += (files.empty() ? "" : ",") + parquet::literal(store.file(*version, key));
         total += part.rows;
     }
     result.set_total(static_cast<std::uint32_t>(total));
@@ -535,19 +707,23 @@ wire::TableRows Reader::rows(const wire::GetTableRows& query) const
 wire::DatasetCoverage Reader::coverage(const wire::DatasetRef& query) const
 {
     require_identity(query.version());
-    const auto store = dataset(directory_);
-    const auto version = store.version(query.version());
-    wire::DatasetCoverage result;
-    for (const auto& [name, contracts] : contract_coverage(directory_, store, version, "")) {
-        auto* product = result.add_products();
-        product->set_product(name);
-        product->set_contracts(static_cast<std::uint32_t>(contracts.size()));
-        product->set_listed(
-            static_cast<std::uint32_t>(
-                std::ranges::count_if(contracts, &wire::ContractCoverage::listed)));
-        summarize(*product->mutable_daily(), contracts, &wire::ContractCoverage::daily);
-        summarize(*product->mutable_minutes(), contracts, &wire::ContractCoverage::minutes);
+    const Cache::Key cache_key{
+        query.version(),
+        yesterday(),
+        empty_stamp(directory_, {"daily", "minutes"})
+    };
+    {
+        std::lock_guard lock(cache_->mutex);
+        if (auto found = cache_->coverages.get(cache_key))
+            return found->second;
     }
+    const auto store = dataset(directory_);
+    const auto version = cache_->version(store, query.version());
+    auto by_product =
+        std::make_shared<ProductCoverages>(contract_coverage(directory_, store, *version, ""));
+    auto result = build_coverage(*by_product);
+    std::lock_guard lock(cache_->mutex);
+    cache_->coverages.put(cache_key, {std::move(by_product), result}, 2);
     return result;
 }
 
@@ -557,10 +733,43 @@ wire::ProductContracts Reader::product_coverage(const wire::ProductRef& query) c
     static const std::regex product("[A-Z]+/[a-zA-Z]{1,3}");
     if (!query.product().empty() && !std::regex_match(query.product(), product))
         throw std::invalid_argument("a product must be EXCHANGE/product");
-    const auto store = dataset(directory_);
-    const auto version = store.version(query.version());
+    const Cache::Key cache_key{
+        query.version(),
+        yesterday(),
+        empty_stamp(directory_, {"daily", "minutes"})
+    };
+    std::shared_ptr<const ProductCoverages> cached;
+    {
+        std::lock_guard lock(cache_->mutex);
+        if (auto found = cache_->coverages.get(cache_key))
+            cached = found->first;
+    }
     wire::ProductContracts result;
-    auto found = contract_coverage(directory_, store, version, query.product());
+    if (cached) {
+        if (query.product().empty()) {
+            for (const auto& [name, contracts] : *cached)
+                for (const auto& contract : contracts)
+                    *result.add_contracts() = contract;
+        } else if (const auto at = cached->find(query.product()); at != cached->end()) {
+            for (const auto& contract : at->second)
+                *result.add_contracts() = contract;
+        }
+        return result;
+    }
+    const auto store = dataset(directory_);
+    const auto version = cache_->version(store, query.version());
+    if (query.product().empty()) {
+        auto by_product =
+            std::make_shared<ProductCoverages>(contract_coverage(directory_, store, *version, ""));
+        auto summary = build_coverage(*by_product);
+        for (const auto& [name, contracts] : *by_product)
+            for (const auto& contract : contracts)
+                *result.add_contracts() = contract;
+        std::lock_guard lock(cache_->mutex);
+        cache_->coverages.put(cache_key, {std::move(by_product), std::move(summary)}, 2);
+        return result;
+    }
+    auto found = contract_coverage(directory_, store, *version, query.product());
     for (auto& [name, contracts] : found)
         for (auto& contract : contracts)
             *result.add_contracts() = std::move(contract);

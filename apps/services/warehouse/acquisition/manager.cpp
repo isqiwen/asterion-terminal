@@ -92,9 +92,7 @@ void validate(const wire::StartAcquisition& request)
 
 constexpr const char* all_exchanges[] = {"SHFE", "INE", "DCE", "CZCE", "CFFEX", "GFEX"};
 
-} // namespace
-
-wire::AcquisitionOptions Manager::options() const
+wire::AcquisitionOptions build_options(const std::map<std::string, Factory>& sources)
 {
     wire::AcquisitionOptions result;
     for (const auto* name :
@@ -109,13 +107,12 @@ wire::AcquisitionOptions Manager::options() const
             "inventory"}) {
         std::set<std::string> exchanges;
         for (const auto& provider : warehouse::sources_of(name)) {
-            if (!sources_.contains(provider))
+            if (!sources.contains(provider))
                 continue;
-            const auto source = sources_.at(provider)({});
+            const auto source = sources.at(provider)({});
             for (const auto* exchange : all_exchanges)
-                if (source->supports(name, exchange)) {
+                if (source->supports(name, exchange))
                     exchanges.insert(exchange);
-                }
         }
         if (!exchanges.empty()) {
             auto* item = result.add_tables();
@@ -126,6 +123,13 @@ wire::AcquisitionOptions Manager::options() const
         }
     }
     return result;
+}
+
+} // namespace
+
+wire::AcquisitionOptions Manager::options() const
+{
+    return options_;
 }
 
 Manager::Manager(
@@ -146,6 +150,7 @@ Manager::Manager(
             warehouse::source_directory(directory_.parent_path(), provider),
             provider);
     }
+    options_ = build_options(sources_);
     // An accepted task never silently resumes network requests after a restart.
     for (const auto& entry : fs::directory_iterator(directory_)) {
         if (entry.path().extension() != ".pb")
@@ -159,6 +164,8 @@ Manager::Manager(
                 task.mutable_error()->set_message("Warehouse stopped before acquisition completed");
                 task.set_finished_ms(now_ms());
                 persist(task);
+            } else {
+                stored_[task.request().id()] = std::move(task);
             }
         } catch (const std::exception& error) {
             log::error("acquisition task ignored: {}", error.what());
@@ -182,9 +189,10 @@ std::pair<warehouse::Version, warehouse::OpenDays> Manager::calendar() const
     return {};
 }
 
-void Manager::persist(const wire::AcquisitionTask& task) const
+void Manager::persist(const wire::AcquisitionTask& task)
 {
     replace_file_durably(directory_ / (task.request().id() + ".pb"), task.SerializeAsString());
+    stored_[task.request().id()] = task;
 }
 
 wire::AcquisitionTask Manager::load(const fs::path& path) const
@@ -619,6 +627,8 @@ wire::AcquisitionTask Manager::get(const std::string& id) const
             at->second->finished.get();
         return at->second->task;
     }
+    if (const auto at = stored_.find(id); at != stored_.end())
+        return at->second;
     return load(directory_ / (id + ".pb"));
 }
 
@@ -628,21 +638,16 @@ wire::AcquisitionTasks Manager::list(const wire::ListAcquisitionTasks& query) co
         require_id(query.after_id());
     std::lock_guard lock(mutex_);
     std::vector<wire::AcquisitionTask> tasks;
+    tasks.reserve(active_.size() + stored_.size());
     for (const auto& [id, active] : active_) {
         if (pending(active->task)
             && active->finished.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
             active->finished.get();
         tasks.push_back(active->task);
     }
-    for (const auto& entry : fs::directory_iterator(directory_)) {
-        if (entry.path().extension() != ".pb" || active_.contains(entry.path().stem().string()))
-            continue;
-        try {
-            tasks.push_back(load(entry.path()));
-        } catch (const std::exception& error) {
-            log::error("acquisition task ignored: {}", error.what());
-        }
-    }
+    for (const auto& [id, task] : stored_)
+        if (!active_.contains(id))
+            tasks.push_back(task);
     std::sort(tasks.begin(), tasks.end(), [](const auto& a, const auto& b) {
         return a.started_ms() != b.started_ms() ? a.started_ms() > b.started_ms()
                                                 : a.request().id() < b.request().id();
@@ -678,7 +683,7 @@ void Manager::cancel(const std::string& id)
     std::lock_guard lock(mutex_);
     if (const auto at = active_.find(id); at != active_.end())
         at->second->cancel.request_stop();
-    else
+    else if (!stored_.contains(id))
         load(directory_ / (id + ".pb"));
 }
 

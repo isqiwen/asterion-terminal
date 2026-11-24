@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { lab } from "../../src/bridge/lab";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useErrorNotification } from "../../src/host/notifications";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
-import { type MessageValues, translate } from "../../src/i18n";
+import { getLocale, type MessageValues, translate } from "../../src/i18n";
 import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
 import { identityName } from "../../src/ui/contract-names";
 import { ContractHistory } from "../futures-market/ContractHistory";
@@ -15,6 +15,7 @@ const t = (key: string, values?: MessageValues) =>
 const shownAtOnce = 200;
 
 type Stored = { contract: string; name: string; dailyDays: number; minuteDays: number };
+type IndexedStored = Stored & { displayName: string; searchKey: string };
 
 // The contracts a research dataset version holds, and the chosen one's history.
 // An empty version is the current one.
@@ -42,7 +43,8 @@ export function StoredContracts({
           }))
           .sort(
             (a, b) =>
-              Number(!a.minuteDays) - Number(!b.minuteDays) || a.contract.localeCompare(b.contract),
+              Number(!a.minuteDays) - Number(!b.minuteDays) ||
+              (a.contract < b.contract ? -1 : a.contract > b.contract ? 1 : 0),
           );
         if (active) setStored({ items, error: "" });
       })
@@ -51,21 +53,33 @@ export function StoredContracts({
       active = false;
     };
   }, [version]);
-  const items = stored?.items ?? [];
-  useErrorNotification(stored?.error ?? "", "asterion.terminal.data-workbench");
-  const nameFor = (item: Stored) => identityName(item.contract, item.name) || item.contract;
-  const matched = items.filter(item =>
-    `${item.contract} ${contractCode(item.contract)} ${nameFor(item)}`
-      .toUpperCase()
-      .includes(search.trim().toUpperCase()),
+  const locale = getLocale();
+  const indexed = useMemo<IndexedStored[]>(
+    () =>
+      (stored?.items ?? []).map(item => {
+        const displayName = identityName(item.contract, item.name) || item.contract;
+        return {
+          ...item,
+          displayName,
+          searchKey: `${item.contract} ${contractCode(item.contract)} ${displayName}`.toUpperCase(),
+        };
+      }),
+    // identityName depends on the current locale.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stored?.items, locale],
   );
+  useErrorNotification(stored?.error ?? "", "asterion.terminal.data-workbench");
+  const matched = useMemo(() => {
+    const query = search.trim().toUpperCase();
+    return query ? indexed.filter(item => item.searchKey.includes(query)) : indexed;
+  }, [indexed, search]);
   const visible = matched.slice(0, shownAtOnce);
   const active = matched.some(item => item.contract === selected) ? selected : visible[0]?.contract;
   return (
     <>
       {!stored ? (
         <p className="subtle">{t("读取中")}</p>
-      ) : stored.error ? null : !items.length ? (
+      ) : stored.error ? null : !indexed.length ? (
         <p className="subtle">{t("还没有合约")}</p>
       ) : (
         <div className="stored-contracts">
@@ -107,8 +121,8 @@ export function StoredContracts({
                     }
                   }}
                 >
-                  <span>{nameFor(item)}</span>
-                  {nameFor(item) !== item.contract && <small>{item.contract}</small>}
+                  <span>{item.displayName}</span>
+                  {item.displayName !== item.contract && <small>{item.contract}</small>}
                   <small>
                     {[
                       item.dailyDays ? t("日线 {days} 天", { days: item.dailyDays }) : "",

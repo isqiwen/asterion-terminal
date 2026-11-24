@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useMemo,
   useState,
   useSyncExternalStore,
   type Dispatch,
@@ -41,7 +42,8 @@ export function WorkspaceDraftScope({
   namespace: string;
   children: ReactNode;
 }) {
-  return <DraftContext.Provider value={{ store, namespace }}>{children}</DraftContext.Provider>;
+  const value = useMemo(() => ({ store, namespace }), [store, namespace]);
+  return <DraftContext.Provider value={value}>{children}</DraftContext.Provider>;
 }
 
 /** Retains explicitly selected plugin input across navigation, until this window reloads. */

@@ -101,13 +101,15 @@ struct Application::Impl
         Settings settings;
         std::uint64_t revision = 0;
         std::int64_t refreshed_at_ms = 0;
+        // Command counters appear in snapshots but never advance `revision` on their own.
+        std::uint64_t succeeded = 0, failed = 0;
     };
 
     void record_refresh_failure(ErrorCode code) noexcept;
     // A saved address for display, or a mark that it is unreadable.
     json endpoint_settings(const SavedEndpoint&) const;
-    PolledTask<std::optional<ServiceEndpoint>> selected_of(const SavedEndpoint&, const char* name);
-    PolledTask<ServiceEndpoint> address_of(const SavedEndpoint&, const char* name);
+    std::optional<ServiceEndpoint> selected_of(const json&, const char* name) const;
+    ServiceEndpoint address_of(const json&, const char* name) const;
 
     // The development entry names the runtime it prepared; an installed
     // application uses the one installed at its first launch.

@@ -322,18 +322,20 @@ export function TradingAccountsProvider({
       window.clearInterval(timer);
     };
   }, [identities, accept]);
-  const instances = new Map(connections.map(item => [item.id, item.instance]));
-  const value = {
-    views: Object.fromEntries(
-      [...identities]
-        .filter(([, identity]) => views[identity])
-        .map(([id, identity]) => {
-          const instance = instances.get(id);
-          return [id, instance ? { ...views[identity]!, instance } : views[identity]!];
-        }),
-    ),
-    send,
-  };
+  const value = useMemo(() => {
+    const instances = new Map(connections.map(item => [item.id, item.instance]));
+    return {
+      views: Object.fromEntries(
+        [...identities]
+          .filter(([, identity]) => views[identity])
+          .map(([id, identity]) => {
+            const instance = instances.get(id);
+            return [id, instance ? { ...views[identity]!, instance } : views[identity]!];
+          }),
+      ),
+      send,
+    };
+  }, [connections, identities, views, send]);
   return <Accounts.Provider value={value}>{children}</Accounts.Provider>;
 }
 

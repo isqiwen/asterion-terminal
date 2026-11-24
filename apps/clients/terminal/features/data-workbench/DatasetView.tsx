@@ -10,6 +10,7 @@ import {
 import { useActionError } from "../../src/host/action-error";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useErrorNotification } from "../../src/host/notifications";
+import { useWorkspaceActive } from "../../src/host/polling";
 import { automaticTask, useWarehouse, useWarehousePoll } from "../../src/host/warehouse";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { getLocale } from "../../src/i18n";
@@ -54,9 +55,10 @@ function DatasetBody({ context }: { context: TerminalContext }) {
   const [exchange, setExchange] = useWorkspaceDraft("coverage-exchange", "");
   const [search, setSearch] = useWorkspaceDraft("coverage-search", "");
   const [openProduct, setOpenProduct] = useWorkspaceDraft("coverage-open", "");
+  const workspaceActive = useWorkspaceActive();
   const [chart, setChart] = useState("");
   useEffect(() => {
-    if (!chart) return;
+    if (!chart || !workspaceActive) return;
     const close = (event: KeyboardEvent) => {
       // Escape belongs to a dialog or popover open above the chart.
       if (event.key === "Escape" && !document.querySelector("dialog[open], :popover-open"))
@@ -64,7 +66,7 @@ function DatasetBody({ context }: { context: TerminalContext }) {
     };
     document.addEventListener("keydown", close);
     return () => document.removeEventListener("keydown", close);
-  }, [chart]);
+  }, [chart, workspaceActive]);
   const [shown, setShown] = useState(20);
   const [issuesOnly, setIssuesOnly] = useState(false);
   const warehouse = useWarehouse();
@@ -120,11 +122,16 @@ function DatasetBody({ context }: { context: TerminalContext }) {
     await warehouse?.refresh();
     await state.refresh();
   };
+  const hasSummary = state.value !== undefined;
   const latest = state.value?.latest ?? "";
   const [versions, setVersions] = useState<{ items: DatasetChange[]; older: boolean }>();
   const [versionError, setVersionError] = useState<DisplayError>("");
   useEffect(() => {
-    if (viewed) return;
+    if (viewed || !hasSummary) return;
+    if (!latest) {
+      setVersions({ items: [], older: false });
+      return;
+    }
     let active = true;
     void (async () => {
       const items: DatasetChange[] = [];
@@ -142,7 +149,7 @@ function DatasetBody({ context }: { context: TerminalContext }) {
     return () => {
       active = false;
     };
-  }, [latest, shown, viewed]);
+  }, [hasSummary, latest, shown, viewed]);
 
   const update = useActionError();
   useErrorNotification(update.error, "asterion.terminal.data-workbench");
@@ -197,21 +204,29 @@ function DatasetBody({ context }: { context: TerminalContext }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [coverage, locale],
   );
-  const present = exchanges.filter(item => rows.some(row => row.exchange === item));
+  const present = useMemo(
+    () => exchanges.filter(item => rows.some(row => row.exchange === item)),
+    [rows],
+  );
   const query = search.trim().toUpperCase();
   // A contract code such as RB2705 finds its product.
   const searchedProduct = /^([A-Z]{1,3})\d{3,4}$/.exec(query)?.[1];
-  const needsWork = ({ coverage: item }: ProductRow) =>
-    !!(item?.[kind]?.withGaps || item?.[kind]?.pending);
-  const scoped = rows.filter(
-    row =>
-      (!exchange || row.exchange === exchange) &&
-      (!query ||
-        `${row.id} ${row.name}`.toUpperCase().includes(query) ||
-        row.id.split("/")[1]!.toUpperCase() === searchedProduct),
-  );
-  const issueCount = scoped.filter(needsWork).length;
-  const shownRows = issuesOnly ? scoped.filter(needsWork) : scoped;
+  const { issueCount, shownRows } = useMemo(() => {
+    const needsWork = ({ coverage: item }: ProductRow) =>
+      !!(item?.[kind]?.withGaps || item?.[kind]?.pending);
+    const filtered = rows.filter(
+      row =>
+        (!exchange || row.exchange === exchange) &&
+        (!query ||
+          `${row.id} ${row.name}`.toUpperCase().includes(query) ||
+          row.id.split("/")[1]!.toUpperCase() === searchedProduct),
+    );
+    const issues = filtered.filter(needsWork);
+    return {
+      issueCount: issues.length,
+      shownRows: issuesOnly ? issues : filtered,
+    };
+  }, [rows, exchange, query, searchedProduct, kind, issuesOnly]);
   const expanded =
     (searchedProduct &&
       shownRows.find(row => row.id.split("/")[1]!.toUpperCase() === searchedProduct)?.id) ||

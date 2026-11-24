@@ -71,7 +71,8 @@
   flex-direction: column;
   overflow: auto;
 }
-.terminal-business > .paper-trading > .panel-heading {
+.terminal-business > .paper-trading > .panel-heading,
+.terminal-business > .workspace-panel > .paper-trading > .panel-heading {
   position: sticky;
   top: 0;
   z-index: 3;

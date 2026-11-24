@@ -285,10 +285,10 @@ void answer_reader(
     const wire::Request& request,
     wire::Response& response,
     const std::filesystem::path& directory,
+    const warehouse::Reader& datasets,
     acquisition::Manager& tasks,
     std::int64_t started_ms)
 {
-    const warehouse::Reader datasets(directory);
     switch (request.call_case()) {
         case wire::Request::kGetStatus: {
             auto* status = response.mutable_get_status();
@@ -360,6 +360,7 @@ struct WarehouseService::Running
 {
     explicit Running(Settings settings)
         : settings(std::move(settings)),
+          reader(this->settings.directory),
           composer(seed_verified(this->settings)),
           acquisitions(
               this->settings.directory,
@@ -410,7 +411,7 @@ struct WarehouseService::Running
         auto result = promise->get_future();
         pool.submit([this, request = std::move(request), promise](std::stop_token) {
             promise->set_value(reply(respond(request, [&](wire::Response& out) {
-                answer_reader(request, out, settings.directory, acquisitions, started_ms);
+                answer_reader(request, out, settings.directory, reader, acquisitions, started_ms);
             })));
             service::wake_io_owner();
         });
@@ -421,6 +422,7 @@ struct WarehouseService::Running
     const std::int64_t started_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch())
                                         .count();
+    const warehouse::Reader reader;
     warehouse::Composer composer;
     acquisition::Manager acquisitions;
     ThreadPool readers{4, 128}, analysis{2, 64};

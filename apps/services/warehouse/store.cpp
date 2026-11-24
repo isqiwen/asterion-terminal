@@ -66,8 +66,23 @@ duckdb::Value value(const Column& column, const Cell& cell)
             const std::size_t scale = column.kind == K::price ? 8 : 6;
             // DuckDB casts can round. Refuse lossy input before asking it to
             // store the exact 128-bit decimal; never pass through double.
-            static const std::regex syntax(R"(-?[0-9]+(\.[0-9]+)?)");
-            if (!std::regex_match(text, syntax))
+            auto is_decimal = [](std::string_view s) {
+                std::size_t i = (!s.empty() && s.front() == '-') ? 1 : 0;
+                const std::size_t digits_start = i;
+                while (i < s.size() && s[i] >= '0' && s[i] <= '9')
+                    ++i;
+                if (i == digits_start)
+                    return false;
+                if (i == s.size())
+                    return true;
+                if (s[i++] != '.')
+                    return false;
+                const std::size_t frac_start = i;
+                while (i < s.size() && s[i] >= '0' && s[i] <= '9')
+                    ++i;
+                return i > frac_start && i == s.size();
+            };
+            if (!is_decimal(text))
                 throw std::invalid_argument("warehouse number must be exact decimal text");
             const auto dot = text.find('.');
             if (dot != std::string::npos) {
@@ -92,17 +107,17 @@ duckdb::Value value(const Column& column, const Cell& cell)
     throw std::invalid_argument("warehouse cell type differs from " + std::string(column.name));
 }
 
-fs::path contained(const fs::path& root, const fs::path& file)
+fs::path contained(const fs::path& canonical_root, const fs::path& file)
 {
-    const auto relative = fs::weakly_canonical(file).lexically_relative(fs::weakly_canonical(root));
+    const auto relative = fs::weakly_canonical(file).lexically_relative(canonical_root);
     if (relative.empty() || relative.is_absolute() || *relative.begin() == "..")
         throw Error(ErrorCode::invalid_request, "dataset path leaves its warehouse");
     return file;
 }
 
-std::string read_text(const fs::path& root, const fs::path& path, std::uintmax_t limit)
+std::string read_text(const fs::path& canonical_root, const fs::path& path, std::uintmax_t limit)
 {
-    contained(root, path);
+    contained(canonical_root, path);
     if (!fs::exists(path))
         throw Error(ErrorCode::not_found, "dataset file is missing: " + path.string());
     if (!fs::is_regular_file(path))
@@ -173,13 +188,35 @@ void require_identity(std::string_view identity)
 
 void require_key(std::string_view key)
 {
-    static const std::regex syntax("[A-Za-z0-9_-]+(/[A-Za-z0-9_.-]+)+");
-    if (key.size() > 512 || !std::regex_match(std::string(key), syntax))
+    const auto is_word = [](unsigned char c) {
+        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+            || c == '_' || c == '-';
+    };
+    if (key.empty() || key.size() > 512)
         throw std::invalid_argument("invalid dataset partition key");
-    for (const auto& component : fs::path(key))
-        if (component == "." || component == "..")
+    const auto first_slash = key.find('/');
+    if (first_slash == std::string_view::npos || first_slash == 0 || first_slash + 1 >= key.size())
+        throw std::invalid_argument("invalid dataset partition key");
+    for (std::size_t i = 0; i < first_slash; ++i)
+        if (!is_word(static_cast<unsigned char>(key[i])))
+            throw std::invalid_argument("invalid dataset partition key");
+    std::size_t pos = first_slash + 1;
+    while (pos <= key.size()) {
+        const auto next = key.find('/', pos);
+        const auto end = next == std::string_view::npos ? key.size() : next;
+        const auto part = key.substr(pos, end - pos);
+        if (part.empty())
+            throw std::invalid_argument("invalid dataset partition key");
+        for (const char c : part)
+            if (!is_word(static_cast<unsigned char>(c)) && c != '.')
+                throw std::invalid_argument("invalid dataset partition key");
+        if (part == "." || part == "..")
             throw std::invalid_argument("invalid partition component");
-    columns(key.substr(0, key.find('/')));
+        if (next == std::string_view::npos)
+            break;
+        pos = next + 1;
+    }
+    columns(key.substr(0, first_slash));
 }
 
 fs::path source_directory(const fs::path& directory, std::string_view provider)
@@ -190,7 +227,8 @@ fs::path source_directory(const fs::path& directory, std::string_view provider)
 
 Store::Store(fs::path directory, std::string provider)
     : root_(std::move(directory) / "warehouse"),
-      provider_(std::move(provider))
+      provider_(std::move(provider)),
+      canonical_root_(fs::weakly_canonical(root_))
 {
     require_provider(provider_);
     if (!root_.is_absolute())
@@ -201,7 +239,7 @@ std::string Store::current_identity() const
 {
     if (!fs::exists(root_ / "current"))
         return {};
-    auto identity = read_text(root_, root_ / "current", 65);
+    auto identity = read_text(canonical_root_, root_ / "current", 65);
     if (identity.ends_with('\n'))
         identity.pop_back();
     return identity;
@@ -223,7 +261,7 @@ VersionHead Store::head(std::string_view identity) const
 {
     require_identity(identity);
     const auto path = root_ / "versions" / (std::string(identity) + ".json");
-    const auto content = read_text(root_, path, manifest_limit);
+    const auto content = read_text(canonical_root_, path, manifest_limit);
     if (sha256_bytes(content) != identity)
         throw std::runtime_error(
             "dataset manifest differs from its version: " + std::string(identity));
@@ -243,7 +281,8 @@ std::map<std::string, Partition>
 Store::shard(const std::string& name, const std::string& digest) const
 {
     require_identity(digest);
-    const auto content = read_text(root_, root_ / "shards" / (digest + ".json"), manifest_limit);
+    const auto content =
+        read_text(canonical_root_, root_ / "shards" / (digest + ".json"), manifest_limit);
     if (sha256_bytes(content) != digest)
         throw std::runtime_error("dataset shard differs from its name: " + digest);
     const auto partitions = Json::parse(content);
@@ -311,8 +350,17 @@ fs::path Store::path_of(const Partition& part) const
     const fs::path relative(part.file);
     if (relative.is_absolute() || relative.empty() || *relative.begin() != "files")
         throw std::runtime_error("invalid partition path in dataset manifest");
-    const auto path = contained(root_, root_ / relative);
-    if (!fs::is_regular_file(path))
+    for (const auto& component : relative)
+        if (component == "." || component == "..")
+            throw Error(ErrorCode::invalid_request, "dataset path leaves its warehouse");
+    const auto path = root_ / relative;
+    std::error_code ec;
+    const auto status = fs::symlink_status(path, ec);
+    if (ec || status.type() == fs::file_type::not_found)
+        throw Error(ErrorCode::not_found, "dataset partition file is missing");
+    if (fs::is_symlink(status))
+        throw Error(ErrorCode::invalid_request, "dataset path leaves its warehouse");
+    if (!fs::is_regular_file(status))
         throw Error(ErrorCode::not_found, "dataset partition file is missing");
     return path;
 }

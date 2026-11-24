@@ -608,3 +608,14 @@ test("a kind link opens that kind", async () => {
   ).toBe("true");
   expect(props.navigate).toHaveBeenCalledWith("workspace.data-dataset", {});
 });
+
+test("initial dataset mount lists dataset versions only once", async () => {
+  serve();
+  view(context());
+  await list();
+  await waitFor(() =>
+    expect(request.mock.calls.filter(([body]) => body.case === "listDatasetVersions")).toHaveLength(
+      1,
+    ),
+  );
+});

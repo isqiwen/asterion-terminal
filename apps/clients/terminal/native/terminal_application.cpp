@@ -111,7 +111,8 @@ Application::Impl::invoke(const std::string& method, const json& params)
         try {
             if (success)
                 log::emit(
-                    method == "runtime.snapshot" ? log::Level::debug : log::Level::info,
+                    method == "runtime.snapshot" || method == "market.watch" ? log::Level::debug
+                                                                             : log::Level::info,
                     "{} completed: trace_id={} duration_ns={}",
                     operation,
                     trace,
@@ -227,13 +228,13 @@ Application::Impl::Publication Application::Impl::capture()
         {"diagnostics",
             {{"version", build::version},
                 {"commit", build::commit},
-                {"succeeded", succeeded},
                 {"log_directory", asterion_root().string()},
-                {"failed", failed},
                 {"log_failures", log::failures()},
                 {"refresh_failures", refresh_failures},
                 {"refresh_failed", refresh_failed}}}
     };
+    next.succeeded = succeeded;
+    next.failed = failed;
     return next;
 }
 
@@ -245,6 +246,8 @@ bool Application::Impl::Publication::same_state(const Publication& other) const
 json Application::Impl::Publication::render() const
 {
     auto result = metadata;
+    result["diagnostics"]["succeeded"] = succeeded;
+    result["diagnostics"]["failed"] = failed;
     result["lab"] = lab;
     result["trading_connections"] = settings->trading;
     result["client_fingerprint"] = settings->client_fingerprint;

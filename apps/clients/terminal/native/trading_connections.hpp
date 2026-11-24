@@ -2,6 +2,7 @@
 #include <asterion/base/serialization.hpp>
 #include <asterion/system/ipc/tcp_channel.hpp>
 #include <filesystem>
+#include <mutex>
 
 namespace asterion::terminal {
 
@@ -34,6 +35,10 @@ private:
     std::filesystem::path path(const std::string& id) const;
 
     std::filesystem::path data_;
+    mutable std::mutex fingerprint_mutex_;
+    mutable std::filesystem::file_time_type certificate_mtime_{};
+    mutable std::uintmax_t certificate_size_ = 0;
+    mutable std::string cached_fingerprint_;
 };
 
 } // namespace asterion::terminal

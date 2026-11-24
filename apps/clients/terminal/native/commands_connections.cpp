@@ -1,4 +1,5 @@
 #include "application_impl.hpp"
+#include <asterion/base/id.hpp>
 
 namespace asterion::terminal {
 
@@ -62,19 +63,31 @@ void Application::Impl::register_connection_commands()
     command("trading.call", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"account", "request"});
         const auto id = text(p, "account");
-        const auto selected = co_await settings<std::pair<TradingEndpoint, std::string>>([&] {
-            return std::pair{
-                trading_connections.endpoint(id),
-                trading_connections.get(id).at("revision").get<std::string>()
-            };
-        });
-        auto reply = co_await PollFuture{call_trading(service_io, selected.first, p.at("request"))};
-        co_await settings<void>([&] {
-            if (trading_connections.get(id).at("revision") != selected.second)
-                throw Error(
-                    ErrorCode::conflict,
-                    "trading connection changed; inspect the original host before retrying");
-        });
+        validate_id(id);
+        const auto find_connection = [&]() -> const json* {
+            for (const auto& item : settings_view->trading)
+                if (item.is_object() && item.value("id", "") == id)
+                    return &item;
+            return nullptr;
+        };
+        const auto* saved = find_connection();
+        if (!saved)
+            throw Error(ErrorCode::not_found, "trading connection is unavailable");
+        if (saved->contains("error"))
+            throw std::invalid_argument("invalid trading connection storage");
+        const TradingEndpoint endpoint{
+            saved->at("host").get<std::string>(),
+            saved->at("instance").get<std::string>(),
+            saved->at("port").get<std::uint16_t>(),
+            trading_connections.tls(saved->at("fingerprint").get<std::string>())
+        };
+        const auto revision = saved->at("revision").get<std::string>();
+        auto reply = co_await PollFuture{call_trading(service_io, endpoint, p.at("request"))};
+        const auto* current = find_connection();
+        if (!current || current->contains("error") || current->at("revision") != revision)
+            throw Error(
+                ErrorCode::conflict,
+                "trading connection changed; inspect the original host before retrying");
         co_return Response{json{{"trading", std::move(reply)}}};
     });
     command("trading.connections.save", [this](const json& p) -> PolledTask<Response> {

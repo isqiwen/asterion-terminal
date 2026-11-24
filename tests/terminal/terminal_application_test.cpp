@@ -124,6 +124,18 @@ struct ApplicationTestAccess
     }
 
     // Changes what the core publishes, as an owner operation does.
+    static void advance_publication(Application& app)
+    {
+        app.impl_->service_io
+            .submit<void>([&](std::stop_token) -> PolledTask<void> {
+                ++app.impl_->succeeded;
+                ++app.impl_->refresh_failures;
+                app.impl_->publish();
+                co_return;
+            })
+            .get();
+    }
+
     static void count_success(Application& app)
     {
         app.impl_->service_io
@@ -439,7 +451,7 @@ TEST(TerminalApplication, DelayedSnapshotKeepsItsRevisionWithoutReplacingANewerP
             });
         // This owner operation follows capture of the old request, while its renderer
         // is still waiting. Publishing cannot depend on the response worker.
-        terminal::ApplicationTestAccess::count_success(app);
+        terminal::ApplicationTestAccess::advance_publication(app);
         EXPECT_EQ(old.wait_for(0s), std::future_status::timeout);
     }
     old.get();
@@ -448,6 +460,17 @@ TEST(TerminalApplication, DelayedSnapshotKeepsItsRevisionWithoutReplacingANewerP
     const auto current = app.dispatch(request("runtime.snapshot", {{"since", std::uint64_t{0}}}));
     EXPECT_GT(current.at("diagnostics").at("succeeded"), delayed.at("diagnostics").at("succeeded"));
     EXPECT_GT(current.at("revision"), delayed.at("revision"));
+}
+
+TEST(TerminalApplication, CommandCountersAloneDoNotAdvanceSnapshotRevision)
+{
+    terminal::Application app;
+    const auto initial = app.dispatch(request("runtime.snapshot"));
+    const auto revision = initial.at("revision").get<std::uint64_t>();
+    terminal::ApplicationTestAccess::count_success(app);
+    const auto polled = app.dispatch(request("runtime.snapshot", {{"since", revision}}));
+    EXPECT_TRUE(polled.value("unchanged", false));
+    EXPECT_EQ(polled.at("revision"), revision);
 }
 
 TEST(TerminalApplication, ClosingDrainsAdmittedRequestsBeforeReleasingApplicationState)

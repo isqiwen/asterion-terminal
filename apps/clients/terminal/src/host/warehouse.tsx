@@ -19,7 +19,7 @@ import {
   type DisplayError,
 } from "../i18n/errors";
 import { notify, useErrorNotification } from "./notifications";
-import { useIntervalPoll } from "./polling";
+import { useIntervalPoll, useWorkspaceActive } from "./polling";
 
 const th = (key: string, values?: MessageValues) => translate("host", key, values);
 const batchOf = (id: string) =>
@@ -122,6 +122,29 @@ function summarizeActive(tasks: readonly AcquisitionTask[]): WarehouseActivity |
   };
 }
 
+function sameTasks(
+  a: readonly AcquisitionTask[] | undefined,
+  b: readonly AcquisitionTask[] | undefined,
+) {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; ++i) {
+    const x = a[i]!;
+    const y = b[i]!;
+    if (
+      x.request?.id !== y.request?.id ||
+      x.state !== y.state ||
+      x.itemsDone !== y.itemsDone ||
+      x.items !== y.items ||
+      x.requestsSent !== y.requestsSent ||
+      x.finishedMs !== y.finishedMs ||
+      x.error?.message !== y.error?.message
+    )
+      return false;
+  }
+  return true;
+}
+
 const Warehouse = createContext<WarehouseView | null>(null);
 
 // Single host poll for Warehouse status, active task progress and newly failed tasks.
@@ -165,25 +188,42 @@ export function WarehouseProvider({
       try {
         const status = await warehouseData({ case: "getStatus", value: {} });
         if (!active) return;
-        setState(previous => ({
-          key: endpoint,
-          error: "",
-          diskFree: status?.diskFreeBytes,
-          activity: previous.key === endpoint ? previous.activity : null,
-          tasks: previous.key === endpoint ? previous.tasks : undefined,
-          nextTaskId: previous.key === endpoint ? previous.nextTaskId : "",
-        }));
+        // Leave the initial "connecting" state right away; steady-state polls merge both replies below.
+        setState(previous =>
+          previous.key === endpoint && previous.error === ""
+            ? previous
+            : {
+                key: endpoint,
+                error: "",
+                diskFree: status?.diskFreeBytes,
+                activity: previous.key === endpoint ? previous.activity : null,
+                tasks: previous.key === endpoint ? previous.tasks : undefined,
+                nextTaskId: previous.key === endpoint ? previous.nextTaskId : "",
+              },
+        );
         const page = await warehouseData({ case: "listAcquisitionTasks", value: { afterId: "" } });
         if (!active || !Array.isArray(page?.tasks)) return;
         const nextActivity = summarizeActive(page.tasks);
-        setState(previous => ({
-          key: endpoint,
-          error: "",
-          diskFree: previous.key === endpoint ? previous.diskFree : status?.diskFreeBytes,
-          activity: nextActivity,
-          tasks: page.tasks,
-          nextTaskId: page.nextId ?? "",
-        }));
+        const nextTaskId = page.nextId ?? "";
+        setState(previous => {
+          if (
+            previous.key === endpoint &&
+            previous.error === "" &&
+            previous.diskFree === status?.diskFreeBytes &&
+            previous.nextTaskId === nextTaskId &&
+            previous.activity?.summary === nextActivity?.summary &&
+            sameTasks(previous.tasks, page.tasks)
+          )
+            return previous;
+          return {
+            key: endpoint,
+            error: "",
+            diskFree: status?.diskFreeBytes,
+            activity: nextActivity,
+            tasks: page.tasks,
+            nextTaskId,
+          };
+        });
         const failed = page.tasks.filter(task =>
           [TaskState.FAILED, TaskState.INTERRUPTED].includes(task.state),
         );
@@ -240,6 +280,7 @@ export function useWarehousePoll<T>(
   deps: readonly unknown[],
   once = false,
 ) {
+  const workspaceActive = useWorkspaceActive();
   const [value, setValue] = useState<T>();
   const [error, setError] = useState<DisplayError>("");
   const inFlight = useRef(0);
@@ -274,6 +315,11 @@ export function useWarehousePoll<T>(
       mounted.current = false;
     };
   }, [run]);
+  const wasActive = useRef(workspaceActive);
+  useEffect(() => {
+    if (!wasActive.current && workspaceActive && !once) void run(true);
+    wasActive.current = workspaceActive;
+  }, [workspaceActive, once, run]);
   useIntervalPoll(() => void run(true), once ? null : 3000, [run, once]);
   return { value, error, refresh };
 }
