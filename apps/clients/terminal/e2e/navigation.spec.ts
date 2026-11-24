@@ -64,10 +64,12 @@ test("a service failure remains visible from every workspace", async ({ page }) 
   let issues = false;
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
-    if (request.method !== "runtime.snapshot" || !issues) return route.continue();
+    if (request.method !== "runtime.snapshot") return route.continue();
+    // Recovery also needs a full snapshot after replacing the state at the core's revision.
     const response = await route.fetch({ postData: { ...request, params: {} } });
     const data = await response.json();
-    data.result.lab = { state: "restarting", pid: 0, restarts: 1, error: "Test-only failure" };
+    if (issues)
+      data.result.lab = { state: "restarting", pid: 0, restarts: 1, error: "Test-only failure" };
     await route.fulfill({ response, json: data });
   });
   await page.goto("/");

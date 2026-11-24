@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <list>
 #include <vector>
 #include <type_traits>
 #include <utility>
@@ -149,7 +150,9 @@ struct RpcClient::Impl
                         try {
                             payload = client.payloads.retain(std::move(retry_payload));
                             retry_payload.clear();
-                            stream = Tls(client.io, *client.tls);
+                            // Asio 1.30.2 move assignment overwrites an occupied SSL handle.
+                            Tls replacement(client.io, *client.tls);
+                            std::swap(stream, replacement);
                             start();
                             return false;
                         } catch (...) {
@@ -386,7 +389,7 @@ struct RpcClient::Impl
         // Stay comfortably inside RpcHost's 30 s idle receive deadline.
         const auto now = std::chrono::steady_clock::now();
         asio::error_code ignored;
-        std::erase_if(idle_tls, [&](IdleTls& entry) {
+        idle_tls.remove_if([&](IdleTls& entry) {
             if (now < entry.expires && entry.stream.lowest_layer().is_open())
                 return false;
             entry.stream.lowest_layer().close(ignored);
@@ -532,7 +535,8 @@ struct RpcClient::Impl
     bool tcp = false;
     bool polling = false;
     std::vector<std::shared_ptr<Pending>> active;
-    std::vector<IdleTls> idle_tls;
+    // Node erasure avoids Asio 1.30.2's leaking TLS move assignment.
+    std::list<IdleTls> idle_tls;
 };
 
 RpcClient::RpcClient(
