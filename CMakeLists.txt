@@ -7,7 +7,7 @@ set(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}")
 include(cmake/ProductVersion.cmake)
 add_custom_target(asterion_build_version
   COMMAND ${CMAKE_COMMAND} -DROOT=${ROOT} -DOUTPUT=${OUTPUT} -P ${ROOT}/cmake/ProductVersion.cmake
-  BYPRODUCTS ${OUTPUT}/generated/asterion/version.hpp ${OUTPUT}/product.json
+  BYPRODUCTS ${OUTPUT}/generated/version.cpp ${OUTPUT}/product.json
   VERBATIM)
 if(NOT CMAKE_SYSTEM_NAME MATCHES "^(Darwin|Linux)$")
   message(FATAL_ERROR "Asterion supports macOS and Linux x86_64 only")

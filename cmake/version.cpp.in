@@ -1,0 +1,13 @@
+#include <asterion/version.hpp>
+
+namespace asterion::build {
+
+const char* const version = "@ASTERION_VERSION@";
+const char* const commit = "@ASTERION_COMMIT@";
+const char* const description = "@ASTERION_VERSION@ (@ASTERION_COMMIT@)";
+const char* const market_protocol = "@ASTERION_MARKET_PROTOCOL@";
+const char* const warehouse_protocol = "@ASTERION_WAREHOUSE_PROTOCOL@";
+const char* const trading_protocol = "@ASTERION_TRADING_PROTOCOL@";
+const char* const emergency_protocol = "@ASTERION_EMERGENCY_PROTOCOL@";
+
+} // namespace asterion::build
