@@ -54,7 +54,7 @@
   "任务": "Task",
   "未知": "Unknown",
   "样本": "Samples",
-  "采集": "Acquisition",
+  "采集": "Acquire",
   "开始采集": "Acquire",
   "区间": "Range",
   "{count} 个分区暂无数据": "{count} partitions have no data",
@@ -216,5 +216,13 @@
   "数据到 {day}": "Data through {day}",
   "品种采集进度": "Product acquisition progress",
   "采集全部": "Acquire all",
-  "采集全部 {name}": "Acquire all {name}"
+  "采集全部 {name}": "Acquire all {name}",
+  "已采 {days} 天（{first}–{last}）": "Stored {days} days ({first}–{last})",
+  "缺口 {ranges}": "Gaps: {ranges}",
+  "待更新 {days} 天": "{days} days pending",
+  "来源无数据 {days} 天": "{days} days without source data",
+  "已采全 {complete} / {total}": "Complete {complete} / {total}",
+  "部分采集 {count}": "{count} partial",
+  "缺口 {count}": "{count} with gaps",
+  "待更新 {count}": "{count} pending"
 }

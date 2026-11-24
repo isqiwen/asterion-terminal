@@ -168,5 +168,6 @@
   "多": "Long",
   "空": "Short",
   "挂单": "Working",
-  "期限结构": "Term structure"
+  "期限结构": "Term structure",
+  "副图": "Subchart"
 }

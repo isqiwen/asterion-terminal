@@ -1,9 +1,9 @@
 import { useRef, useState, type CSSProperties } from "react";
 import { TermStructureChart } from "@asterion/terminal/charts/TermStructureChart";
-import { priceTone } from "../../src/bridge/decimal";
+import { groupedText, priceTone } from "../../src/bridge/decimal";
 import type { QuoteRow } from "../../src/generated/asterion/market_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
-import { translate } from "../../src/i18n";
+import { getLocale, translate } from "../../src/i18n";
 import { contractName } from "../../src/ui/contract-names";
 import { priceTickOf } from "./price-tick";
 import { quoteChange } from "./QuoteTable";
@@ -89,23 +89,37 @@ export function ContractQuote({ market, row }: { market: MarketView; row: QuoteR
         </tbody>
       </table>
       <dl className="contract-figures">
-        {[
-          ["开盘", q?.open?.text],
-          ["最高", q?.high?.text],
-          ["最低", q?.low?.text],
-          ["昨结算", q?.previousSettlement?.text],
-          ["涨停", q?.upperLimit?.text],
-          ["跌停", q?.lowerLimit?.text],
-          ["持仓量", q?.openInterest?.text],
-          ["日增仓", q?.openInterestChange?.text],
-          ["成交量", q?.volume.toString()],
-          ["交易日", q?.tradingDay],
-        ].map(([label, value]) => (
-          <div key={label}>
-            <dt>{t(label!)}</dt>
-            <dd>{value || "—"}</dd>
-          </div>
-        ))}
+        {(() => {
+          const oiChangeNum = q?.openInterestChange ? Number(q.openInterestChange.text) : NaN;
+          const oiChangeTone =
+            Number.isFinite(oiChangeNum) && oiChangeNum !== 0
+              ? oiChangeNum > 0
+                ? "up"
+                : "down"
+              : undefined;
+          const oiChangeText = q?.openInterestChange
+            ? `${oiChangeNum > 0 ? "+" : ""}${groupedText(q.openInterestChange)}`
+            : undefined;
+          return (
+            [
+              ["开盘", q?.open?.text, undefined],
+              ["最高", q?.high?.text, undefined],
+              ["最低", q?.low?.text, undefined],
+              ["昨结算", q?.previousSettlement?.text, undefined],
+              ["涨停", q?.upperLimit?.text, q?.upperLimit?.text ? "up" : undefined],
+              ["跌停", q?.lowerLimit?.text, q?.lowerLimit?.text ? "down" : undefined],
+              ["持仓量", q?.openInterest ? groupedText(q.openInterest) : undefined, undefined],
+              ["日增仓", oiChangeText, oiChangeTone],
+              ["成交量", q ? q.volume.toLocaleString(getLocale()) : undefined, undefined],
+              ["交易日", q?.tradingDay, undefined],
+            ] as const
+          ).map(([label, value, figureTone]) => (
+            <div key={label}>
+              <dt>{t(label)}</dt>
+              <dd data-tone={figureTone}>{value || "—"}</dd>
+            </div>
+          ));
+        })()}
       </dl>
       {months.length > 1 && (
         <details
@@ -128,6 +142,7 @@ export function ContractQuote({ market, row }: { market: MarketView; row: QuoteR
             return (
               <button
                 key={rowKey(month)}
+                type="button"
                 aria-pressed={rowKey(month) === rowKey(row)}
                 onClick={() => selectQuote(rowKey(month))}
               >

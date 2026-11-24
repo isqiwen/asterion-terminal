@@ -70,6 +70,36 @@ const columnLabels: Record<string, string> = {
   published_ms: "发布时间（北京时间）",
 };
 
+const numericColumns = new Set([
+  "multiplier",
+  "per_unit",
+  "long_margin_rate",
+  "short_margin_rate",
+  "fee_rate",
+  "fee_per_lot",
+  "close_today_fee_rate",
+  "close_today_fee_per_lot",
+  "price_tick",
+  "previous_volume",
+  "volume",
+  "volume_change",
+  "forecast_volume",
+  "premium",
+  "long_position",
+  "long_change",
+  "short_position",
+  "short_change",
+  "previous_total",
+  "previous_receipts",
+  "total",
+  "receipts",
+  "total_change",
+  "receipts_change",
+  "previous_capacity",
+  "capacity",
+  "capacity_change",
+]);
+
 const timestamp = (value: string) =>
   value
     ? new Date(Number(value)).toLocaleString("sv-SE", { timeZone: "Asia/Shanghai", hour12: false })
@@ -146,7 +176,11 @@ export function ReferenceTable({
               <thead>
                 <tr>
                   {shown.map(({ column }) => (
-                    <th scope="col" key={column}>
+                    <th
+                      scope="col"
+                      key={column}
+                      className={numericColumns.has(column) ? "numeric" : undefined}
+                    >
                       {column === "day" && table === Table.INVENTORY
                         ? t("报告日期")
                         : column === "volume" && table === Table.WAREHOUSE_RECEIPTS
@@ -162,7 +196,10 @@ export function ReferenceTable({
                 {rows.rows.map((row, index) => (
                   <tr key={offset + index}>
                     {shown.map(({ column, index: at }) => (
-                      <td key={column}>
+                      <td
+                        key={column}
+                        className={numericColumns.has(column) ? "numeric" : undefined}
+                      >
                         {column === "published_ms" ? timestamp(row.values[at]!) : row.values[at]}
                       </td>
                     ))}

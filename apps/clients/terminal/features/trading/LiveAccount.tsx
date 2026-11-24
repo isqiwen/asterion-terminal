@@ -161,15 +161,12 @@ export function LiveAccount({
   };
   return (
     <>
-      <div className="ctp-identity" data-real={(environmentReady && real) || undefined}>
+      <div className="ctp-identity" data-real={real || undefined}>
         <strong>
           {account.instance} · {broker.brokerId} · {broker.userId}
         </strong>
-        {environmentReady ? (
-          <Tag danger={real}>{t(real ? "真实资金" : "CTP 仿真")}</Tag>
-        ) : (
-          <StatusBadge tone="attention">{t("CTP 环境待确认")}</StatusBadge>
-        )}
+        <Tag danger={real}>{t(real ? "真实资金" : "CTP 仿真")}</Tag>
+        {!environmentReady && <StatusBadge tone="attention">{t("CTP 环境待确认")}</StatusBadge>}
         <StatusBadge tone={phaseTone(stale, live.brokerState)}>
           <span data-testid="live-phase">
             {t(stale ? "服务失联" : (phases[live.brokerState] ?? "未连接"))}

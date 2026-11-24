@@ -189,7 +189,11 @@ test("a real-money order is sent only after its summary is confirmed", async () 
       },
     });
   show("real");
-  fireEvent.click(await screen.findByRole("checkbox", { name: "我已核对账户与柜台环境" }));
+  // Real-money warning is visible immediately before the environment checkbox is ticked.
+  const identity = (await screen.findByText("CTP 环境待确认")).closest(".ctp-identity")!;
+  expect(identity.hasAttribute("data-real")).toBe(true);
+  expect(identity.textContent).toContain("真实资金");
+  fireEvent.click(screen.getByRole("checkbox", { name: "我已核对账户与柜台环境" }));
   fireEvent.change(await screen.findByRole("textbox", { name: "限价" }), {
     target: { value: "3561" },
   });
@@ -790,7 +794,7 @@ test("policy editor explains when broker is disconnected and strategy view consu
     </WorkspaceDraftScope>,
   );
   await waitFor(() =>
-    expect(screen.getByRole("button", { name: "sim-two" }).getAttribute("aria-pressed")).toBe(
+    expect(screen.getByRole("button", { name: /^sim-two/ }).getAttribute("aria-current")).toBe(
       "true",
     ),
   );

@@ -71,7 +71,7 @@ export function StrategyPackages({
     <section className="ctp-strategies" aria-label={t("策略版本")}>
       <div className="workflow-heading">
         <h2>{t("策略版本")}</h2>
-        <button disabled={reading || busy || stopping} onClick={() => void refresh()}>
+        <button type="button" disabled={reading || busy || stopping} onClick={() => void refresh()}>
           {t("刷新版本")}
         </button>
       </div>
@@ -90,6 +90,7 @@ export function StrategyPackages({
           </p>
           <div className="strategy-package-actions">
             <button
+              type="button"
               className={deployFirst ? "primary" : undefined}
               disabled={unavailable || deployed}
               onClick={() => void deploy({ runId: run })}
@@ -97,6 +98,7 @@ export function StrategyPackages({
               {t(deployed ? "已部署" : "部署")}
             </button>
             <button
+              type="button"
               disabled={busy}
               onClick={() => {
                 setRun("");
@@ -109,7 +111,7 @@ export function StrategyPackages({
       ) : !repository ? (
         <p>{t("没有策略目录")}</p>
       ) : (
-        <div>
+        <div className="strategy-package-picker">
           <label>
             {t("策略")}
             <select
@@ -126,6 +128,7 @@ export function StrategyPackages({
             </select>
           </label>
           <button
+            type="button"
             className={deployFirst ? "primary" : undefined}
             disabled={unavailable || !strategy}
             onClick={() => void deploy({ repository, strategy })}
@@ -155,7 +158,11 @@ export function StrategyPackages({
                     <td>{item.version}</td>
                     <td title={item.research?.runId}>
                       {item.research && openRun ? (
-                        <button className="link" onClick={() => openRun(item.research!.runId)}>
+                        <button
+                          type="button"
+                          className="link"
+                          onClick={() => openRun(item.research!.runId)}
+                        >
                           {item.research.runId}
                         </button>
                       ) : (

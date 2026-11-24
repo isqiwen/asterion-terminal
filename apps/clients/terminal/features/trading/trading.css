@@ -55,10 +55,43 @@
   flex-wrap: wrap;
   gap: var(--space-3);
 }
+.strategy-contracts-bar {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.strategy-contracts-bar input {
+  width: 180px;
+}
 .strategy-contracts > p {
   flex-basis: 100%;
   margin: 0;
   color: var(--muted);
+}
+.strategy-monitor-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2);
+}
+.strategy-monitor-header h2 {
+  margin: 0;
+}
+.strategy-monitor tr[data-off] td:last-child {
+  color: var(--warning);
+}
+.strategy-package-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.strategy-package-picker > label {
+  flex: 1 1 200px;
 }
 .strategy-monitor table {
   width: 100%;
@@ -238,26 +271,73 @@
   }
 }
 @media (max-width: 1100px) {
+  .ctp-account-panel > .ctp-trade-body[data-market] {
+    grid-template-columns: minmax(0, 1fr) 320px;
+    grid-template-rows: minmax(220px, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "chart side"
+      "records side";
+  }
+  .ctp-trade-body > .trade-watch {
+    display: none;
+  }
+}
+@media (max-width: 860px) {
   .ctp-account-panel > .ctp-trade-body,
   .ctp-account-panel > .ctp-trade-body[data-market] {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: none;
     grid-template-areas:
-      "records"
-      "side";
+      "side"
+      "records";
   }
   .ctp-account-column .ctp-trade-body[data-market] {
     flex: 1 0 auto;
     min-height: 0;
   }
-  .ctp-trade-body > .trade-watch,
   .trade-chart {
     display: none;
   }
   .ctp-trade-side {
     border-left: 0;
-    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
   }
+}
+.ticket-stepper {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+.ticket-stepper > input {
+  flex: 1;
+  min-width: 0;
+}
+.ticket-stepper > button {
+  flex: none;
+  min-width: 24px;
+  min-height: var(--control-height);
+  padding: 0 var(--space-1);
+  font-family: var(--font-terminal);
+}
+.ticket-quick-lots {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.ticket-quick-lots button {
+  min-height: 22px;
+  padding: 0 var(--space-2);
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-aux);
+}
+.ticket-quick-lots button[aria-pressed="true"] {
+  border-color: var(--accent-line);
+  background: var(--accent-surface);
+  color: var(--accent);
+}
+.ctp-account-list button[data-real] {
+  box-shadow: inset 2px 0 0 var(--danger);
 }
 .activity-tabs button small {
   margin-left: var(--space-1);
@@ -297,10 +377,10 @@
   text-align: right;
 }
 .order-book button.order-ask {
-  --depth-color: color-mix(in oklab, var(--quote-up) 20%, transparent);
+  --depth-color: color-mix(in oklab, var(--quote-down) 20%, transparent);
 }
 .order-book button.order-bid {
-  --depth-color: color-mix(in oklab, var(--quote-down) 20%, transparent);
+  --depth-color: color-mix(in oklab, var(--quote-up) 20%, transparent);
 }
 .order-book button span:first-child {
   text-align: left;
@@ -341,15 +421,15 @@
   outline-offset: 1px;
 }
 
-/* An account's strategies: its instance beside the packages that can run. */
+/* An account's strategies: its running instance and setup beside the deployed versions. */
 .ctp-strategy-body {
   display: grid;
-  grid-template-columns: minmax(380px, 480px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 460px);
   flex: 1;
 }
 .ctp-strategy-versions {
   background: var(--pane);
-  border-right: 1px solid var(--line);
+  border-left: 1px solid var(--line);
 }
 .ctp-strategy-body > .ctp-account-panel > * {
   padding: var(--space-3) var(--space-4);
@@ -359,12 +439,8 @@
     grid-template-columns: minmax(0, 1fr);
   }
   .ctp-strategy-versions {
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-  }
-  /* A running strategy's controls come before the versions. */
-  .ctp-strategy-body[data-running] > .ctp-strategy-versions {
-    order: 1;
+    border-left: 0;
+    border-top: 1px solid var(--line);
   }
 }
 /* The running strategy above its account: state, latest bars, targets, events. */
@@ -458,7 +534,7 @@
   margin: 0;
   color: var(--text-strong);
   font-family: var(--font-terminal);
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-xl);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }

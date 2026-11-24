@@ -289,6 +289,11 @@ test("the page shows one kind of data at a time, each contract's whole life by s
         .querySelectorAll<HTMLElement>(".coverage-lane i"),
     ].map(item => item.dataset.part);
   expect(parts("rb2702")).toEqual(["future", "held", "gap"]);
+  const rb2702Lane = screen
+    .getByRole("button", { name: "查看 rb2702" })
+    .closest("tr")!
+    .querySelector<HTMLElement>(".coverage-lane")!;
+  expect(rb2702Lane.title).toContain("2026-09-10–2026-09-11");
   fireEvent.click(screen.getByRole("button", { name: "历史合约" }));
   fireEvent.click(screen.getByRole("button", { name: "2026 年交割" }));
   // A delisted contract held from listing to delisting fills the bar.

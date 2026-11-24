@@ -156,7 +156,7 @@ export function SetupGate({ children }: { children: ReactNode }) {
               })}
             </div>
             {(error || failed) && (
-              <button className="setup-begin primary" onClick={() => void retry()}>
+              <button type="button" className="setup-begin primary" onClick={() => void retry()}>
                 {t("重试")}
               </button>
             )}

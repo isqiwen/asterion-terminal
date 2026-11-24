@@ -188,7 +188,8 @@ export function tracebackDiagnostics(
   return [{ from: Math.min(from, line.to), to: line.to, severity: "error", message }];
 }
 
-function importLinks(currentPath: string) {
+function importLinks(currentPath: string, readOnly: boolean) {
+  const hint = navigator.platform.startsWith("Mac") ? "⌘+Click" : "Ctrl+Click";
   const matcher = new MatchDecorator({
     regexp: /(?:from|import)\s+((strategies|factors)\.([A-Za-z_][A-Za-z0-9_]*))/g,
     decorate(add, _from, to, match) {
@@ -199,7 +200,10 @@ function importLinks(currentPath: string) {
         to,
         Decoration.mark({
           class: "cm-local-import",
-          attributes: { "data-module": target, title: target },
+          attributes: {
+            "data-module": target,
+            title: readOnly ? target : `${target} (${hint})`,
+          },
         }),
       );
     },
@@ -328,7 +332,7 @@ export function SourceEditor({
             indentUnit.of("    "),
             python(),
             pythonLanguage.data.of({ autocomplete: strategyCompletion }),
-            importLinks(path),
+            importLinks(path, source.readOnly),
             lintGutter(),
             theme,
             syntax,

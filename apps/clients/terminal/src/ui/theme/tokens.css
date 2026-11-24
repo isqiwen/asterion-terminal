@@ -26,11 +26,11 @@
   --shadow-popover: 0 10px 28px -6px rgb(0 0 0 / 56%), 0 2px 8px -2px rgb(0 0 0 / 38%);
   --shadow-dialog: 0 20px 48px -12px rgb(0 0 0 / 68%), 0 4px 16px -4px rgb(0 0 0 / 44%);
 
-  /* Text. The dimmest level still meets 4.5:1 against the canvas. */
+  /* Text. The dimmest level still meets 4.5:1 against canvas, panel and raised. */
   --text: #c6ced9;
   --text-strong: #f0f5fc;
-  --muted: #7e8a9a;
-  --subtle: #6e7a8a;
+  --muted: #8a96a8;
+  --subtle: #778394;
 
   /* The single interactive signal. */
   --accent: #38d6f2;

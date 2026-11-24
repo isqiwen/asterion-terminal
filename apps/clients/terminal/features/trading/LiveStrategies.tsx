@@ -9,6 +9,7 @@ import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { Tag } from "../../src/ui/Tag";
 import { ActionError, useActionError } from "../../src/host/action-error";
 import { EmergencyControls } from "./EmergencyControls";
+import { AccountList } from "./LivePanel";
 import { t, type Run } from "./live-shared";
 import { StrategyInstance } from "./StrategyInstance";
 import { StrategyMonitor } from "./StrategyMonitor";
@@ -40,34 +41,22 @@ export function LiveStrategies(context: TerminalContext) {
     context.navigate("workspace.trading-strategies", {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paramAccount, paramStrategy, paramRun]);
+  const { views } = useTradingAccounts();
   const account = accounts.find(item => item.id === chosen) ?? accounts[0];
   return (
     <section className="futures-data paper-trading" aria-label={t("交易策略")}>
-      {accounts.length > 1 && (
-        <div className="panel-heading">
-          <div className="tabs" role="group" aria-label={t("CTP 账户")}>
-            {accounts.map(item => (
-              <button
-                key={item.id}
-                type="button"
-                aria-pressed={item.id === account?.id}
-                onClick={() => setChosen(item.id)}
-              >
-                {item.instance}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
       {account ? (
-        <AccountStrategies
-          key={`${account.id}:${account.revision}`}
-          account={account}
-          repository={context.snapshot?.research_directory ?? ""}
-          initialStrategy={pending.strategy}
-          initialRun={pending.run}
-          openRun={id => context.navigate("workspace.lab-runs", { params: { run: id } })}
-        />
+        <div className="ctp-accounts" data-single={accounts.length === 1 || undefined}>
+          <AccountList accounts={accounts} activeId={account.id} views={views} select={setChosen} />
+          <AccountStrategies
+            key={`${account.id}:${account.revision}`}
+            account={account}
+            repository={context.snapshot?.research_directory ?? ""}
+            initialStrategy={pending.strategy}
+            initialRun={pending.run}
+            openRun={id => context.navigate("workspace.lab-runs", { params: { run: id } })}
+          />
+        </div>
       ) : (
         <ServiceUnset openSettings={context.openSettings} page="trading" />
       )}
@@ -101,7 +90,12 @@ function AccountStrategies({
       <div className="ctp-strategy-body">
         <div className="ctp-account-panel">
           <ActionError error={emergencyError} namespace="asterion.terminal.trading" />
-          <EmergencyControls account={account} state={view.emergency} control={emergencyRun} />
+          <EmergencyControls
+            account={account}
+            state={view.emergency}
+            real={view.account?.environment === Environment.REAL}
+            control={emergencyRun}
+          />
         </div>
       </div>
     );
@@ -111,18 +105,6 @@ function AccountStrategies({
   const real = view?.account?.environment === Environment.REAL;
   return (
     <div className="ctp-strategy-body" data-running={activeStrategy(instance?.state) || undefined}>
-      <div className="ctp-account-panel ctp-strategy-versions">
-        <StrategyPackages
-          key={`${repository}:${initialStrategy ?? ""}:${initialRun ?? ""}`}
-          host={host}
-          repository={repository}
-          initialStrategy={initialStrategy}
-          initialRun={initialRun}
-          openRun={openRun}
-          published={setPublished}
-          onDeployFirst={setDeployFirst}
-        />
-      </div>
       <div className="ctp-account-panel">
         <div className="ctp-identity" data-real={real || undefined}>
           <strong>
@@ -156,6 +138,18 @@ function AccountStrategies({
             start={configuration => host.mutate({ case: "startStrategy", value: configuration })}
           />
         )}
+      </div>
+      <div className="ctp-account-panel ctp-strategy-versions">
+        <StrategyPackages
+          key={`${repository}:${initialStrategy ?? ""}:${initialRun ?? ""}`}
+          host={host}
+          repository={repository}
+          initialStrategy={initialStrategy}
+          initialRun={initialRun}
+          openRun={openRun}
+          published={setPublished}
+          onDeployFirst={setDeployFirst}
+        />
       </div>
     </div>
   );

@@ -4,7 +4,7 @@ import { ServiceUnset } from "../../src/host/components/ServiceUnset";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import type { TradingConnection } from "../../src/bridge/client";
-import { BrokerState } from "../../src/generated/asterion/trading_pb";
+import { BrokerState, Environment } from "../../src/generated/asterion/trading_pb";
 import { useTradingAccounts, type TradingView } from "../../src/host/trading-accounts";
 import { t, phases, type Run } from "./live-shared";
 import { activeStrategy } from "./strategy-instance";
@@ -14,6 +14,48 @@ import { StrategyCard } from "./StrategyCard";
 // Both trading views share one stylesheet; each loads it itself.
 import "./trading.css";
 import { LiveAccount } from "./LiveAccount";
+
+export function accountState(view: TradingView | undefined) {
+  if (!view) return "读取中";
+  if (view.emergency) return "紧急控制模式";
+  if (view.failed) return "服务未连接";
+  if (!view.live) return "未配置风控";
+  if (view.live.brokerState !== BrokerState.READY) return phases[view.live.brokerState] ?? "未连接";
+  return view.live.authorizedMs !== undefined ? "已允许下单" : "已就绪";
+}
+
+export function AccountList({
+  accounts,
+  activeId,
+  views,
+  select,
+}: {
+  accounts: readonly TradingConnection[];
+  activeId?: string;
+  views: Readonly<Record<string, TradingView>>;
+  select: (id: string) => void;
+}) {
+  return (
+    <nav className="ctp-account-list" aria-label={t("CTP 账户")} hidden={accounts.length === 1}>
+      {accounts.map(item => {
+        const view = views[item.id];
+        const real = view?.account?.environment === Environment.REAL;
+        return (
+          <button
+            key={item.id}
+            type="button"
+            data-real={real || undefined}
+            aria-current={item.id === activeId ? "true" : undefined}
+            onClick={() => select(item.id)}
+          >
+            <strong>{item.instance}</strong>
+            <span className="subtle">{t(accountState(view))}</span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
 
 // Live CTP trading. Orders go to a real futures account only after the owner
 // confirms the account already connected by its host, and the order
@@ -37,15 +79,6 @@ export function LivePanel(context: TerminalContext) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paramAccount, paramContract]);
   const account = accounts.find(item => item.id === chosen) ?? accounts[0];
-  const state = (view: TradingView | undefined) => {
-    if (!view) return "读取中";
-    if (view.emergency) return "紧急控制模式";
-    if (view.failed) return "服务未连接";
-    if (!view.live) return "未配置风控";
-    if (view.live.brokerState !== BrokerState.READY)
-      return phases[view.live.brokerState] ?? "未连接";
-    return view.live.authorizedMs !== undefined ? "已允许下单" : "已就绪";
-  };
   const view = account ? views[account.id] : undefined;
   return (
     <section className="futures-data paper-trading" aria-label={t("CTP 交易账户")}>
@@ -54,23 +87,12 @@ export function LivePanel(context: TerminalContext) {
       ) : (
         <div className="ctp-accounts" data-single={accounts.length === 1 || undefined}>
           {/* One account needs no list. */}
-          <nav
-            className="ctp-account-list"
-            aria-label={t("CTP 账户")}
-            hidden={accounts.length === 1}
-          >
-            {accounts.map(item => (
-              <button
-                key={item.id}
-                type="button"
-                aria-current={item.id === account?.id ? "true" : undefined}
-                onClick={() => setChosen(item.id)}
-              >
-                <strong>{item.instance}</strong>
-                <span className="subtle">{t(state(views[item.id]))}</span>
-              </button>
-            ))}
-          </nav>
+          <AccountList
+            accounts={accounts}
+            activeId={account?.id}
+            views={views}
+            select={setChosen}
+          />
           {account && (
             <AccountColumn
               key={`${account.id}:${account.revision}`}
@@ -142,7 +164,12 @@ function AccountColumn({
       <div className="ctp-account-panel">
         <ActionError error={error} namespace="asterion.terminal.trading" />
         {view?.emergency ? (
-          <EmergencyControls account={account} state={view.emergency} control={runFor(false)} />
+          <EmergencyControls
+            account={account}
+            state={view.emergency}
+            real={view.account?.environment === Environment.REAL}
+            control={runFor(false)}
+          />
         ) : view?.live && view.account ? (
           <LiveAccount
             account={account}

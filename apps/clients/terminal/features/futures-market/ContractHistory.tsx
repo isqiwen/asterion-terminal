@@ -12,7 +12,7 @@ import type { ChartBars, StoredContract } from "../../src/generated/asterion/lab
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { translate } from "../../src/i18n";
-import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
+import { ErrorNotice, type DisplayError, asDisplayError } from "../../src/i18n/errors";
 import { type ChartPeriod, protocolPeriod } from "../../src/ui/periods";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 
@@ -27,7 +27,13 @@ const calendarPeriods = [
 ] as const;
 const page = 100;
 const emptyBars: ChartBars["bars"] = [];
-const averageColors = ["#cdd0d7", "#e5b45a", "#d555ae", "#52aa76", "#4aabe0"];
+const averageColors = [
+  "var(--text-strong)",
+  "var(--series-1)",
+  "var(--series-2)",
+  "var(--series-3)",
+  "var(--series-4)",
+];
 
 // A contract's stored bars from the research dataset: minutes gathered into
 // longer periods, or days into calendar periods, a hundred at a time.
@@ -168,8 +174,16 @@ export function ContractHistory({
             emptyLabel: emptyMacd,
             histogramLabel: "MACD",
             lines: [
-              { label: "DIFF", color: "#cdd0d7", values: shown.map(bar => bar.macdDiff ?? null) },
-              { label: "DEA", color: "#e5b45a", values: shown.map(bar => bar.macdSignal ?? null) },
+              {
+                label: "DIFF",
+                color: "var(--text-strong)",
+                values: shown.map(bar => bar.macdDiff ?? null),
+              },
+              {
+                label: "DEA",
+                color: "var(--series-1)",
+                values: shown.map(bar => bar.macdSignal ?? null),
+              },
             ],
             histogram: shown.map(bar => bar.macdHistogram ?? null),
           }
@@ -189,8 +203,9 @@ export function ContractHistory({
         </header>
       )}
       {error && (
-        <div className="market-chart-error">
-          <button disabled={busy} onClick={() => setRetry(value => value + 1)}>
+        <div className="market-chart-error" role="alert">
+          <ErrorNotice error={error} namespace="asterion.terminal.futures-market" />
+          <button type="button" disabled={busy} onClick={() => setRetry(value => value + 1)}>
             {t("重试")}
           </button>
         </div>
@@ -205,6 +220,7 @@ export function ContractHistory({
           {minutePeriods.map(value => (
             <button
               key={value}
+              type="button"
               aria-label={`${value}${t("分")}`}
               title={hasMinutes ? undefined : t("尚无该周期的数据")}
               aria-pressed={activePeriod === value}
@@ -218,6 +234,7 @@ export function ContractHistory({
           {calendarPeriods.map(([value, label]) => (
             <button
               key={value}
+              type="button"
               aria-label={t(label)}
               aria-pressed={activePeriod === value}
               disabled={disabled || !hasDays}
@@ -229,26 +246,31 @@ export function ContractHistory({
           ))}
         </div>
         <button
+          type="button"
           title={t("显示均线")}
           aria-pressed={showAverages}
           onClick={() => setShowAverages(value => !value)}
         >
           MA
         </button>
-        <button
-          aria-label={t("显示成交量")}
-          aria-pressed={!showMacd}
-          onClick={() => setShowMacd(false)}
-        >
-          {t("成交量")}
-        </button>
-        <button
-          aria-label={t("显示 MACD")}
-          aria-pressed={showMacd}
-          onClick={() => setShowMacd(value => !value)}
-        >
-          MACD
-        </button>
+        <div className="market-chart-subpane tabs" role="group" aria-label={t("副图")}>
+          <button
+            type="button"
+            aria-label={t("显示成交量")}
+            aria-pressed={!showMacd}
+            onClick={() => setShowMacd(false)}
+          >
+            {t("成交量")}
+          </button>
+          <button
+            type="button"
+            aria-label={t("显示 MACD")}
+            aria-pressed={showMacd}
+            onClick={() => setShowMacd(true)}
+          >
+            MACD
+          </button>
+        </div>
       </div>
       {shown.length ? (
         <>
@@ -280,24 +302,31 @@ export function ContractHistory({
               {begin + 1}–{end} / {all.length}
             </span>
             <button
+              type="button"
               disabled={disabled || !begin}
               onClick={() => setEnd(Math.min(page, all.length))}
             >
               {t("最早数据")}
             </button>
             <button
+              type="button"
               disabled={disabled || !begin}
               onClick={() => setEnd(Math.max(page, end - page))}
             >
               {t("向前")}
             </button>
             <button
+              type="button"
               disabled={disabled || end >= all.length}
               onClick={() => setEnd(Math.min(all.length, end + page))}
             >
               {t("向后")}
             </button>
-            <button disabled={disabled || end >= all.length} onClick={() => setEnd(all.length)}>
+            <button
+              type="button"
+              disabled={disabled || end >= all.length}
+              onClick={() => setEnd(all.length)}
+            >
               {t("最新数据")}
             </button>
           </div>
@@ -319,7 +348,9 @@ export function ContractHistory({
             )}
           </p>
           {!loading && !error && contractId && !available && (
-            <button onClick={() => navigate("workspace.data-dataset")}>{t("采集历史数据")}</button>
+            <button type="button" onClick={() => navigate("workspace.data-dataset")}>
+              {t("采集历史数据")}
+            </button>
           )}
         </div>
       )}

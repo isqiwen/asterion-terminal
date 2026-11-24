@@ -208,6 +208,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     const key = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.repeat)
         return;
+      if (event.target instanceof HTMLElement && event.target.isContentEditable) return;
       if (settingsWindow && event.key.toLowerCase() === "w") {
         event.preventDefault();
         void closeSettings().catch(reason => setError(asDisplayError(reason)));

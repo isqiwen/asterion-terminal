@@ -216,5 +216,13 @@
   "数据到 {day}": "数据到 {day}",
   "品种采集进度": "品种采集进度",
   "采集全部": "采集全部",
-  "采集全部 {name}": "采集全部 {name}"
+  "采集全部 {name}": "采集全部 {name}",
+  "已采 {days} 天（{first}–{last}）": "已采 {days} 天（{first}–{last}）",
+  "缺口 {ranges}": "缺口 {ranges}",
+  "待更新 {days} 天": "待更新 {days} 天",
+  "来源无数据 {days} 天": "来源无数据 {days} 天",
+  "已采全 {complete} / {total}": "已采全 {complete} / {total}",
+  "部分采集 {count}": "部分采集 {count}",
+  "缺口 {count}": "缺口 {count}",
+  "待更新 {count}": "待更新 {count}"
 }

@@ -173,6 +173,9 @@ test("symbol field selects multiple symbols as tags, prioritizes stored products
   const options = screen.getAllByRole("option");
   expect(options[0]!.textContent).toContain("SHFE/rb");
   expect(options[1]!.textContent).toContain("GFEX/lc");
+  fireEvent.keyDown(combobox, { key: "ArrowDown" });
+  fireEvent.keyDown(combobox, { key: "Enter" });
+  expect(onChange).toHaveBeenLastCalledWith("DCE/m, GFEX/lc");
   fireEvent.click(options[0]!);
   expect(onChange).toHaveBeenLastCalledWith("DCE/m, SHFE/rb");
 

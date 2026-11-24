@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { CommandCall, CommandHandler } from "../bridge/commands";
 import type { Snapshot } from "../bridge/client";
 import { translate } from "../i18n";
+import { SettingsDialog } from "./SettingsDialog";
 import { SettingsSection } from "./Section";
 import { ServiceFacts } from "./ServiceFacts";
 import { ActionError, useActionError } from "../host/action-error";
@@ -87,18 +88,30 @@ export function ServiceConnection({
       }
     >
       {saved && "error" in saved && <p role="alert">{t(word.unreadable)}</p>}
-      {!editing && endpoint && (
+      {endpoint && (
         <>
           <ServiceFacts
             key={`${endpoint.host}:${endpoint.port}/${endpoint.fingerprint}`}
             address={`${endpoint.host}:${endpoint.port}`}
             service={service}
           />
+          <details>
+            <summary>{t("技术详情")}</summary>
+            <dl>
+              <dt>{t(word.fingerprint)}</dt>
+              <dd>
+                <code>{endpoint.fingerprint}</code>
+              </dd>
+            </dl>
+          </details>
           <ActionError error={error} namespace={namespace} />
         </>
       )}
       {editing && (
-        <form
+        <SettingsDialog
+          title={t(endpoint ? word.edit : word.add)}
+          busy={busy}
+          onCancel={() => setEditing(false)}
           onSubmit={async event => {
             event.preventDefault();
             try {
@@ -113,59 +126,57 @@ export function ServiceConnection({
             }
           }}
         >
-          <fieldset disabled={busy}>
-            <div className="settings-fields">
-              <label className="settings-field">
-                {t("主机地址")}
-                <input
-                  aria-label={t("主机地址")}
-                  required
-                  maxLength={253}
-                  placeholder="192.168.1.20"
-                  spellCheck={false}
-                  autoCorrect="off"
-                  autoCapitalize="none"
-                  value={host}
-                  onChange={event => setHost(event.target.value)}
-                />
-              </label>
-              <label className="settings-field">
-                {t("端口")}
-                <input
-                  aria-label={t("端口")}
-                  type="number"
-                  required
-                  min={1}
-                  max={65535}
-                  value={port}
-                  onChange={event => setPort(event.target.value)}
-                />
-              </label>
-              <label className="settings-field">
-                {t(word.fingerprint)}
-                <input
-                  aria-label={t(word.fingerprint)}
-                  required
-                  maxLength={95}
-                  spellCheck={false}
-                  autoCorrect="off"
-                  autoCapitalize="none"
-                  value={fingerprint}
-                  onChange={event => setFingerprint(event.target.value)}
-                />
-              </label>
-            </div>
-            <ActionError error={refused} namespace={namespace} />
-            <div className="settings-actions">
-              <button type="button" onClick={() => setEditing(false)}>
-                {t("取消")}
-              </button>
-              <button type="submit" className="primary">
-                {t("保存连接")}
-              </button>
-            </div>
+          <fieldset disabled={busy} className="futures-fields">
+            <label>
+              {t("主机地址")}
+              <input
+                aria-label={t("主机地址")}
+                required
+                maxLength={253}
+                placeholder="192.168.1.20"
+                spellCheck={false}
+                autoCorrect="off"
+                autoCapitalize="none"
+                value={host}
+                onChange={event => setHost(event.target.value)}
+              />
+            </label>
+            <label>
+              {t("端口")}
+              <input
+                aria-label={t("端口")}
+                type="number"
+                required
+                min={1}
+                max={65535}
+                value={port}
+                onChange={event => setPort(event.target.value)}
+              />
+            </label>
+            <label className="settings-field-wide">
+              {t(word.fingerprint)}
+              <input
+                aria-label={t(word.fingerprint)}
+                required
+                maxLength={95}
+                spellCheck={false}
+                autoCorrect="off"
+                autoCapitalize="none"
+                value={fingerprint}
+                onChange={event => setFingerprint(event.target.value)}
+              />
+            </label>
           </fieldset>
-        </form>
+          <ActionError error={refused} namespace={namespace} />
+          <div className="source-actions">
+            <button type="button" onClick={() => setEditing(false)} disabled={busy}>
+              {t("取消")}
+            </button>
+            <button type="submit" className="primary" disabled={busy}>
+              {t("保存连接")}
+            </button>
+          </div>
+        </SettingsDialog>
       )}
     </SettingsSection>
   );

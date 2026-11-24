@@ -314,5 +314,13 @@
   "部署": "Deploy",
   "参数": "Parameters",
   "默认": "Default",
-  "已部署": "Deployed"
+  "已部署": "Deployed",
+  "减一跳": "Decrease one tick",
+  "加一跳": "Increase one tick",
+  "快捷手数": "Quick lots",
+  "全部可平": "All closable",
+  "确认操作": "Confirm action",
+  "筛选合约": "Filter contracts",
+  "全选": "Select all",
+  "清空": "Clear"
 }

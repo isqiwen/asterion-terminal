@@ -1,10 +1,12 @@
 import { useRef } from "react";
 import { quoteColumns, type QuoteColumn } from "./QuoteColumns";
 import "./quotes.css";
+import { groupedText } from "../../src/bridge/decimal";
 import { getLocale, translate } from "../../src/i18n";
 import { ctpErrorSummary } from "../../src/i18n/errors";
 import { FeedState, Subscription, type QuoteRow } from "../../src/generated/asterion/market_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
+import { usePreferences } from "../../src/ui/preferences";
 import { useVirtualRows } from "../../src/ui/virtual-rows";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 export function quoteStatus(market: MarketView, row: QuoteRow, now = Date.now()) {
@@ -69,6 +71,7 @@ export function QuoteTable({
   onOpen?: (id: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const { density } = usePreferences();
   const headings = onSelect
     ? ["合约", ...columns]
     : [
@@ -83,7 +86,7 @@ export function QuoteTable({
       ];
   const { start, end, topPad, bottomPad } = useVirtualRows(containerRef, rows.length, {
     enabled: !overviewStyle,
-    rowHeight: 30,
+    rowHeight: density === "comfortable" ? 34 : 26,
     viewportHeight: 560,
   });
   return (
@@ -178,6 +181,7 @@ export function QuoteTable({
                 <td>
                   {onSelect ? (
                     <button
+                      type="button"
                       className="quote-select"
                       data-quote-id={id}
                       aria-label={name ? `${name} · ${symbol}` : symbol}
@@ -236,9 +240,13 @@ export function QuoteTable({
                               q?.openInterest &&
                               Number(q.openInterest.text) >= 10000
                               ? `${(Number(q.openInterest.text) / 10000).toFixed(2)}${getLocale() === "zh-CN" ? "万" : " ×10k"}`
-                              : (q?.openInterest?.text ?? "—")
+                              : q?.openInterest
+                                ? groupedText(q.openInterest)
+                                : "—"
                             : column === "成交量"
-                              ? (q?.volume.toString() ?? "—")
+                              ? q
+                                ? q.volume.toLocaleString(getLocale())
+                                : "—"
                               : !change
                                 ? "—"
                                 : column === "涨跌幅"
@@ -258,8 +266,10 @@ export function QuoteTable({
                       {q?.asks[0]?.price?.text ?? "—"} / {q?.asks[0]?.lots?.toString() ?? "—"}
                     </td>
                     <>
-                      <td className="numeric">{q?.volume.toString() ?? "—"}</td>
-                      <td className="numeric">{q?.openInterest?.text ?? "—"}</td>
+                      <td className="numeric">{q ? q.volume.toLocaleString(getLocale()) : "—"}</td>
+                      <td className="numeric">
+                        {q?.openInterest ? groupedText(q.openInterest) : "—"}
+                      </td>
                     </>
                     <td>
                       {q?.exchangeMs !== undefined ? (

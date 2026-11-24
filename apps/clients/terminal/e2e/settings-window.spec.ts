@@ -76,6 +76,7 @@ test("settings service failures stay in the main window notification center", as
   await settings.getByRole("button", { name: "保存连接", exact: true }).click();
   await expect(settings.getByRole("alert")).toBeVisible();
   await expect(notices.locator("li")).toHaveCount(1);
+  await settings.getByRole("button", { name: "取消", exact: true }).click();
 
   await settings.getByRole("button", { name: "偏好设置", exact: true }).click();
   await settings.getByLabel("语言", { exact: true }).selectOption("en-US");

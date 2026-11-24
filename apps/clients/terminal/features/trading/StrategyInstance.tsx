@@ -16,14 +16,7 @@ import {
 import { decimal, decimalText } from "../../src/bridge/decimal";
 import { lab } from "../../src/bridge/lab";
 import { ActionError, useActionError } from "../../src/host/action-error";
-import {
-  environmentName,
-  isProductPolicy,
-  key,
-  rowProduct,
-  t,
-  useTradingCatalog,
-} from "./live-shared";
+import { isProductPolicy, key, rowProduct, t, useTradingCatalog } from "./live-shared";
 import {
   activeStrategy,
   parameterText,
@@ -66,6 +59,7 @@ export function StrategyInstance({
   const [id, setId] = useState("");
   const [packageKey, setPackage] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
+  const [contractFilter, setContractFilter] = useState("");
   const [period, setPeriod] = useState(Period.MINUTES_1);
   const [declared, setDeclared] = useState<readonly StrategyEntry[]>([]);
   // What was typed for each parameter; a blank one keeps its default.
@@ -178,16 +172,16 @@ export function StrategyInstance({
   }, [published, state.packages]);
 
   if (running || !state.packages.length) return null;
+  const query = contractFilter.trim().toLowerCase();
+  const visibleSeries = query
+    ? seriesEntries.filter(entry => entry.key.toLowerCase().includes(query))
+    : seriesEntries;
+  const visibleFixed = query
+    ? fixedKeys.filter(item => item.toLowerCase().includes(query))
+    : fixedKeys;
   return (
     <section className="strategy-instance" aria-label={t("配置策略实例")}>
       <h2>{t("配置策略实例")}</h2>
-      {account && live && (
-        <p>
-          {t("CTP 账户")} · {account.broker?.brokerId} / {account.broker?.userId} ·{" "}
-          {t(environmentName(account.environment))} ·{" "}
-          {t(live.authorizedMs !== undefined ? "已允许下单" : "未允许下单")}
-        </p>
-      )}
       {!usable && <p role="status">{t("账户连接并同步后可启动")}</p>}
       {review ? (
         <div className="creation-review" aria-label={t("启动配置确认")}>
@@ -258,24 +252,26 @@ export function StrategyInstance({
           {review.policy !== live?.policyRevision && (
             <p role="alert">{t("风控设置已变化，请返回重新核对配置。")}</p>
           )}
-          <button type="button" disabled={busy} onClick={() => setReview(undefined)}>
-            {t("返回修改")}
-          </button>
-          <button
-            type="button"
-            className={deployFirst ? undefined : "primary"}
-            disabled={!usable || busy || review.policy !== live?.policyRevision}
-            onClick={() =>
-              void start(review.configuration).then(started => {
-                if (started) {
-                  setReview(undefined);
-                  setId("");
-                }
-              })
-            }
-          >
-            {t("确认启动")}
-          </button>
+          <div className="workflow-actions">
+            <button type="button" disabled={busy} onClick={() => setReview(undefined)}>
+              {t("返回修改")}
+            </button>
+            <button
+              type="button"
+              className={deployFirst ? undefined : "primary"}
+              disabled={!usable || busy || review.policy !== live?.policyRevision}
+              onClick={() =>
+                void start(review.configuration).then(started => {
+                  if (started) {
+                    setReview(undefined);
+                    setId("");
+                  }
+                })
+              }
+            >
+              {t("确认启动")}
+            </button>
+          </div>
         </div>
       ) : (
         <form
@@ -482,7 +478,35 @@ export function StrategyInstance({
                   {t("来源回测")} · {research.runId} · {research.symbols.join(listSeparator())}
                 </p>
               )}
-              {seriesEntries.map(entry => (
+              {contracts.length > 8 && (
+                <div className="strategy-contracts-bar">
+                  <input
+                    type="search"
+                    aria-label={t("筛选合约")}
+                    placeholder={t("筛选合约")}
+                    value={contractFilter}
+                    onChange={event => setContractFilter(event.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelected([
+                        ...new Set([
+                          ...selected,
+                          ...visibleSeries.map(item => item.key),
+                          ...visibleFixed,
+                        ]),
+                      ])
+                    }
+                  >
+                    {t("全选")}
+                  </button>
+                  <button type="button" disabled={!selected.length} onClick={() => setSelected([])}>
+                    {t("清空")}
+                  </button>
+                </div>
+              )}
+              {visibleSeries.map(entry => (
                 <label key={entry.key} className="checkbox">
                   <input
                     type="checkbox"
@@ -498,7 +522,7 @@ export function StrategyInstance({
                   {`${entry.key} · ${t("主力连续")}`}
                 </label>
               ))}
-              {fixedKeys.map(contract => (
+              {visibleFixed.map(contract => (
                 <label key={contract} className="checkbox">
                   <input
                     type="checkbox"

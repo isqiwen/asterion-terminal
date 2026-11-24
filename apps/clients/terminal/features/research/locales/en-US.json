@@ -310,5 +310,7 @@
   "{count} 组": "{count} groups",
   "切换因子": "Switch factor",
   "相关性与合成": "Correlation & Combine",
-  "批量评价": "Batch evaluate"
+  "批量评价": "Batch evaluate",
+  "多值用逗号分隔即扫描": "Separate multiple values with commas to sweep",
+  "运行扫描（{count} 组）": "Run sweep ({count})"
 }

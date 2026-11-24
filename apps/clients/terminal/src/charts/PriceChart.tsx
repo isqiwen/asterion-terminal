@@ -998,6 +998,7 @@ export function PriceChart(props: Props) {
       {controls && (
         <div className="price-chart-controls">
           <button
+            type="button"
             aria-label={controls.earlier}
             disabled={start === 0}
             onClick={() => pan(end - Math.max(1, Math.round(size / 5)))}
@@ -1005,6 +1006,7 @@ export function PriceChart(props: Props) {
             <Icon name="chevronLeft" size={14} />
           </button>
           <button
+            type="button"
             aria-label={controls.zoomIn}
             disabled={size <= Math.min(5, count)}
             onClick={() => zoom(0.8)}
@@ -1012,6 +1014,7 @@ export function PriceChart(props: Props) {
             <Icon name="plus" size={14} />
           </button>
           <button
+            type="button"
             aria-label={controls.zoomOut}
             disabled={size === count}
             onClick={() => zoom(1.25)}
@@ -1019,13 +1022,16 @@ export function PriceChart(props: Props) {
             <Icon name="minus" size={14} />
           </button>
           <button
+            type="button"
             aria-label={controls.later}
             disabled={end === count}
             onClick={() => pan(end + Math.max(1, Math.round(size / 5)))}
           >
             <Icon name="chevronRight" size={14} />
           </button>
-          <button onClick={last}>{controls.latest}</button>
+          <button type="button" onClick={last}>
+            {controls.latest}
+          </button>
         </div>
       )}
       <div

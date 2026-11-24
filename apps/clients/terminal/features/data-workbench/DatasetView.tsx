@@ -402,7 +402,11 @@ function DatasetBody({ context }: { context: TerminalContext }) {
               </div>
             )}
           </div>
-          {updated && <p className="data-feedback">{updated}</p>}
+          {updated && (
+            <p className="data-feedback" role="status">
+              {updated}
+            </p>
+          )}
           <div className="data-coverage-main">
             {!rows.length ? (
               <p className="data-empty subtle">{t("暂无品种")}</p>

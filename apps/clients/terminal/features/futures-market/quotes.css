@@ -488,17 +488,9 @@
   padding: 2px var(--space-2);
   font-size: var(--font-size-body);
 }
-.market-phase {
-  color: var(--warning);
-  white-space: nowrap;
-}
-.market-phase[data-live] {
-  color: var(--text);
-}
-.market-phase[data-live]::before {
-  content: "●" / "";
-  margin-right: var(--space-1);
-  color: var(--success);
+.market-chart-subpane {
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--line);
 }
 
 .futures-market-board {
@@ -726,8 +718,8 @@
   background: linear-gradient(to left, var(--depth-color) var(--depth), transparent var(--depth));
 }
 .contract-depth td.depth-lots[data-side="ask"] {
-  --depth-color: color-mix(in oklab, var(--quote-up) 20%, transparent);
+  --depth-color: color-mix(in oklab, var(--quote-down) 20%, transparent);
 }
 .contract-depth td.depth-lots[data-side="bid"] {
-  --depth-color: color-mix(in oklab, var(--quote-down) 20%, transparent);
+  --depth-color: color-mix(in oklab, var(--quote-up) 20%, transparent);
 }

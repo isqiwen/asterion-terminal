@@ -17,7 +17,7 @@ const stages: readonly (readonly [string, Tone])[] = [
   ["已回测", "neutral"],
   ["已部署", "neutral"],
   ["仿真", "ok"],
-  ["实盘", "attention"],
+  ["实盘", "danger"],
 ];
 const figures = [
   ["total_return", "总收益", true],

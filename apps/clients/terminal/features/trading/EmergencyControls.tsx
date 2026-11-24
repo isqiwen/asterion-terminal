@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import type { TradingConnection } from "../../src/bridge/client";
 import type { State as EmergencyState } from "../../src/generated/asterion/emergency_pb";
 import { StatusBadge } from "../../src/ui/StatusBadge";
+import { Tag } from "../../src/ui/Tag";
 import { t, type Run } from "./live-shared";
 
 const offsetLabels: Record<string, string> = {
@@ -14,18 +15,23 @@ const offsetLabels: Record<string, string> = {
 export function EmergencyControls({
   account,
   state,
+  real = false,
   control,
 }: {
   account: TradingConnection;
   state: EmergencyState;
+  real?: boolean;
   control: Run;
 }) {
   const revokingRef = useRef(false);
   const stoppingRef = useRef(false);
   const cancellingRef = useRef(new Set<string>());
+  const cancellingAllRef = useRef(false);
   const [revoking, setRevoking] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [cancelling, setCancelling] = useState<readonly string[]>([]);
+  const [cancelAllArmed, setCancelAllArmed] = useState(false);
+  const [cancellingAll, setCancellingAll] = useState(false);
 
   const revoke = () => {
     if (revokingRef.current) return;
@@ -68,33 +74,36 @@ export function EmergencyControls({
     });
   };
 
-  const cancelOrder = (orderId: string) => {
+  const cancelOrder = async (orderId: string) => {
     if (cancellingRef.current.has(orderId)) return;
     cancellingRef.current.add(orderId);
     setCancelling(current => [...current, orderId]);
-    void control(() => ({
-      case: "emergencyControl",
-      value: {
-        action: {
-          case: "cancelOrder",
-          value: {
-            requestId: crypto.randomUUID(),
-            accountId: state.accountId,
-            policyRevision: state.policyRevision,
-            orderId,
+    try {
+      await control(() => ({
+        case: "emergencyControl",
+        value: {
+          action: {
+            case: "cancelOrder",
+            value: {
+              requestId: crypto.randomUUID(),
+              accountId: state.accountId,
+              policyRevision: state.policyRevision,
+              orderId,
+            },
           },
         },
-      },
-    })).finally(() => {
+      }));
+    } finally {
       cancellingRef.current.delete(orderId);
       setCancelling(current => current.filter(item => item !== orderId));
-    });
+    }
   };
 
   return (
     <section aria-label={t("紧急安全控制")}>
-      <div className="ctp-identity">
+      <div className="ctp-identity" data-real={real || undefined}>
         <strong>{[account.instance, state.accountId].filter(Boolean).join(" · ")}</strong>
+        {real && <Tag danger>{t("真实资金")}</Tag>}
         <StatusBadge tone="attention">{t("紧急控制模式")}</StatusBadge>
         <StatusBadge tone={state.authorized ? "ok" : "neutral"}>
           {t(state.authorized ? "已允许下单" : "未允许下单")}
@@ -104,13 +113,44 @@ export function EmergencyControls({
         )}
         <div className="ctp-identity-actions">
           {state.authorized && (
-            <button className="danger" disabled={revoking} onClick={revoke}>
+            <button type="button" className="danger" disabled={revoking} onClick={revoke}>
               {t("停止下单")}
             </button>
           )}
           {state.activeStrategyId && (
-            <button className="danger" disabled={stopping} onClick={stopStrategy}>
+            <button type="button" className="danger" disabled={stopping} onClick={stopStrategy}>
               {t("停止策略并撤单")}
+            </button>
+          )}
+          {state.workingOrders.length > 1 && (
+            <button
+              type="button"
+              className={cancelAllArmed ? "danger" : "danger-quiet"}
+              disabled={cancellingAll}
+              onBlur={() => setCancelAllArmed(false)}
+              onClick={() => {
+                if (!cancelAllArmed) {
+                  setCancelAllArmed(true);
+                  return;
+                }
+                if (cancellingAllRef.current) return;
+                setCancelAllArmed(false);
+                cancellingAllRef.current = true;
+                setCancellingAll(true);
+                const targets = [...state.workingOrders];
+                void (async () => {
+                  try {
+                    for (const order of targets) await cancelOrder(order.id);
+                  } finally {
+                    cancellingAllRef.current = false;
+                    setCancellingAll(false);
+                  }
+                })();
+              }}
+            >
+              {cancelAllArmed
+                ? t("确认撤掉 {count} 笔", { count: state.workingOrders.length })
+                : t("全部撤单")}
             </button>
           )}
         </div>
@@ -124,8 +164,12 @@ export function EmergencyControls({
             <tr>
               <th scope="col">{t("合约")}</th>
               <th scope="col">{t("方向 / 开平")}</th>
-              <th scope="col">{t("委托手数")}</th>
-              <th scope="col">{t("限价")}</th>
+              <th scope="col" className="numeric">
+                {t("委托手数")}
+              </th>
+              <th scope="col" className="numeric">
+                {t("限价")}
+              </th>
               <th scope="col">{t("操作")}</th>
             </tr>
           </thead>
@@ -133,16 +177,17 @@ export function EmergencyControls({
             {state.workingOrders.map(order => (
               <tr key={order.id}>
                 <td>{`${order.exchange}.${order.symbol}`}</td>
-                <td>
+                <td className={order.side === "buy" ? "ctp-up" : "ctp-down"}>
                   {`${order.side === "buy" ? t("买入") : t("卖出")} / ${t(offsetLabels[order.offset] ?? "平仓")}`}
                 </td>
-                <td>{order.lots}</td>
-                <td>{order.price}</td>
+                <td className="numeric">{order.lots}</td>
+                <td className="numeric">{order.price}</td>
                 <td>
                   <button
+                    type="button"
                     className="danger-quiet"
                     disabled={cancelling.includes(order.id)}
-                    onClick={() => cancelOrder(order.id)}
+                    onClick={() => void cancelOrder(order.id)}
                   >
                     {t("撤单")}
                   </button>

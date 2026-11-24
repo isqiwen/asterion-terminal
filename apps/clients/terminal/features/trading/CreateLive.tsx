@@ -5,8 +5,9 @@ import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { catalogName } from "../../src/ui/contract-names";
 import type { TradingConnection } from "../../src/bridge/client";
 import { decimal } from "../../src/bridge/decimal";
-import type { Account } from "../../src/generated/asterion/trading_pb";
+import { Environment, type Account } from "../../src/generated/asterion/trading_pb";
 import { BackendError } from "../../src/i18n/errors";
+import { Tag } from "../../src/ui/Tag";
 import { LimitFields } from "./LimitFields";
 import {
   t,
@@ -36,6 +37,7 @@ export function CreateLive({
   run: Run;
 }) {
   const broker = configuration.broker!;
+  const real = configuration.environment === Environment.REAL;
   const environment = t(environmentName(configuration.environment));
   const [step, setStep] = useWorkspaceDraft(`live-create-step:${account.id}`, 0);
   const [limits, setLimits] = useWorkspaceDraft<LimitsDraft>(`live-risk:${account.id}`, {
@@ -55,6 +57,14 @@ export function CreateLive({
   const products = policyProducts(listed);
   return (
     <>
+      {real && (
+        <div className="ctp-identity" data-real>
+          <strong>
+            {account.instance} · {broker.brokerId} · {broker.userId}
+          </strong>
+          <Tag danger>{environment}</Tag>
+        </div>
+      )}
       <div role="status" aria-label={t("CTP 账户")}>
         <dl className="ctp-account-facts">
           {(
@@ -69,7 +79,7 @@ export function CreateLive({
           ).map(([label, value]) => (
             <div key={label}>
               <dt>{t(label)}</dt>
-              <dd>{value}</dd>
+              <dd>{label === "柜台环境" ? <Tag danger={real}>{value}</Tag> : value}</dd>
             </div>
           ))}
         </dl>

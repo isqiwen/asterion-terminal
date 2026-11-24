@@ -25,6 +25,32 @@ const offsetValues = {
   close: Offset.CLOSE,
 };
 
+function stepPrice(
+  raw: string,
+  tickText: string | undefined,
+  direction: 1 | -1,
+  fallback?: string,
+) {
+  const tick = tickText?.trim();
+  if (!tick || !/^\d+(\.\d+)?$/.test(tick)) return undefined;
+  const baseText = raw.trim() || fallback?.trim() || "";
+  if (!/^\d+(\.\d+)?$/.test(baseText)) return undefined;
+  const decimals = Math.max(
+    (tick.split(".")[1] ?? "").length,
+    (baseText.split(".")[1] ?? "").length,
+  );
+  const scale = 10n ** BigInt(decimals);
+  const toScaled = (text: string) => {
+    const [whole, frac = ""] = text.split(".");
+    return BigInt(whole!) * scale + BigInt(frac.padEnd(decimals, "0"));
+  };
+  const next = toScaled(baseText) + BigInt(direction) * toScaled(tick);
+  if (next <= 0n) return undefined;
+  const whole = next / scale;
+  const frac = (next % scale).toString().padStart(decimals, "0").replace(/0+$/, "");
+  return frac ? `${whole}.${frac}` : whole.toString();
+}
+
 function usableQuote(market: MarketView | null, row: QuoteRow | undefined, now: number) {
   const quote = row?.quote;
   return !!(
@@ -257,6 +283,22 @@ export function OrderTicket({
     })();
   };
   const locked = busy || submitting;
+  const tickText = traded?.priceTick?.text;
+  const closableTarget =
+    offset === "open"
+      ? 0
+      : suggested
+        ? closable(suggested === Side.SELL ? Side.BUY : Side.SELL)
+        : Math.max(closable(Side.BUY), closable(Side.SELL));
+  const stepBy = (direction: 1 | -1) => {
+    const next = stepPrice(
+      order.price,
+      tickText,
+      direction,
+      quoteUsable ? quote?.last?.text : undefined,
+    );
+    if (next) setOrder(current => ({ ...current, price: next }));
+  };
   const most = Math.max(
     1,
     ...[...(quote?.asks ?? []), ...(quote?.bids ?? [])].map(item => Number(item.lots ?? 0)),
@@ -329,18 +371,65 @@ export function OrderTicket({
           </label>
           <label>
             {t("限价")}
-            <input
-              aria-label={t("限价")}
-              inputMode="decimal"
-              pattern="\s*\d+(\.\d{1,8})?\s*"
-              value={order.price}
-              placeholder={
-                traded ? t("最小变动 {tick}", { tick: decimalText(traded.priceTick) }) : ""
-              }
-              onChange={event => setOrder({ ...order, price: event.target.value })}
-              required
-            />
+            <span className="ticket-stepper">
+              <input
+                aria-label={t("限价")}
+                inputMode="decimal"
+                pattern="\s*\d+(\.\d{1,8})?\s*"
+                value={order.price}
+                placeholder={
+                  traded ? t("最小变动 {tick}", { tick: decimalText(traded.priceTick) }) : ""
+                }
+                onChange={event => setOrder({ ...order, price: event.target.value })}
+                required
+              />
+              {tickText && (
+                <>
+                  <button
+                    type="button"
+                    aria-label={t("减一跳")}
+                    title={t("减一跳")}
+                    disabled={!order.price.trim() && !(quoteUsable && quote?.last?.text)}
+                    onClick={() => stepBy(-1)}
+                  >
+                    −
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={t("加一跳")}
+                    title={t("加一跳")}
+                    disabled={!order.price.trim() && !(quoteUsable && quote?.last?.text)}
+                    onClick={() => stepBy(1)}
+                  >
+                    +
+                  </button>
+                </>
+              )}
+            </span>
           </label>
+          <div className="ticket-quick-lots" role="group" aria-label={t("快捷手数")}>
+            {["1", "5", "10"].map(lots => (
+              <button
+                key={lots}
+                type="button"
+                aria-pressed={order.quantity === lots}
+                onClick={() => setOrder(current => ({ ...current, quantity: lots }))}
+              >
+                {lots}
+              </button>
+            ))}
+            {closableTarget > 0 && (
+              <button
+                type="button"
+                aria-pressed={order.quantity === String(closableTarget)}
+                onClick={() =>
+                  setOrder(current => ({ ...current, quantity: String(closableTarget) }))
+                }
+              >
+                {t("全部可平")}
+              </button>
+            )}
+          </div>
         </div>
         {!traded && order.contract && (
           <p className="alert" role="alert">

@@ -20,6 +20,7 @@ export function WatchlistToggle({
   return (
     <>
       <button
+        type="button"
         className="watchlist-toggle"
         aria-pressed={present}
         title={row.symbol}

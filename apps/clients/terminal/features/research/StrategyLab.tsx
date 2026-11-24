@@ -588,6 +588,9 @@ export function StrategyLab(context: TerminalContext) {
                     />
                   </label>
                 ))}
+                {strategy.parameters.length > 0 && (
+                  <p className="subtle wide lab-param-hint">{t("多值用逗号分隔即扫描")}</p>
+                )}
                 {enteredSymbols.length > 1 && (
                   <fieldset className="wide lab-segmented">
                     <legend className="sr-only">{t("多品种运行方式")}</legend>
@@ -627,13 +630,27 @@ export function StrategyLab(context: TerminalContext) {
                 {field("并行进程数", "processes", { placeholder: defaultProcesses() }, "wide")}
               </Section>
               <footer className="lab-submit">
-                <button
-                  className="primary"
-                  disabled={busy || context.busy}
-                  onClick={() => void submit()}
-                >
-                  {t("运行")}
-                </button>
+                {(() => {
+                  const sweepCount = strategy.parameters.reduce((total, parameter) => {
+                    const parts = (form.params[parameter.name] ?? "")
+                      .split(",")
+                      .map(part => part.trim())
+                      .filter(Boolean);
+                    return total * Math.max(1, parts.length);
+                  }, 1);
+                  return (
+                    <button
+                      type="button"
+                      className="primary"
+                      disabled={busy || context.busy}
+                      onClick={() => void submit()}
+                    >
+                      {sweepCount > 1
+                        ? t("运行扫描（{count} 组）", { count: sweepCount })
+                        : t("运行")}
+                    </button>
+                  );
+                })()}
                 {saved.length > 0 && (
                   <p className="subtle">
                     {t("已保存 {files}", { files: saved.join(listSeparator()) })}

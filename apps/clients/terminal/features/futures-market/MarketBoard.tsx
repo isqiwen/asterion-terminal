@@ -235,6 +235,7 @@ export function MarketBoard({ market, context }: { market: MarketView; context: 
             actions={
               <>
                 <button
+                  type="button"
                   className="market-expand"
                   onClick={() =>
                     context.navigate("workspace.trading", {
@@ -248,6 +249,7 @@ export function MarketBoard({ market, context }: { market: MarketView; context: 
                 </button>
                 <WatchlistToggle context={context} row={active.instrument!} />
                 <button
+                  type="button"
                   className="market-expand"
                   aria-pressed={expanded}
                   onClick={() => setExpanded(value => !value)}

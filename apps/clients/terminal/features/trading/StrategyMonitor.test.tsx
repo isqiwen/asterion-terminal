@@ -108,7 +108,8 @@ test("stop and cancel remains confirmable while a different strategy command is 
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "停止策略并撤单" }));
+  expect(screen.getByRole("alertdialog", { name: "确认操作" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "确认停止并撤单" }));
   expect(stop).toHaveBeenCalledWith("running-strategy");
-  await waitFor(() => expect(screen.queryByRole("button", { name: "确认停止并撤单" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
 });

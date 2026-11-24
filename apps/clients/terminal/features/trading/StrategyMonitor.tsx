@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import {
   BrokerState,
   InstanceState,
@@ -8,6 +8,7 @@ import type { TradingView } from "../../src/host/trading-accounts";
 import { decimalText } from "../../src/bridge/decimal";
 import { listSeparator } from "../../src/i18n";
 import { BackendError, ErrorNotice } from "../../src/i18n/errors";
+import { StatusBadge, type Tone } from "../../src/ui/StatusBadge";
 import { key, t } from "./live-shared";
 import { activeStrategy, parameterText, periodText, targetRows } from "./strategy-instance";
 
@@ -18,6 +19,14 @@ export const instanceStates: Partial<Record<InstanceState, string>> = {
   [InstanceState.STOPPED]: "已停止",
   [InstanceState.INTERRUPTED]: "已中断",
   [InstanceState.FAILED]: "策略运行失败",
+};
+
+const stateTones: Partial<Record<InstanceState, Tone>> = {
+  [InstanceState.STARTING]: "attention",
+  [InstanceState.WARMING]: "attention",
+  [InstanceState.READY]: "ok",
+  [InstanceState.INTERRUPTED]: "danger",
+  [InstanceState.FAILED]: "danger",
 };
 
 export function StrategyMonitor({
@@ -42,7 +51,20 @@ export function StrategyMonitor({
   flatten: (id: string) => Promise<boolean>;
 }) {
   const [confirm, setConfirm] = useState<{ id: string; action: "stop" | "flatten" }>();
+  const confirmDialog = useRef<HTMLDialogElement>(null);
   const configuration = instance?.instance;
+  const confirmOpen = !!(
+    confirm &&
+    configuration &&
+    confirm.id === configuration.id &&
+    activeStrategy(instance?.state)
+  );
+  useLayoutEffect(() => {
+    if (!confirmOpen) return;
+    const element = confirmDialog.current;
+    element?.showModal();
+    return () => element?.close();
+  }, [confirmOpen]);
   if (!instance || !configuration) return null;
   const positions = account?.positions;
   const positionState = account?.failed
@@ -54,13 +76,18 @@ export function StrategyMonitor({
         : "";
   return (
     <section className="strategy-monitor" aria-label={t("策略运行状态")}>
-      <h2>
-        {t("策略实例")} · {configuration.id}
-      </h2>
-      <p role="status">
-        {t(instanceStates[instance.state] ?? "未知策略状态")}
-        {!fresh && ` · ${t("上次已知状态")}`}
-      </p>
+      <div className="strategy-monitor-header">
+        <h2>
+          {t("策略实例")} · {configuration.id}
+        </h2>
+        <StatusBadge tone={fresh ? (stateTones[instance.state] ?? "neutral") : "attention"}>
+          <span role="status">
+            {t(instanceStates[instance.state] ?? "未知策略状态")}
+            {!fresh && ` · ${t("上次已知状态")}`}
+          </span>
+        </StatusBadge>
+        {instance.paused && <StatusBadge tone="attention">{t("暂停新增")}</StatusBadge>}
+      </div>
       {instance.paused && <p role="status">{t("已暂停新增：目标只减仓。")}</p>}
       {instance.error && (
         <p className="alert" role="alert">
@@ -156,7 +183,10 @@ export function StrategyMonitor({
         </thead>
         <tbody>
           {targetRows(instance, positions?.rows).map(row => (
-            <tr key={row.label}>
+            <tr
+              key={row.label}
+              data-off={(/^-?\d+$/.test(row.target) && row.target !== row.net) || undefined}
+            >
               <td>{row.label}</td>
               <td className="numeric">{row.target}</td>
               <td className="numeric">{row.net}</td>
@@ -180,17 +210,54 @@ export function StrategyMonitor({
           </ul>
         </div>
       )}
-      {confirm && confirm.id === configuration.id && activeStrategy(instance.state) ? (
-        <div className="creation-review">
+      {activeStrategy(instance.state) && (
+        <div className="strategy-actions">
+          <button
+            type="button"
+            disabled={busy || stopping}
+            onClick={() => void pause(configuration.id, !instance.paused)}
+          >
+            {t(instance.paused ? "恢复新增" : "暂停新增")}
+          </button>
+          <button
+            type="button"
+            className="danger-quiet"
+            disabled={busy || stopping}
+            onClick={() => setConfirm({ id: configuration.id, action: "flatten" })}
+          >
+            {t("平仓")}
+          </button>
+          <button
+            type="button"
+            className="danger-quiet"
+            disabled={stopping}
+            onClick={() => setConfirm({ id: configuration.id, action: "stop" })}
+          >
+            {t("停止策略并撤单")}
+          </button>
+        </div>
+      )}
+      {confirmOpen && (
+        <dialog
+          ref={confirmDialog}
+          className="order-confirm"
+          role="alertdialog"
+          aria-label={t("确认操作")}
+          onCancel={event => {
+            event.preventDefault();
+            if (!stopping) setConfirm(undefined);
+          }}
+          onClose={event => {
+            if (!event.currentTarget.open && !stopping) setConfirm(undefined);
+          }}
+        >
           <p>
             {confirm.action === "stop"
               ? t("停止实例 {id} 并撤销它的挂单？持仓保留。", { id: confirm.id })
               : t("平掉实例 {id} 的持仓？实例暂停新增，继续运行。", { id: confirm.id })}
           </p>
-          <button disabled={stopping} onClick={() => setConfirm(undefined)}>
-            {t("取消")}
-          </button>
           <button
+            type="button"
             className="danger"
             disabled={stopping || (confirm.action !== "stop" && busy)}
             onClick={() =>
@@ -203,32 +270,10 @@ export function StrategyMonitor({
           >
             {t(confirm.action === "stop" ? "确认停止并撤单" : "确认平仓")}
           </button>
-        </div>
-      ) : (
-        activeStrategy(instance.state) && (
-          <div className="strategy-actions">
-            <button
-              disabled={busy || stopping}
-              onClick={() => void pause(configuration.id, !instance.paused)}
-            >
-              {t(instance.paused ? "恢复新增" : "暂停新增")}
-            </button>
-            <button
-              className="danger-quiet"
-              disabled={busy || stopping}
-              onClick={() => setConfirm({ id: configuration.id, action: "flatten" })}
-            >
-              {t("平仓")}
-            </button>
-            <button
-              className="danger-quiet"
-              disabled={stopping}
-              onClick={() => setConfirm({ id: configuration.id, action: "stop" })}
-            >
-              {t("停止策略并撤单")}
-            </button>
-          </div>
-        )
+          <button type="button" autoFocus disabled={stopping} onClick={() => setConfirm(undefined)}>
+            {t("取消")}
+          </button>
+        </dialog>
       )}
     </section>
   );

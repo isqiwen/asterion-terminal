@@ -260,7 +260,11 @@ function RunChart({
         </select>
       </label>
       {notice && <p role="status">{notice}</p>}
-      {error && <button onClick={() => setRetry(value => value + 1)}>{t("重试")}</button>}
+      {error && (
+        <button type="button" onClick={() => setRetry(value => value + 1)}>
+          {t("重试")}
+        </button>
+      )}
       {candles.length > 0 && (
         <PriceChart
           series={chartSeries}
@@ -1007,7 +1011,7 @@ export function SweepResult({
           </select>
         </label>
         {rolling && (
-          <button className="lab-link" onClick={rolling}>
+          <button type="button" className="lab-link" onClick={rolling}>
             {t("查看滚动验证的账户")}
           </button>
         )}
@@ -1124,7 +1128,7 @@ export function SweepResult({
             )}
             <td>
               {row.state === "succeeded" ? (
-                <button className="lab-link" onClick={() => open(row.id)}>
+                <button type="button" className="lab-link" onClick={() => open(row.id)}>
                   {t("查看")}
                 </button>
               ) : (

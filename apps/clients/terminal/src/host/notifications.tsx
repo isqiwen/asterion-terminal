@@ -138,8 +138,11 @@ export function NotificationCenter() {
   const all = useEntries();
   const [open, setOpen] = useState(false);
   const latest = all.at(-1);
-  if (open && latest && latest.id > seen) seen = latest.id;
-  const unread = all.filter(entry => entry.id > seen);
+  useEffect(() => {
+    if (open && latest && latest.id > seen) seen = latest.id;
+  }, [open, latest]);
+  const effectiveSeen = open && latest && latest.id > seen ? latest.id : seen;
+  const unread = all.filter(entry => entry.id > effectiveSeen);
   const latestUnread = !open ? unread.at(-1) : undefined;
   const urgent = unread.some(entry => entry.source === "交易" && entry.severity === "error");
   const errors = all.filter(entry => entry.severity === "error").length;

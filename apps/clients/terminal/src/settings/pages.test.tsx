@@ -62,15 +62,12 @@ test("the two data pages each configure their own service without counter creden
   );
 });
 
-test("about identifies the product version, native build commit, and copies the fingerprint", async () => {
+test("about identifies the product version, native build commit, and selectable fingerprint without a copy button", () => {
   const snapshot = readySnapshot();
   snapshot.diagnostics.commit = "abc123456789";
   snapshot.client_fingerprint = "f".repeat(64);
-  const writeText = vi.fn().mockResolvedValue(undefined);
-  Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
   render(<Settings snapshot={snapshot} busy={false} trade={vi.fn()} initialPage="about" />);
   expect(screen.getByText(`${version.trim()} (abc123456789)`)).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "复制" }));
-  await waitFor(() => expect(writeText).toHaveBeenCalledWith("f".repeat(64)));
-  expect(screen.getByRole("status").textContent).toBe("已复制");
+  expect(screen.getByText("f".repeat(64))).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "复制" })).toBeNull();
 });

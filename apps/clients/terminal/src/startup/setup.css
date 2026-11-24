@@ -51,7 +51,7 @@
 }
 .setup-step {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 56px 160px 72px;
+  grid-template-columns: minmax(0, 1fr) 56px minmax(110px, 160px) minmax(72px, auto);
   gap: var(--space-4);
   align-items: center;
   height: 40px;
@@ -65,6 +65,7 @@
 .setup-step > span {
   text-align: right;
   font-size: var(--font-size-body);
+  white-space: nowrap;
 }
 .setup-step > .setup-status-done {
   color: var(--success);

@@ -143,12 +143,19 @@ button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   z-index: 1;
   background: var(--canvas);
 }
-.lab-library-table tbody tr:hover :is(td, th) {
+.lab-library-table tbody tr:hover td {
   background: var(--row-alt);
 }
-.lab-library-table tbody tr.current :is(td, th),
-.lab-library-table tbody tr.selected :is(td, th) {
+.lab-library-table tbody tr:hover th {
+  background: color-mix(in oklab, white 1.8%, var(--canvas));
+}
+.lab-library-table tbody tr.current td,
+.lab-library-table tbody tr.selected td {
   background: var(--accent-surface);
+}
+.lab-library-table tbody tr.current th,
+.lab-library-table tbody tr.selected th {
+  background: color-mix(in oklab, var(--accent) 9%, var(--canvas));
 }
 .lab-check-col {
   width: 28px;
@@ -181,15 +188,6 @@ button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   margin-left: auto;
   color: var(--muted);
   font-size: var(--font-size-xs);
-}
-.lab-sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
 }
 .lab-yearly-head {
   display: flex;
@@ -431,11 +429,11 @@ button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
 .lab-table .numeric {
   text-align: right;
 }
-.lab-table tr:hover td {
+.lab-table tr:hover :is(td, th) {
   background: var(--row-alt);
 }
-.lab-table tr.current td,
-.lab-table tr.selected td {
+.lab-table tr.current :is(td, th),
+.lab-table tr.selected :is(td, th) {
   background: var(--accent-surface);
 }
 .lab-scroll {
@@ -673,15 +671,13 @@ label.lab-inline {
   display: flex;
   flex-direction: column;
   min-width: 116px;
+  max-width: calc(100vw - 16px);
   padding: var(--space-1);
-  border: 1px solid rgb(255 255 255 / 14%);
+  border: 1px solid var(--line-strong);
   border-radius: 6px;
-  background: color-mix(in oklab, var(--pressed) 92%, transparent);
+  background: color-mix(in oklab, var(--pressed) 94%, var(--canvas));
   backdrop-filter: blur(16px);
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 8%),
-    0 0 0 1px rgb(0 0 0 / 55%),
-    0 14px 32px -4px rgb(0 0 0 / 78%);
+  box-shadow: var(--surface-highlight), var(--shadow-popover);
 }
 .lab-context-menu button {
   justify-content: flex-start;
@@ -718,7 +714,7 @@ label.lab-inline {
   width: 100%;
   margin: var(--space-1) 0;
   border: 0;
-  border-top: 1px solid rgb(255 255 255 / 9%);
+  border-top: 1px solid var(--line);
 }
 .lab-source-editor {
   flex: 1;
@@ -1051,7 +1047,8 @@ button.lab-symbol-option.is-contract {
 button.lab-symbol-option[aria-selected="true"] {
   color: var(--accent);
 }
-button.lab-symbol-option:enabled:hover {
+button.lab-symbol-option:enabled:hover,
+button.lab-symbol-option[data-active] {
   background: var(--hover);
 }
 .lab-symbol-check {
@@ -1277,6 +1274,10 @@ button.lab-symbol-months:enabled:hover {
 }
 .lab-parameters {
   margin-bottom: var(--space-3);
+}
+.lab-param-hint {
+  margin: 0;
+  font-size: var(--font-size-aux);
 }
 .lab-library-view {
   padding-inline: var(--space-page);

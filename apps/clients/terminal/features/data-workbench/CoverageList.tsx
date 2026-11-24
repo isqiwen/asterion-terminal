@@ -208,9 +208,46 @@ function tallyPieces({ total, held, complete, gaps, pending }: Tally): Piece[] {
   });
 }
 
-function Progress({ pieces }: { pieces: Piece[] }) {
+function contractSummary(series: SeriesCoverage | undefined) {
+  if (!series?.days) {
+    return series?.emptyDays ? t("来源无数据 {days} 天", { days: series.emptyDays }) : t("未采集");
+  }
+  const parts = [
+    t("已采 {days} 天（{first}–{last}）", {
+      days: series.days,
+      first: series.firstDay,
+      last: series.lastDay,
+    }),
+  ];
+  if (series.gaps.length) {
+    const shown = series.gaps
+      .slice(0, 3)
+      .map(gap => (gap.first === gap.last ? gap.first : `${gap.first}–${gap.last}`))
+      .join(", ");
+    parts.push(
+      t("缺口 {ranges}", {
+        ranges: series.gaps.length > 3 ? `${shown} …` : shown,
+      }),
+    );
+  }
+  if (series.pendingDays) parts.push(t("待更新 {days} 天", { days: series.pendingDays }));
+  if (series.emptyDays) parts.push(t("来源无数据 {days} 天", { days: series.emptyDays }));
+  return parts.join(" · ");
+}
+
+function tallySummary({ total, held, complete, gaps, pending }: Tally) {
+  if (!total || !held) return t("未采集");
+  const part = Math.max(0, held - complete - gaps - pending);
+  const parts = [t("已采全 {complete} / {total}", { complete, total })];
+  if (part > 0) parts.push(t("部分采集 {count}", { count: part }));
+  if (gaps > 0) parts.push(t("缺口 {count}", { count: gaps }));
+  if (pending > 0) parts.push(t("待更新 {count}", { count: pending }));
+  return parts.join(" · ");
+}
+
+function Progress({ pieces, label }: { pieces: Piece[]; label: string }) {
   return (
-    <div className="coverage-lane" aria-hidden="true">
+    <div className="coverage-lane" role="img" title={label} aria-label={label}>
       {pieces.map(({ part, left, width }) => (
         <i
           key={`${part}-${left}`}
@@ -268,7 +305,7 @@ function ContractRow({
       </th>
       <td />
       <td>
-        <Progress pieces={lifePieces(contract, series)} />
+        <Progress pieces={lifePieces(contract, series)} label={contractSummary(series)} />
       </td>
       <td>
         {busy ? (
@@ -452,7 +489,7 @@ export function CoverageList({
                   {row.coverage ? `${row.coverage.listed} / ${row.coverage.contracts}` : "—"}
                 </td>
                 <td>
-                  <Progress pieces={tallyPieces(tally)} />
+                  <Progress pieces={tallyPieces(tally)} label={tallySummary(tally)} />
                 </td>
                 <td>
                   {!acquires ? null : busy ? (
@@ -496,7 +533,10 @@ export function CoverageList({
                   </th>
                   <td className="coverage-count">{t("{count} 个", { count: history.length })}</td>
                   <td>
-                    <Progress pieces={tallyPieces(historyTally)} />
+                    <Progress
+                      pieces={tallyPieces(historyTally)}
+                      label={tallySummary(historyTally)}
+                    />
                   </td>
                   <td>
                     {!acquires || !historyRules.length ? null : historyBusy ? (
@@ -540,7 +580,10 @@ export function CoverageList({
                           {yearTally.held} / {inYear.length}
                         </td>
                         <td>
-                          <Progress pieces={tallyPieces(yearTally)} />
+                          <Progress
+                            pieces={tallyPieces(yearTally)}
+                            label={tallySummary(yearTally)}
+                          />
                         </td>
                         <td>
                           {!acquires || !rules.length ? null : yearBusy ? (

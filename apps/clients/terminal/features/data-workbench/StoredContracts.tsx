@@ -84,63 +84,68 @@ export function StoredContracts({
       ) : (
         <div className="stored-contracts">
           <div className="stored-contracts-list">
-            <input
-              type="search"
-              aria-label={t("搜索已采集合约")}
-              placeholder={t("搜索已采集合约")}
-              value={search}
-              onChange={event => setSearch(event.target.value)}
-            />
-            <div role="group" aria-label={t("已采集合约")}>
-              {visible.map((item, index) => (
-                <button
-                  key={item.contract}
-                  title={item.contract}
-                  aria-pressed={active === item.contract}
-                  onClick={() => setSelected(item.contract)}
-                  onKeyDown={event => {
-                    if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
-                    event.preventDefault();
-                    const target =
-                      event.key === "Home"
-                        ? 0
-                        : event.key === "End"
-                          ? visible.length - 1
-                          : Math.max(
-                              0,
-                              Math.min(
-                                visible.length - 1,
-                                index + (event.key === "ArrowUp" ? -1 : 1),
-                              ),
-                            );
-                    setSelected(visible[target].contract);
-                    const button = event.currentTarget.parentElement?.children[target];
-                    if (button instanceof HTMLButtonElement) {
-                      button.focus({ preventScroll: true });
-                      button.scrollIntoView({ block: "nearest", inline: "nearest" });
-                    }
-                  }}
-                >
-                  <span>{item.displayName}</span>
-                  {item.displayName !== item.contract && <small>{item.contract}</small>}
-                  <small>
-                    {[
-                      item.dailyDays ? t("日线 {days} 天", { days: item.dailyDays }) : "",
-                      item.minuteDays ? t("分钟线 {days} 天", { days: item.minuteDays }) : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </small>
-                </button>
-              ))}
+            <div className="stored-contracts-search">
+              <input
+                type="search"
+                aria-label={t("搜索已采集合约")}
+                placeholder={t("搜索已采集合约")}
+                value={search}
+                onChange={event => setSearch(event.target.value)}
+              />
             </div>
-            {matched.length > visible.length && (
-              <p className="subtle">
-                {t("另有 {count} 个合约，搜索以缩小范围", {
-                  count: matched.length - visible.length,
-                })}
-              </p>
-            )}
+            <div className="stored-contracts-items">
+              <div role="group" aria-label={t("已采集合约")}>
+                {visible.map((item, index) => (
+                  <button
+                    key={item.contract}
+                    type="button"
+                    title={item.contract}
+                    aria-pressed={active === item.contract}
+                    onClick={() => setSelected(item.contract)}
+                    onKeyDown={event => {
+                      if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+                      event.preventDefault();
+                      const target =
+                        event.key === "Home"
+                          ? 0
+                          : event.key === "End"
+                            ? visible.length - 1
+                            : Math.max(
+                                0,
+                                Math.min(
+                                  visible.length - 1,
+                                  index + (event.key === "ArrowUp" ? -1 : 1),
+                                ),
+                              );
+                      setSelected(visible[target].contract);
+                      const button = event.currentTarget.parentElement?.children[target];
+                      if (button instanceof HTMLButtonElement) {
+                        button.focus({ preventScroll: true });
+                        button.scrollIntoView({ block: "nearest", inline: "nearest" });
+                      }
+                    }}
+                  >
+                    <span>{item.displayName}</span>
+                    {item.displayName !== item.contract && <small>{item.contract}</small>}
+                    <small>
+                      {[
+                        item.dailyDays ? t("日线 {days} 天", { days: item.dailyDays }) : "",
+                        item.minuteDays ? t("分钟线 {days} 天", { days: item.minuteDays }) : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </small>
+                  </button>
+                ))}
+              </div>
+              {matched.length > visible.length && (
+                <p className="subtle">
+                  {t("另有 {count} 个合约，搜索以缩小范围", {
+                    count: matched.length - visible.length,
+                  })}
+                </p>
+              )}
+            </div>
           </div>
           <div className="stored-contracts-detail">
             {active ? (

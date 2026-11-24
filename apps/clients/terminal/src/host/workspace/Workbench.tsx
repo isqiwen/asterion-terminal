@@ -1,6 +1,7 @@
 import { translate, type MessageValues } from "../../i18n";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 import { useState, useEffect, type ReactNode } from "react";
+import { Icon } from "../../ui/Icon";
 type Navigation = {
   id: string;
   title: string;
@@ -73,7 +74,18 @@ export function Workbench({
               </button>
             ))}
           </nav>
-          <div className="rail-actions">{rail}</div>
+          <div className="rail-actions">
+            <button
+              type="button"
+              aria-expanded={!collapsed}
+              aria-label={t(collapsed ? "展开导航栏" : "收起导航栏")}
+              title={`${t(collapsed ? "展开导航栏" : "收起导航栏")} · ⌘B / Ctrl+B`}
+              onClick={() => setCollapsed(value => !value)}
+            >
+              <Icon name={collapsed ? "chevronRight" : "chevronLeft"} size={16} />
+            </button>
+            {rail}
+          </div>
         </aside>
         <div className="terminal-content">
           <header className="workbench-header" hidden={!showToolbar}>

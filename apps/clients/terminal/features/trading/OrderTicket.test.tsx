@@ -328,3 +328,43 @@ test("a split order still going out keeps its remaining lots off another contrac
   await waitFor(() => expect(run).toHaveBeenCalledTimes(2));
   expect((screen.getByRole("textbox", { name: "委托手数" }) as HTMLInputElement).value).toBe("3");
 });
+
+test("tick steppers adjust limit price by exact priceTick and quick lots update quantity without submitting", () => {
+  const record = create(AccountSchema, {
+    id: "sim",
+    session: {
+      policyRevision: "p1",
+      policy: {
+        contracts: [
+          {
+            instrument: { exchange: "SHFE", symbol: "au2612" },
+            priceTick: { text: "0.02" },
+          },
+        ],
+        limits: { maxOrderLots: { text: "10" } },
+      },
+    },
+  });
+  const run = vi.fn();
+  render(
+    <OrderTicket
+      record={record}
+      snapshot={null}
+      busy={false}
+      accountName="sim"
+      confirm={false}
+      run={run}
+      onSent={() => {}}
+    />,
+  );
+  const price = screen.getByRole("textbox", { name: "限价" }) as HTMLInputElement;
+  const qty = screen.getByRole("textbox", { name: "委托手数" }) as HTMLInputElement;
+  fireEvent.change(price, { target: { value: "612.1" } });
+  fireEvent.click(screen.getByRole("button", { name: "加一跳" }));
+  expect(price.value).toBe("612.12");
+  fireEvent.click(screen.getByRole("button", { name: "减一跳" }));
+  expect(price.value).toBe("612.1");
+  fireEvent.click(screen.getByRole("button", { name: "5" }));
+  expect(qty.value).toBe("5");
+  expect(run).not.toHaveBeenCalled();
+});

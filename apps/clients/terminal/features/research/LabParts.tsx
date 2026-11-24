@@ -471,7 +471,7 @@ export function useLibrarySort<Key extends string>(initial: Key) {
       return sort.descending ? y - x : x - y;
     });
   const status = (
-    <p className="lab-sr-only" role="status">
+    <p className="sr-only" role="status">
       {announcement}
     </p>
   );
@@ -580,7 +580,7 @@ export function useModuleMenu({
       role="menu"
       aria-label={menu.path}
       style={{
-        left: Math.max(8, Math.min(menu.x, window.innerWidth - 180)),
+        left: Math.max(8, Math.min(menu.x, window.innerWidth - (armed ? 320 : 180))),
         top: Math.max(8, Math.min(menu.y, window.innerHeight - 100)),
       }}
     >
@@ -813,6 +813,7 @@ export function SymbolField({
   const [query, setQuery] = useState("");
   const [venue, setVenue] = useState("");
   const [expanded, setExpanded] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => {
     if (!open) return;
@@ -853,8 +854,22 @@ export function SymbolField({
           stored: false,
         }
       : null;
-  const firstOption =
-    typedExtra ?? visibleExchanges[0] ?? visibleProducts[0] ?? visibleContracts[0] ?? null;
+  const visibleOptions: SymbolSpan[] = [
+    ...(typedExtra ? [typedExtra] : []),
+    ...visibleExchanges,
+    ...visibleProducts.flatMap(item => [
+      item,
+      ...(!needle && expanded === item.id ? (catalog.contractsByProduct.get(item.id) ?? []) : []),
+    ]),
+    ...visibleContracts,
+  ];
+  const clampedActive =
+    visibleOptions.length > 0 ? Math.min(activeIndex, visibleOptions.length - 1) : -1;
+  const activeOption = clampedActive >= 0 ? visibleOptions[clampedActive]! : null;
+  const optionId = (id: string) => `${listboxId}-${id.replace(/[^A-Za-z0-9_-]/g, "_")}`;
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [query, venue, open]);
 
   const toggle = (item: SymbolSpan) => {
     const adding = !selected.has(item.id);
@@ -882,13 +897,20 @@ export function SymbolField({
 
   const renderOption = (item: SymbolSpan, extraClass?: string, badge?: string) => {
     const active = selected.has(item.id);
+    const highlighted = activeOption?.id === item.id;
     return (
       <button
         key={item.id}
+        id={optionId(item.id)}
         type="button"
         role="option"
         aria-selected={active}
+        data-active={highlighted || undefined}
         className={`lab-symbol-option${extraClass ? ` ${extraClass}` : ""}`}
+        onMouseEnter={() => {
+          const idx = visibleOptions.findIndex(opt => opt.id === item.id);
+          if (idx >= 0) setActiveIndex(idx);
+        }}
         onMouseDown={event => event.preventDefault()}
         onClick={() => toggle(item)}
       >
@@ -960,6 +982,7 @@ export function SymbolField({
             role="combobox"
             aria-expanded={open}
             aria-controls={listboxId}
+            aria-activedescendant={open && activeOption ? optionId(activeOption.id) : undefined}
             aria-autocomplete="list"
             value={query}
             placeholder={
@@ -987,14 +1010,34 @@ export function SymbolField({
                 setOpen(false);
                 return;
               }
-              if (event.key === "ArrowDown" && !open) {
-                setOpen(true);
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                if (!open) {
+                  setOpen(true);
+                  return;
+                }
+                if (visibleOptions.length > 0) {
+                  const next = (clampedActive + 1) % visibleOptions.length;
+                  setActiveIndex(next);
+                  document
+                    .getElementById(optionId(visibleOptions[next]!.id))
+                    ?.scrollIntoView({ block: "nearest" });
+                }
+                return;
+              }
+              if (event.key === "ArrowUp" && open && visibleOptions.length > 0) {
+                event.preventDefault();
+                const next = (clampedActive - 1 + visibleOptions.length) % visibleOptions.length;
+                setActiveIndex(next);
+                document
+                  .getElementById(optionId(visibleOptions[next]!.id))
+                  ?.scrollIntoView({ block: "nearest" });
                 return;
               }
               if (event.key === "Enter" && !event.nativeEvent.isComposing) {
                 event.preventDefault();
                 if (commitInput(query)) return;
-                if (firstOption) toggle(firstOption);
+                if (activeOption) toggle(activeOption);
               }
             }}
           />

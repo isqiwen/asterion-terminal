@@ -32,7 +32,6 @@ export function Settings({
 }) {
   const [page, setPage] = useState<SettingsPage>(initialPage);
   const [unsaved, setUnsaved] = useState(false);
-  const [copyStatus, setCopyStatus] = useState<"" | "copied" | "failed">("");
   const seenNonce = useRef<number | null>(null);
   useEffect(() => {
     const applyCategory = (raw: string | null) => {
@@ -100,7 +99,7 @@ export function Settings({
       </aside>
       <main className="settings-content">
         <h1>{t(pages.find(([item]) => item === page)?.[1] ?? "偏好设置")}</h1>
-        {busy && <p role="status">{t("正在处理…")}</p>}
+        {busy && snapshot && <p role="status">{t("正在处理…")}</p>}
         {page === "preferences" && (
           <SettingsSection title={t("显示")}>
             <div className="settings-fields">
@@ -178,32 +177,8 @@ export function Settings({
                 {snapshot && ` (${snapshot.diagnostics.commit})`}
               </dd>
               <dt title={t("在行情服务、数据服务和交易主机登记这个指纹")}>{t("本机证书指纹")}</dt>
-              <dd className="client-fingerprint-row">
+              <dd>
                 <code className="client-fingerprint">{snapshot?.client_fingerprint}</code>
-                {snapshot?.client_fingerprint && (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const text = snapshot.client_fingerprint;
-                      if (!text) return;
-                      try {
-                        await navigator.clipboard.writeText(text);
-                        setCopyStatus("copied");
-                      } catch {
-                        setCopyStatus("failed");
-                      }
-                    }}
-                  >
-                    {t("复制")}
-                  </button>
-                )}
-                <span className="subtle" role="status">
-                  {copyStatus === "copied"
-                    ? t("已复制")
-                    : copyStatus === "failed"
-                      ? t("复制失败")
-                      : ""}
-                </span>
               </dd>
               {/* The chart library's licence asks for this credit; here instead of under every chart. */}
               <dt>{t("图表")}</dt>

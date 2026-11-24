@@ -3,6 +3,7 @@ import { FeedState } from "../../src/generated/asterion/market_pb";
 import { useMarket } from "../../src/host/market";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { translate } from "../../src/i18n";
+import { StatusBadge, type Tone } from "../../src/ui/StatusBadge";
 import { defaultSort } from "./MarketBoard";
 import { MarketStatus } from "./MarketStatus";
 import { QuoteColumns, defaultQuoteColumns } from "./QuoteColumns";
@@ -51,6 +52,11 @@ export function MarketBar() {
   if (!market) return null;
   const feed = market.board.feed;
   const live = market.online && feed?.state === FeedState.CONNECTED;
+  const phaseTone: Tone = live
+    ? "ok"
+    : !market.online || feed?.state === FeedState.FAILED
+      ? "danger"
+      : "attention";
   const phase = !market.online
     ? t("行情服务失联")
     : t(phases[feed?.state ?? FeedState.UNSPECIFIED] ?? "服务尚未连接柜台");
@@ -114,9 +120,9 @@ export function MarketBar() {
         onChange={event => setSearch(event.target.value)}
       />
       <span className="market-bar-gap" />
-      <span className="market-phase" role="status" data-live={live || undefined}>
-        {phase}
-      </span>
+      <StatusBadge tone={phaseTone}>
+        <span role="status">{phase}</span>
+      </StatusBadge>
       <MarketStatus />
       {editingColumns && (
         <QuoteColumns

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { decimalText, groupedText } from "../../src/bridge/decimal";
 import { tradingRequest } from "../../src/bridge/trading";
 import { Side } from "../../src/generated/asterion/common_pb";
+import { getLocale } from "../../src/i18n";
 import {
   BrokerState,
   CostsState,
@@ -49,13 +50,29 @@ const cancelRow = (c: ContractCancels) => [
   String(c.rejectedCancels),
 ];
 
-function Rows({ label, columns, rows }: { label: string; columns: string[]; rows: string[][] }) {
+const numericColumns = new Set(["今仓", "昨仓", "价格", "手数", "撤单次数", "拒撤次数"]);
+
+function Rows({
+  label,
+  columns,
+  rows,
+  tones,
+}: {
+  label: string;
+  columns: string[];
+  rows: string[][];
+  tones?: readonly (string | undefined)[];
+}) {
   return (
     <table aria-label={t(label)}>
       <thead>
         <tr>
           {columns.map(column => (
-            <th scope="col" key={column}>
+            <th
+              scope="col"
+              key={column}
+              className={numericColumns.has(column) ? "numeric" : undefined}
+            >
               {t(column)}
             </th>
           ))}
@@ -65,7 +82,18 @@ function Rows({ label, columns, rows }: { label: string; columns: string[]; rows
         {rows.map((row, rowIndex) => (
           <tr key={`${rowIndex}:${row.join(" ")}`}>
             {row.map((cell, index) => (
-              <td key={index}>{cell}</td>
+              <td
+                key={index}
+                className={
+                  numericColumns.has(columns[index]!)
+                    ? "numeric"
+                    : columns[index] === "方向"
+                      ? tones?.[rowIndex]
+                      : undefined
+                }
+              >
+                {cell}
+              </td>
             ))}
           </tr>
         ))}
@@ -196,6 +224,7 @@ function Fills({
       ? recorded
       : undefined;
   const fills = (current?.trades ?? []).map(fillRow);
+  const fillTones = (current?.trades ?? []).map(f => (f.side === Side.BUY ? "ctp-up" : "ctp-down"));
   const close = day ? current?.close : undefined;
   const cancels = current?.close?.cancels ?? [];
   const targetDay = day || live.tradingDay || current?.close?.tradingDay || "";
@@ -204,68 +233,72 @@ function Fills({
     .reverse();
   return (
     <div className="paper-table" role="region" aria-label={t("CTP 成交")} tabIndex={0}>
-      {earlier.length > 0 && (
-        <select
-          aria-label={t("交易日")}
-          value={day}
-          onChange={event => {
-            setOffset(0);
-            setDay(event.target.value);
-          }}
-        >
-          <option value="">{t("当日")}</option>
-          {earlier.map(item => (
-            <option key={item} value={item}>
-              {item}
-            </option>
-          ))}
-        </select>
-      )}
-      {targetDay && current && (
-        <button
-          type="button"
-          disabled={exporting}
-          onClick={() => {
-            setExporting(true);
-            void (async () => {
-              try {
-                const trades: Trade[] = [];
-                let exportedClose: DayClose | undefined;
-                let total: number | undefined;
-                do {
-                  const reply = await tradingRequest(connection, {
-                    case: "getDay",
-                    value: {
-                      tradingDay: targetDay,
-                      oldestFirst: true,
-                      offset: trades.length,
-                      limit: total === undefined ? 200 : Math.min(200, total - trades.length),
-                    },
-                  });
-                  if (reply.result.case !== "getDay") return;
-                  const page = reply.result.value;
-                  if (total === undefined) {
-                    total = page.total;
-                    exportedClose = page.close;
+      {(earlier.length > 0 || (targetDay && current)) && (
+        <div className="source-actions">
+          {earlier.length > 0 && (
+            <select
+              aria-label={t("交易日")}
+              value={day}
+              onChange={event => {
+                setOffset(0);
+                setDay(event.target.value);
+              }}
+            >
+              <option value="">{t("当日")}</option>
+              {earlier.map(item => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+          )}
+          {targetDay && current && (
+            <button
+              type="button"
+              disabled={exporting}
+              onClick={() => {
+                setExporting(true);
+                void (async () => {
+                  try {
+                    const trades: Trade[] = [];
+                    let exportedClose: DayClose | undefined;
+                    let total: number | undefined;
+                    do {
+                      const reply = await tradingRequest(connection, {
+                        case: "getDay",
+                        value: {
+                          tradingDay: targetDay,
+                          oldestFirst: true,
+                          offset: trades.length,
+                          limit: total === undefined ? 200 : Math.min(200, total - trades.length),
+                        },
+                      });
+                      if (reply.result.case !== "getDay") return;
+                      const page = reply.result.value;
+                      if (total === undefined) {
+                        total = page.total;
+                        exportedClose = page.close;
+                      }
+                      if (trades.length < total && !page.trades.length)
+                        throw new Error(t("交易日成交记录已变化，请重新导出。"));
+                      trades.push(...page.trades);
+                    } while (trades.length < total);
+                    download(
+                      `${connection}-${targetDay}.csv`,
+                      dayCsv(targetDay, exportedClose, trades.reverse().map(fillRow)),
+                    );
+                  } catch (failure) {
+                    notify(failure, { namespace: "asterion.terminal.trading" });
+                  } finally {
+                    setExporting(false);
                   }
-                  if (trades.length < total && !page.trades.length)
-                    throw new Error(t("交易日成交记录已变化，请重新导出。"));
-                  trades.push(...page.trades);
-                } while (trades.length < total);
-                download(
-                  `${connection}-${targetDay}.csv`,
-                  dayCsv(targetDay, exportedClose, trades.reverse().map(fillRow)),
-                );
-              } catch (failure) {
-                notify(failure, { namespace: "asterion.terminal.trading" });
-              } finally {
-                setExporting(false);
-              }
-            })();
-          }}
-        >
-          {t("导出 CSV")}
-        </button>
+                })();
+              }}
+            >
+              {t("导出 CSV")}
+            </button>
+          )}
+        </div>
       )}
       {close && close.funds && (
         <>
@@ -281,13 +314,14 @@ function Fills({
             label="收盘持仓"
             columns={positionColumns}
             rows={close.positions.map(positionRow)}
+            tones={close.positions.map(p => (p.side === Side.BUY ? "ctp-up" : "ctp-down"))}
           />
         </>
       )}
       {cancels.length > 0 && (
         <Rows label="撤单统计" columns={cancelColumns} rows={cancels.map(cancelRow)} />
       )}
-      <Rows label="CTP 成交" columns={fillColumns} rows={fills} />
+      <Rows label="CTP 成交" columns={fillColumns} rows={fills} tones={fillTones} />
       {current && !fills.length && <p className="subtle">{t("暂无成交")}</p>}
       <HistoryPages
         offset={offset}
@@ -426,9 +460,15 @@ export function AccountRecords({
               <tr>
                 <th scope="col">{t("合约")}</th>
                 <th scope="col">{t("方向 / 开平")}</th>
-                <th scope="col">{t("限价")}</th>
-                <th scope="col">{t("手数")}</th>
-                <th scope="col">{t("已成交")}</th>
+                <th scope="col" className="numeric">
+                  {t("限价")}
+                </th>
+                <th scope="col" className="numeric">
+                  {t("手数")}
+                </th>
+                <th scope="col" className="numeric">
+                  {t("已成交")}
+                </th>
                 <th scope="col">{t("状态")}</th>
                 <th scope="col">{t("操作")}</th>
               </tr>
@@ -437,13 +477,13 @@ export function AccountRecords({
               {shownOrders.map(o => (
                 <tr key={o.brokerKey}>
                   <td>{o.instrument?.symbol}</td>
-                  <td>
+                  <td className={o.side === Side.BUY ? "ctp-up" : "ctp-down"}>
                     {o.side === Side.BUY ? t("买入") : t("卖出")} /{" "}
                     {offsets[o.offset] ? t(offsets[o.offset]!) : "—"}
                   </td>
-                  <td>{decimalText(o.price)}</td>
-                  <td>{groupedText(o.lots)}</td>
-                  <td>{groupedText(o.filledLots)}</td>
+                  <td className="numeric">{decimalText(o.price)}</td>
+                  <td className="numeric">{groupedText(o.lots)}</td>
+                  <td className="numeric">{groupedText(o.filledLots)}</td>
                   <td>
                     {statuses[o.state] ? t(statuses[o.state]!) : "—"}
                     {o.ctpError ? ` (${o.ctpError})` : ""}
@@ -583,11 +623,13 @@ function LivePositions({
                 }}
               >
                 <td>{p.instrument?.symbol}</td>
-                <td>{p.side === Side.BUY ? t("多头") : t("空头")}</td>
-                <td className="numeric">{total}</td>
+                <td className={p.side === Side.BUY ? "ctp-up" : "ctp-down"}>
+                  {p.side === Side.BUY ? t("多头") : t("空头")}
+                </td>
+                <td className="numeric">{total.toLocaleString(getLocale())}</td>
                 <td className="numeric">{groupedText(p.todayLots)}</td>
                 <td className="numeric">{groupedText(p.yesterdayLots)}</td>
-                <td className="numeric">{closable}</td>
+                <td className="numeric">{closable.toLocaleString(getLocale())}</td>
                 <td className="numeric">
                   {average === undefined ? "—" : average.toFixed(decimals)}
                 </td>
@@ -638,10 +680,18 @@ function AccountRates({ live, busy, run }: { live: Session; busy: boolean; run: 
             <thead>
               <tr>
                 <th scope="col">{t("合约")}</th>
-                <th scope="col">{t("保证金 每手 / 比例")}</th>
-                <th scope="col">{t("开仓 每手 / 比例")}</th>
-                <th scope="col">{t("平今 每手 / 比例")}</th>
-                <th scope="col">{t("平昨 每手 / 比例")}</th>
+                <th scope="col" className="numeric">
+                  {t("保证金 每手 / 比例")}
+                </th>
+                <th scope="col" className="numeric">
+                  {t("开仓 每手 / 比例")}
+                </th>
+                <th scope="col" className="numeric">
+                  {t("平今 每手 / 比例")}
+                </th>
+                <th scope="col" className="numeric">
+                  {t("平昨 每手 / 比例")}
+                </th>
                 <th scope="col">{t("状态")}</th>
               </tr>
             </thead>
@@ -651,12 +701,16 @@ function AccountRates({ live, busy, run }: { live: Session; busy: boolean; run: 
                 return (
                   <tr key={key(row.instrument)}>
                     <td>{row.instrument?.symbol}</td>
-                    <td>{c && `${decimalText(c.marginPerLot)} / ${decimalText(c.marginRate)}`}</td>
-                    <td>{c && `${decimalText(c.openFee)} / ${decimalText(c.openFeeRate)}`}</td>
-                    <td>
+                    <td className="numeric">
+                      {c && `${decimalText(c.marginPerLot)} / ${decimalText(c.marginRate)}`}
+                    </td>
+                    <td className="numeric">
+                      {c && `${decimalText(c.openFee)} / ${decimalText(c.openFeeRate)}`}
+                    </td>
+                    <td className="numeric">
                       {c && `${decimalText(c.closeTodayFee)} / ${decimalText(c.closeTodayFeeRate)}`}
                     </td>
-                    <td>
+                    <td className="numeric">
                       {c &&
                         `${decimalText(c.closeYesterdayFee)} / ${decimalText(c.closeYesterdayFeeRate)}`}
                     </td>

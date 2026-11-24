@@ -27,9 +27,9 @@
   "后台状态刷新失败，当前显示为最近成功读取的状态。": "Background refresh failed. The last successfully read status is displayed.",
   "启动中": "Starting",
   "品种": "Product",
-  "失败": "FAILED",
+  "失败": "Failed",
   "存储": "Storage",
-  "完成": "DONE",
+  "完成": "Done",
   "对象不存在": "Not found",
   "已停止": "Stopped",
   "已就绪": "Ready",
@@ -64,7 +64,7 @@
   "确认清除": "Confirm Clear",
   "移除": "Remove",
   "移除 {contract}": "Remove {contract}",
-  "等待": "WAITING",
+  "等待": "Waiting",
   "简体中文": "简体中文",
   "紧凑": "Compact",
   "红涨绿跌": "Red Up / Green Down",
@@ -180,9 +180,8 @@
   "{done} / {total} 个分区": "{done} / {total} partitions",
   "{rate} 次请求/分钟": "{rate} req/min",
   "账户触发硬风控，已暂停新增开仓。": "Hard risk limit triggered on an account; new opening orders are paused.",
-  "复制": "Copy",
-  "已复制": "Copied",
-  "复制失败": "Copy failed",
   "界面发生意外错误": "Unexpected interface error",
-  "重新加载": "Reload"
+  "重新加载": "Reload",
+  "收起导航栏": "Collapse navigation",
+  "展开导航栏": "Expand navigation"
 }
