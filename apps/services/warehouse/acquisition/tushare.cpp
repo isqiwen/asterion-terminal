@@ -50,6 +50,17 @@ Cell label(const Json& value)
     return first == std::string::npos ? Cell{} : Cell{out.substr(first, last - first + 1)};
 }
 
+Cell warehouse_type(const Json& value)
+{
+    if (value.is_null())
+        return {};
+    const auto name = text(value);
+    for (const std::string_view kind : {"仓库", "厂库"})
+        if (name.find(kind) != std::string::npos)
+            return std::string(kind);
+    return {};
+}
+
 const std::string& suffix(const std::string& exchange)
 {
     static const std::map<std::string, std::string> values{
@@ -265,18 +276,13 @@ Tushare::warehouse_receipts(const std::string& exchange, const std::string& day)
             // Tushare labels both copper reports CU; the name identifies INE bonded copper.
             if (symbol == "CU" && (at("fut_name") == "铜(BC)") != (product == "bc"))
                 continue;
-            Cell warehouse_type;
-            if (!at("fut_name").is_null())
-                for (const std::string_view suffix : {"仓库", "厂库"})
-                    if (text(at("fut_name")).ends_with(suffix))
-                        warehouse_type = std::string(suffix);
             rows.push_back(
                 {.exchange = exchange,
                     .product = product,
                     .day = day,
                     .warehouse = label(at("warehouse")),
                     .warehouse_id = label(at("wh_id")),
-                    .warehouse_type = warehouse_type,
+                    .warehouse_type = warehouse_type(at("fut_name")),
                     .area = label(at("area")),
                     .crop_year = label(at("year")),
                     .grade = label(at("grade")),
@@ -378,18 +384,13 @@ std::vector<Inventory> Tushare::inventory(const std::string& exchange, const std
                 throw SourceError(
                     "invalid_data",
                     "fut_inv_weekly returned a foreign day, product or exchange");
-            Cell warehouse_type;
-            if (!at("fut_name").is_null())
-                for (const std::string_view type : {"仓库", "厂库"})
-                    if (text(at("fut_name")).find(type) != std::string::npos)
-                        warehouse_type = std::string(type);
             rows.push_back(
                 {.exchange = exchange,
                     .product = product,
                     .day = day,
                     .area = label(at("area")),
                     .warehouse = label(at("warehouse")),
-                    .warehouse_type = warehouse_type,
+                    .warehouse_type = warehouse_type(at("fut_name")),
                     .grade = label(at("grade")),
                     .unit = label(at("unit")),
                     .previous_total = reported_number(at("pre_total")),

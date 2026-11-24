@@ -19,7 +19,7 @@
 | 历史报价单位 | 内置核验表（`verified`） → 郑商所 → 国泰君安期货 |
 | 仓单 | 上期所、能源中心公开原件 → Tushare |
 | 库存周报 | 上期所 → Tushare |
-| 会员持仓 | 上期所与能源中心官网；其他交易所用 Tushare |
+| 会员持仓 | 上期所、能源中心、广期所官网；其他交易所用 Tushare |
 
 规则只维护一处（`warehouse/composition.cpp` 的 `sources_of`）。理由：行情优先使用结构统一的 Tushare 接口，公开来源补齐缺口。结算参数相反，交易所文件是原件，Tushare 只补交易所没有的部分；最小变动价位属于极少变动的交易所合约规格，直接采用经核验的生效区间表，公开来源仅用于增量核验。
 - 写入先完成分区文件，再发布不可变的版本清单，最后切换 `current`。采集不改写已发布的文件，保留的固定版本不受之后的采集影响；废弃快照通过 GC 清理。版本清单只列分片（每个表、交易所、月份一片，`shards/<sha256>.json`，按内容命名），一次提交只写它改动的月份，顶层清单只记录分片引用。读取时核对顶层清单与分片的内容摘要，内容与版本号不符时停止读取。`tests/warehouse/fixtures/record-format/` 固定一份两版本六表落盘样本防格式回退。
@@ -91,7 +91,7 @@ flowchart LR
 | 来源 | 内容 | 限速 | 特殊边界 |
 | --- | --- | --- | --- |
 | `tushare` | 合约表（[`fut_basic`](https://tushare.pro/document/2?doc_id=135)）、日历（[`fut_trade_cal`](https://tushare.pro/document/2?doc_id=467)）、日线（[`fut_daily`](https://tushare.pro/document/2?doc_id=138)）、涨跌停价（[`ft_limit`](https://tushare.pro/document/2?doc_id=368)）、1 分钟线（[`ft_mins`](https://tushare.pro/document/2?doc_id=313)）、结算参数（[`fut_settle`](https://tushare.pro/document/2?doc_id=141)）、[仓单、会员持仓与库存周报](#仓单会员持仓与库存周报) | 1–500 次/分（全局共享） | 分钟线按合约与交易日分区，夜盘归入下一开市日；日线按 7 日窗口缓存 `ft_limit` 写入 `lower_limit`/`upper_limit`（触达 4000 行上限时自动缩为单日请求，账户无 `ft_limit` 权限时保留为空）；不自动重试；达返回上限时拒收防截断 |
-| `shfe`、`ine`、`czce`、`gfex` | 各自交易所日线与结算参数，`shfe` 与 `ine` 另供仓单与会员持仓，`shfe` 另供库存周报，`czce` 另供历史报价单位 | `gfex` 跨任务共享 2 秒请求间隔，其余各 45 次/分 | `shfe` / `ine` / `czce` 用 HTTPS，`gfex` 用 HTTP；广期所短时连发会被拒绝，需均匀请求；早年郑商所为 GB18030 年度 ZIP |
+| `shfe`、`ine`、`czce`、`gfex` | 各自交易所日线与结算参数，`shfe` 与 `ine` 另供仓单，`shfe`、`ine`、`gfex` 另供会员持仓，`shfe` 另供库存周报，`czce` 另供历史报价单位 | `gfex` 跨任务共享 2 秒请求间隔，其余各 45 次/分 | `shfe` / `ine` / `czce` 用 HTTPS，`gfex` 用 HTTP；广期所短时连发会被拒绝，需均匀请求；早年郑商所为 GB18030 年度 ZIP |
 | `dce`、`cffex` | 各自交易所日线 | 各 45 次/分 | HTTP 公开接口；高频请求会被门户拦截或断开 |
 | `gtja` | 上期所、能源中心、大商所、中金所、广期所历史报价单位 | 45 次/分 | 连续约 60 次请求会被断开连接 |
 | `sina` | 日线与 1 分钟线（最后补缺源，不含中金所） | 60 次/分 | 按 Tushare 合约表逐合约读（无合约表不取）；无成交零值入库为缺失；分钟线仅回溯约 2 个交易日，首日标 `partial` 不再重取；夜盘归下一工作日 |

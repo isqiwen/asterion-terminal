@@ -332,8 +332,10 @@ std::vector<Inventory> shanghai_inventory(const std::string& day, const Json& ro
     const auto observed = observation_time();
     std::vector<Inventory> result;
     for (const auto* cursor : {"o_cursor", "o_cursorfu"}) {
-        if (!root.contains(cursor))
+        if (!root.contains(cursor) || root.at(cursor).is_null())
             continue;
+        if (!root.at(cursor).is_array())
+            throw std::invalid_argument("expected exchange rows");
         for (const auto& row : root.at(cursor)) {
             if (text(row.at("ROWSTATUS")) != "0")
                 continue;
@@ -341,6 +343,9 @@ std::vector<Inventory> shanghai_inventory(const std::string& day, const Json& ro
             if (product == "au" || ine_products.contains(product))
                 continue;
             const auto area = shanghai_label(row.at("REGNAME"));
+            const auto grade = row.contains("GRDNAME") && !row.at("GRDNAME").is_null()
+                ? shanghai_label(row.at("GRDNAME"))
+                : std::string{};
             const auto n = [&](const char* key) {
                 return number(row.at(key));
             };
@@ -351,9 +356,7 @@ std::vector<Inventory> shanghai_inventory(const std::string& day, const Json& ro
                     .area = area.empty() ? Cell{} : Cell{area},
                     .warehouse = shanghai_label(row.at("WHABBRNAME")),
                     .warehouse_type = warehouse_type,
-                    .grade = row.contains("GRDNAME") ? Cell{shanghai_label(row.at("GRDNAME"))}
-                        : row.contains("OILNAME")    ? Cell{shanghai_label(row.at("OILNAME"))}
-                                                     : Cell{},
+                    .grade = grade.empty() ? Cell{} : Cell{grade},
                     .unit = shanghai_unit(row.at("WGHTUNIT")),
                     .previous_total = n("PRESPOTWGHTS"),
                     .previous_receipts = n("PREWRTWGHTS"),
@@ -369,21 +372,25 @@ std::vector<Inventory> shanghai_inventory(const std::string& day, const Json& ro
         }
     }
     // 黄金原报说明库存就是已注册成标准仓单的数量，只公布汇总。
-    for (const auto& row : root.at("o_cursorau"))
-        result.push_back(
-            {.exchange = "SHFE",
-                .product = "au",
-                .day = day,
-                .warehouse = std::string("总计"),
-                .unit = shanghai_unit(row.at("WGHTUNIT")),
-                .previous_total = number(row.at("PREWRTWGHTS")),
-                .previous_receipts = number(row.at("PREWRTWGHTS")),
-                .total = number(row.at("WRTWGHTS")),
-                .receipts = number(row.at("WRTWGHTS")),
-                .total_change = number(row.at("WRTCHANGE")),
-                .receipts_change = number(row.at("WRTCHANGE")),
-                .published_ms = published,
-                .observed_ms = observed});
+    if (root.contains("o_cursorau") && !root.at("o_cursorau").is_null()) {
+        if (!root.at("o_cursorau").is_array())
+            throw std::invalid_argument("expected exchange rows");
+        for (const auto& row : root.at("o_cursorau"))
+            result.push_back(
+                {.exchange = "SHFE",
+                    .product = "au",
+                    .day = day,
+                    .warehouse = std::string("总计"),
+                    .unit = shanghai_unit(row.at("WGHTUNIT")),
+                    .previous_total = number(row.at("PREWRTWGHTS")),
+                    .previous_receipts = number(row.at("PREWRTWGHTS")),
+                    .total = number(row.at("WRTWGHTS")),
+                    .receipts = number(row.at("WRTWGHTS")),
+                    .total_change = number(row.at("WRTCHANGE")),
+                    .receipts_change = number(row.at("WRTCHANGE")),
+                    .published_ms = published,
+                    .observed_ms = observed});
+    }
     return result;
 }
 
@@ -894,9 +901,9 @@ std::vector<MemberPosition> Exchange::gfex_members(const std::string& day)
                                 {"contract_id", code},
                                 {"data_type", std::to_string(i + 1)}});
                     for (const auto& row : rows) {
-                        const auto name = text(row.at("abbr"));
                         if (text(row.at("contractId")) == "总计")
                             continue;
+                        const auto name = text(row.at("abbr"));
                         if (name.empty())
                             throw std::invalid_argument("missing GFEX ranked member");
                         auto [at, inserted] = members.try_emplace(

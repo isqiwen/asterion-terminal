@@ -572,13 +572,31 @@ TEST_F(Acquisition, TushareReceiptsKeepReportedWarehouseTypes)
                  nullptr},
                 {"20160104",
                     "BU",
-                    "沥青厂库",
+                    "沥青(厂库)",
                     "金海宏业",
                     nullptr,
                     5740,
                     5440,
                     -300,
                     "江苏",
+                    nullptr,
+                    nullptr,
+                    nullptr,
+                    nullptr,
+                    nullptr,
+                    nullptr,
+                    "吨",
+                    "SHFE",
+                    nullptr},
+                {"20160104",
+                    "BU",
+                    "沥青",
+                    "小计",
+                    nullptr,
+                    nullptr,
+                    25440,
+                    -300,
+                    nullptr,
                     nullptr,
                     nullptr,
                     nullptr,
@@ -608,10 +626,11 @@ TEST_F(Acquisition, TushareReceiptsKeepReportedWarehouseTypes)
                     nullptr}});
     });
     const auto rows = source.warehouse_receipts("SHFE", "2016-01-04");
-    ASSERT_EQ(rows.size(), 3);
+    ASSERT_EQ(rows.size(), 4);
     EXPECT_EQ(rows[0].warehouse_type, wh::Cell{std::string("仓库")});
     EXPECT_EQ(rows[1].warehouse_type, wh::Cell{std::string("厂库")});
     EXPECT_EQ(rows[2].warehouse_type, wh::Cell{});
+    EXPECT_EQ(rows[3].warehouse_type, wh::Cell{});
 }
 
 TEST_F(Acquisition, CzceMemberPositionsKeepContractRanksAndProductSummaries)

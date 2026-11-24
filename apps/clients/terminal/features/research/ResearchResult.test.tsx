@@ -317,3 +317,29 @@ test("large fill tables virtualize DOM rows while keeping sticky headers and vis
   expect(screen.getByRole("cell", { name: "1" })).not.toBeNull();
   expect(screen.queryByRole("cell", { name: "500" })).toBeNull();
 });
+
+test("reproduction details omit the commit suffix when the strategy has no git commit", async () => {
+  vi.mocked(lab).mockReset();
+  vi.mocked(lab).mockImplementation(async operation => {
+    if (operation.case !== "getRun") throw new Error("Unexpected operation");
+    return create(RunDetailSchema, {
+      summary: { id: "no-git", state: RunState.SUCCEEDED },
+      record: JSON.stringify({
+        strategy: { id: "ma_cross.MaCross", commit: "", changes: "" },
+        costs: { deposit: "1000000" },
+        engine: { version: "test" },
+        data: {
+          dataset_version: "a".repeat(64),
+          symbols: ["SHFE/au/2025-12"],
+          begin_day: "2025-01-02",
+          end_day: "2025-12-15",
+          bars: { period: "day" },
+        },
+      }),
+    }) as never;
+  });
+  render(<RunResult id="no-git" state="succeeded" />);
+  fireEvent.click(await screen.findByRole("button", { name: "复现信息" }));
+  const strategy = screen.getByText("策略").nextElementSibling!;
+  expect(strategy.textContent).toBe("ma_cross.MaCross");
+});

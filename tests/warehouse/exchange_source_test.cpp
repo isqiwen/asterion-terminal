@@ -125,6 +125,21 @@ TEST_F(ExchangeSources, ShanghaiInventoryKeepsFuelGradesAndCountsGoldOnlyOnce)
         EXPECT_EQ(row.published_ms, wh::Cell{std::int64_t{1736236929000}});
 }
 
+TEST_F(ExchangeSources, ShanghaiInventoryNormalizesEmptyGradeAndSkipsAbsentGoldCursor)
+{
+    ac::Exchange source("SHFE", budget, {}, [](const ac::HttpRequest&, auto) {
+        return ac::HttpReply{
+            200,
+            R"({"o_code":"0000","o_tradingday":"20250103","o_cursor":[],"o_cursorfu":[{"VARNAME":"燃料油$$FUEL OIL","VARID":"fu","REGNAME":"","WHABBRNAME":"洋山石油$$Yangshan","GRDNAME":"","WGHTUNIT":"2","PRESPOTWGHTS":100,"PREWRTWGHTS":0,"SPOTWGHTS":100,"WRTWGHTS":0,"SPOTCHANGE":0,"WRTCHANGE":0,"PREWHSTOCKS":"--","WHSTOCKS":"--","WHSTOCKCHANGE":"--","ROWSTATUS":"0"}]})"
+        };
+    });
+    const auto rows = source.inventory("SHFE", "2025-01-03");
+    ASSERT_EQ(rows.size(), 1);
+    EXPECT_EQ(rows[0].product, "fu");
+    EXPECT_EQ(rows[0].area, wh::Cell{});
+    EXPECT_EQ(rows[0].grade, wh::Cell{});
+}
+
 TEST_F(ExchangeSources, ShanghaiReceiptsKeepAllWarehousesAndSeparateExchangeTotals)
 {
     ac::Exchange shfe("SHFE", budget, {}, [&](const ac::HttpRequest& request, auto) {
@@ -360,7 +375,7 @@ TEST_F(ExchangeSources, GfexMemberRanksIncludeLithiumAndPreserveUnrankedSides)
                      {"abbr", side == "2" ? "乙会员" : "甲会员"},
                      {"todayQty", side == "1" ? 10 : 20},
                      {"qtySub", -1}},
-                    {{"contractId", "总计"}, {"abbr", ""}, {"todayQty", 20}, {"qtySub", -1}}});
+                    {{"contractId", "总计"}, {"abbr", nullptr}, {"todayQty", 20}, {"qtySub", -1}}});
         }
         return ac::HttpReply{200, Json{{"code", "0"}, {"param", params}, {"data", rows}}.dump()};
     });
