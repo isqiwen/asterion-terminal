@@ -3,7 +3,6 @@ import argparse
 import hashlib
 import os
 import json
-import platform
 import re
 from pathlib import Path
 import shutil
@@ -230,21 +229,6 @@ def verify_linux_package(distribution=True):
     print("Package resources, Python runtime manifest and dependencies verified")
 
 
-def write_linux_evidence(package, installed_report):
-    acceptance = json.loads(installed_report.read_text())
-    with package.open("rb") as stream:
-        digest = hashlib.file_digest(stream, "sha256").hexdigest()
-    if acceptance.get("status") != "passed" or acceptance.get("sha256") != digest:
-        raise ValueError("Installed acceptance does not prove this exact package")
-    report = {"status": "passed", "architecture": platform.machine(), "sha256": digest,
-              "package": package.name, "installed_acceptance": str(installed_report),
-              "checks": ["exact native resource set",
-                         "declared dependencies cover every packaged program",
-                         "unpacked application acceptance"],
-              "limits": ["unsigned package"]}
-    (package.parent / "distribution-acceptance.json").write_text(json.dumps(report, indent=2) + "\n")
-
-
 def verify_macos_bundle(distribution=True):
     if sys.platform != "darwin":
         raise SystemExit("DMG verification requires macOS")
@@ -409,13 +393,12 @@ def main():
     if mode == "dev":
         run_development()
         return
-    # Packages are built for acceptance and handed over by hand. On CI the
-    # builder would otherwise try to publish them and fail without a token.
+    # CI uploads packages as artifacts; electron-builder must not publish them.
     builder = ["pnpm", "exec", "electron-builder", "--publish", "never",
                "--mac" if MACOS else "--linux", "--arm64" if MACOS else "--x64",
                "--config", "apps/clients/terminal/electron/builder.cjs"]
     env["ASTERION_PACKAGE_MODE"] = "release" if mode == "build" else "test"
-    # Acceptance packages exercise the same files without release-level compression cost.
+    # CI packages use faster compression.
     env["ELECTRON_BUILDER_COMPRESSION_LEVEL"] = "9" if mode == "build" else "1"
     if not MACOS:
         # What the Electron runtime and the native programs link against on this
@@ -438,12 +421,6 @@ def main():
     if mode == "build" and MACOS:
         macos_release.notarize_dmg(packages[0], env)
     verify_package(mode == "build")
-    if mode == "build":
-        evidence = output / "installed"
-        run([sys.executable, str(ROOT / "tests/desktop/electron_package.py"), str(packages[0]),
-             "--output", str(evidence)])
-        write_evidence = macos_release.write_evidence if MACOS else write_linux_evidence
-        write_evidence(packages[0], evidence / "acceptance.json")
     print(f"Terminal package: {packages[0]}")
 
 

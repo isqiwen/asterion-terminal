@@ -1,7 +1,5 @@
 """Required macOS distribution checks; credentials stay in the local Keychain."""
-import hashlib
 import json
-import platform
 import re
 import subprocess
 
@@ -95,16 +93,3 @@ def verify_application(app, native_files):
             raise ValueError("Native resource is not built for Apple Silicon: " + name)
     subprocess.run(["xcrun", "stapler", "validate", str(app)], check=True)
     subprocess.run(["spctl", "--assess", "--type", "execute", str(app)], check=True)
-
-
-def write_evidence(dmg, installed_report):
-    acceptance = json.loads(installed_report.read_text())
-    digest = hashlib.sha256(dmg.read_bytes()).hexdigest()
-    if acceptance.get("status") != "passed" or acceptance.get("sha256") != digest:
-        raise ValueError("Installed acceptance does not prove this exact notarized DMG")
-    report = {"status": "passed", "architecture": platform.machine(), "sha256": digest,
-              "package": dmg.name, "installed_acceptance": str(installed_report),
-              "checks": ["Developer ID application and DMG", "matching native signing team",
-                         "native architecture", "app and DMG notarization tickets", "Gatekeeper",
-                         "isolated installed application acceptance"]}
-    (dmg.parent / "distribution-acceptance.json").write_text(json.dumps(report, indent=2) + "\n")

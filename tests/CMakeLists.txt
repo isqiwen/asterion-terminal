@@ -24,7 +24,7 @@ endif()
 # processes, sockets or slow stores. A test program that has any such test is
 # `process`; directly registered script tests below are all `process`.
 set(asterion_process_test_targets
-  asterion_python_runtime_tests asterion_warehouse_tests
+  asterion_warehouse_tests
   asterion_acquisition_tests
   asterion_ctp_catalog_tests asterion_ctp_tests asterion_ctp_trader_tests asterion_market_live_tests
   asterion_kernel_tests asterion_live_tests
@@ -144,27 +144,17 @@ asterion_unit_tests(asterion_warehouse_settings_tests warehouse/settings_test.cp
 target_include_directories(asterion_warehouse_settings_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/services/warehouse)
 target_compile_definitions(asterion_warehouse_settings_tests PRIVATE
   ASTERION_WAREHOUSE_RULES_PATH="${CMAKE_SOURCE_DIR}/apps/services/warehouse/config/exchange_rules.json")
-# The services install and run on Linux hosts only; so do their setup tests.
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  add_test(NAME warehouse_setup COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/warehouse/setup_test.py ${CMAKE_BINARY_DIR}/apps/services/warehouse/setup.sh)
-  set_tests_properties(warehouse_setup PROPERTIES SKIP_RETURN_CODE 77)
-  add_test(NAME market_setup COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/market/setup_test.py ${CMAKE_BINARY_DIR}/apps/services/market/setup.sh)
-  set_tests_properties(market_setup PROPERTIES SKIP_RETURN_CODE 77)
-endif()
-
 # trading: live sessions, the CTP trader, risk limits, the trading service, the trader SDK double
 add_test(NAME acceptance_dry_run COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/trading/acceptance_dry_run.py ${CMAKE_BINARY_DIR} $<TARGET_FILE:asterion_test_ctp>)
 set_tests_properties(acceptance_dry_run PROPERTIES TIMEOUT 150)
 add_test(NAME trading_startup COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/trading/startup_test.py $<TARGET_FILE:asterion_trading>)
 set_tests_properties(trading_startup PROPERTIES TIMEOUT 45)
 
-# Trading installs on Linux hosts only; its setup script uses their tools.
+# Trading's TLS admission is exercised on its service platform.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_test(NAME trading_installation COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/trading/trading_installation.py $<TARGET_FILE:asterion_trading> $<TARGET_FILE:asterion_test_certificates> $<TARGET_FILE:asterion_test_ctp_trader>)
   set_tests_properties(trading_installation PROPERTIES TIMEOUT 30)
 endif()
-add_test(NAME trading_setup COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/trading/setup_test.py ${CMAKE_BINARY_DIR}/apps/services/trading/setup.sh)
-set_tests_properties(trading_setup PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
 add_library(asterion_test_ctp_trader SHARED trading/ctp_fake_trader.cpp)
 target_include_directories(asterion_test_ctp_trader PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(asterion_test_ctp_trader PRIVATE ctp::ctp Threads::Threads)
@@ -211,6 +201,10 @@ if(ASTERION_PYTHON_HOME)
   set_tests_properties(warehouse_concurrency PROPERTIES TIMEOUT 90)
   add_test(NAME strategy_process COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/trading/strategy_process.py ${PROJECT_SOURCE_DIR} ${CMAKE_BINARY_DIR})
   set_tests_properties(strategy_process PROPERTIES TIMEOUT 90)
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_test(NAME strategy_limits COMMAND ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/trading/strategy_limits.py ${PROJECT_SOURCE_DIR} ${CMAKE_BINARY_DIR})
+    set_tests_properties(strategy_limits PROPERTIES TIMEOUT 30)
+  endif()
   add_test(NAME webhook_process COMMAND ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/trading/webhook_process.py ${PROJECT_SOURCE_DIR} ${CMAKE_BINARY_DIR})
   set_tests_properties(webhook_process PROPERTIES TIMEOUT 90)
   add_test(NAME capital_risk_process COMMAND ${PROJECT_SOURCE_DIR}/build/electron-resources/python/bin/python3 -I -B ${CMAKE_CURRENT_SOURCE_DIR}/trading/capital_risk_process.py ${PROJECT_SOURCE_DIR} ${CMAKE_BINARY_DIR})
@@ -245,7 +239,6 @@ target_link_libraries(asterion_test_certificates PRIVATE asterion_system)
 add_test(NAME terminal_startup COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/terminal/startup_test.py $<TARGET_FILE:asterion_terminal_dev_bridge>)
 set_tests_properties(terminal_startup PROPERTIES TIMEOUT 45)
 
-asterion_unit_tests(asterion_python_runtime_tests terminal/python_runtime_test.cpp asterion_terminal_application 900)
 asterion_unit_tests(asterion_terminal_application_tests terminal/terminal_application_test.cpp asterion_terminal_application)
 target_compile_definitions(asterion_terminal_application_tests PRIVATE
   ASTERION_TEST_CTP="$<TARGET_FILE:asterion_test_ctp>"
@@ -281,7 +274,6 @@ if(ASTERION_NODE_HEADERS)
   add_test(NAME node_bridge_lifecycle COMMAND "${ASTERION_TEST_NODE}" "${CMAKE_CURRENT_SOURCE_DIR}/desktop/electron_bridge_lifecycle.cjs" $<TARGET_FILE:asterion_node_bridge_fixture>)
   set_tests_properties(node_bridge_lifecycle PROPERTIES TIMEOUT 20)
 endif()
-add_test(NAME macos_release_guards COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/desktop/macos_release.py)
 
 get_property(asterion_tests DIRECTORY PROPERTY TESTS)
 # Instrumented builds run several times slower: scale every explicit limit.

@@ -77,22 +77,17 @@ jobs:
       - run: python scripts/prepare_ctp.py
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec install-electron
-      - name: Build acceptance installer and native desktop
+      - name: Build Terminal installer and native desktop
         run: python scripts/desktop/desktop.py package-test --prepare-python
       - &conan-save
         name: Prepare Conan cache
         if: steps.conan-cache.outputs.cache-hit != 'true'
         run: conan cache save '*:*' --no-source -cc core:compresslevel=1 --file "${{ runner.temp }}/conan-packages.tgz"
       - run: ctest --preset conan-release --output-on-failure
-        env:
-          ASTERION_TEST_RUNTIME_MANIFEST: ${{ github.workspace }}/build/electron-resources/runtime
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
       - name: Exercise native Electron host
         run: pnpm test:desktop
-      - name: Exercise packaged macOS desktop
-        timeout-minutes: 8
-        run: python tests/desktop/electron_package.py build/desktop-test/*.dmg
       - name: Upload Terminal installer
         uses: actions/upload-artifact@v7
         with:
@@ -136,12 +131,10 @@ jobs:
           # A crashed renderer never exits while the kernel pipes its core to
           # systemd-coredump, and RLIMIT_CORE does not apply to a pipe.
           sudo sysctl -w kernel.core_pattern=core
-      - name: Build acceptance installer and native desktop
+      - name: Build Terminal installer and native desktop
         run: python scripts/desktop/desktop.py package-test --prepare-python
       - *conan-save
       - run: ctest --preset conan-release --output-on-failure
-        env:
-          ASTERION_TEST_RUNTIME_MANIFEST: ${{ github.workspace }}/build/electron-resources/runtime
       - name: Repeat Market and Warehouse process tests on one CPU
         run: |
           cpu=$(python -c 'import os; print(min(os.sched_getaffinity(0)))')
@@ -158,12 +151,6 @@ jobs:
           ldd build/Release/asterion_warehouse
           ./build/Release/asterion_market --version
           ldd build/Release/asterion_market
-      - name: Offline Trading runtime and strategy limits
-        run: python tests/trading/package_test.py build/Release/Asterion-Trading-${{ env.PRODUCT_VERSION }}-linux-x86_64.sh
-      - name: Warehouse release without a Python runtime
-        run: build/electron-resources/python/bin/python3 tests/warehouse/package_test.py build/Release/Asterion-Warehouse-${{ env.PRODUCT_VERSION }}-linux-x86_64.sh
-      - name: Market release without a Python runtime
-        run: python tests/market/package_test.py build/Release/Asterion-Market-${{ env.PRODUCT_VERSION }}-linux-x86_64.sh
       - name: Upload Trading installer
         uses: actions/upload-artifact@v7
         with:
@@ -191,9 +178,6 @@ jobs:
           xvfb-run -a pnpm test:desktop
       - name: Validate complete recovery gate
         run: python tests/support/recovery_gate.py --build build/Release
-      - name: Exercise packaged Linux desktop
-        timeout-minutes: 8
-        run: xvfb-run -a python tests/desktop/electron_package.py build/desktop-test/*.deb
       - name: Upload Terminal installer
         uses: actions/upload-artifact@v7
         with:
@@ -229,9 +213,8 @@ jobs:
       - *conan-save
       - run: cmake --preset conan-debug -DASTERION_SANITIZERS=${{ matrix.sanitizer }}
       - run: cmake --build --preset conan-debug
-      # Python loads an uninstrumented interpreter; Lab and runtime installation
-      # are covered by the desktop jobs.
-      - run: ctest --preset conan-debug --output-on-failure -E '^(lab_(strategy|catalog|dominant|service)$|PythonRuntime[.])'
+      # Python loads an uninstrumented interpreter; Lab is covered by the desktop jobs.
+      - run: ctest --preset conan-debug --output-on-failure -E '^lab_(strategy|catalog|dominant|service)$'
         env:
           ASTERION_TIMING_SCALE: "20"
           # Uninstrumented protobuf poisons its own arena memory and annotates

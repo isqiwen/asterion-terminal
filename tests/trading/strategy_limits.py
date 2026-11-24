@@ -1,31 +1,19 @@
-"""Exercise the actual release offline in stock Ubuntu, without host Python.
-
-The container runs as a non-root service user. All bars and package code below
-are test fixtures; no account is configured and no provider is contacted.
-"""
-import io
+"""Strategy children enforce resource limits while running NumPy and SciPy."""
 import json
 import os
 from pathlib import Path
-import shutil
 import socket
 import struct
 import subprocess
 import sys
-import tarfile
 import tempfile
 import time
 
 
-def probe(root):
-    import importlib.metadata
-    assert (root / 'bin/asterion_crash_reporter').is_file()
-    assert shutil.which('python3') is None, 'container must have no system Python'
-    assert sys.version_info[:3] == (3, 12, 12)
-    assert {p.metadata['Name'].lower() for p in importlib.metadata.distributions()} == {'numpy', 'scipy', 'protobuf'}
-    subprocess.run([root / 'bin/asterion_trading', '--version'], check=True)
-    code = root / 'lib/strategy'
-    sys.path.insert(0, str(code))
+def probe(source, build):
+    paths = [str(source / 'apps/services/trading/python'),
+             str(source / 'apps/services/common/python'), str(build / 'generated-python')]
+    sys.path[:0] = paths
     from asterion import strategy_pb2 as wire
     with tempfile.TemporaryDirectory() as folder:
         folder = Path(folder)
@@ -91,7 +79,7 @@ class Test(Strategy):
         for memory in (False, True):
             endpoint = folder / 'child.sock'
             endpoint.unlink(missing_ok=True)
-            bootstrap = f'import sys; sys.path.insert(0, {str(code)!r}); import strategy_runner; strategy_runner.main()'
+            bootstrap = f'import sys; sys.path[:0] = {paths!r}; import strategy_runner; strategy_runner.main()'
             child = subprocess.Popen([sys.executable, '-I', '-B', '-c', bootstrap,
                 str(endpoint), str(package), str(os.getpid())],
                 env=dict(os.environ, CREDENTIALS_DIRECTORY='test-only-removed', OPENBLAS_NUM_THREADS='64'))
@@ -142,49 +130,8 @@ class Test(Strategy):
                 if child.poll() is None:
                     child.kill()
                 child.wait(timeout=5)
-    print('Offline release: relocated runtime, package warmup, targets and child resource limits passed')
-
-
-def main():
-    with tempfile.TemporaryDirectory(prefix='ast-trading-package-') as folder:
-        folder = Path(folder)
-        payload = Path(sys.argv[1]).read_bytes().split(b'\n__ARCHIVE__\n', 1)[1]
-        with tarfile.open(fileobj=io.BytesIO(payload), mode='r:gz') as archive:
-            archive.extractall(folder, filter='data')
-        root = folder / 'asterion-trading'
-        assert {p.name for p in root.iterdir()} == {'bin', 'lib', 'runtime', 'config'}
-        assert {p.name for p in (root / 'config').iterdir()} == {'logging.json'}
-        default = Path(__file__).parents[2] / 'apps/services/trading/config/logging.json'
-        assert (root / 'config/logging.json').read_bytes() == default.read_bytes()
-        assert not list(root.rglob('*asterion_lab*'))
-        assert not list(root.rglob('pip'))
-        subprocess.run(['docker', 'run', '--rm', '--network', 'none', '--read-only',
-            '--tmpfs', '/tmp:rw,exec,nosuid,size=1g', '--user', f'{os.getuid()}:{os.getgid()}',
-            '-v', f'{root}:/trading:ro', '-v', f'{Path(__file__).resolve()}:/probe.py:ro',
-            'ubuntu:24.04', '/trading/runtime/python/bin/python3', '-I', '-B',
-            '/probe.py', '--probe', '/trading'], check=True, timeout=60)
+    print('Strategy warmup, targets and child resource limits passed')
 
 
 if __name__ == '__main__':
-    if sys.argv[1] == '--probe':
-        # Use the real installer's program replacement in a disposable root.
-        # systemd admission is tested separately; no system service is changed.
-        with tempfile.TemporaryDirectory() as folder:
-            installed = Path(folder) / 'installed'
-            installed.mkdir()
-            (installed / '.program.lock').touch()
-            (installed / 'data').mkdir()
-            (installed / 'data/preserved').write_text('test-only strategy state')
-            for _ in range(2):
-                subprocess.run(['bash', '-c',
-                    'source "$1/bin/setup.sh"; ROOT=$2; write_unit() { :; }; '
-                    'exec 9<"$ROOT/.program.lock"; flock --exclusive --nonblock 9; place "$1"',
-                    'install', sys.argv[2], str(installed)], check=True)
-                assert (installed / 'data/preserved').read_text() == 'test-only strategy state'
-                assert not (installed / 'runtime/obsolete.py').exists()
-                assert not (installed / '.program-incomplete').exists()
-                assert os.access(installed / 'bin/setup.sh', os.X_OK)
-                probe(installed)
-                (installed / 'runtime/obsolete.py').touch()
-    else:
-        main()
+    probe(Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve())

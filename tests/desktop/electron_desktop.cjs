@@ -58,14 +58,8 @@ async function closeDesktop(application) {
           }
         : undefined,
       chromiumSandbox: true,
-      executablePath:
-        process.env.ASTERION_TEST_ELECTRON || require("../../scripts/desktop/electron-path.cjs")(),
-      args: [
-        ...(process.env.ASTERION_TEST_ELECTRON
-          ? []
-          : [path.resolve("apps/clients/terminal/electron")]),
-        `--user-data-dir=${temp}/ui`,
-      ],
+      executablePath: require("../../scripts/desktop/electron-path.cjs")(),
+      args: [path.resolve("apps/clients/terminal/electron"), `--user-data-dir=${temp}/ui`],
       env: {
         ...process.env,
         ASTERION_ROOT: `${temp}/node`,
@@ -123,8 +117,7 @@ async function closeDesktop(application) {
     );
     assert.equal(reply.result.protocol, 1);
     // Startup runs by itself and opens the workbench once every step passes.
-    // A package's first launch downloads the Python runtime (about 200 MB).
-    await enterWorkbench(page, process.env.ASTERION_TEST_ELECTRON ? 600000 : undefined);
+    await enterWorkbench(page);
     await capture(page, "native-startup");
     if (process.platform !== "darwin") {
       // F11 fills the screen and gives the window back.
@@ -229,7 +222,7 @@ async function closeDesktop(application) {
       () => document.querySelector(".settings") || document.body.textContent.includes("偏好"),
     );
     await expect(settings.locator(".status-bar, .notification-center")).toHaveCount(0);
-    // The packaged app's custom origin must carry settings messages to its main window.
+    // Settings messages must reach the main window.
     await settings.evaluate(() => {
       const channel = new BroadcastChannel("asterion.notifications");
       channel.postMessage({

@@ -52,7 +52,7 @@ Linux 本地调试选择 `Market: debug installation`、`Warehouse: debug instal
 | `pnpm desktop --debug` | 使用 Debug 构建启动，供 C++ 调试 |
 | `pnpm desktop:check` | 构建 Release 并检查桌面链路，不打开窗口；`--debug` 可选择 Debug |
 | `pnpm desktop:build` | Release 构建并验证 Terminal 发布包：macOS `.dmg`（签名、公证），Linux `.deb` |
-| `pnpm desktop:package-test` | Release 验收安装包；macOS 使用临时签名，不做公证 |
+| `pnpm desktop:package-test` | 构建供 CI 下载的 Release 安装包；macOS 使用临时签名，不做公证 |
 | `pnpm dev` | 只开发界面：浏览器 + C++ 开发桥（端口 1423），需要已构建的 `build/Debug` |
 | `cmake --build --preset conan-debug` | 只重建 C++ |
 | `scripts/services/build_linux_services.sh` | 在 Ubuntu 24.04 容器里构建 `Asterion-Trading-<版本>-linux-x86_64.sh`、`Asterion-Market-<版本>-linux-x86_64.sh` 和 `Asterion-Warehouse-<版本>-linux-x86_64.sh`，输出到 `build/linux-bundles/`（支持 `ASTERION_CTP_PROFILE=prod\|eval`、`ASTERION_CTP_LOCAL_DIR` 与 `ASTERION_CTP_REQUIRE_OFFICIAL=1`，见[CTP SDK 溯源与切换](trading/deployment.md#ctp-sdk-溯源与测评版--生产版切换)） |
@@ -93,9 +93,8 @@ C++ 和 Python 的生成规则在 [protocol/CMakeLists.txt](../protocol/CMakeLis
 - 组件测试用 `src/testing/core.ts` 提供核心通道替身；`@journey` 标记关键端到端场景。
 - 端到端测试只能用 `pnpm run test:e2e`：它用临时根目录、测试凭据和测试 CTP SDK；直接运行 `playwright test` 会操作本机正在使用的服务。首次运行先 `pnpm exec playwright install chromium`；运行前确认 1423 端口空闲。需要 Electron 窗口的测试要有图形会话（无显示器时用 `xvfb-run -a`）。
 - macOS 上 CTest 用 `TMPDIR=/private/tmp`，因为 Unix socket 路径不能超过 104 字节。
-- CI 在两平台使用 Release 构建运行 CTest、浏览器、Electron 和安装包验收；Sanitizer 使用 Debug 检查内存错误和数据竞争，Linux Release 还运行单 CPU 服务重复检查和交易恢复检查，并复用同一构建打包、验收和上传 Market、Warehouse 与 Trading 安装包。Conan 缓存按作业、平台、运行器镜像和依赖配置区分，避免每次重新编译依赖。
+- CI 在两平台使用 Release 构建运行 CTest、浏览器和 Electron 宿主测试；Sanitizer 使用 Debug 检查内存错误和数据竞争，Linux Release 还运行单 CPU 服务重复检查和交易恢复检查，并复用同一构建打包和上传 Market、Warehouse 与 Trading 安装包。Conan 缓存按作业、平台、运行器镜像和依赖配置区分，避免每次重新编译依赖。
 - CI Artifacts 直接提供五个安装文件（三个 `.sh`、一个 `.deb`、一个 `.dmg`），以实际文件名显示，下载后无需解压额外的 ZIP。
-- 主机安装包的隔离测试：`build/electron-resources/python/bin/python3 -I -B tests/warehouse/package_test.py <warehouse 安装包>`、`python3 tests/market/package_test.py <market 安装包>` 与 `python3 tests/trading/package_test.py <trading 安装包>`，均在断网的 Ubuntu 24.04 容器里验证安装、升级与纯 C++ / 隔离运行时启动。
 - 真实柜台的验收见 [CTP 仿真验收](acceptance/ctp-simulation.md)。
 
 ## 本机数据目录
@@ -128,7 +127,7 @@ C++ 和 Python 的生成规则在 [protocol/CMakeLists.txt](../protocol/CMakeLis
 
 - 三个服务的安装脚本由各自的 `scripts/setup.sh` 加上共用的 `apps/services/common/scripts/setup.sh` 在构建时拼成，再附上安装包；询问、凭据、证书、systemd 单元和重启只写在共用部分，三台主机的安装方式因此一致。
 - Terminal 升级就是装新版本，卸载就是删除应用（Linux 用 `sudo apt remove asterion-terminal`）。用户资料在程序根目录，第一次启动时由 Terminal 创建，卸载时保留。
-- **macOS**：`pnpm desktop:build` 要求本机钥匙串里有唯一的 Developer ID Application 签名身份和 `notarytool` 保存的公证 profile（`CSC_NAME`、`APPLE_KEYCHAIN_PROFILE`）。应用和 DMG 都签名、公证；验收通过后生成 `build/desktop/distribution-acceptance.json`。
+- **macOS**：`pnpm desktop:build` 要求本机钥匙串里有唯一的 Developer ID Application 签名身份和 `notarytool` 保存的公证 profile（`CSC_NAME`、`APPLE_KEYCHAIN_PROFILE`）。应用和 DMG 都签名、公证。
 - **Linux**：`.deb` 的依赖由打包时 `dpkg-shlibdeps` 从包内程序算出，apt 会一起安装；构建机的系统版本决定包能装在哪些系统上。
 - 原生资源清单只有一个：`scripts/desktop/native-resources.json`。
 
