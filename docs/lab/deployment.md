@@ -1,16 +1,16 @@
 # Lab 部署与运行
 
-Lab 随 Terminal 发布，在当前用户本机运行，由 Terminal 自动启动与重启。没有独立安装包或 systemd 服务；日常使用不需要手动传启动参数。
+Lab 随 Terminal 桌面端一并发布，在当前用户本机运行，由 Terminal 自动启动和看护。它没有独立安装包或 systemd 单元，日常使用无需手动传参启动。
 
 ## 程序与运行时
 
-Terminal 首次启动时准备 CPython 与研究依赖，之后按运行时清单更新。开发启动直接使用项目中的 Python 源码，安装版使用随包携带的源码；准备过程见[Python 运行时](../development.md#python-运行时)。
+Terminal 首次启动时准备可重定位 CPython 3.12 与锁定研究依赖，后续随版本清单自动更新。开发模式直接加载仓库 Python 源码，安装版使用随包分发的源码副本，详情见[Python 运行时](../development.md#python-运行时)。
 
-Lab 使用 `python3 -I -B -m asterion_lab` 启动。`LabSupervisor` 提供拥有者 PID、业务和健康套接字、研究记录目录及 Terminal 连接配置目录。理由：解释器、目录和生命周期由同一个宿主管理，避免手工启动使用另一套数据。
+Lab 以 `python3 -I -B -m asterion_lab` 启动，由 `LabSupervisor` 统一传入拥有者 PID、业务与健康套接字路径、研究记录目录及 Terminal 连接配置目录。理由：解释器、数据目录与生命周期由同一宿主托管，避免手动启动误用另一套目录。
 
 ## 本机目录
 
-下图的 `<根>` 在 Linux 为 `~/.local/share/asterion`，在 macOS 为 `~/Library/Application Support/Asterion`。
+下文 `<根>` 在 Linux 为 `~/.local/share/asterion`，在 macOS 为 `~/Library/Application Support/Asterion`：
 
 ```text
 <根>/
@@ -20,40 +20,40 @@ Lab 使用 `python3 -I -B -m asterion_lab` 启动。`LabSupervisor` 提供拥有
 ├── terminal/
 │   ├── runtime/                    # 安装版准备的研究运行时
 │   └── data/
-│       ├── warehouse.json            # 共享的 Warehouse 地址与服务指纹
-│       └── tls/                    # 本机客户端身份
+│       ├── warehouse.json          # 共享的 Warehouse 地址与服务端指纹
+│       └── tls/                    # 本机客户端证书与私钥
 └── lab/
     ├── config/logging.json
     ├── logs/
     └── data/lab/
-        ├── warehouse-cache/research/  # 固定版本清单与分区缓存
-        ├── sources/                # 研究接纳时复制的源码
-        ├── factors/<评价ID>.binpb  # 因子评价结果
-        ├── runs.sqlite             # 运行状态和指标索引
+        ├── warehouse-cache/research/  # 固定版本清单与 Parquet 分区缓存
+        ├── sources/                   # 研究接纳时冻结的源码副本
+        ├── factors/<评价ID>.binpb     # 因子评价结果
+        ├── runs.sqlite                # 运行状态与指标索引
         └── runs/<运行ID>/
-            ├── run.json            # 输入、版本、参数与复现信息
-            └── <表>.parquet        # 权益、委托、成交等结果
+            ├── run.json               # 输入、版本、参数与复现信息
+            └── <表>.parquet           # 权益、委托、成交等明细表
 ```
 
-缓存按查询范围下载，属于可重建资料；源码副本和运行结果用于复现，备份时应保留。研究页可以删除运行记录和因子评价，连同结果表和源码副本；Lab 启动时删除没有记录引用的源码副本，理由：每次接纳都复制一份源码，记录删除后副本不再有用。策略目录的内置模块随发布版本同步，用户模块保留，具体规则见[Lab 策略](README.md#策略)。
+数据缓存按需从 Warehouse 拉取，可随时删除重建；策略源码、运行记录与源码副本用于复现，备份时须完整保留。研究页删除运行或因子评价时会连带清理结果与对应源码副本；Lab 每次启动也会回收无记录引用的孤立源码副本。策略目录中的内置模块随版本同步更新、用户模块保留，详见[Lab 策略](README.md#策略)。
 
-业务套接字 `lab.sock` 与健康套接字 `lab.health` 位于每次运行私有的 `/tmp/ast-<实例>/`，不属于长期数据。
+业务套接字 `lab.sock` 与健康套接字 `lab.health` 位于每次运行私有的 `/tmp/ast-<实例>/`，不属于持久数据。
 
 ## 配置与连接
 
-- 日志配置来自 [logging.json](../../apps/services/lab/config/logging.json)，首次启动复制，字段见[运行日志](../services.md#运行日志)。
-- Warehouse 地址和证书由 Terminal 设置维护；Lab 使用同一客户端身份，经双向 TLS 读取 `research` 固定版本。无需单独填写供应商配置或密钥。
-- 回测、扫描和因子设置通过协议提交，不保存为另一份服务配置。
+- 日志配置源自 [logging.json](../../apps/services/lab/config/logging.json)，首次启动自动复制，字段说明见[运行日志](../services.md#运行日志)。
+- Warehouse 地址与客户端证书由 Terminal 设置页维护；Lab 复用同一身份经双向 TLS 读取固定版本，无需单独配置数据源密钥。
+- 回测、参数扫描与因子评价设置均通过通信协议提交，无独立任务配置文件。
 
 ## 停止、升级与恢复
 
-| 操作或情况 | 处理方式 |
+| 情况 | 处理方式 |
 | --- | --- |
-| 正常退出 | 等待需要保留的计算完成，再关闭 Terminal |
-| Lab 意外退出 | Terminal 自动重启；遗留运行标为中断，由使用者决定是否重新运行 |
-| Lab 心跳延迟 | 已就绪的 Lab 连续心跳失败才报错并重启，短暂延迟不阻断研究请求；理由：一次延迟不代表服务失联 |
-| Terminal 升级 | 先结束研究并关闭应用，再安装新版本，研究记录保留 |
-| 缓存缺失 | 读取时从原 Warehouse 版本重新下载；该版本不可用时明确失败 |
-| 备份 | 关闭 Terminal 并确认 Lab 已退出，复制源码、运行记录和源码副本 |
+| 正常退出 | 等待需要保留的计算完成后再关闭 Terminal |
+| Lab 意外退出 | Terminal 自动重启；遗留的运行中记录标为中断，由使用者决定是否重跑 |
+| Lab 心跳延迟 | 已就绪的 Lab 仅在连续心跳失败时报错并重启，短暂抖动不中断研究请求 |
+| Terminal 升级 | 等待研究结束并关闭应用后安装新版，既有研究记录完整保留 |
+| 本地缓存缺失 | 查询时按原固定版本从 Warehouse 重新下载；若原版本不可用则明确报错 |
+| 本机备份 | 关闭 Terminal 并确认 Lab 退出后，备份策略目录、运行记录与源码副本 |
 
-完整冷备份范围见[备份与恢复](../services.md#备份与恢复)。排查顺序是研究状态、通知中的诊断、`lab/logs/`；数据访问失败同时核对 Warehouse 的连接配置与版本是否可读取。
+完整冷备范围见[备份与恢复](../services.md#备份与恢复)。排查异常依次查看研究状态、通知中心诊断与 `lab/logs/`；若涉及读数故障，同步核对 Warehouse 连接状态与目标版本是否可读。

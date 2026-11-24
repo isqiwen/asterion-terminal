@@ -2,24 +2,24 @@
 
 ## 安装
 
-Market 主机是 Ubuntu 24.04 x86_64，安装在 `/opt/asterion/market/`。发布物是自解压脚本 `Asterion-Market-<版本>-linux-x86_64.sh`（CMake 目标 `asterion_market_setup`；本地用 `scripts/services/build_linux_services.sh` 构建，输出到 `build/linux-bundles/`），包含服务程序、崩溃解析器（`bin/asterion_crash_reporter`）、安装脚本（使用主机 Python 3 处理配置）、默认日志配置和两个 CTP 库。
+Market 运行于 Ubuntu 24.04 x86_64，安装目录为 `/opt/asterion/market/`。发布物为自解压脚本 `Asterion-Market-<版本>-linux-x86_64.sh`（CMake 目标 `asterion_market_setup`；本地通过 `scripts/services/build_linux_services.sh` 构建并输出到 `build/linux-bundles/`），内含服务程序、崩溃解析器（`bin/asterion_crash_reporter`）、冷备脚本（`bin/cold_backup.py`）、安装管理脚本（借助主机 Python 3 读写配置）、默认日志配置及两个 CTP 动态库。
 
 ```sh
-sudo bash "Asterion-Market-<版本>-linux-x86_64.sh"   # 第一次：安装并配置；以后：升级
-sudo asterion-market                                 # 管理面板（软链到 /opt/asterion/market/bin/setup.sh）
+sudo bash "Asterion-Market-<版本>-linux-x86_64.sh"   # 首次安装并配置；后续执行即为升级
+sudo asterion-market                                 # 打开管理面板（软链至 /opt/asterion/market/bin/setup.sh）
 ```
 
-- 主机开启时间同步（如 `systemd-timesyncd`）。理由：报价的接收时间用于行情页的新鲜度和“来源时间超前”判断。
-- 安装时写入并启用 `asterion-market.service`：以执行 `sudo` 的账户运行，只能写 `logs/` 和数据目录，`Restart=always`。
-- 安装时依次询问监听地址、端口（默认 7451）、数据目录、行情和交易前置、经纪公司代码、投资者代码、AppID，再逐个粘贴 Terminal 证书指纹（Terminal 的“设置 → 关于”，直接回车结束），最后隐藏输入 CTP 密码和授权码。
-- 已安装后运行 `sudo asterion-market` 进入管理面板：显示版本、运行状态、开机自启、监听地址、已授权终端数与本机证书指纹，按数字操作启停重启、开机自启开关、分项修改配置或凭据（也可运行完整配置向导）、增删 Terminal（至少保留一个）及查看运行日志。修改时每项预先填好当前值，输错只重问该项；保存前列出改动并确认，没有改动不保存。柜台账户不变时可以保留已保存的密码和授权码；变更经纪商或投资者代码时须同时录入对应密码与授权码。面板内保存的改动在选 `0` 退出脚本时一起生效，交易时段内延到收盘后重启；有待执行的重启时，可在面板选 `1` 确认后立即重启。
-- 投资者代码要用单独的行情账户，不得使用实盘交易账户，见[交易规则](../safety.md)。
-- 升级替换程序和库，把 `market.json` 改写为新版本的格式（保留现有值，新增项取默认值，不再使用的项删除，逐项列出改动），保留 TLS 身份和目录缓存，然后进入管理面板。理由：服务只认当前格式，缺项或多项都拒绝启动。交易时段内（北京时间工作日 08:45–15:30、20:45–次日 02:45）不重启正在运行的服务，改为收盘后由定时器重启。
-- 安装时生成服务端证书 `config/tls/server.crt`，每次运行脚本都显示它的指纹，可直接粘贴到 Terminal。指纹是证书 DER 编码的 SHA-256，不是文件本身的哈希；不重启查看：`sudo asterion-market fingerprint`。
+- **时钟同步**：主机必须开启时间同步（如 `systemd-timesyncd`）。理由：行情页依据接收时间判断报价新鲜度与“来源时间超前”。
+- **服务单元**：安装时创建并启用 `asterion-market.service`，以执行 `sudo` 的普通账户运行，仅开放 `logs/` 与数据目录写权限，`Restart=always`。
+- **首次向导**：依次询问监听地址、端口（默认 `7451`）、数据缓存目录、CTP 行情与交易前置、经纪商代码、投资者账号、AppID，随后逐条粘贴 Terminal 证书指纹（见 Terminal“设置 → 关于”，直接回车结束），最后隐藏录入 CTP 密码与授权码。
+- **管理面板**：安装后执行 `sudo asterion-market` 打开面板，展示版本、运行状态、开机自启、监听地址、已授权终端数与本机证书指纹，支持启停重启、开机自启开关、分项修改配置或凭据（亦支持完整向导）、增删终端指纹（至少保留一台）及查看运行日志。修改项均预填当前值，输错仅重问该项；保存前先列出变更清单并确认，无改动不写盘。柜台身份不变时可保留已有密码与授权码，变更经纪商或投资者账号时须重新录入。面板内的改动在选 `0` 退出时统一生效（交易时段内延至收盘后自动重启）；有待执行重启时，可选 `1` 确认后立即重启。
+- **行情账户隔离**：投资者账号必须为独立行情账户，严禁使用实盘交易账户，见[交易规则](../safety.md)。
+- **升级**：替换可执行程序与库文件，将 `market.json` 迁移至当前版本结构（保留已有值、新增项填默认值、废弃项移除并逐项列出改动），同时保留 TLS 身份与目录缓存，随后进入管理面板。理由：服务严格校验当前配置结构，缺项或多余项均拒绝启动。交易时段内（北京时间工作日 `08:45–15:30`、`20:45–次日 02:45`）不中断运行中的服务，改为收盘后通过定时器自动重启。
+- **服务端指纹**：安装时生成 `config/tls/server.crt`，每次运行脚本都会输出其 DER 编码的 SHA-256 指纹（并非证书文件本身的哈希），可直接填入 Terminal；不重启查询可执行 `sudo asterion-market fingerprint`。
 
 ## 配置
 
-`config/market.json` 只保存非秘密配置：
+`config/market.json` 仅包含非秘密配置：
 
 ```json
 {
@@ -31,10 +31,10 @@ sudo asterion-market                                 # 管理面板（软链到 
 }
 ```
 
-CTP 密码和授权码由 `systemd-creds` 加密保存在 `/etc/credstore.encrypted/asterion.ctp.*`，不写入配置；TLS 私钥在 `config/tls/server.key`。缺少配置、TLS 文件或凭据时拒绝启动，并报告路径。
+CTP 密码与授权码经 `systemd-creds` 加密存放在 `/etc/credstore.encrypted/asterion.ctp.*`，不写入配置文件；TLS 私钥位于 `config/tls/server.key`。缺少配置、TLS 文件或凭据时服务拒绝启动并输出缺失路径。
 
 ## 运行
 
-- 启动后立即登录 CTP，不等客户端。超时及柜台临时不可用时自动恢复；恢复时机与错误说明见[实时行情](README.md#实时行情)。
-- 收到 SIGTERM 后报价流发出最后一帧再退出。原始行情队列写满时进程退出，由 systemd 重启。
-- 默认日志在 `logs/asterion_market_YYYY-MM-DD.log`，保留 30 天。行情连接每次变化（登录、断线及 CTP 原因码、重连）记一行。
+- 启动后立即连接 CTP，不等待客户端接入；超时或柜台临时不可用时自动恢复，策略与错误边界见[实时行情](README.md#实时行情)。
+- 收到 `SIGTERM` 后，报价流发出最后一帧即正常退出；原始行情事件队列溢出时主动退出并由 systemd 重启。
+- 默认日志位于 `logs/asterion_market_YYYY-MM-DD.log`，保留 30 天；行情连接的每次状态跃迁（登录、断线及 CTP 原因码、重连）均记入日志。
