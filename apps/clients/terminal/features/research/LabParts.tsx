@@ -669,10 +669,11 @@ export function useStoredCatalog(
   context: TerminalContext,
   minutes = false,
   allowExchanges = false,
+  enabled = true,
 ) {
   const endpoint = context.snapshot?.warehouse_endpoint;
   const address =
-    endpoint && "host" in endpoint
+    enabled && endpoint && "host" in endpoint
       ? `${endpoint.host}:${endpoint.port}/${endpoint.fingerprint}`
       : "";
   const [contracts, setContracts] = useState<StoredContract[] | null>(() => (address ? null : []));
@@ -684,16 +685,11 @@ export function useStoredCatalog(
       return;
     }
     setContracts(null);
-    const load = () => {
-      void lab({ case: "listStoredContracts", value: {} })
-        .then(reply => active && setContracts(reply.contracts))
-        .catch(() => active && setContracts([]));
-    };
-    load();
-    window.addEventListener("focus", load);
+    void lab({ case: "listStoredContracts", value: {} })
+      .then(reply => active && setContracts(reply.contracts))
+      .catch(() => active && setContracts([]));
     return () => {
       active = false;
-      window.removeEventListener("focus", load);
     };
   }, [address]);
 
@@ -727,12 +723,13 @@ export function useStoredCatalog(
       const index = EXCHANGES.indexOf(id.split("/")[0]!);
       return index === -1 ? EXCHANGES.length : index;
     };
+    const compareId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
     const sortSpans = (a: SymbolSpan, b: SymbolSpan) =>
       Number(b.stored) - Number(a.stored) ||
       exchangeRank(a.id) - exchangeRank(b.id) ||
-      a.id.localeCompare(b.id);
+      compareId(a.id, b.id);
     const contractsByProduct = new Map<string, SymbolSpan[]>();
-    const sortedContracts = [...byContract.values()].sort((a, b) => a.id.localeCompare(b.id));
+    const sortedContracts = [...byContract.values()].sort((a, b) => compareId(a.id, b.id));
     for (const item of sortedContracts) {
       const product = item.id.split("/").slice(0, 2).join("/");
       const list = contractsByProduct.get(product);
@@ -810,7 +807,7 @@ export function SymbolField({
   const listboxId = useId();
   const fieldRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const internalCatalog = useStoredCatalog(context, minutes, allowExchanges);
+  const internalCatalog = useStoredCatalog(context, minutes, allowExchanges, !providedCatalog);
   const catalog = providedCatalog ?? internalCatalog;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");

@@ -69,12 +69,15 @@ public:
     ~RpcClient();
     RpcClient(const RpcClient&) = delete;
     RpcClient& operator=(const RpcClient&) = delete;
+    // `reuse_connection` keeps idle TLS streams for idempotent read-only queries;
+    // mutating commands must leave it false so they never reuse or resend on closure.
     std::future<Payload> request(
         std::string payload,
         std::chrono::milliseconds reply_timeout,
         std::chrono::steady_clock::time_point deadline =
             std::chrono::steady_clock::time_point::max(),
-        std::chrono::milliseconds send_timeout = std::chrono::seconds(5));
+        std::chrono::milliseconds send_timeout = std::chrono::seconds(5),
+        bool reuse_connection = false);
     // One frame per stream per poll; handler runs on the polling owner. Completion
     // reports closure, cancellation or a handler failure. No frame queue or retry.
     std::future<void> watch(

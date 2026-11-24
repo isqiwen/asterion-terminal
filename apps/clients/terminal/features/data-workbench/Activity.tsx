@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { warehouseData } from "../../src/bridge/warehouse-data";
 import {
   Table,
@@ -149,18 +149,24 @@ export function Activity({
       await refresh();
     });
   const current = versions[0]?.dataset?.version;
-  const batches = groupTasks(tasks);
-  const running = batches.filter(batch => batch.activeIds.length > 0).length;
-  // A version made only by automatic work is not news; it stays readable by its id.
-  const shownVersions = versions.filter(
-    version => !version.tables.length || !version.tables.every(automaticTable),
+  const batches = useMemo(() => groupTasks(tasks), [tasks]);
+  const running = useMemo(
+    () => batches.filter(batch => batch.activeIds.length > 0).length,
+    [batches],
   );
-  const items = [
-    ...batches.map(batch => ({ at: batch.startedMs, batch })),
-    ...shownVersions.map(version => ({ at: version.dataset!.createdMs, version })),
-  ]
-    .sort((a, b) => Number(b.at - a.at))
-    .slice(0, shown);
+  const items = useMemo(() => {
+    if (!open) return [];
+    // A version made only by automatic work is not news; it stays readable by its id.
+    const shownVersions = versions.filter(
+      version => !version.tables.length || !version.tables.every(automaticTable),
+    );
+    return [
+      ...batches.map(batch => ({ at: batch.startedMs, batch })),
+      ...shownVersions.map(version => ({ at: version.dataset!.createdMs, version })),
+    ]
+      .sort((a, b) => Number(b.at - a.at))
+      .slice(0, shown);
+  }, [open, batches, versions, shown]);
   return (
     <div className="data-activity-center">
       <button

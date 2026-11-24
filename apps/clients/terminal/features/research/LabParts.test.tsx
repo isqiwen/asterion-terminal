@@ -195,4 +195,10 @@ test("symbol field selects multiple symbols as tags, prioritizes stored products
     "2023-07-21",
     "2026-02-13",
   ]);
+
+  const callsBefore = vi.mocked(lab).mock.calls.length;
+  render(
+    <SymbolField context={context} catalog={result.current} value="SHFE/rb" onChange={onChange} />,
+  );
+  expect(vi.mocked(lab).mock.calls.length).toBe(callsBefore);
 });

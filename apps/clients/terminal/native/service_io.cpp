@@ -5,6 +5,7 @@
 #include <array>
 #include <deque>
 #include <list>
+#include <map>
 #include <mutex>
 #include <thread>
 
@@ -105,6 +106,8 @@ struct ServiceIo::Impl
     bool closing = false;
     // The owner waits here; sockets, finished pool work and admissions end the wait.
     ipc::Reactor reactor;
+    // Declared after `reactor` so pooled sockets close before their io_context destroys.
+    std::map<std::string, std::shared_ptr<ipc::RpcClient>> shared_clients;
     const std::function<void()> finished = [this] {
         reactor.wake();
     };
@@ -146,6 +149,19 @@ PayloadBudget ServiceIo::payload_budget(PayloadLane lane) const
 ipc::Reactor& ServiceIo::reactor()
 {
     return impl_->reactor;
+}
+
+std::shared_ptr<ipc::RpcClient> ServiceIo::shared_client(const std::string& key) const
+{
+    const auto found = impl_->shared_clients.find(key);
+    return found == impl_->shared_clients.end() ? nullptr : found->second;
+}
+
+void ServiceIo::store_shared_client(std::string key, std::shared_ptr<ipc::RpcClient> client)
+{
+    if (impl_->shared_clients.size() >= 16)
+        impl_->shared_clients.erase(impl_->shared_clients.begin());
+    impl_->shared_clients.insert_or_assign(std::move(key), std::move(client));
 }
 
 std::future<void> ServiceIo::read_work(std::function<void()> process, ReadLane lane)

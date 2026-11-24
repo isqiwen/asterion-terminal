@@ -31,26 +31,26 @@ void Application::Impl::register_data_commands()
     command("market.call", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"request"});
         const auto address = address_of(settings_view->market_endpoint, "Market");
-        auto reply = co_await PollFuture{call_market(service_io, address, p.at("request"))};
+        auto reply = co_await PollFuture{call_market_json(service_io, address, p.at("request"))};
         // A settings edit meanwhile means the reply may be from another service.
         const auto current = selected_of(settings_view->market_endpoint, "Market");
         if (!current || !same_service_endpoint(*current, address))
             throw Error(
                 ErrorCode::conflict,
                 "service selection changed during operation; inspect the original service");
-        co_return Response{json{{"market", std::move(reply)}}};
+        co_return Response::raw("{\"market\":" + std::move(reply) + "}");
     });
     // One warehouse.proto Request to the saved service, relayed unchanged.
     command("warehouse.call", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"request"});
         const auto address = address_of(settings_view->warehouse_endpoint, "Warehouse");
-        auto reply = co_await PollFuture{call_warehouse(service_io, address, p.at("request"))};
+        auto reply = co_await PollFuture{call_warehouse_json(service_io, address, p.at("request"))};
         const auto current = selected_of(settings_view->warehouse_endpoint, "Warehouse");
         if (!current || !same_service_endpoint(*current, address))
             throw Error(
                 ErrorCode::conflict,
                 "service selection changed during operation; inspect the original service");
-        co_return Response{json{{"warehouse", std::move(reply)}}};
+        co_return Response::raw("{\"warehouse\":" + std::move(reply) + "}");
     });
     command("market.open", [this](const json& p) -> PolledTask<Response> {
         fields(p, {});
@@ -74,7 +74,9 @@ void Application::Impl::register_data_commands()
     command("market.watch", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"restart"});
         const bool restart = p.at("restart").get<bool>();
-        co_return Response{json{{"market_watch", watch ? watch->take(restart) : json(nullptr)}}};
+        co_return Response::raw(
+            watch ? "{\"market_watch\":" + watch->take_json(restart) + "}"
+                  : "{\"market_watch\":null}");
     });
     command("market.watchlist", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"instruments"});

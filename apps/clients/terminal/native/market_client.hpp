@@ -6,9 +6,10 @@
 
 namespace asterion::terminal {
 
-// One generated market.proto Request, as ProtoJSON, on its own pinned TLS
-// connection; returns the Response as ProtoJSON. Errors are thrown.
+// One generated market.proto Request, as ProtoJSON, over pinned mutual TLS;
+// returns the Response as ProtoJSON. Errors are thrown.
 [[nodiscard]] std::future<Json> call_market(ServiceIo&, ServiceEndpoint, Json);
+[[nodiscard]] std::future<std::string> call_market_json(ServiceIo&, ServiceEndpoint, Json);
 
 // The selected Market service's watch stream, held for the page. Frames (LiveQuotes
 // messages as ProtoJSON) wait in order until the page takes them; a page that
@@ -25,6 +26,7 @@ public:
     // at once, for a page that has no complete frame to apply deltas to. error is
     // why the stream last failed, until a frame arrives.
     Json take(bool restart);
+    std::string take_json(bool restart);
     ServiceEndpoint endpoint() const;
 
 private:

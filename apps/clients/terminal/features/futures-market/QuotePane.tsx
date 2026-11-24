@@ -111,6 +111,23 @@ export function accountPriceLines(
   return lines;
 }
 
+function samePriceLines(a: readonly ChartPriceLine[], b: readonly ChartPriceLine[]) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; ++i) {
+    const x = a[i]!;
+    const y = b[i]!;
+    if (
+      x.value !== y.value ||
+      x.label !== y.label ||
+      x.tone !== y.tone ||
+      x.dashed !== y.dashed ||
+      x.axisLabelVisible !== y.axisLabelVisible
+    )
+      return false;
+  }
+  return true;
+}
+
 function IntradayPanel({
   market,
   row,
@@ -126,6 +143,13 @@ function IntradayPanel({
     item => item.instrument?.exchange === exchange && item.instrument.symbol === symbol,
   )?.product;
   const reference = series?.previousSettlement?.text ?? row.quote?.previousSettlement?.text ?? null;
+  const intraday = useMemo(
+    () =>
+      series?.bars.length
+        ? intradaySlots(series, product ? sessionRanges(exchange, product) : null)
+        : null,
+    [series, exchange, product],
+  );
   if (error && !series)
     return (
       <div className="market-chart-empty" role="status">
@@ -133,13 +157,13 @@ function IntradayPanel({
       </div>
     );
   if (!series) return <div className="market-chart-empty">{t("读取中")}</div>;
-  if (!series.bars.length || reference === null)
+  if (!intraday || reference === null)
     return (
       <div className="market-chart-empty" role="status">
         {t("本交易日尚无分时记录")}
       </div>
     );
-  const { slots, ticks } = intradaySlots(series, product ? sessionRanges(exchange, product) : null);
+  const { slots, ticks } = intraday;
   const since = new Date(Number(series.observedFromMs ?? 0n)).toLocaleTimeString("sv-SE", {
     timeZone: "Asia/Shanghai",
     hour12: false,
@@ -229,37 +253,50 @@ function ObservedCandles({
   priceTick?: string;
   priceLines?: readonly ChartPriceLine[];
 }) {
+  const prepared = useMemo(() => {
+    if (!series) return null;
+    const candles: Candle[] = [];
+    let key = -1;
+    for (const bar of series.bars) {
+      const bucket = Math.floor(Number(bar.startMs) / (minutes * 60000));
+      const last = candles[candles.length - 1];
+      if (bucket !== key || !last) {
+        key = bucket;
+        candles.push({
+          timestamp_ns: `${bucket * minutes * 60000}000000`,
+          open: bar.open!.text,
+          high: bar.high!.text,
+          low: bar.low!.text,
+          close: bar.close!.text,
+          volume: String(bar.volume),
+          openInterest: bar.openInterest?.text,
+        });
+      } else {
+        if (Number(bar.high!.text) > Number(last.high)) last.high = bar.high!.text;
+        if (Number(bar.low!.text) < Number(last.low)) last.low = bar.low!.text;
+        last.close = bar.close!.text;
+        last.volume = String(Number(last.volume) + Number(bar.volume));
+        if (bar.openInterest?.text) last.openInterest = bar.openInterest.text;
+      }
+    }
+    return {
+      candles,
+      chartSeries: { kind: "candles" as const, points: candles },
+      overlays: averagePeriods.slice(0, 4).map((period, index) => ({
+        label: `MA${period}`,
+        color: averageColors[index],
+        values: movingAverage(candles, period),
+      })),
+    };
+  }, [series, minutes]);
   if (error && !series)
     return (
       <div className="market-chart-empty" role="status">
         {t("报价序列暂不可用")}
       </div>
     );
-  if (!series) return <div className="market-chart-empty">{t("读取中")}</div>;
-  const candles: Candle[] = [];
-  let key = -1;
-  for (const bar of series.bars) {
-    const bucket = Math.floor(Number(bar.startMs) / (minutes * 60000));
-    const last = candles[candles.length - 1];
-    if (bucket !== key || !last) {
-      key = bucket;
-      candles.push({
-        timestamp_ns: `${bucket * minutes * 60000}000000`,
-        open: bar.open!.text,
-        high: bar.high!.text,
-        low: bar.low!.text,
-        close: bar.close!.text,
-        volume: String(bar.volume),
-        openInterest: bar.openInterest?.text,
-      });
-    } else {
-      if (Number(bar.high!.text) > Number(last.high)) last.high = bar.high!.text;
-      if (Number(bar.low!.text) < Number(last.low)) last.low = bar.low!.text;
-      last.close = bar.close!.text;
-      last.volume = String(Number(last.volume) + Number(bar.volume));
-      if (bar.openInterest?.text) last.openInterest = bar.openInterest.text;
-    }
-  }
+  if (!series || !prepared) return <div className="market-chart-empty">{t("读取中")}</div>;
+  const { candles, chartSeries, overlays } = prepared;
   if (!candles.length)
     return (
       <div className="market-chart-empty" role="status">
@@ -274,12 +311,8 @@ function ObservedCandles({
       priceTick={priceTick}
       priceLines={priceLines}
       key={`${row.instrument!.exchange}.${row.instrument!.symbol}:${minutes}:${series.tradingDay}`}
-      series={{ kind: "candles", points: candles }}
-      overlays={averagePeriods.slice(0, 4).map((period, index) => ({
-        label: `MA${period}`,
-        color: averageColors[index],
-        values: movingAverage(candles, period),
-      }))}
+      series={chartSeries}
+      overlays={overlays}
       formatIndicatorValue={value => value.toFixed(2)}
       label={t("分钟 K 线")}
       volumeLabel={t("成交量")}
@@ -328,10 +361,11 @@ export function QuotePane({
         : undefined;
   const status = quoteStatus(market, row);
   const { views: tradingViews } = useTradingAccounts();
-  const priceLines = useMemo(
-    () => accountPriceLines(tradingViews, market, row),
-    [tradingViews, market, row],
-  );
+  const nextPriceLines = accountPriceLines(tradingViews, market, row);
+  const stablePriceLines = useRef<readonly ChartPriceLine[]>(nextPriceLines);
+  if (!samePriceLines(stablePriceLines.current, nextPriceLines))
+    stablePriceLines.current = nextPriceLines;
+  const priceLines = stablePriceLines.current;
   const { exchange, symbol } = row.instrument!;
   const identity = `${exchange}.${symbol}`;
   return (

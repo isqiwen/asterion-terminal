@@ -43,6 +43,29 @@ public:
     std::string bytes;
 };
 
+Payload encode_raw_result(std::string&& raw_result, const PayloadBudget& budget)
+{
+    constexpr std::size_t limit = 128 * 1024 * 1024;
+    constexpr std::string_view prefix = "{\"result\":";
+    constexpr std::string_view suffix = "}";
+    if (raw_result.size() > limit - prefix.size() - suffix.size())
+        throw Error(
+            ErrorCode::resource_exhausted,
+            "Native response exceeds 128 MiB; command outcome may be unknown");
+    std::string bytes;
+    bytes.reserve(prefix.size() + raw_result.size() + suffix.size());
+    bytes.append(prefix);
+    bytes.append(raw_result);
+    bytes.append(suffix);
+    try {
+        return budget.retain(std::move(bytes));
+    } catch (const Error& error) {
+        throw Error(
+            error.code(),
+            "Native response capacity reached; command outcome may be unknown");
+    }
+}
+
 Payload encode_response(const json& envelope, const PayloadBudget& budget)
 {
     ResponseBuffer buffer;
@@ -260,6 +283,8 @@ json Application::Impl::Publication::render() const
 
 json Application::Impl::Response::render() &&
 {
+    if (!raw_result.empty())
+        return parse_json(raw_result, 128 * 1024 * 1024);
     if (!publication)
         return std::move(values);
     auto result = publication->render();
@@ -511,6 +536,10 @@ std::future<void> Application::request(std::string wire, Completion complete)
                 }
                 co_await impl_->service_io.read<void>(
                     [&] {
+                        if (!command_error && !response->raw_result.empty()) {
+                            encoded = encode_raw_result(std::move(response->raw_result), budget);
+                            return;
+                        }
                         json envelope = json::object();
                         try {
                             if (command_error)

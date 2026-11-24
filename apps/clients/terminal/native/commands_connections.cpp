@@ -82,13 +82,13 @@ void Application::Impl::register_connection_commands()
             trading_connections.tls(saved->at("fingerprint").get<std::string>())
         };
         const auto revision = saved->at("revision").get<std::string>();
-        auto reply = co_await PollFuture{call_trading(service_io, endpoint, p.at("request"))};
+        auto reply = co_await PollFuture{call_trading_json(service_io, endpoint, p.at("request"))};
         const auto* current = find_connection();
         if (!current || current->contains("error") || current->at("revision") != revision)
             throw Error(
                 ErrorCode::conflict,
                 "trading connection changed; inspect the original host before retrying");
-        co_return Response{json{{"trading", std::move(reply)}}};
+        co_return Response::raw("{\"trading\":" + std::move(reply) + "}");
     });
     command("trading.connections.save", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"id", "host", "port", "instance", "fingerprint", "revision"});

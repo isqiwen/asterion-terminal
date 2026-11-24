@@ -97,17 +97,24 @@ export function MarketBoard({ market, context }: { market: MarketView; context: 
     const field = sort.column === "最新价" ? row.quote?.last : row.quote?.openInterest;
     return field ? numeric(Number(field.text)) : null;
   };
-  rows.sort((a, b) => {
-    const left = value(a),
-      right = value(b);
+  const direction = sort.direction === "ascending" ? 1 : -1;
+  const keyed = rows.map(row => ({ row, key: value(row) }));
+  keyed.sort((a, b) => {
+    const left = a.key,
+      right = b.key;
     if (left == null) return right == null ? 0 : 1;
     if (right == null) return -1;
     const compared =
       typeof left === "string" && typeof right === "string"
-        ? left.localeCompare(right)
+        ? left < right
+          ? -1
+          : left > right
+            ? 1
+            : 0
         : Number(left) - Number(right);
-    return compared * (sort.direction === "ascending" ? 1 : -1);
+    return compared * direction;
   });
+  for (let i = 0; i < keyed.length; ++i) rows[i] = keyed[i]!.row;
   const groups = (
     filter
       ? [
@@ -143,7 +150,7 @@ export function MarketBoard({ market, context }: { market: MarketView; context: 
   };
   const table = (groupRows: QuoteRow[]) => (
     <QuoteTable
-      overviewStyle
+      overviewStyle={shown.length > 1 || groupRows.length < 100}
       columns={visibleColumns}
       nameFor={displayName}
       market={market}

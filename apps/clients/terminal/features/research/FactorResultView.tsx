@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { PriceChart } from "@asterion/terminal/charts/PriceChart";
 import type { FactorResult } from "../../src/generated/asterion/lab_pb";
 import { type MessageValues, translate } from "../../src/i18n";
@@ -35,10 +35,54 @@ export function FactorResultView({ result }: { result: FactorResult }) {
   const [focusedDay, setFocusedDay] = useState<string | null>(null);
   const largest = Math.max(...result.horizons.map(item => Math.abs(item.mean ?? 0)), 1e-12);
   const widest = Math.max(...result.groups.map(item => Math.abs(item.meanReturn ?? 0)), 1e-12);
-  const grouped = result.days.filter(day => day.groups.length);
-  const ic = cumulativeIc(result.days);
   const first = result.horizons[0];
-  const yearly = yearlyIc(result.days, first?.horizon ?? 1);
+  const { grouped, ic, yearly } = useMemo(
+    () => ({
+      grouped: result.days.filter(day => day.groups.length),
+      ic: cumulativeIc(result.days),
+      yearly: yearlyIc(result.days, first?.horizon ?? 1),
+    }),
+    [result.days, first?.horizon],
+  );
+  const dailyIcSeries = useMemo(
+    () => ({
+      kind: "histogram" as const,
+      points: result.days.map(day => ({
+        timestamp_ns: closeOf(day.tradingDay),
+        price: day.ic === undefined ? "" : day.ic.toFixed(4),
+      })),
+    }),
+    [result.days],
+  );
+  const cumulativeIcSeries = useMemo(
+    () => ({
+      kind: "line" as const,
+      points: result.days.map((day, index) => ({
+        timestamp_ns: closeOf(day.tradingDay),
+        price: ic[index].toFixed(4),
+      })),
+    }),
+    [result.days, ic],
+  );
+  const groupSeries = useMemo(
+    () => ({
+      kind: "line" as const,
+      points: grouped.map(day => ({
+        timestamp_ns: closeOf(day.tradingDay),
+        price: String(day.longShort ?? 1),
+      })),
+    }),
+    [grouped],
+  );
+  const groupOverlays = useMemo(
+    () =>
+      result.groups.map((group, index) => ({
+        label: t("第 {group} 组", { group: group.group }),
+        color: groupColor(index, result.groups.length),
+        values: grouped.map(day => day.groups[index] ?? null),
+      })),
+    [result.groups, grouped],
+  );
   const largestYearly = Math.max(...yearly.map(item => Math.abs(item.mean)), 1e-12);
   const positiveYears = yearly.filter(item => item.mean > 0).length;
   const longShort = grouped.at(-1)?.longShort;
@@ -317,13 +361,7 @@ export function FactorResultView({ result }: { result: FactorResult }) {
           {result.days.length > 0 && (
             <div className="lab-segments">
               <PriceChart
-                series={{
-                  kind: "histogram",
-                  points: result.days.map(day => ({
-                    timestamp_ns: closeOf(day.tradingDay),
-                    price: day.ic === undefined ? "" : day.ic.toFixed(4),
-                  })),
-                }}
+                series={dailyIcSeries}
                 label={t("每日 IC（持有期 {count} 根）", { count: first?.horizon ?? 1 })}
                 titled
                 volumeLabel={t("成交量")}
@@ -336,13 +374,7 @@ export function FactorResultView({ result }: { result: FactorResult }) {
                 }
               />
               <PriceChart
-                series={{
-                  kind: "line",
-                  points: result.days.map((day, index) => ({
-                    timestamp_ns: closeOf(day.tradingDay),
-                    price: ic[index].toFixed(4),
-                  })),
-                }}
+                series={cumulativeIcSeries}
                 label={t("累计 IC（持有期 {count} 根）", { count: first?.horizon ?? 1 })}
                 titled
                 volumeLabel={t("成交量")}
@@ -358,18 +390,8 @@ export function FactorResultView({ result }: { result: FactorResult }) {
           )}
           {grouped.length > 0 && (
             <PriceChart
-              series={{
-                kind: "line",
-                points: grouped.map(day => ({
-                  timestamp_ns: closeOf(day.tradingDay),
-                  price: String(day.longShort ?? 1),
-                })),
-              }}
-              overlays={result.groups.map((group, index) => ({
-                label: t("第 {group} 组", { group: group.group }),
-                color: groupColor(index, result.groups.length),
-                values: grouped.map(day => day.groups[index] ?? null),
-              }))}
+              series={groupSeries}
+              overlays={groupOverlays}
               label={t("分组累计收益（最高组减最低组为主线）")}
               titled
               volumeLabel={t("成交量")}

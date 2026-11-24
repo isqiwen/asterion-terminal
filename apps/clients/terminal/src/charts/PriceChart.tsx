@@ -271,6 +271,8 @@ export function PriceChart(props: Props) {
   const chart = useRef<IChartApi | null>(null);
   const markers = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const drawnLines = useRef<{ series: ISeriesApi<SeriesType>; line: IPriceLine }[]>([]);
+  const userLines = useRef<{ series: ISeriesApi<SeriesType>; line: IPriceLine }[]>([]);
+  const primarySeriesRef = useRef<ISeriesApi<SeriesType> | null>(null);
   const verticalPrimitive = useRef<IPanePrimitive<Time> | null>(null);
   const extremesPrimitive = useRef<IPanePrimitive<Time> | null>(null);
   const layers = useRef(new Map<string, ISeriesApi<SeriesType>>());
@@ -312,26 +314,30 @@ export function PriceChart(props: Props) {
   };
   // Where the volume pane starts inside the chart, for its label.
   const [volumeAt, setVolumeAt] = useState<{ top: number; left: number } | null>(null);
+  const hasReference = referencePrice !== undefined;
+  const placeVolumeLabel = useCallback(() => {
+    const element = container.current;
+    const api = chart.current;
+    if (!element || !api) return;
+    const paneHeight = api.panes()[0]?.getHeight();
+    if (paneHeight === undefined) return;
+    const top = element.offsetTop + paneHeight + 1;
+    const left = api.options().leftPriceScale.visible ? api.priceScale("left").width() : 0;
+    setVolumeAt(prev => (prev && prev.top === top && prev.left === left ? prev : { top, left }));
+  }, []);
   useEffect(() => {
     if (!showVolume) return;
     const element = container.current!;
-    const place = () => {
-      const api = chart.current;
-      if (!api) return;
-      const paneHeight = api.panes()[0]?.getHeight();
-      if (paneHeight === undefined) return;
-      const left = api.options().leftPriceScale.visible ? api.priceScale("left").width() : 0;
-      setVolumeAt({ top: element.offsetTop + paneHeight + 1, left });
-    };
-    const frame = requestAnimationFrame(place);
     // The engine resizes itself on the next frame.
-    const observer = new ResizeObserver(() => requestAnimationFrame(place));
+    const observer = new ResizeObserver(() => requestAnimationFrame(placeVolumeLabel));
     observer.observe(element);
-    return () => {
-      cancelAnimationFrame(frame);
-      observer.disconnect();
-    };
-  }, [showVolume, oscillator, referencePrice, series]);
+    return () => observer.disconnect();
+  }, [showVolume, placeVolumeLabel]);
+  useEffect(() => {
+    if (!showVolume) return;
+    const frame = requestAnimationFrame(placeVolumeLabel);
+    return () => cancelAnimationFrame(frame);
+  }, [showVolume, oscillator, hasReference, placeVolumeLabel]);
   const [view, setView] = useState({ start: 0, end: series.points.length });
   const points = series.points,
     count = points.length;
@@ -448,12 +454,16 @@ export function PriceChart(props: Props) {
       }
       markers.current?.detach();
       markers.current = null;
+      userLines.current = [];
+      primarySeriesRef.current = null;
       api.remove();
       chart.current = null;
       held.clear();
     };
   }, [recordRange]);
 
+  const referenceValue = referencePrice?.value;
+  const referenceLabel = referencePrice?.label;
   useLayoutEffect(() => {
     const api = chart.current;
     if (!api) return;
@@ -467,7 +477,7 @@ export function PriceChart(props: Props) {
     const up = color("--quote-up", "#e45a65"),
       down = color("--quote-down", "#45b997");
     const price = color("--price-line", "#86aaff");
-    const reference = referencePrice ? Number(referencePrice.value) : null;
+    const reference = referenceValue !== undefined ? Number(referenceValue) : null;
     const priceScaleId = reference === null ? "right" : "left";
     const format = props.formatPrice ?? numberText;
     api.applyOptions({
@@ -685,7 +695,12 @@ export function PriceChart(props: Props) {
         ),
       );
     }
-    if (primarySeries && referencePrice && reference !== null && Number.isFinite(reference)) {
+    if (
+      primarySeries &&
+      referenceValue !== undefined &&
+      reference !== null &&
+      Number.isFinite(reference)
+    ) {
       drawnLines.current.push({
         series: primarySeries,
         line: primarySeries.createPriceLine({
@@ -694,35 +709,11 @@ export function PriceChart(props: Props) {
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: false,
-          title: referencePrice.label,
+          title: referenceLabel ?? "",
         }),
       });
     }
-    if (primarySeries) {
-      for (const item of priceLines) {
-        const numeric = Number(item.value);
-        if (!Number.isFinite(numeric)) continue;
-        const lineColor =
-          item.tone === "up"
-            ? up
-            : item.tone === "down"
-              ? down
-              : item.tone === "accent"
-                ? color("--accent", "#38d6f2")
-                : color("--muted", "#999faa");
-        drawnLines.current.push({
-          series: primarySeries,
-          line: primarySeries.createPriceLine({
-            price: numeric,
-            color: lineColor,
-            lineWidth: 1,
-            lineStyle: item.dashed === false ? LineStyle.Solid : LineStyle.Dashed,
-            axisLabelVisible: item.axisLabelVisible ?? true,
-            title: item.label,
-          }),
-        });
-      }
-    }
+    primarySeriesRef.current = primarySeries ?? null;
     if (showVolume) {
       const volume = layer("volume", "histogram", 1);
       volume.applyOptions({
@@ -799,6 +790,7 @@ export function PriceChart(props: Props) {
           markers.current?.detach();
           markers.current = null;
         }
+        userLines.current = userLines.current.filter(({ series: owner }) => owner !== entry);
         api.removeSeries(entry);
         layers.current.delete(key);
       }
@@ -820,8 +812,8 @@ export function PriceChart(props: Props) {
     overlays,
     oscillator,
     showVolume,
-    referencePrice,
-    priceLines,
+    referenceValue,
+    referenceLabel,
     fillArea,
     baselineValue,
     compact,
@@ -833,6 +825,40 @@ export function PriceChart(props: Props) {
     quoteColors,
     domQuoteColors,
   ]);
+
+  useLayoutEffect(() => {
+    for (const { series: owner, line: item } of userLines.current) owner.removePriceLine(item);
+    userLines.current = [];
+    const target = primarySeriesRef.current;
+    if (!target || !priceLines.length || !container.current) return;
+    const css = getComputedStyle(container.current);
+    const color = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
+    const up = color("--quote-up", "#e45a65"),
+      down = color("--quote-down", "#45b997");
+    for (const item of priceLines) {
+      const numeric = Number(item.value);
+      if (!Number.isFinite(numeric)) continue;
+      const lineColor =
+        item.tone === "up"
+          ? up
+          : item.tone === "down"
+            ? down
+            : item.tone === "accent"
+              ? color("--accent", "#38d6f2")
+              : color("--muted", "#999faa");
+      userLines.current.push({
+        series: target,
+        line: target.createPriceLine({
+          price: numeric,
+          color: lineColor,
+          lineWidth: 1,
+          lineStyle: item.dashed === false ? LineStyle.Solid : LineStyle.Dashed,
+          axisLabelVisible: item.axisLabelVisible ?? true,
+          title: item.label,
+        }),
+      });
+    }
+  }, [priceLines, series, fillArea, baselineValue, quoteColors, domQuoteColors]);
 
   useLayoutEffect(() => {
     const api = chart.current;

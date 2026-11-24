@@ -57,10 +57,19 @@ struct Application::Impl
               values(json::object())
         {}
 
+        static Response raw(std::string json_result)
+        {
+            Response response(json::object());
+            response.raw_result = std::move(json_result);
+            return response;
+        }
+
         json render() &&;
 
         std::shared_ptr<const Publication> publication;
         json values;
+        // Pre-encoded JSON for `"result"`, relayed to the bridge without rebuilding a DOM tree.
+        std::string raw_result;
     };
 
     struct ResetFlag

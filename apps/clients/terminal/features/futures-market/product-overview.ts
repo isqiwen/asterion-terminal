@@ -1,15 +1,28 @@
-import type { QuoteRow } from "../../src/generated/asterion/market_pb";
+import type { Catalog, QuoteRow } from "../../src/generated/asterion/market_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
+
+const catalogProducts = new WeakMap<Catalog, Map<string, string>>();
+
+function productsOf(catalog: Catalog | undefined) {
+  if (!catalog) return null;
+  let map = catalogProducts.get(catalog);
+  if (!map) {
+    map = new Map(
+      catalog.contracts.map(contract => [
+        `${contract.instrument?.exchange}.${contract.instrument?.symbol}`,
+        `${contract.instrument?.exchange}.${contract.product}`,
+      ]),
+    );
+    catalogProducts.set(catalog, map);
+  }
+  return map;
+}
 
 // This is a view of real month contracts, not a provider's continuous series.
 // Catalog product identity is authoritative; never infer products from symbols.
 export function productOverview(market: MarketView) {
-  const products = new Map(
-    (market.board.catalog?.contracts ?? []).map(contract => [
-      `${contract.instrument?.exchange}.${contract.instrument?.symbol}`,
-      `${contract.instrument?.exchange}.${contract.product}`,
-    ]),
-  );
+  const products = productsOf(market.board.catalog);
+  if (!products) return [];
   const groups = new Map<string, QuoteRow>();
   const interest = (row: QuoteRow) => {
     const value = Number(row.quote?.openInterest?.text);
@@ -26,7 +39,7 @@ export function productOverview(market: MarketView) {
       (interest(row) === interest(previous) &&
         (volume(row) > volume(previous) ||
           (volume(row) === volume(previous) &&
-            row.instrument!.symbol.localeCompare(previous.instrument!.symbol) < 0)))
+            row.instrument!.symbol < previous.instrument!.symbol)))
     )
       groups.set(key, row);
   }

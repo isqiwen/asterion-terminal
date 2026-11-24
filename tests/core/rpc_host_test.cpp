@@ -866,6 +866,151 @@ TEST(RpcClient, TlsAcceptsOnlyThePinnedPeers)
     EXPECT_EQ(echo.requests.load(), 0);
 }
 
+TEST(RpcClient, KeepAliveTlsReusesConnectionAndRecoversAfterIdleClose)
+{
+    const auto root =
+        std::filesystem::temp_directory_path() / ("ast-client-keepalive-" + unique_process_id());
+    std::filesystem::create_directory(root);
+
+    struct Remove
+    {
+        ~Remove()
+        {
+            std::filesystem::remove_all(root);
+        }
+
+        std::filesystem::path root;
+    } remove{root};
+
+    std::map<std::string, std::string> fingerprints;
+    for (const auto* name : {"server", "client"})
+        fingerprints[name] = ipc::create_identity(
+            root / (std::string(name) + ".crt"),
+            root / (std::string(name) + ".key"),
+            name);
+    const auto identity = [&](std::string name, std::string peer) {
+        return ipc::TlsIdentity{
+            (root / (name + ".crt")).string(),
+            (root / (name + ".key")).string(),
+            {fingerprints[peer]}
+        };
+    };
+
+    const auto run_query = [](ipc::RpcClient& client, std::string request, bool reuse) {
+        auto response = client.request(
+            std::move(request),
+            500ms,
+            std::chrono::steady_clock::time_point::max(),
+            5s,
+            reuse);
+        const auto deadline = std::chrono::steady_clock::now() + 6s;
+        while (response.wait_for(0ms) != std::future_status::ready
+            && std::chrono::steady_clock::now() < deadline) {
+            client.poll();
+            std::this_thread::sleep_for(1ms);
+        }
+        return response;
+    };
+
+    // With connections = 1 and a long idle receive timeout, subsequent requests
+    // can only succeed promptly if they reuse the single open TLS connection.
+    {
+        service::reset_stop_request();
+        asio::io_context io;
+        asio::ip::tcp::acceptor reserve(io, {asio::ip::make_address("127.0.0.1"), 0});
+        service::Transport transport;
+        transport.bind = "127.0.0.1";
+        transport.port = reserve.local_endpoint().port();
+        transport.tls = identity("server", "client");
+        reserve.close();
+        service::RpcHost::Options options;
+        options.connections = 1;
+        options.receive = 5s;
+        Progress progress;
+        service::RpcHost server(
+            transport,
+            [](const auto&, std::string request) -> service::RpcHost::Reply {
+                return [request = std::move(request)] {
+                    return std::optional<std::string>(request);
+                };
+            },
+            std::move(options),
+            progress);
+        std::jthread worker([&] {
+            static_cast<void>(server.run());
+        });
+
+        struct Stop
+        {
+            ~Stop()
+            {
+                service::request_stop();
+            }
+        } stop;
+
+        ipc::RpcClient client(
+            "127.0.0.1",
+            transport.port,
+            identity("client", "server"),
+            2,
+            PayloadBudget{128 * 1024 * 1024});
+        for (const auto* message : {"first", "second", "third"}) {
+            auto response = run_query(client, message, true);
+            ASSERT_EQ(response.wait_for(0ms), std::future_status::ready);
+            EXPECT_EQ(*response.get(), message);
+        }
+    }
+
+    // After the server closes an idle pooled TLS socket, one reconnect recovers a keep-alive query.
+    {
+        service::reset_stop_request();
+        asio::io_context io;
+        asio::ip::tcp::acceptor reserve(io, {asio::ip::make_address("127.0.0.1"), 0});
+        service::Transport transport;
+        transport.bind = "127.0.0.1";
+        transport.port = reserve.local_endpoint().port();
+        transport.tls = identity("server", "client");
+        reserve.close();
+        service::RpcHost::Options options;
+        options.receive = 80ms;
+        Progress progress;
+        service::RpcHost server(
+            transport,
+            [](const auto&, std::string request) -> service::RpcHost::Reply {
+                return [request = std::move(request)] {
+                    return std::optional<std::string>(request);
+                };
+            },
+            std::move(options),
+            progress);
+        std::jthread worker([&] {
+            static_cast<void>(server.run());
+        });
+
+        struct Stop
+        {
+            ~Stop()
+            {
+                service::request_stop();
+            }
+        } stop;
+
+        ipc::RpcClient client(
+            "127.0.0.1",
+            transport.port,
+            identity("client", "server"),
+            2,
+            PayloadBudget{128 * 1024 * 1024});
+        auto first = run_query(client, "before-idle", true);
+        ASSERT_EQ(first.wait_for(0ms), std::future_status::ready);
+        EXPECT_EQ(*first.get(), "before-idle");
+        std::this_thread::sleep_for(180ms);
+        auto second = run_query(client, "after-idle-close", true);
+        ASSERT_EQ(second.wait_for(0ms), std::future_status::ready);
+        EXPECT_EQ(*second.get(), "after-idle-close");
+    }
+}
+
 TEST(Fingerprint, AcceptsTheCommonSpellings)
 {
     const std::string hex(64, 'a');

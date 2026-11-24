@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { PriceChart, type ChartPriceLine } from "@asterion/terminal/charts/PriceChart";
 import { timestamp } from "../../src/bridge/client";
 import { FeedState, type QuoteRow } from "../../src/generated/asterion/market_pb";
@@ -6,6 +7,7 @@ import { translate } from "../../src/i18n";
 import { chartTime } from "./chart-time";
 import { priceTickOf } from "./price-tick";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
+const emptyPoints: readonly { timestamp_ns: string; price: string; volume?: string }[] = [];
 export function QuoteChart({
   market,
   row,
@@ -15,12 +17,19 @@ export function QuoteChart({
   row: QuoteRow;
   priceLines?: readonly ChartPriceLine[];
 }) {
-  const points = market.ticks.get(rowKey(row)) ?? [];
+  const points = market.ticks.get(rowKey(row)) ?? emptyPoints;
   const reference = row.quote?.previousSettlement?.text;
   const validReference =
     reference && Number.isFinite(Number(reference)) && Number(reference) > 0
       ? Number(reference)
       : undefined;
+  const referenceLabel = t("昨结价");
+  const referencePrice = useMemo(
+    () => (validReference !== undefined ? { value: reference!, label: referenceLabel } : undefined),
+    [validReference, reference, referenceLabel],
+  );
+  const series = useMemo(() => ({ kind: "line" as const, points }), [points]);
+  const showVolume = useMemo(() => points.some(p => p.volume !== undefined), [points]);
   const available = market.online && market.board.feed?.state === FeedState.CONNECTED;
   return (
     <section
@@ -35,14 +44,12 @@ export function QuoteChart({
           fillArea
           priceTick={priceTickOf(market, row.instrument!.exchange, row.instrument!.symbol)}
           key={`${rowKey(row)}:${contractGeneration(market, rowKey(row))}`}
-          referencePrice={
-            validReference !== undefined ? { value: reference!, label: t("昨结价") } : undefined
-          }
+          referencePrice={referencePrice}
           baselineValue={validReference}
           priceLines={priceLines}
-          series={{ kind: "line", points }}
+          series={series}
           label={t("最近报价走势")}
-          showVolume={points.some(p => p.volume !== undefined)}
+          showVolume={showVolume}
           volumeLabel={t("成交量")}
           formatTime={timestamp}
           formatAxisTime={ns => chartTime(ns, false, true)}

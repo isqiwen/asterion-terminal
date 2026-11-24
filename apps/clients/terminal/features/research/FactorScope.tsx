@@ -8,7 +8,7 @@ import {
   useConditions,
   type ConditionStore,
 } from "./Conditions";
-import { datePlaceholders, SymbolField, useStoredCatalog } from "./LabParts";
+import { datePlaceholders, SymbolField, type StoredCatalog, useStoredCatalog } from "./LabParts";
 import {
   defaultFactorForm,
   factorScopeOf,
@@ -54,6 +54,7 @@ export function FactorScopeBar({
   begin,
   end,
   conditions,
+  catalog,
 }: {
   context: TerminalContext;
   form: FactorForm;
@@ -61,6 +62,7 @@ export function FactorScopeBar({
   begin: string;
   end: string;
   conditions: ReturnType<typeof useFactorConditions>;
+  catalog?: StoredCatalog;
 }) {
   return (
     <ConditionBar
@@ -70,7 +72,9 @@ export function FactorScopeBar({
       conditions={conditions}
       text={conditions.items.length ? summary(form, begin, end) : ""}
       initial={factorScopeOf(form)}
-      fields={(draft, change) => <FactorFields context={context} form={draft} change={change} />}
+      fields={(draft, change) => (
+        <FactorFields context={context} form={draft} change={change} providedCatalog={catalog} />
+      )}
     />
   );
 }
@@ -79,12 +83,15 @@ function FactorFields({
   context,
   form,
   change,
+  providedCatalog,
 }: {
   context: TerminalContext;
   form: FactorScope;
   change: (patch: Partial<FactorScope>) => void;
+  providedCatalog?: StoredCatalog;
 }) {
-  const catalog = useStoredCatalog(context, false, true);
+  const loadedCatalog = useStoredCatalog(context, false, true, !providedCatalog);
+  const catalog = providedCatalog ?? loadedCatalog;
   const [begin, end] = datePlaceholders(catalog, symbolsOf(form.symbols), false);
   return (
     <>

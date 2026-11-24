@@ -14,13 +14,34 @@ using namespace std::chrono_literals;
 namespace wire = ::trading;
 constexpr std::size_t frame_bytes = 8 * 1024 * 1024;
 
-std::future<Json> call_trading(ServiceIo& io, TradingEndpoint endpoint, Json payload)
+namespace {
+
+// Only non-urgent read-only Trading queries may reuse an idle keep-alive TLS stream.
+bool read_only_trading(const wire::Request& request)
+{
+    switch (request.call_case()) {
+        case wire::Request::kGetAccount:
+        case wire::Request::kGetHealth:
+        case wire::Request::kGetStrategies:
+        case wire::Request::kGetDay:
+        case wire::Request::kGetOrders:
+        case wire::Request::kGetCatalog:
+        case wire::Request::kQueryCosts:
+            return true;
+        default:
+            return false;
+    }
+}
+
+} // namespace
+
+std::future<std::string> call_trading_json(ServiceIo& io, TradingEndpoint endpoint, Json payload)
 {
     const bool urgent = urgent_trading_request(payload);
     const auto read_lane = urgent ? ServiceIo::ReadLane::response : ServiceIo::ReadLane::data;
-    return io.submit<Json>(
+    return io.submit<std::string>(
         [&io, endpoint = std::move(endpoint), payload = std::move(payload), read_lane](
-            std::stop_token stop) -> PolledTask<Json> {
+            std::stop_token stop) -> PolledTask<std::string> {
             auto request = co_await io.read<wire::Request>(
                 [&] {
                     wire::Request request;
@@ -33,19 +54,35 @@ std::future<Json> call_trading(ServiceIo& io, TradingEndpoint endpoint, Json pay
                     return request;
                 },
                 read_lane);
-            auto transport = co_await io.admin<std::unique_ptr<ipc::RpcClient>>([&] {
-                if (endpoint.tls.empty())
-                    throw std::invalid_argument("Trading requires pinned mutual TLS");
-                return std::make_unique<ipc::RpcClient>(
-                    io.reactor(),
+            const bool keep_alive = read_only_trading(request);
+            std::shared_ptr<ipc::RpcClient> transport;
+            if (keep_alive)
+                transport = co_await relay_shared_client(
+                    io,
                     endpoint.host,
                     endpoint.port,
                     endpoint.tls,
-                    1,
-                    io.payload_budget(ServiceIo::PayloadLane::administration),
+                    ServiceIo::PayloadLane::administration,
                     frame_bytes);
-            });
-            auto reply = transport->request(request.SerializeAsString(), 30s);
+            else
+                transport = co_await io.admin<std::shared_ptr<ipc::RpcClient>>([&] {
+                    if (endpoint.tls.empty())
+                        throw std::invalid_argument("Trading requires pinned mutual TLS");
+                    return std::make_shared<ipc::RpcClient>(
+                        io.reactor(),
+                        endpoint.host,
+                        endpoint.port,
+                        endpoint.tls,
+                        1,
+                        io.payload_budget(ServiceIo::PayloadLane::administration),
+                        frame_bytes);
+                });
+            auto reply = transport->request(
+                request.SerializeAsString(),
+                30s,
+                std::chrono::steady_clock::time_point::max(),
+                5s,
+                keep_alive);
             while (reply.wait_for(0ms) != std::future_status::ready) {
                 if (stop.stop_requested())
                     transport->cancel();
@@ -53,7 +90,7 @@ std::future<Json> call_trading(ServiceIo& io, TradingEndpoint endpoint, Json pay
                     transport->poll();
                 co_await std::suspend_always{};
             }
-            co_return co_await io.read<Json>(
+            co_return co_await io.read<std::string>(
                 [raw = reply.get(), &request] {
                     wire::Response response;
                     if (!response.ParseFromString(*raw))
@@ -76,9 +113,24 @@ std::future<Json> call_trading(ServiceIo& io, TradingEndpoint endpoint, Json pay
                             std::string("trading") + service_protocol_differs);
                     if (response.has_error())
                         protocol::raise(response.error());
-                    std::string encoded;
-                    if (!google::protobuf::util::MessageToJsonString(response, &encoded).ok())
-                        throw Error(ErrorCode::internal_error, "cannot encode trading response");
+                    return relay_json_string(response);
+                },
+                read_lane);
+        },
+        urgent ? ServiceIo::Lane::administration : ServiceIo::Lane::request);
+}
+
+std::future<Json> call_trading(ServiceIo& io, TradingEndpoint endpoint, Json payload)
+{
+    const bool urgent = urgent_trading_request(payload);
+    const auto read_lane = urgent ? ServiceIo::ReadLane::response : ServiceIo::ReadLane::data;
+    return io.submit<Json>(
+        [&io, endpoint = std::move(endpoint), payload = std::move(payload), read_lane](
+            std::stop_token) -> PolledTask<Json> {
+            auto encoded =
+                co_await PollFuture{call_trading_json(io, std::move(endpoint), std::move(payload))};
+            co_return co_await io.read<Json>(
+                [encoded = std::move(encoded)] {
                     return Json::parse(encoded);
                 },
                 read_lane);

@@ -6,7 +6,7 @@ import { FlowSteps } from "../../src/ui/FlowSteps";
 import { StatusBadge, type Tone } from "../../src/ui/StatusBadge";
 import { Tag } from "../../src/ui/Tag";
 import type { TerminalContext } from "../../src/host/feature-registry";
-import { useMarket } from "../../src/host/market";
+import { useMarket, useMarketAvailable } from "../../src/host/market";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { AccountRecords } from "./AccountRecords";
 import { AccountSummary } from "./AccountSummary";
@@ -28,6 +28,30 @@ import {
 function phaseTone(stale: boolean, state: BrokerState): Tone {
   if (stale || state === BrokerState.FAILED || state === BrokerState.DISCONNECTED) return "danger";
   return state === BrokerState.READY ? "ok" : "attention";
+}
+
+function LiveTradeMarket({
+  context,
+  session,
+  contract,
+  select,
+}: {
+  context: TerminalContext;
+  session: Account["session"];
+  contract: string;
+  select: (contract: string) => void;
+}) {
+  const market = useMarket();
+  if (!market || !session) return null;
+  return (
+    <TradeMarket
+      context={context}
+      market={market}
+      session={session}
+      contract={contract}
+      select={select}
+    />
+  );
 }
 
 export function LiveAccount({
@@ -54,7 +78,7 @@ export function LiveAccount({
   const [activity, setActivity] = useState<Activity>("positions");
   const [preset, setPreset] = useState<Preset>();
   const { snapshot } = context;
-  const market = useMarket();
+  const hasMarket = useMarketAvailable();
   // One contract across the list, the chart and the order ticket.
   const [contract, setContract] = useWorkspaceDraft(
     `trade-contract:${account.id}`,
@@ -243,11 +267,10 @@ export function LiveAccount({
         </section>
       )}
       <AccountSummary live={live} />
-      <div className="ctp-trade-body" data-market={market ? true : undefined}>
-        {market && (
-          <TradeMarket
+      <div className="ctp-trade-body" data-market={hasMarket || undefined}>
+        {hasMarket && (
+          <LiveTradeMarket
             context={context}
-            market={market}
             session={live}
             contract={contract}
             select={setContract}

@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useRef, useState, type CSSProperties } from "react";
 import { TermStructureChart } from "@asterion/terminal/charts/TermStructureChart";
 import { priceTone } from "../../src/bridge/decimal";
 import type { QuoteRow } from "../../src/generated/asterion/market_pb";
@@ -28,6 +28,25 @@ export function ContractQuote({ market, row }: { market: MarketView; row: QuoteR
     .filter(other => sameProduct(other, row))
     .sort((a, b) => a.instrument!.symbol.localeCompare(b.instrument!.symbol));
   const levels = [4, 3, 2, 1, 0];
+  const nextTermPoints = monthsOpen
+    ? months.map(month => ({
+        key: rowKey(month),
+        symbol: month.instrument!.symbol,
+        price: month.quote?.last?.text ?? "",
+      }))
+    : [];
+  const termPointsRef = useRef(nextTermPoints);
+  if (
+    termPointsRef.current.length !== nextTermPoints.length ||
+    termPointsRef.current.some(
+      (item, index) =>
+        item.key !== nextTermPoints[index]!.key ||
+        item.symbol !== nextTermPoints[index]!.symbol ||
+        item.price !== nextTermPoints[index]!.price,
+    )
+  )
+    termPointsRef.current = nextTermPoints;
+  const termPoints = termPointsRef.current;
   // Each level's lots as a bar against the largest of the ten.
   const most = Math.max(
     1,
@@ -96,11 +115,7 @@ export function ContractQuote({ market, row }: { market: MarketView; row: QuoteR
           <summary>{t("同品种其他月份")}</summary>
           {monthsOpen && (
             <TermStructureChart
-              points={months.map(month => ({
-                key: rowKey(month),
-                symbol: month.instrument!.symbol,
-                price: month.quote?.last?.text ?? "",
-              }))}
+              points={termPoints}
               selectedKey={rowKey(row)}
               label={t("期限结构")}
               priceTick={priceTickOf(market, row.instrument!.exchange, row.instrument!.symbol)}

@@ -13,8 +13,9 @@ inline bool urgent_trading_request(const Json& payload)
         || payload.contains("getEmergency") || payload.contains("emergencyControl");
 }
 
-// One generated trading.proto Request, as ProtoJSON, on its own pinned TLS
-// connection; returns the Response as ProtoJSON. Errors are thrown.
+// One generated trading.proto Request, as ProtoJSON, over pinned mutual TLS;
+// mutating commands always use a fresh connection and never retry.
 [[nodiscard]] std::future<Json> call_trading(ServiceIo&, TradingEndpoint, Json);
+[[nodiscard]] std::future<std::string> call_trading_json(ServiceIo&, TradingEndpoint, Json);
 
 } // namespace asterion::terminal

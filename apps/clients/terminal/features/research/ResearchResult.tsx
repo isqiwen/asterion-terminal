@@ -208,36 +208,47 @@ function RunChart({
       active = false;
     };
   }, [contract, data, retry]);
-  const contracts = [...new Set(detail.fills.map(fill => fill.contract))];
+  const contracts = useMemo(
+    () => [...new Set(detail.fills.map(fill => fill.contract))],
+    [detail.fills],
+  );
   const daily = data.bars.period === "day";
-  const candles: Candle[] = bars.map(bar => ({
-    timestamp_ns: String(bar.endMs * 1_000_000n),
-    open: bar.open?.text ?? "",
-    high: bar.high?.text ?? "",
-    low: bar.low?.text ?? "",
-    close: bar.close?.text ?? "",
-    volume: bar.volume?.text ?? "0",
-  }));
-  const byDay = new Map<string, number[]>();
-  bars.forEach((bar, index) => {
-    const list = byDay.get(bar.tradingDay);
-    if (list) list.push(index);
-    else byDay.set(bar.tradingDay, [index]);
-  });
-  const trades: TradeMark[] = detail.fills
-    .filter(fill => fill.contract === contract)
-    .map(fill => {
-      // A day's fills sit on its bar; a minute fill on the bar that covers its execution time.
-      const indices = byDay.get(fill.tradingDay) ?? [];
-      const index = daily
-        ? (indices[0] ?? -1)
-        : (indices.find(item => bars[item].endMs >= fill.timeMs) ?? -1);
-      return {
-        index,
-        side: fill.side === Side.BUY ? ("buy" as const) : ("sell" as const),
-        text: `${fill.side === Side.BUY ? t("买") : t("卖")} ${Number(fill.lots?.text)}@${Number(fill.price?.text)}`,
-      };
+  const { candles, chartSeries, validTrades } = useMemo(() => {
+    const nextCandles: Candle[] = bars.map(bar => ({
+      timestamp_ns: String(bar.endMs * 1_000_000n),
+      open: bar.open?.text ?? "",
+      high: bar.high?.text ?? "",
+      low: bar.low?.text ?? "",
+      close: bar.close?.text ?? "",
+      volume: bar.volume?.text ?? "0",
+    }));
+    const byDay = new Map<string, number[]>();
+    bars.forEach((bar, index) => {
+      const list = byDay.get(bar.tradingDay);
+      if (list) list.push(index);
+      else byDay.set(bar.tradingDay, [index]);
     });
+    const nextTrades: TradeMark[] = detail.fills
+      .filter(fill => fill.contract === contract)
+      .map(fill => {
+        // A day's fills sit on its bar; a minute fill on the bar that covers its execution time.
+        const indices = byDay.get(fill.tradingDay) ?? [];
+        const index = daily
+          ? (indices[0] ?? -1)
+          : (indices.find(item => bars[item].endMs >= fill.timeMs) ?? -1);
+        return {
+          index,
+          side: fill.side === Side.BUY ? ("buy" as const) : ("sell" as const),
+          text: `${fill.side === Side.BUY ? t("买") : t("卖")} ${Number(fill.lots?.text)}@${Number(fill.price?.text)}`,
+        };
+      })
+      .filter(trade => trade.index >= 0);
+    return {
+      candles: nextCandles,
+      chartSeries: { kind: "candles" as const, points: nextCandles },
+      validTrades: nextTrades,
+    };
+  }, [bars, detail.fills, contract, daily]);
   return contracts.length ? (
     <>
       <label className="lab-inline">
@@ -252,10 +263,10 @@ function RunChart({
       {error && <button onClick={() => setRetry(value => value + 1)}>{t("重试")}</button>}
       {candles.length > 0 && (
         <PriceChart
-          series={{ kind: "candles", points: candles }}
+          series={chartSeries}
           label={contract}
           volumeLabel={t("成交量")}
-          trades={trades.filter(trade => trade.index >= 0)}
+          trades={validTrades}
           formatTime={value => (daily ? day(BigInt(value)) : minute(BigInt(value)))}
           describe={index =>
             `${daily ? bars[index].tradingDay : minute(bars[index].endMs * 1_000_000n)} · ${bars[index].open?.text} ${bars[index].high?.text} ${bars[index].low?.text} ${bars[index].close?.text}`
@@ -305,11 +316,78 @@ export function RunResult({
     };
   }, [id, state]);
   const record = useMemo(() => (detail ? JSON.parse(detail.record) : null), [detail]);
+  const overview = useMemo(() => {
+    if (!detail?.summary || !record || runState(detail.summary.state) !== "succeeded") return null;
+    const holdout = record.statistics?.holdout_day as string | undefined;
+    const rolling = record.statistics?.rolling;
+    const splitMarkers: VerticalMarker[] = [];
+    if (holdout) {
+      const splitIndex = detail.days.findIndex(item => item.tradingDay >= holdout);
+      if (splitIndex > 0)
+        splitMarkers.push({
+          index: splitIndex,
+          label: `${t("留出段")} ${detail.days[splitIndex].tradingDay}`,
+        });
+    } else if (rolling) {
+      const firstOosDay =
+        (rolling.rounds?.[0]?.first_day as string | undefined) ??
+        detail.days[Number(rolling.training_days)]?.tradingDay;
+      const splitIndex = firstOosDay
+        ? detail.days.findIndex(item => item.tradingDay >= firstOosDay)
+        : -1;
+      if (splitIndex > 0)
+        splitMarkers.push({
+          index: splitIndex,
+          label: `${t("样本外")} ${detail.days[splitIndex].tradingDay}`,
+        });
+    }
+    const equity = detail.days.map(item => Number(item.equity?.text));
+    const deposit = Number(record.costs?.deposit);
+    let peak = Number.isFinite(deposit) && deposit > 0 ? deposit : -Infinity;
+    const drawdown = equity.map(value => {
+      peak = Math.max(peak, value);
+      return peak > 0 ? Math.max(-1, value / peak - 1) : 0;
+    });
+    const timeAt = (index: number) => String(detail.days[index].settledMs * 1_000_000n);
+    return {
+      holdout,
+      rolling,
+      splitMarkers,
+      deposit,
+      drawdown,
+      equitySeries: {
+        kind: "line" as const,
+        points: detail.days.map((item, index) => ({
+          timestamp_ns: timeAt(index),
+          price: item.equity?.text ?? "",
+        })),
+      },
+      equityPriceLines:
+        Number.isFinite(deposit) && deposit > 0
+          ? [
+              {
+                value: String(record.costs.deposit),
+                label: t("初始资金"),
+                dashed: true,
+                axisLabelVisible: false,
+              },
+            ]
+          : undefined,
+      drawdownSeries: {
+        kind: "line" as const,
+        points: drawdown.map((value, index) => ({
+          timestamp_ns: timeAt(index),
+          price: (value * 100).toFixed(2),
+        })),
+      },
+      months: monthlyReturns(record.costs.deposit, detail.days),
+    };
+  }, [detail, record]);
   useErrorNotification(error, "asterion.terminal.research");
   if (error) return null;
   if (!detail || !record) return <p className="subtle">{t("正在读取结果…")}</p>;
   const summary = detail.summary!;
-  if (runState(summary.state) !== "succeeded")
+  if (!overview)
     return (
       <div className="lab-result">
         <p role={runState(summary.state) === "failed" ? "alert" : undefined}>
@@ -319,29 +397,17 @@ export function RunResult({
         <RunDetails record={detail.record} openVersion={openVersion} />
       </div>
     );
-  const holdout = record.statistics?.holdout_day as string | undefined;
-  const rolling = record.statistics?.rolling;
-  const splitMarkers: VerticalMarker[] = [];
-  if (holdout) {
-    const splitIndex = detail.days.findIndex(item => item.tradingDay >= holdout);
-    if (splitIndex > 0)
-      splitMarkers.push({
-        index: splitIndex,
-        label: `${t("留出段")} ${detail.days[splitIndex].tradingDay}`,
-      });
-  } else if (rolling) {
-    const firstOosDay =
-      (rolling.rounds?.[0]?.first_day as string | undefined) ??
-      detail.days[Number(rolling.training_days)]?.tradingDay;
-    const splitIndex = firstOosDay
-      ? detail.days.findIndex(item => item.tradingDay >= firstOosDay)
-      : -1;
-    if (splitIndex > 0)
-      splitMarkers.push({
-        index: splitIndex,
-        label: `${t("样本外")} ${detail.days[splitIndex].tradingDay}`,
-      });
-  }
+  const {
+    holdout,
+    rolling,
+    splitMarkers,
+    deposit,
+    drawdown,
+    equitySeries,
+    equityPriceLines,
+    drawdownSeries,
+    months,
+  } = overview;
   const excluded = record.data.excluded as { bars: number; days: string[] } | undefined;
   const coverage = (record.data.minute_coverage ?? []) as {
     contract: string;
@@ -351,14 +417,6 @@ export function RunResult({
   }[];
   const rejections = (record.data.rejections ?? []) as Rejection[];
   const refused = rejections.reduce((sum, row) => sum + row.count, 0);
-  const equity = detail.days.map(item => Number(item.equity?.text));
-  const deposit = Number(record.costs?.deposit);
-  let peak = Number.isFinite(deposit) && deposit > 0 ? deposit : -Infinity;
-  const drawdown = equity.map(value => {
-    peak = Math.max(peak, value);
-    return peak > 0 ? Math.max(-1, value / peak - 1) : 0;
-  });
-  const time = (index: number) => String(detail.days[index].settledMs * 1_000_000n);
   const tabs = [
     ["overview", t("概览")],
     ["bars", t("K 线与买卖点")],
@@ -478,31 +536,14 @@ export function RunResult({
       {tab === "overview" && (
         <>
           <PriceChart
-            series={{
-              kind: "line",
-              points: detail.days.map((item, index) => ({
-                timestamp_ns: time(index),
-                price: item.equity?.text ?? "",
-              })),
-            }}
+            series={equitySeries}
             label={t("权益（逐日结算）")}
             titled
             volumeLabel={t("成交量")}
             showVolume={false}
             fillArea
             baselineValue={Number.isFinite(deposit) && deposit > 0 ? deposit : undefined}
-            priceLines={
-              Number.isFinite(deposit) && deposit > 0
-                ? [
-                    {
-                      value: String(record.costs.deposit),
-                      label: t("初始资金"),
-                      dashed: true,
-                      axisLabelVisible: false,
-                    },
-                  ]
-                : undefined
-            }
+            priceLines={equityPriceLines}
             verticalMarkers={splitMarkers}
             focusedTime={focusedDay}
             onFocusChange={setFocusedDay}
@@ -512,13 +553,7 @@ export function RunResult({
             }
           />
           <PriceChart
-            series={{
-              kind: "line",
-              points: drawdown.map((value, index) => ({
-                timestamp_ns: time(index),
-                price: (value * 100).toFixed(2),
-              })),
-            }}
+            series={drawdownSeries}
             label={t("回撤（%）")}
             titled
             volumeLabel={t("成交量")}
@@ -534,7 +569,7 @@ export function RunResult({
             }
           />
           <h3>{t("月度收益")}</h3>
-          <MonthlyReturns months={monthlyReturns(record.costs.deposit, detail.days)} />
+          <MonthlyReturns months={months} />
         </>
       )}
       {tab === "bars" && (

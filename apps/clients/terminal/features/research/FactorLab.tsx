@@ -309,6 +309,7 @@ export function FactorLab(context: TerminalContext) {
         begin={scopeBegin}
         end={scopeEnd}
         conditions={conditions}
+        catalog={catalog}
       />
       {menu.overlay}
       {library && report ? (

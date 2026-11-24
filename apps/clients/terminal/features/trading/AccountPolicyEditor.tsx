@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { decimal, decimalText } from "../../src/bridge/decimal";
 import { BrokerState, type Account, type Policy } from "../../src/generated/asterion/trading_pb";
 import { BackendError } from "../../src/i18n/errors";
@@ -53,21 +53,24 @@ export function AccountPolicyEditor({
   const [confirmed, setConfirmed] = useState(false);
   const catalogListId = useId();
   const { contracts: available, ready: catalogReady } = useTradingCatalog(connection);
-  const products = policyProducts(available);
-  const selectable = [
-    ...products
-      .filter(({ key: id }) => !contracts.includes(id))
-      .map(({ key: id, sample }) => ({
-        id,
-        label: [catalogName(sample), t("品种")].filter(Boolean).join(" · "),
-      })),
-    ...available
-      .filter(item => !contracts.includes(listedKey(item)))
-      .map(item => ({
-        id: listedKey(item),
-        label: catalogName(item),
-      })),
-  ];
+  const selectable = useMemo(() => {
+    const selected = new Set(contracts);
+    const products = policyProducts(available);
+    return [
+      ...products
+        .filter(({ key: id }) => !selected.has(id))
+        .map(({ key: id, sample }) => ({
+          id,
+          label: [catalogName(sample), t("品种")].filter(Boolean).join(" · "),
+        })),
+      ...available
+        .filter(item => !selected.has(listedKey(item)))
+        .map(item => ({
+          id: listedKey(item),
+          label: catalogName(item),
+        })),
+    ];
+  }, [available, contracts]);
   const trimmedChoice = choice.trim();
   const matchedChoice =
     selectable.find(item => item.id === trimmedChoice) ??

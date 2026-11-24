@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Table,
   type AcquisitionTask,
@@ -325,16 +325,18 @@ export function CoverageList({
   const [confirm, setConfirm] = useState<Confirm>();
   const rowTally = (row: ProductRow) =>
     summaryTally(row.coverage?.contracts ?? 0, row.coverage?.[kind]);
-  const rank = (row: ProductRow) => {
-    const state = tallyState(rowTally(row));
-    return state === "gap" ? 0 : state === "pending" ? 1 : state === "none" ? 3 : 2;
-  };
-  const ordered = [...rows].sort(
-    (a, b) =>
-      rank(a) - rank(b) ||
-      exchanges.indexOf(a.exchange) - exchanges.indexOf(b.exchange) ||
-      a.id.localeCompare(b.id),
-  );
+  const ordered = useMemo(() => {
+    const rank = (row: ProductRow) => {
+      const state = tallyState(summaryTally(row.coverage?.contracts ?? 0, row.coverage?.[kind]));
+      return state === "gap" ? 0 : state === "pending" ? 1 : state === "none" ? 3 : 2;
+    };
+    return [...rows].sort(
+      (a, b) =>
+        rank(a) - rank(b) ||
+        exchanges.indexOf(a.exchange) - exchanges.indexOf(b.exchange) ||
+        (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    );
+  }, [rows, kind]);
   const searching = /\d/.test(query);
   const matches = (item: ContractCoverage) =>
     !searching || contractCode(item.contract).toUpperCase().includes(query);

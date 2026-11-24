@@ -7,7 +7,6 @@ import type { RunSummary } from "../../src/generated/asterion/lab_pb";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { notify } from "../../src/host/notifications";
 import { useLabActiveReport } from "../../src/host/lab";
-import { useTradingAccounts } from "../../src/host/trading-accounts";
 import { type MessageValues, translate, listSeparator } from "../../src/i18n";
 import {
   defaultProcesses,
@@ -69,7 +68,6 @@ export function StrategyLab(context: TerminalContext) {
   const [view, setView] = useWorkspaceDraft<"library" | "detail">("strategy-view", "library");
   const [tab, setTab] = useWorkspaceDraft<"result" | "code">("strategy-tab", "code");
   const [search, setSearch] = useWorkspaceDraft("modules-search:strategies", "");
-  const { views } = useTradingAccounts();
   const source = useSource(repository);
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const readRecentRuns = useCallback(async () => {
@@ -440,13 +438,13 @@ export function StrategyLab(context: TerminalContext) {
         begin={beginPlaceholder}
         end={endPlaceholder}
         conditions={conditions}
+        catalog={catalog}
       />
       {menu.overlay}
       {library ? (
         <StrategyLibrary
           items={items}
           runs={singleRuns}
-          views={views}
           chosen={chosen}
           selected={activeSelected}
           setSelected={setSelected}

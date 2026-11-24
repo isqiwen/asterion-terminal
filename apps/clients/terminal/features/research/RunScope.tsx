@@ -8,7 +8,7 @@ import {
   useConditions,
   type ConditionStore,
 } from "./Conditions";
-import { datePlaceholders, SymbolField, useStoredCatalog } from "./LabParts";
+import { datePlaceholders, SymbolField, type StoredCatalog, useStoredCatalog } from "./LabParts";
 import {
   defaultForm,
   readConditions,
@@ -85,6 +85,7 @@ export function RunScope({
   begin,
   end,
   conditions,
+  catalog,
 }: {
   context: TerminalContext;
   form: RunForm;
@@ -92,6 +93,7 @@ export function RunScope({
   begin: string;
   end: string;
   conditions: ReturnType<typeof useRunConditions>;
+  catalog?: StoredCatalog;
 }) {
   return (
     <ConditionBar
@@ -101,7 +103,15 @@ export function RunScope({
       conditions={conditions}
       text={conditions.items.length ? summary(form, begin, end) : ""}
       initial={scopeOf(form)}
-      fields={(draft, change) => <RunFields context={context} form={draft} change={change} />}
+      fields={(draft, change) => (
+        <RunFields
+          context={context}
+          form={draft}
+          change={change}
+          providedCatalog={catalog}
+          providedMinutes={form.minutes !== "0"}
+        />
+      )}
     />
   );
 }
@@ -110,12 +120,18 @@ function RunFields({
   context,
   form,
   change,
+  providedCatalog,
+  providedMinutes,
 }: {
   context: TerminalContext;
   form: ScopeFields;
   change: (patch: Partial<ScopeFields>) => void;
+  providedCatalog?: StoredCatalog;
+  providedMinutes?: boolean;
 }) {
-  const catalog = useStoredCatalog(context, form.minutes !== "0");
+  const reuseProvided = providedCatalog !== undefined && providedMinutes === (form.minutes !== "0");
+  const loadedCatalog = useStoredCatalog(context, form.minutes !== "0", false, !reuseProvided);
+  const catalog = reuseProvided ? providedCatalog : loadedCatalog;
   const [begin, end] = datePlaceholders(catalog, symbolsOf(form.symbols), false);
   const dateField = (label: string, key: "begin" | "end" | "holdoutDay", placeholder?: string) => (
     <label>

@@ -52,6 +52,8 @@ export type MarketView = {
 
 const Market = createContext<MarketView | null>(null);
 export const useMarket = () => useContext(Market);
+const MarketAvailable = createContext(false);
+export const useMarketAvailable = () => useContext(MarketAvailable);
 // Why the saved Market could not be opened, while it still cannot.
 const OpenError = createContext<DisplayError>("");
 export const useMarketOpenError = () => useContext(OpenError);
@@ -223,9 +225,11 @@ export function MarketProvider({ endpoint, children }: { endpoint: string; child
     };
   }, [endpoint]);
   return (
-    <Market.Provider value={view}>
-      <OpenError.Provider value={openError}>{children}</OpenError.Provider>
-    </Market.Provider>
+    <MarketAvailable.Provider value={view !== null}>
+      <Market.Provider value={view}>
+        <OpenError.Provider value={openError}>{children}</OpenError.Provider>
+      </Market.Provider>
+    </MarketAvailable.Provider>
   );
 }
 

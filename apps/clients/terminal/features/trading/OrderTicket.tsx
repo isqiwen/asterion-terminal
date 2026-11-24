@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useMarket } from "../../src/host/market";
 import { decimal, decimalText, priceTone } from "../../src/bridge/decimal";
 import { Offset, Side } from "../../src/generated/asterion/common_pb";
@@ -116,40 +116,44 @@ export function OrderTicket({
     }));
   }, [initialContract]);
   const [suggested, setSuggested] = useState<Side>();
-  const policyContracts = record.session?.policy?.contracts ?? [];
-  const hasProductPolicy = policyContracts.some(isProductPolicy);
+  const policyContracts = record.session?.policy?.contracts;
+  const positions = record.session?.positions;
+  const hasProductPolicy = (policyContracts ?? []).some(isProductPolicy);
   const { contracts: listed } = useTradingCatalog(hasProductPolicy ? (connection ?? "") : "");
-  const contracts: ContractTerms[] = [];
-  const seenContracts = new Set<string>();
-  const addContract = (entry: ContractTerms) => {
-    const id = key(entry.instrument);
-    if (!seenContracts.has(id)) {
-      seenContracts.add(id);
-      contracts.push(entry);
-    }
-  };
-  for (const item of policyContracts) {
-    if (!isProductPolicy(item)) {
-      addContract(item);
-      continue;
-    }
-    const exchange = item.instrument?.exchange ?? "";
-    for (const row of listed) {
-      if (row.instrument?.exchange === exchange && rowProduct(row) === item.product) {
-        addContract({ ...item, instrument: row.instrument });
+  const contracts = useMemo(() => {
+    const result: ContractTerms[] = [];
+    const seen = new Set<string>();
+    const addContract = (entry: ContractTerms) => {
+      const id = key(entry.instrument);
+      if (!seen.has(id)) {
+        seen.add(id);
+        result.push(entry);
+      }
+    };
+    for (const item of policyContracts ?? []) {
+      if (!isProductPolicy(item)) {
+        addContract(item);
+        continue;
+      }
+      const exchange = item.instrument?.exchange ?? "";
+      for (const row of listed) {
+        if (row.instrument?.exchange === exchange && rowProduct(row) === item.product) {
+          addContract({ ...item, instrument: row.instrument });
+        }
+      }
+      for (const pos of positions ?? []) {
+        const sym = pos.instrument?.symbol ?? "";
+        if (
+          pos.instrument?.exchange === exchange &&
+          sym.startsWith(item.product) &&
+          /^\d{3,4}$/.test(sym.slice(item.product.length))
+        ) {
+          addContract({ ...item, instrument: pos.instrument });
+        }
       }
     }
-    for (const pos of record.session?.positions ?? []) {
-      const sym = pos.instrument?.symbol ?? "";
-      if (
-        pos.instrument?.exchange === exchange &&
-        sym.startsWith(item.product) &&
-        /^\d{3,4}$/.test(sym.slice(item.product.length))
-      ) {
-        addContract({ ...item, instrument: pos.instrument });
-      }
-    }
-  }
+    return result;
+  }, [policyContracts, listed, positions]);
   const traded = order.contract
     ? contracts.find(item => key(item.instrument) === order.contract)
     : contracts[0];

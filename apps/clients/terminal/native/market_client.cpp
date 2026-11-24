@@ -14,6 +14,23 @@ namespace asterion::terminal {
 namespace wire = ::market;
 using namespace std::chrono_literals;
 
+std::future<std::string> call_market_json(ServiceIo& io, ServiceEndpoint endpoint, Json payload)
+{
+    return relay_call_json<wire::Request, wire::Response>(
+        io,
+        std::move(endpoint),
+        std::move(payload),
+        [](const wire::Request& request) {
+            // A watch is a stream; the page reads it through market.watch.
+            if (request.has_stream_quotes())
+                throw std::invalid_argument("unsupported Market operation");
+        },
+        [](const wire::Request&) {
+            return true;
+        },
+        build::market_protocol);
+}
+
 std::future<Json> call_market(ServiceIo& io, ServiceEndpoint endpoint, Json payload)
 {
     return relay_call<wire::Request, wire::Response>(
@@ -64,12 +81,13 @@ struct MarketWatch::Impl
                         auto raw = std::move(*frame);
                         frame.reset();
                         // RpcClient yields one frame per poll; apply it before polling again.
-                        auto value = co_await io.read<Json>([raw = std::move(raw), &request] {
-                            auto response = relay_decode<wire::Response>(*raw, request);
-                            if (!response.has_stream_quotes())
-                                throw Error(ErrorCode::unavailable, "missing quote frame");
-                            return relay_json(response.stream_quotes());
-                        });
+                        auto value =
+                            co_await io.read<std::string>([raw = std::move(raw), &request] {
+                                auto response = relay_decode<wire::Response>(*raw, request);
+                                if (!response.has_stream_quotes())
+                                    throw Error(ErrorCode::unavailable, "missing quote frame");
+                                return relay_json_string(response.stream_quotes());
+                            });
                         frames.push_back(std::move(value));
                         online = true;
                         error.clear();
@@ -103,7 +121,7 @@ struct MarketWatch::Impl
     const ServiceEndpoint endpoint;
     std::unique_ptr<ipc::RpcClient> transport;
     std::stop_source lifetime;
-    std::deque<Json> frames;
+    std::deque<std::string> frames;
     bool online = false, restarting = false;
     std::string error;
     std::chrono::steady_clock::time_point seen{};
@@ -120,7 +138,7 @@ std::future<std::shared_ptr<MarketWatch>> MarketWatch::open(ServiceIo& io, Servi
             std::stop_token) mutable -> PolledTask<std::shared_ptr<MarketWatch>> {
             // A wrong address or pin is reported to the owner who asked to connect.
             Json heartbeat{{"getStatus", Json::object()}};
-            (void)co_await PollFuture{call_market(io, endpoint, std::move(heartbeat))};
+            (void)co_await PollFuture{call_market_json(io, endpoint, std::move(heartbeat))};
             auto impl = co_await io.admin<std::shared_ptr<Impl>>([&] {
                 return std::make_shared<Impl>(io, std::move(endpoint));
             });
@@ -138,22 +156,39 @@ MarketWatch::~MarketWatch()
     impl_->lifetime.request_stop();
 }
 
-Json MarketWatch::take(bool restart)
+std::string MarketWatch::take_json(bool restart)
 {
     if (restart) {
         impl_->frames.clear();
         impl_->restarting = true;
         impl_->transport->cancel();
     }
-    Json frames = Json::array();
-    for (auto& frame : impl_->frames)
-        frames.push_back(std::move(frame));
+    std::size_t bytes = 64 + impl_->error.size();
+    for (const auto& frame : impl_->frames)
+        bytes += frame.size() + 1;
+    std::string out;
+    out.reserve(bytes);
+    out += "{\"frames\":[";
+    bool first = true;
+    for (auto& frame : impl_->frames) {
+        if (!first)
+            out += ',';
+        first = false;
+        out += frame;
+    }
     impl_->frames.clear();
-    return {
-        {"frames", std::move(frames)},
-        {"online", impl_->online && std::chrono::steady_clock::now() - impl_->seen < 5s},
-        {"error", impl_->error}
-    };
+    const bool online = impl_->online && std::chrono::steady_clock::now() - impl_->seen < 5s;
+    out += "],\"online\":";
+    out += online ? "true" : "false";
+    out += ",\"error\":";
+    out += Json(impl_->error).dump();
+    out += '}';
+    return out;
+}
+
+Json MarketWatch::take(bool restart)
+{
+    return Json::parse(take_json(restart));
 }
 
 ServiceEndpoint MarketWatch::endpoint() const

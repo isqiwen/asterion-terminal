@@ -46,6 +46,9 @@ public:
     PayloadBudget payload_budget(PayloadLane lane) const;
     // Where every client of this owner creates its transports.
     ipc::Reactor& reactor();
+    // Persistent keep-alive RPC clients for idempotent read-only queries; owner thread only.
+    std::shared_ptr<ipc::RpcClient> shared_client(const std::string& key) const;
+    void store_shared_client(std::string key, std::shared_ptr<ipc::RpcClient> client);
     ServiceIo();
     ~ServiceIo() noexcept;
     // Close admission and drain operations before their owning state is released.

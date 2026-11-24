@@ -75,16 +75,21 @@ struct RpcClient::Impl
             std::chrono::milliseconds reply_timeout,
             std::chrono::steady_clock::time_point expires,
             std::chrono::milliseconds send_timeout,
-            std::function<void(Payload)> frame)
+            std::function<void(Payload)> frame,
+            bool keep_alive = false,
+            bool reused = false)
             : client(client),
               stream(std::move(stream)),
               timer(client.io),
               resolver(client.io),
               frame(std::move(frame)),
+              retry_payload(reused ? payload : std::string{}),
               payload(client.payloads.retain(std::move(payload))),
               reply_timeout(reply_timeout),
               send_timeout(send_timeout),
-              expires(expires)
+              expires(expires),
+              keep_alive(keep_alive),
+              reused(reused)
         {}
 
         void close()
@@ -134,6 +139,25 @@ struct RpcClient::Impl
                 return false;
             }
             if (error) {
+                // Only an idempotent query on a pooled keep-alive TLS socket may reconnect once
+                // if the peer closed the idle connection before answering.
+                if constexpr (std::is_same_v<Stream, Tls> && !std::is_void_v<Result>) {
+                    if (reused && !retry_payload.empty()) {
+                        reused = false;
+                        close();
+                        payload.reset();
+                        try {
+                            payload = client.payloads.retain(std::move(retry_payload));
+                            retry_payload.clear();
+                            stream = Tls(client.io, *client.tls);
+                            start();
+                            return false;
+                        } catch (...) {
+                            fail(std::current_exception());
+                            return false;
+                        }
+                    }
+                }
                 fail(
                     std::make_exception_ptr(Error(
                         ErrorCode::unavailable,
@@ -159,6 +183,12 @@ struct RpcClient::Impl
         {
             if (!accepted({}))
                 return;
+            if constexpr (std::is_same_v<Stream, Tls> && !std::is_void_v<Result>) {
+                if (reused) {
+                    send();
+                    return;
+                }
+            }
             deadline(5s);
             const auto self = this->shared_from_this();
             if constexpr (!std::is_same_v<Stream, Local::socket>) {
@@ -245,6 +275,8 @@ struct RpcClient::Impl
                 [self = this->shared_from_this()](asio::error_code error, std::size_t) {
                     if (!self->accepted(error))
                         return;
+                    self->retry_payload.clear();
+                    self->reused = false;
                     const auto& h = self->header;
                     const auto size = (std::uint32_t{h[0]} << 24) | (std::uint32_t{h[1]} << 16)
                         | (std::uint32_t{h[2]} << 8) | h[3];
@@ -286,7 +318,16 @@ struct RpcClient::Impl
                                 }
                             } else {
                                 self->done = true;
-                                self->close();
+                                self->resolver.cancel();
+                                self->timer.cancel();
+                                if constexpr (std::is_same_v<Stream, Tls>) {
+                                    if (self->keep_alive)
+                                        self->client.return_idle_tls(std::move(self->stream));
+                                    else
+                                        self->close();
+                                } else {
+                                    self->close();
+                                }
                                 self->result.set_value(std::move(self->payload));
                             }
                         });
@@ -302,12 +343,60 @@ struct RpcClient::Impl
         std::function<void(Payload)> frame;
         bool next_frame = false;
         bool delivered = false;
+        std::string retry_payload;
         Payload payload;
         std::array<unsigned char, 4> header{};
         const std::chrono::milliseconds reply_timeout;
         const std::chrono::milliseconds send_timeout;
         const std::chrono::steady_clock::time_point expires;
+        const bool keep_alive = false;
+        bool reused = false;
     };
+
+    struct IdleTls
+    {
+        Tls stream;
+        std::chrono::steady_clock::time_point expires;
+    };
+
+    void clear_idle_tls()
+    {
+        asio::error_code ignored;
+        for (auto& entry : idle_tls)
+            entry.stream.lowest_layer().close(ignored);
+        idle_tls.clear();
+    }
+
+    std::optional<Tls> take_idle_tls()
+    {
+        const auto now = std::chrono::steady_clock::now();
+        asio::error_code ignored;
+        while (!idle_tls.empty()) {
+            auto entry = std::move(idle_tls.back());
+            idle_tls.pop_back();
+            if (now < entry.expires && entry.stream.lowest_layer().is_open())
+                return std::move(entry.stream);
+            entry.stream.lowest_layer().close(ignored);
+        }
+        return std::nullopt;
+    }
+
+    void return_idle_tls(Tls stream)
+    {
+        // Stay comfortably inside RpcHost's 30 s idle receive deadline.
+        const auto now = std::chrono::steady_clock::now();
+        asio::error_code ignored;
+        std::erase_if(idle_tls, [&](IdleTls& entry) {
+            if (now < entry.expires && entry.stream.lowest_layer().is_open())
+                return false;
+            entry.stream.lowest_layer().close(ignored);
+            return true;
+        });
+        if (idle_tls.size() < capacity && stream.lowest_layer().is_open())
+            idle_tls.push_back({std::move(stream), now + 20s});
+        else
+            stream.lowest_layer().close(ignored);
+    }
 
     Impl(
         Reactor* reactor,
@@ -335,6 +424,7 @@ struct RpcClient::Impl
     {
         for (const auto& request : active)
             request->cancel();
+        clear_idle_tls();
     }
 
     template <class Result, class Stream>
@@ -344,7 +434,9 @@ struct RpcClient::Impl
         std::chrono::milliseconds timeout,
         std::chrono::steady_clock::time_point expires,
         std::chrono::milliseconds send_timeout,
-        std::function<void(Payload)> frame)
+        std::function<void(Payload)> frame,
+        bool keep_alive = false,
+        bool reused = false)
     {
         auto call = std::make_shared<Exchange<Stream, Result>>(
             *this,
@@ -353,7 +445,9 @@ struct RpcClient::Impl
             timeout,
             expires,
             send_timeout,
-            std::move(frame));
+            std::move(frame),
+            keep_alive,
+            reused);
         auto result = call->result.get_future();
         active.push_back(call);
         call->start();
@@ -366,7 +460,8 @@ struct RpcClient::Impl
         std::chrono::milliseconds reply_timeout,
         std::chrono::steady_clock::time_point deadline,
         std::chrono::milliseconds send_timeout,
-        std::function<void(Payload)> frame = {})
+        std::function<void(Payload)> frame = {},
+        bool reuse_connection = false)
     {
         if (payload.empty() || payload.size() > frame_bytes)
             throw Error(ErrorCode::resource_exhausted, "IPC frame too large or empty");
@@ -377,7 +472,30 @@ struct RpcClient::Impl
         });
         if (active.size() >= capacity)
             throw Error(ErrorCode::resource_exhausted, "RPC client request capacity reached");
-        if (tls)
+        if (tls) {
+            if constexpr (!std::is_void_v<Result>) {
+                if (reuse_connection) {
+                    if (auto pooled = take_idle_tls())
+                        return begin<Result>(
+                            std::move(*pooled),
+                            std::move(payload),
+                            reply_timeout,
+                            deadline,
+                            send_timeout,
+                            std::move(frame),
+                            true,
+                            true);
+                    return begin<Result>(
+                        Tls(io, *tls),
+                        std::move(payload),
+                        reply_timeout,
+                        deadline,
+                        send_timeout,
+                        std::move(frame),
+                        true,
+                        false);
+                }
+            }
             return begin<Result>(
                 Tls(io, *tls),
                 std::move(payload),
@@ -385,6 +503,7 @@ struct RpcClient::Impl
                 deadline,
                 send_timeout,
                 std::move(frame));
+        }
         if (tcp)
             return begin<Result>(
                 Tcp::socket(io),
@@ -413,6 +532,7 @@ struct RpcClient::Impl
     bool tcp = false;
     bool polling = false;
     std::vector<std::shared_ptr<Pending>> active;
+    std::vector<IdleTls> idle_tls;
 };
 
 RpcClient::RpcClient(
@@ -507,9 +627,16 @@ std::future<Payload> RpcClient::request(
     std::string payload,
     std::chrono::milliseconds reply_timeout,
     std::chrono::steady_clock::time_point deadline,
-    std::chrono::milliseconds send_timeout)
+    std::chrono::milliseconds send_timeout,
+    bool reuse_connection)
 {
-    return impl_->request<Payload>(std::move(payload), reply_timeout, deadline, send_timeout);
+    return impl_->request<Payload>(
+        std::move(payload),
+        reply_timeout,
+        deadline,
+        send_timeout,
+        {},
+        reuse_connection);
 }
 
 std::future<void> RpcClient::watch(
@@ -529,6 +656,7 @@ void RpcClient::cancel()
 {
     for (const auto& call : impl_->active)
         call->cancel();
+    impl_->clear_idle_tls();
 }
 
 void RpcClient::poll(std::chrono::milliseconds wait)

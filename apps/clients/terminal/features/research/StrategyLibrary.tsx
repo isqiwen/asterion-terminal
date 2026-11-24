@@ -3,7 +3,7 @@ import { lab } from "../../src/bridge/lab";
 import { RunState, type RunSummary } from "../../src/generated/asterion/lab_pb";
 import { Environment, InstanceState } from "../../src/generated/asterion/trading_pb";
 import { useSequentialPoll } from "../../src/host/polling";
-import type { TradingAccounts } from "../../src/host/trading-accounts";
+import { useTradingAccounts, type TradingAccounts } from "../../src/host/trading-accounts";
 import { type MessageValues, translate } from "../../src/i18n";
 import { StatusBadge, type Tone } from "../../src/ui/StatusBadge";
 import { filterModuleItems, type ModuleItem, useLibrarySort } from "./LabParts";
@@ -91,7 +91,7 @@ export function strategyResult(
 export function StrategyLibrary({
   items,
   runs,
-  views,
+  views: providedViews,
   chosen,
   selected,
   setSelected,
@@ -111,7 +111,7 @@ export function StrategyLibrary({
   items: readonly ModuleItem[];
   // Newest first.
   runs: readonly RunSummary[];
-  views: TradingAccounts["views"];
+  views?: TradingAccounts["views"];
   chosen: string;
   selected: readonly string[];
   setSelected: (next: string[]) => void;
@@ -129,6 +129,8 @@ export function StrategyLibrary({
   newModule: ReactNode;
   notices: ReactNode;
 }) {
+  const { views: liveViews } = useTradingAccounts();
+  const views = providedViews ?? liveViews;
   const { heading, sorted, status } = useLibrarySort<LibraryKey>("sharpe");
   const [groupFilter, setGroupFilter] = useState("");
   const filterName = useId();
