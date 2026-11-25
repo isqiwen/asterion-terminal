@@ -150,9 +150,6 @@ const contractsTally = (items: readonly ContractCoverage[], kind: Kind): Tally =
   };
 };
 
-const tallyState = ({ total, held, complete, gaps, pending }: Tally): State =>
-  !held ? "none" : gaps ? "gap" : pending ? "pending" : complete === total ? "full" : "early";
-
 const dayMs = 86_400_000;
 const nextDay = (day: string) => new Date(Date.parse(day) + dayMs).toISOString().slice(0, 10);
 type Piece = { part: string; left: number; width: number };
@@ -377,10 +374,7 @@ export function CoverageList({
   const rowTally = (row: ProductRow) =>
     summaryTally(row.coverage?.contracts ?? 0, row.coverage?.[kind]);
   const ordered = useMemo(() => {
-    const rank = (row: ProductRow) => {
-      const state = tallyState(summaryTally(row.coverage?.contracts ?? 0, row.coverage?.[kind]));
-      return state === "gap" ? 0 : state === "pending" ? 1 : state === "none" ? 3 : 2;
-    };
+    const rank = (row: ProductRow) => (row.coverage?.[kind]?.held ? 0 : 1);
     return [...rows].sort(
       (a, b) =>
         rank(a) - rank(b) ||

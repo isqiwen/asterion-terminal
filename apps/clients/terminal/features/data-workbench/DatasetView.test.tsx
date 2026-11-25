@@ -262,16 +262,20 @@ test("the summary shows freshness, acquisition defaults to canonical exchange or
   expect(request).toHaveBeenCalledWith({ case: "startUpdate", value: {} });
 });
 
-test("products with problems come first", async () => {
+test("acquired products come before unacquired ones, staying in exchange and code order within each group", async () => {
   serve();
   view(context());
   const table = await list();
-  const names = within(table)
-    .getAllByRole("rowheader")
-    .map(cell => cell.textContent);
-  expect(names).toEqual(["rb螺纹钢SHFE", "au沪金SHFE", "ag沪银SHFE", "zn沪锌SHFE", "已退市品种"]);
+  const names = () =>
+    within(table)
+      .getAllByRole("rowheader")
+      .map(cell => cell.textContent);
+  expect(names()).toEqual(["ag沪银SHFE", "au沪金SHFE", "rb螺纹钢SHFE", "zn沪锌SHFE", "已退市品种"]);
   const row = (name: RegExp) => within(table).getByRole("rowheader", { name }).closest("tr")!;
   expect(row(/^rb/).textContent).toContain("2 / 5");
+
+  showKind("分钟线");
+  expect(names()).toEqual(["rb螺纹钢SHFE", "ag沪银SHFE", "au沪金SHFE", "zn沪锌SHFE", "已退市品种"]);
 });
 
 test("a product opens on its listed contracts with history folded by delivery year", async () => {
