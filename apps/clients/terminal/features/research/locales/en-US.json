@@ -325,5 +325,6 @@
   "分段": "Segment",
   "分段对比": "Segment comparison",
   "净值曲线按首次运行（{name}）的交易日对齐": "Net value aligned to {name}'s trading days",
-  "第 {first}–{last} 条": "{first}–{last}"
+  "第 {first}–{last} 条": "{first}–{last}",
+  "说明": "Description"
 }

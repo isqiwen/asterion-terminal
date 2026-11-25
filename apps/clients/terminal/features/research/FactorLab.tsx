@@ -624,14 +624,14 @@ function Figures({ result }: { result?: FactorResult }) {
   const value = figuresOf(result);
   return (
     <>
-      <td className={`numeric ${signed(value.ic)}`}>{result && metric(value.ic, false)}</td>
+      <td className={`numeric ${signed(value.ic)}`}>{result ? metric(value.ic, false) : "—"}</td>
       <td className={`numeric ${signed(value.holdoutIc)}`}>
-        {result && metric(value.holdoutIc, false)}
+        {result ? metric(value.holdoutIc, false) : "—"}
       </td>
-      <td className="numeric">{result && metric(value.ir, false)}</td>
-      <td className="numeric">{result && metric(value.t, false)}</td>
-      <td className="numeric">{result && metric(value.turnover, true)}</td>
-      <td className="subtle numeric">{result && shortTime(result.evaluatedMs)}</td>
+      <td className="numeric">{result ? metric(value.ir, false) : "—"}</td>
+      <td className="numeric">{result ? metric(value.t, false) : "—"}</td>
+      <td className="numeric">{result ? metric(value.turnover, true) : "—"}</td>
+      <td className="subtle numeric">{result ? shortTime(result.evaluatedMs) : "—"}</td>
     </>
   );
 }
@@ -763,6 +763,9 @@ function FactorLibrary({
           </button>
         </th>
         <td className="subtle">{item.module}</td>
+        <td className="lab-desc" title={item.description || undefined}>
+          {item.description || "—"}
+        </td>
         <Figures result={result} />
       </tr>
     );
@@ -860,6 +863,7 @@ function FactorLibrary({
                   {t("因子")}
                 </th>
                 <th scope="col">{t("模块")}</th>
+                <th scope="col">{t("说明")}</th>
                 {heading("ic", t("IC 均值"), t("最近一次评价的第一个持有期"))}
                 {heading("holdoutIc", t("留出期 IC"), t("最近一次评价的留出期第一个持有期"))}
                 {heading("ir", "ICIR")}
@@ -875,7 +879,7 @@ function FactorLibrary({
                 <tbody key={place}>
                   {title && (
                     <tr className="lab-library-group">
-                      <th scope="colgroup" colSpan={9}>
+                      <th scope="colgroup" colSpan={10}>
                         {t(title)}
                       </th>
                     </tr>
@@ -887,7 +891,7 @@ function FactorLibrary({
             {shownComposites.length > 0 && (
               <tbody>
                 <tr className="lab-library-group">
-                  <th scope="colgroup" colSpan={9}>
+                  <th scope="colgroup" colSpan={10}>
                     {t("多因子合成记录")}
                   </th>
                 </tr>
@@ -916,6 +920,11 @@ function FactorLibrary({
                           item.factorNames.length ||
                           1 + (item.evaluation?.extraFactors.length ?? 0),
                       })}
+                    </td>
+                    <td className="lab-desc">
+                      {item.evaluation?.combination === "ic_weighted"
+                        ? t("IC 加权合成")
+                        : t("等权合成")}
                     </td>
                     <Figures result={item} />
                   </tr>

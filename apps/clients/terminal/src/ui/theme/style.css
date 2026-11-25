@@ -67,6 +67,14 @@ button.primary {
   color: #041016;
   font-weight: 600;
 }
+button.primary:disabled,
+button.primary[aria-disabled="true"] {
+  background: var(--raised);
+  border-color: var(--line-strong);
+  box-shadow: none;
+  color: var(--muted);
+  opacity: 1;
+}
 /* Opaque: what lies beneath must not lower the red text's contrast. */
 button.danger {
   background: color-mix(in oklab, var(--danger) 10%, var(--canvas));

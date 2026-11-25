@@ -6,6 +6,7 @@ import { useSequentialPoll } from "../../src/host/polling";
 import { useTradingAccounts, type TradingAccounts } from "../../src/host/trading-accounts";
 import { type MessageValues, translate } from "../../src/i18n";
 import { StatusBadge, type Tone } from "../../src/ui/StatusBadge";
+import { Tag } from "../../src/ui/Tag";
 import { filterModuleItems, type ModuleItem, useLibrarySort } from "./LabParts";
 import { metric, runTones, shortTime, signed, states } from "./ResearchResult";
 import { batchStrategy, runState } from "./research-lab";
@@ -211,16 +212,22 @@ export function StrategyLibrary({
             {item.name}
           </button>
         </th>
+        <td>{item.group && <Tag>{item.group}</Tag>}</td>
+        <td className="lab-desc" title={item.description || undefined}>
+          {item.description || "—"}
+        </td>
         <td className="numeric">
-          {stage !== undefined && (
+          {stage !== undefined ? (
             <StatusBadge tone={stages[stage]![1]}>{t(stages[stage]![0])}</StatusBadge>
+          ) : (
+            <span className="subtle">—</span>
           )}
         </td>
         {figures.map(([key, , percent]) => {
           const value = run?.metrics[key];
           return (
             <td key={key} className={`numeric ${key.endsWith("return") ? signed(value) : ""}`}>
-              {run && metric(value, percent)}
+              {run ? metric(value, percent) : "—"}
             </td>
           );
         })}
@@ -231,8 +238,10 @@ export function StrategyLibrary({
             </StatusBadge>
           ) : idle ? (
             <StatusBadge tone="neutral">{t("无成交")}</StatusBadge>
+          ) : run ? (
+            shortTime(run.startedMs)
           ) : (
-            run && shortTime(run.startedMs)
+            "—"
           )}
         </td>
       </tr>
@@ -321,6 +330,8 @@ export function StrategyLibrary({
                 <th scope="col" className="lab-name-col">
                   {t("策略")}
                 </th>
+                <th scope="col">{t("类型")}</th>
+                <th scope="col">{t("说明")}</th>
                 {heading("stage", t("阶段"))}
                 {figures.map(([key, label]) => heading(key, t(label)))}
                 {heading("started", t("最近回测"))}
@@ -333,7 +344,7 @@ export function StrategyLibrary({
                 <tbody key={place}>
                   {title && (
                     <tr className="lab-library-group">
-                      <th scope="colgroup" colSpan={figures.length + 4}>
+                      <th scope="colgroup" colSpan={figures.length + 6}>
                         {t(title)}
                       </th>
                     </tr>

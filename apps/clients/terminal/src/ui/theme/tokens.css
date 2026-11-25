@@ -8,29 +8,29 @@
     "DejaVu Sans Mono", monospace;
 
   /* Surfaces, darkest to brightest. */
-  --canvas: #06080c;
-  --panel: #0b0f15;
-  --raised: #111720;
+  --canvas: #0c1017;
+  --panel: #121822;
+  --raised: #192130;
   --pane: color-mix(in oklab, var(--panel) 55%, var(--canvas));
-  --hover: #171f2b;
-  --pressed: #1e2836;
+  --hover: #1e2838;
+  --pressed: #253145;
 
   /* Structure: 1px hairlines and layered elevation. */
-  --line: #1a222e;
-  --line-strong: #293545;
-  --field: #080b10;
-  --grid: #121923;
-  --row-alt: rgb(255 255 255 / 1.8%);
-  --overlay: rgb(2 4 8 / 74%);
-  --surface-highlight: inset 0 1px 0 rgb(255 255 255 / 5%);
+  --line: #1f2938;
+  --line-strong: #314054;
+  --field: #0e131b;
+  --grid: #17202e;
+  --row-alt: rgb(255 255 255 / 2.2%);
+  --overlay: rgb(4 7 12 / 74%);
+  --surface-highlight: inset 0 1px 0 rgb(255 255 255 / 6%);
   --shadow-popover: 0 10px 28px -6px rgb(0 0 0 / 56%), 0 2px 8px -2px rgb(0 0 0 / 38%);
   --shadow-dialog: 0 20px 48px -12px rgb(0 0 0 / 68%), 0 4px 16px -4px rgb(0 0 0 / 44%);
 
   /* Text. The dimmest level still meets 4.5:1 against canvas, panel and raised. */
-  --text: #c6ced9;
-  --text-strong: #f0f5fc;
-  --muted: #8a96a8;
-  --subtle: #778394;
+  --text: #d0d7e2;
+  --text-strong: #f2f6fc;
+  --muted: #94a1b5;
+  --subtle: #8693a7;
 
   /* The single interactive signal. */
   --accent: #38d6f2;
@@ -45,11 +45,11 @@
      coloured figures always mean a price, a side or a profit. */
   --success: #3fcf6e;
   --warning: #e5b45a;
-  --danger: #f04438;
+  --danger: #f65e54;
   --danger-surface: color-mix(in oklab, var(--danger) 10%, transparent);
 
   /* Market values and analytical series. */
-  --quote-red: #ff3358;
+  --quote-red: #ff4f6f;
   --quote-green: #14c49c;
   --quote-up: var(--quote-red);
   --quote-down: var(--quote-green);

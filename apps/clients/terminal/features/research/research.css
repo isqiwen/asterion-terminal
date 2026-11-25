@@ -86,10 +86,18 @@ button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
 .lab-library-view {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: 0;
+  overflow: hidden;
 }
 .lab-library-view > .lab-toolbar {
+  flex-shrink: 0;
   justify-content: flex-start;
+  padding: var(--space-2) var(--space-page);
+  border-bottom: 1px solid var(--line);
+  background: var(--canvas);
+}
+.lab-library-view > :not(.lab-toolbar, .lab-library-scroll, .sr-only) {
+  margin: var(--space-2) var(--space-page) 0;
 }
 .lab-library-view > .lab-toolbar label.lab-inline {
   min-width: 0;
@@ -99,19 +107,27 @@ button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   min-height: 0;
 }
 .lab-library-table {
-  --lab-check-width: 34px;
+  --lab-check-width: calc(var(--space-page) + 22px);
   border-collapse: separate;
   border-spacing: 0;
-}
-/* On a full screen, figures stay close enough to read across a row. */
-.lab-table.lab-records {
-  max-width: 1760px;
 }
 .lab-table.lab-library-table :is(th, td) {
   padding-inline: var(--space-2);
 }
+.lab-table.lab-library-table :is(th, td):last-child {
+  padding-right: var(--space-page);
+}
+.lab-library-table tbody :is(th, td) {
+  height: 34px;
+}
 .lab-library-table tbody tr[data-empty] td {
   color: var(--subtle);
+}
+.lab-library-table td.lab-desc {
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
 }
 .lab-library-table button.lab-sort {
   padding-inline: 0;
@@ -125,10 +141,14 @@ button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   inset-block-start: 0;
   z-index: 2;
 }
-.lab-library-table thead th {
-  background: var(--canvas);
+.lab-library-table thead th,
+.lab-records thead th {
+  height: 32px;
+  background: var(--panel);
   border-bottom: 0;
-  box-shadow: inset 0 -1px 0 var(--line);
+  box-shadow: inset 0 -1px 0 var(--line-strong);
+  font-size: var(--font-size-aux);
+  font-weight: 500;
 }
 .lab-table.lab-library-table .lab-check-col {
   position: sticky;
@@ -137,7 +157,7 @@ button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   min-width: var(--lab-check-width);
   max-width: var(--lab-check-width);
   box-sizing: border-box;
-  padding-inline: var(--space-2);
+  padding-inline: var(--space-page) var(--space-2);
 }
 .lab-library-table thead th.lab-check-col {
   z-index: 3;
@@ -494,9 +514,12 @@ button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   z-index: 1;
 }
 .lab-virtual-scroll thead th {
-  background: var(--canvas);
+  height: 32px;
+  background: var(--panel);
   border-bottom: 0;
-  box-shadow: inset 0 -1px 0 var(--line);
+  box-shadow: inset 0 -1px 0 var(--line-strong);
+  font-size: var(--font-size-aux);
+  font-weight: 500;
 }
 .lab-virtual-scroll tr[data-spacer] td {
   height: auto;
@@ -1329,9 +1352,20 @@ button.lab-symbol-months:enabled:hover {
 }
 .lab-scope > p.subtle {
   color: var(--muted);
+  font-size: var(--font-size-body);
 }
 .lab-scope > button {
   flex: none;
+}
+button.lab-scope-cta {
+  border-color: var(--accent-line);
+  background: var(--accent-surface);
+  color: var(--accent);
+}
+button.lab-scope-cta:enabled:not([aria-disabled="true"]):is(:hover, :active) {
+  border-color: var(--accent);
+  background: var(--accent-hover);
+  color: var(--accent);
 }
 .lab-scope-dialog[open] {
   display: flex;
@@ -1392,33 +1426,30 @@ button.lab-symbol-months:enabled:hover {
   margin: 0;
   font-size: var(--font-size-aux);
 }
-.lab-library-view {
-  padding-inline: var(--space-page);
-}
-/* Fewer columns than the run records: figures stay close to their strategy. */
-.lab-library-view > .lab-toolbar,
-.lab-table.lab-library-table {
-  max-width: 1440px;
+.lab-center.lab-library-view {
+  padding: 0;
 }
 .lab-library-view > .lab-toolbar input[type="search"] {
   width: 240px;
 }
-.lab-library-table tbody tr:is(:hover, .current, .selected) td.subtle,
+.lab-library-table tbody tr:is(:hover, .current, .selected) :is(td.subtle, td.lab-desc),
 .lab-library-table tbody tr[data-empty]:is(:hover, .current, .selected) td {
   color: var(--text);
 }
 .lab-library-table tbody tr.lab-library-group,
 .lab-library-table tbody tr.lab-library-group:hover {
-  background: var(--canvas);
+  background: var(--pane);
   cursor: default;
 }
 .lab-library-table tbody tr.lab-library-group:hover th,
 .lab-library-table tbody tr.lab-library-group th {
   position: static;
-  padding-top: var(--space-3);
-  background: var(--canvas);
+  height: 28px;
+  padding: 0 var(--space-page);
+  background: var(--pane);
   color: var(--muted);
   font-size: var(--font-size-aux);
+  font-weight: 500;
 }
 
 button.lab-link.lab-delete,

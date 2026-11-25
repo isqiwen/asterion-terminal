@@ -118,7 +118,7 @@ export function ConditionBar<F extends { symbols: string }>({
       {active ? <p title={text}>{text}</p> : <p className="subtle">{t("未设置品种与区间")}</p>}
       <button
         type="button"
-        className={active ? "lab-link" : undefined}
+        className={active ? "lab-link" : "lab-scope-cta"}
         aria-label={active ? editLabel : setLabel}
         onClick={() => setEditing(active ?? { name: "", fields: initial })}
       >
