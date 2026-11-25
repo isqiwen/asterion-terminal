@@ -5,6 +5,7 @@ import { useErrorNotification } from "../../src/host/notifications";
 import { type MessageValues, translate } from "../../src/i18n";
 import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
 import { resolveProductCode, warehouseName } from "../../src/ui/contract-names";
+import { DateInput } from "../../src/ui/DateInput";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.data-workbench", key, values);
@@ -164,7 +165,8 @@ export function ReferenceTable({
     return () => clearTimeout(timer);
   }, [productInput, product]);
   const resolvedProduct = hasProduct && product ? resolveProductCode(exchange, product) : "";
-  const activeDay = hasDay ? day : "";
+  const trimmedDay = day.trim();
+  const activeDay = hasDay && /^\d{4}-\d{2}-\d{2}$/.test(trimmedDay) ? trimmedDay : "";
   // A followed version replaces the rows in place.
   const query = JSON.stringify([table, exchange, resolvedProduct, activeDay, offset]);
   const [result, setResult] = useState<{ query: string; rows?: TableRows; error: DisplayError }>();
@@ -237,13 +239,11 @@ export function ReferenceTable({
             />
           )}
           {hasDay && (
-            <input
-              type="date"
-              className="reference-date"
+            <DateInput
               aria-label={t("按日期筛选")}
               value={day}
-              onChange={event => {
-                setDay(event.target.value);
+              onChange={value => {
+                setDay(value);
                 setOffset(0);
               }}
             />

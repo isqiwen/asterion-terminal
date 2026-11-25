@@ -180,8 +180,10 @@ button.data-summary-item[aria-pressed="true"] {
 .reference-filters > .reference-search {
   width: 176px;
 }
-.reference-filters > .reference-date {
-  width: 140px;
+.reference-filters > .date-input {
+  width: 144px;
+}
+.reference-filters > .date-input > input:first-child {
   font-family: var(--font-terminal);
   font-size: var(--font-size-body);
 }
