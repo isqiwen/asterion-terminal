@@ -279,7 +279,7 @@ function ContractRow({
 }: {
   contract: ContractCoverage;
   kind: Kind;
-  nested: boolean | "direct";
+  nested: boolean;
   running: readonly AcquisitionTask[];
   acquires: boolean;
   start: (rules: Rule[]) => void;
@@ -294,7 +294,7 @@ function ContractRow({
   return (
     <tr
       data-kind="contract"
-      data-nested={nested === "direct" ? "direct" : nested ? "" : undefined}
+      data-nested={nested || undefined}
       data-viewing={viewing === contract.contract || undefined}
     >
       <th scope="row">
@@ -452,7 +452,7 @@ export function CoverageList({
           request!.instruments.some(item => item === row.id || item.startsWith(`${row.id}/`)),
     );
     return (
-      <tbody key={row.id}>
+      <tbody key={row.id} data-retired={retired || undefined}>
         <tr data-kind="product" data-open={expanded || undefined}>
           <th scope="row">
             <button
@@ -553,7 +553,7 @@ export function CoverageList({
               const shown = yearOpen === yearKey || !!searchedYears;
               const yearBusy = rules.some(rule => running.some(task => covers(task, rule)));
               return [
-                <tr key={year} data-kind="year" data-direct={retired || undefined}>
+                <tr key={year} data-kind="year">
                   <th scope="row">
                     <button
                       type="button"
@@ -591,12 +591,7 @@ export function CoverageList({
                   ? inYear
                       .filter(matches)
                       .map(item => (
-                        <ContractRow
-                          key={item.contract}
-                          contract={item}
-                          nested={retired ? "direct" : true}
-                          {...rowProps}
-                        />
+                        <ContractRow key={item.contract} contract={item} nested {...rowProps} />
                       ))
                   : []),
               ];
@@ -625,7 +620,7 @@ export function CoverageList({
         {activeRows.map(renderProduct)}
         {retiredRows.length > 0 && (
           <tbody key="retired-group">
-            <tr data-kind="retired-group">
+            <tr data-kind="retired-group" data-open={showRetired || undefined}>
               <th scope="row">
                 <button
                   type="button"

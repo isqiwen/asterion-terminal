@@ -455,16 +455,16 @@ html[lang="en-US"] .col-act-metric {
   color: var(--muted);
   font-size: var(--font-size-aux);
 }
-.coverage-table tr[data-kind="product"] > * {
+.coverage-table tr:is([data-kind="product"], [data-kind="retired-group"]) > * {
   height: 40px;
 }
-.coverage-table tr[data-kind="retired-group"] > * {
-  height: 34px;
-  background: color-mix(in oklab, var(--pane) 70%, var(--canvas));
-  color: var(--muted);
-}
+.coverage-table tr[data-kind="retired-group"] > *,
 .coverage-table tr[data-kind="retired-group"] .coverage-toggle span {
   color: var(--muted);
+}
+.coverage-table :where(tbody[data-retired]) tr[data-kind="product"] > * {
+  height: 36px;
+  background: var(--panel);
 }
 .coverage-table tr:is([data-kind="contract"], [data-kind="history"], [data-kind="year"]) > * {
   height: 32px;
@@ -478,7 +478,7 @@ html[lang="en-US"] .col-act-metric {
 .coverage-table tbody tr:is(:hover, :focus-within) > * {
   background: var(--hover);
 }
-.coverage-table tr[data-kind="product"][data-open] > * {
+.coverage-table tr:is([data-kind="product"], [data-kind="retired-group"])[data-open] > * {
   background: var(--panel);
 }
 .coverage-table tr[data-viewing] > * {
@@ -487,23 +487,23 @@ html[lang="en-US"] .col-act-metric {
 .coverage-table tr[data-viewing] > th {
   box-shadow: inset 2px 0 0 var(--accent);
 }
+.coverage-table tbody[data-retired] tr[data-kind="product"] > th {
+  padding-left: calc(var(--space-page) + 22px);
+}
 .coverage-table tr[data-kind="contract"] > th {
   padding-left: calc(var(--space-page) + 22px);
 }
+.coverage-table tbody[data-retired] tr[data-kind="contract"]:not([data-nested]) > th {
+  padding-left: calc(var(--space-page) + 42px);
+}
 .coverage-table tr[data-kind="contract"][data-nested] > th {
   padding-left: calc(var(--space-page) + 62px);
-}
-.coverage-table tr[data-kind="contract"][data-nested="direct"] > th {
-  padding-left: calc(var(--space-page) + 42px);
 }
 .coverage-table tr[data-kind="history"] > th {
   padding-left: calc(var(--space-page) + 22px);
 }
 .coverage-table tr[data-kind="year"] > th {
   padding-left: calc(var(--space-page) + 42px);
-}
-.coverage-table tr[data-kind="year"][data-direct] > th {
-  padding-left: calc(var(--space-page) + 22px);
 }
 .coverage-toggle {
   all: unset;
