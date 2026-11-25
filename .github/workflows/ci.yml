@@ -118,10 +118,10 @@ jobs:
         with:
           install: binary
           max-size: 1G
-          key: ${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.id }}-${{ github.job }}
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.id }}-${{ github.job }}${{ matrix.sanitizer && format('-{0}', matrix.sanitizer) || '' }}
       # Bump v2 when Conan version or install flags in this workflow change.
       # Linux jobs share one Release dependency cache (with source-built cpptrace);
-      # macOS jobs use distinct deployment-target profiles and stay scoped by job.
+      # macOS uses a deployment-target profile scoped to its job.
       - &conan-cache
         name: Restore Conan cache
         id: conan-cache
@@ -158,12 +158,6 @@ jobs:
           key: runtime-caches-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/services/lab/uv.lock', 'scripts/desktop/python_runtime.py', 'pnpm-lock.yaml') }}
           restore-keys: |
             runtime-caches-v2-${{ runner.os }}-${{ runner.arch }}-
-      - name: Cache Playwright Chromium
-        id: playwright-cache
-        uses: actions/cache@v5
-        with:
-          path: ~/Library/Caches/ms-playwright
-          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
       - run: conan profile detect
       - run: python scripts/prepare_ctp.py
       - run: pnpm install --frozen-lockfile
@@ -181,28 +175,10 @@ jobs:
         with:
           path: ${{ runner.temp }}/conan-packages.tgz
           key: ${{ steps.conan-cache.outputs.cache-primary-key }}
-      # Linux-only Trading daemon process tests run on Release / Linux; keep C++
-      # Trading unit tests and every macOS/Lab/Market/Warehouse/Terminal test here.
-      - name: Run C++ and Lab test suite
-        run: ctest --preset conan-release --output-on-failure -E '^(strategy_stream_process|cross_session_portfolio_process|dominant_roll_process|capital_risk_process|webhook_process|strategy_process|emergency_migration_process|live_process|trading_remote_instances|acceptance_dry_run|trading_startup)$'
-      - name: Install Playwright Chromium
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install chromium
-      - name: Browser end-to-end tests (2 parallel shards)
-        run: |
-          ASTERION_DEV_PORT=1424 ASTERION_E2E_OUTPUT_DIR=./test-results-1 pnpm run test:e2e --shard=1/2 > build/e2e-shard-1.log 2>&1 &
-          pid1=$!
-          ASTERION_DEV_PORT=1425 ASTERION_E2E_OUTPUT_DIR=./test-results-2 pnpm run test:e2e --shard=2/2 > build/e2e-shard-2.log 2>&1 &
-          pid2=$!
-          rc1=0; wait "$pid1" || rc1=$?
-          rc2=0; wait "$pid2" || rc2=$?
-          echo "::group::Playwright E2E shard 1/2 (exit $rc1)"
-          cat build/e2e-shard-1.log
-          echo "::endgroup::"
-          echo "::group::Playwright E2E shard 2/2 (exit $rc2)"
-          cat build/e2e-shard-2.log
-          echo "::endgroup::"
-          test "$rc1" -eq 0 && test "$rc2" -eq 0
+      # Market, Warehouse and Trading are Linux-only services covered by the Linux jobs;
+      # run cross-platform core, Lab, Terminal and Electron host tests on macOS.
+      - name: Run core, Lab and Terminal test suite
+        run: ctest --preset conan-release --output-on-failure -LE service
       - name: Exercise native Electron host
         run: pnpm test:desktop
       - name: Upload Terminal installer
@@ -400,8 +376,8 @@ jobs:
       - name: Run real-clock Trading stream tests
         run: ctest --preset conan-release --output-on-failure -j 2 -R '^(strategy_stream_process|cross_session_portfolio_process)$'
 
-  # The whole browser suite runs on the macOS job. Only the @trading tests run
-  # here, because the trading service runs on Linux only and they skip elsewhere.
+  # Runs the full browser E2E suite (including Linux-only @trading specs),
+  # single-CPU concurrency repeats, Linux Electron host and recovery gate.
   linux-e2e-and-gates:
     name: Release / Linux E2E & gates
     needs: build-linux
@@ -453,8 +429,22 @@ jobs:
           cpu=$(python -c 'import os; print(min(os.sched_getaffinity(0)))')
           taskset -c "$cpu" ctest --preset conan-release --output-on-failure -j 1 \
             --repeat until-fail:5 -R '^(market_live_process|market_process|warehouse_concurrency)$'
-      - name: Browser end-to-end tests (@trading)
-        run: pnpm run test:e2e --grep @trading
+      - name: Browser end-to-end tests (2 parallel shards)
+        run: |
+          mkdir -p build
+          ASTERION_DEV_PORT=1424 ASTERION_E2E_OUTPUT_DIR=./test-results-1 pnpm run test:e2e --shard=1/2 > build/e2e-shard-1.log 2>&1 &
+          pid1=$!
+          ASTERION_DEV_PORT=1425 ASTERION_E2E_OUTPUT_DIR=./test-results-2 pnpm run test:e2e --shard=2/2 > build/e2e-shard-2.log 2>&1 &
+          pid2=$!
+          rc1=0; wait "$pid1" || rc1=$?
+          rc2=0; wait "$pid2" || rc2=$?
+          echo "::group::Playwright E2E shard 1/2 (exit $rc1)"
+          cat build/e2e-shard-1.log
+          echo "::endgroup::"
+          echo "::group::Playwright E2E shard 2/2 (exit $rc2)"
+          cat build/e2e-shard-2.log
+          echo "::endgroup::"
+          test "$rc1" -eq 0 && test "$rc2" -eq 0
       - name: Exercise native Electron host
         run: |
           ulimit -c 0
@@ -471,12 +461,10 @@ jobs:
       matrix:
         include:
           - name: ASan + UBSan / Linux
-            os: ubuntu-24.04
             sanitizer: address,undefined
-          - name: TSan / macOS
-            os: macos-latest
+          - name: TSan / Linux
             sanitizer: thread
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-24.04
     env:
       CMAKE_C_COMPILER_LAUNCHER: ccache
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
@@ -499,7 +487,7 @@ jobs:
         run: |
           extra=()
           # Match build-linux's source-built cpptrace when populating the shared Linux cache.
-          if [ "${{ runner.os }}" = "Linux" ] && [ "${{ steps.conan-cache.outputs.cache-hit }}" != "true" ]; then
+          if [ "${{ steps.conan-cache.outputs.cache-hit }}" != "true" ]; then
             extra+=(--build=cpptrace/*)
           fi
           env -u CMAKE_C_COMPILER_LAUNCHER -u CMAKE_CXX_COMPILER_LAUNCHER \
@@ -508,6 +496,10 @@ jobs:
       - *conan-upload
       - run: cmake --preset conan-debug -DASTERION_SANITIZERS=${{ matrix.sanitizer }}
       - run: cmake --build --preset conan-debug
+      - name: Configure kernel for ThreadSanitizer
+        if: matrix.sanitizer == 'thread'
+        # Ubuntu 24.04 defaults vm.mmap_rnd_bits=32, which exceeds TSan's shadow memory layout.
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
       # Python loads an uninstrumented interpreter; Lab is covered by the desktop jobs.
       - run: ctest --preset conan-debug --output-on-failure -E '^lab_(strategy|catalog|dominant|service)$'
         env:

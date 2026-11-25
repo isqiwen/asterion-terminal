@@ -21,14 +21,26 @@ if(APPLE)
 endif()
 # Labels: `unit` tests run in memory and finish within a second each
 # (`ctest -L unit` is the quick local check); `process` tests start service
-# processes, sockets or slow stores. A test program that has any such test is
-# `process`; directly registered script tests below are all `process`.
+# processes, sockets or slow stores; `service` marks tests for Linux-only
+# services (Market, Warehouse, Trading) so macOS CI can exclude them via `-LE service`.
 set(asterion_process_test_targets
   asterion_warehouse_tests
   asterion_acquisition_tests
   asterion_ctp_catalog_tests asterion_ctp_tests asterion_ctp_trader_tests asterion_market_live_tests
   asterion_kernel_tests asterion_live_tests
   asterion_rpc_host_tests asterion_terminal_application_tests)
+set(asterion_service_test_targets
+  asterion_strategy_bars_tests
+  asterion_ctp_tests asterion_ctp_catalog_tests asterion_market_live_tests asterion_intraday_tests asterion_market_settings_tests
+  asterion_warehouse_tests asterion_acquisition_tests asterion_warehouse_settings_tests
+  asterion_ctp_trader_tests asterion_order_limits_tests asterion_strategy_orders_tests asterion_systemd_watchdog_tests asterion_live_tests)
+set(asterion_service_script_tests
+  market_startup remote_market market_live_process market_process ctp_sdk_smoke
+  warehouse_startup warehouse_concurrency
+  acceptance_dry_run trading_startup trading_installation live_process trading_remote_instances
+  strategy_process strategy_limits webhook_process capital_risk_process
+  emergency_migration_process dominant_roll_process cross_session_portfolio_process strategy_stream_process
+  services_cold_backup prepare_ctp_sdk)
 # Optional argument: a timeout in seconds.
 function(asterion_unit_tests target source library)
   add_executable(${target} ${source})
@@ -49,8 +61,12 @@ function(asterion_unit_tests target source library)
   if(target IN_LIST asterion_process_test_targets)
     set(label process)
   endif()
+  set(labels "${label}")
+  if(target IN_LIST asterion_service_test_targets)
+    set(labels "${label}\;service")
+  endif()
   gtest_discover_tests(${target} DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 30
-    PROPERTIES TIMEOUT ${test_timeout} LABELS ${label}
+    PROPERTIES TIMEOUT ${test_timeout} LABELS "${labels}"
     ${asterion_test_environment})
 endfunction()
 # core: foundation, kernel, domain and protocol
@@ -296,6 +312,11 @@ endif()
 # Applied last so every directly registered test receives them.
 get_property(asterion_tests DIRECTORY PROPERTY TESTS)
 set_property(TEST ${asterion_tests} PROPERTY LABELS process)
+foreach(test IN LISTS asterion_service_script_tests)
+  if(TEST ${test})
+    set_property(TEST ${test} APPEND PROPERTY LABELS service)
+  endif()
+endforeach()
 if(APPLE)
   set_property(TEST ${asterion_tests} APPEND PROPERTY ENVIRONMENT "TMPDIR=/private/tmp")
 endif()

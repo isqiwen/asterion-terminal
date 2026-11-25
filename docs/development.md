@@ -93,7 +93,7 @@ C++ 与 Python 生成规则见 [protocol/CMakeLists.txt](../protocol/CMakeLists.
 - UI 组件测试通过 `src/testing/core.ts` 提供原生通道替身；`@journey` 标记端到端核心路径。
 - 端到端测试必须通过 `pnpm run test:e2e` 启动：它会自动准备临时根目录、测试凭据与测试 CTP SDK；直接运行 `playwright test` 会误操作本机真实环境。首次运行前执行 `pnpm exec playwright install chromium`，运行前确保 1423 端口空闲；含 Electron 窗口的测试需具备图形会话（无显示器环境用 `xvfb-run -a`）。
 - macOS 下运行 CTest 应设置 `TMPDIR=/private/tmp`，避免 Unix socket 路径超过 104 字节限制。
-- CI 包含源码检查（排版、生成协议一致性、类型检查、lint、ShellCheck、文档链接检查及前端单元测试）、双平台 Release 回归（CTest、浏览器 E2E 与 Electron 宿主测试）与 Debug Sanitizer（Linux ASan + UBSan、macOS TSan）。Linux Release 作业还会运行单 CPU 并发重复检查与交易恢复门禁，并复用同一构建打包上传 Market、Warehouse、Trading 安装包。Conan 缓存按作业、平台、镜像版本与依赖配置隔离。
+- CI 包含源码检查（排版、生成协议一致性、类型检查、lint、ShellCheck、文档链接检查及前端单元测试）、双平台 Release 回归与 Linux Debug Sanitizer（ASan + UBSan、TSan）。Linux Release 作业负责全量 CTest（含服务端与实盘流测试）、全量浏览器 E2E、单 CPU 并发重复检查、Linux Electron 宿主测试与交易恢复门禁，并复用同一构建打包上传 Market、Warehouse、Trading 与 Linux Terminal 安装包；macOS Release 作业仅运行跨平台核心、Lab 与 Terminal 测试（`ctest -LE service`）及 macOS Electron 宿主测试并上传 `.dmg`。Conan 缓存按平台、工具链指纹与依赖配置隔离（Linux 各作业共享同一 Release 依赖缓存）。
 - CI Artifacts 直接提供五个安装文件（三个 `.sh`、一个 `.deb`、一个 `.dmg`），保持原始文件名，下载后无需二次解压。
 - 真实柜台验收流程见[CTP 仿真验收](acceptance/ctp-simulation.md)。
 
