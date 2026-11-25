@@ -20,7 +20,18 @@ import {
   signed,
   states,
 } from "./ResearchResult";
-import { batchKey, parameterText, recordName, recordTime, runName, runState } from "./research-lab";
+import {
+  SLIPPAGE_STRESS_TICKS,
+  batchKey,
+  identity,
+  parameterText,
+  recordName,
+  recordTime,
+  runName,
+  runState,
+  slippageKey,
+  slippageStressBase,
+} from "./research-lab";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
@@ -70,12 +81,19 @@ export function Runs(context: TerminalContext) {
   const acted = useActionError();
   const opened = context.workspaceParams;
   useEffect(() => {
-    if (!opened?.run && !opened?.sweep) return;
+    if (!opened?.run && !opened?.sweep && !opened?.compare) return;
     if (opened.run) setShown({ kind: "run", id: opened.run });
     else if (opened.sweep) setShown({ kind: "sweep", id: opened.sweep });
+    else if (opened.compare) {
+      const ids = opened.compare
+        .split(",")
+        .map(item => item.trim())
+        .filter(Boolean);
+      if (ids.length >= 2) setShown({ kind: "compare", ids });
+    }
     context.navigate("workspace.lab-runs", {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opened?.run, opened?.sweep]);
+  }, [opened?.run, opened?.sweep, opened?.compare]);
 
   const openedId = shown?.kind === "run" ? shown.id : undefined;
   const query = useMemo(
@@ -180,11 +198,28 @@ export function Runs(context: TerminalContext) {
       await readRuns();
     });
 
+  const startSlippageStress = (runId: string) =>
+    void acted.attempt(async () => {
+      const detail = await lab({ case: "getRun", value: { id: runId } });
+      const sweepId = identity(detail.summary?.strategy || "stress", "slip");
+      const base = slippageStressBase(detail, context.snapshot?.research_directory ?? "");
+      await lab({
+        case: "startSweep",
+        value: { id: sweepId, base, slippageTicks: [...SLIPPAGE_STRESS_TICKS], processes: 0 },
+      });
+      setShown({ kind: "sweep", id: sweepId });
+    });
+
   if (shown?.kind === "run") {
     const run =
       openedRun?.id === shown.id
         ? openedRun
         : (byId.get(shown.id) ?? (sweep?.rolling?.id === shown.id ? sweep.rolling : undefined));
+    const singleSucceeded = Boolean(
+      run?.strategy &&
+      run.state === RunState.SUCCEEDED &&
+      (!run.sweepId || run.id !== `${run.sweepId}-rolling`),
+    );
     return (
       <section className="lab-runs-view">
         <RunHeader
@@ -195,13 +230,12 @@ export function Runs(context: TerminalContext) {
           loadIntoStrategy={() =>
             context.navigate("workspace.lab-strategies", { params: { loadRun: shown.id } })
           }
+          slippageStress={singleSucceeded ? () => startSlippageStress(shown.id) : undefined}
           deploy={
-            run?.strategy &&
-            run.state === RunState.SUCCEEDED &&
-            (!run.sweepId || run.id !== `${run.sweepId}-rolling`)
+            singleSucceeded
               ? () =>
                   context.navigate("workspace.trading-strategies", {
-                    params: { run: run.id },
+                    params: { run: run!.id },
                   })
               : undefined
           }
@@ -228,9 +262,13 @@ export function Runs(context: TerminalContext) {
     const sweepAnchor = currentSweep?.runs[0]?.id;
     const sweepTitle = currentSweep?.runs[0]?.params[batchKey]
       ? t("批量回测 {id}", { id: recordTime(shown.id) })
-      : t("扫描 {id}", {
-          id: recordName(shown.id, currentSweep?.runs[0]?.strategy.split(".")[1]),
-        });
+      : currentSweep?.runs[0]?.params[slippageKey]
+        ? t("滑点压力测试 {id}", {
+            id: recordName(shown.id, currentSweep?.runs[0]?.strategy.split(".")[1]),
+          })
+        : t("扫描 {id}", {
+            id: recordName(shown.id, currentSweep?.runs[0]?.strategy.split(".")[1]),
+          });
     return (
       <section className="lab-runs-view">
         <header className="lab-report-header">
@@ -294,7 +332,20 @@ export function Runs(context: TerminalContext) {
           </button>
           <h2>{t("比较 {count} 次运行", { count: shown.ids.length })}</h2>
         </header>
-        <RunComparison ids={shown.ids} />
+        <RunComparison
+          ids={shown.ids}
+          repository={context.snapshot?.research_directory ?? ""}
+          onGenerated={(_path, id, scope) =>
+            context.navigate("workspace.lab-strategies", {
+              params: {
+                openStrategy: id,
+                symbols: scope.symbols,
+                begin: scope.begin,
+                end: scope.end,
+              },
+            })
+          }
+        />
       </section>
     );
 
@@ -547,6 +598,7 @@ function RunHeader({
   back,
   renamed,
   loadIntoStrategy,
+  slippageStress,
   deploy,
   cancel,
   remove,
@@ -556,6 +608,7 @@ function RunHeader({
   back: () => void;
   renamed: () => Promise<void>;
   loadIntoStrategy: () => void;
+  slippageStress?: () => void;
   deploy?: () => void;
   cancel?: () => void;
   remove: () => void;
@@ -614,6 +667,11 @@ function RunHeader({
       <button type="button" className="lab-link" onClick={loadIntoStrategy}>
         {t("带入策略配置")}
       </button>
+      {slippageStress && (
+        <button type="button" className="lab-link" onClick={slippageStress}>
+          {t("滑点压力测试")}
+        </button>
+      )}
       {deploy && (
         <button type="button" className="lab-link" onClick={deploy}>
           {t("去部署")}

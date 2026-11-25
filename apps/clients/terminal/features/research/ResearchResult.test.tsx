@@ -10,7 +10,7 @@ import {
   RunState,
   RunSummarySchema,
 } from "../../src/generated/asterion/lab_pb";
-import { RunComparison, RunResult } from "./ResearchResult";
+import { RunComparison, RunResult, SweepResult } from "./ResearchResult";
 import { feature } from "./feature";
 import { BackendError } from "../../src/i18n/errors";
 
@@ -526,4 +526,119 @@ test("diagnostics tab renders trade quality, symbol/sector attribution, and comb
   expect(screen.getByRole("table", { name: "分板块归因" })).toBeTruthy();
   const comp = screen.getByRole("table", { name: "子策略过程与贡献" });
   expect(within(comp).getByRole("rowheader", { name: "MultiFactorRank" })).toBeTruthy();
+});
+
+test("sweep result renders slippage break-even summary and parameter overfitting check", () => {
+  const { rerender } = render(
+    <SweepResult
+      runs={[
+        create(RunSummarySchema, {
+          id: "s-0",
+          state: RunState.SUCCEEDED,
+          params: { __slippage__: { value: { case: "integer", value: 0n } } },
+          metrics: { sharpe: 1.2, total_return: 0.2, max_drawdown: 0.05 },
+        }),
+        create(RunSummarySchema, {
+          id: "s-1",
+          state: RunState.SUCCEEDED,
+          params: { __slippage__: { value: { case: "integer", value: 2n } } },
+          metrics: { sharpe: 0.4, total_return: 0.05, max_drawdown: 0.07 },
+        }),
+        create(RunSummarySchema, {
+          id: "s-2",
+          state: RunState.SUCCEEDED,
+          params: { __slippage__: { value: { case: "integer", value: 4n } } },
+          metrics: { sharpe: -0.4, total_return: -0.05, max_drawdown: 0.12 },
+        }),
+      ]}
+      selected=""
+      open={vi.fn()}
+    />,
+  );
+  expect(screen.getByText("盈亏平衡滑点")).toBeTruthy();
+  expect(screen.getByText("3.0 跳")).toBeTruthy();
+
+  rerender(
+    <SweepResult
+      runs={[
+        create(RunSummarySchema, {
+          id: "p-0",
+          state: RunState.SUCCEEDED,
+          firstDay: "2024-01-02",
+          lastDay: "2026-01-02",
+          params: { fast: { value: { case: "integer", value: 5n } } },
+          metrics: { sharpe: 1.0, total_return: 0.1, max_drawdown: 0.05 },
+        }),
+        create(RunSummarySchema, {
+          id: "p-1",
+          state: RunState.SUCCEEDED,
+          firstDay: "2024-01-02",
+          lastDay: "2026-01-02",
+          params: { fast: { value: { case: "integer", value: 10n } } },
+          metrics: { sharpe: 1.6, total_return: 0.2, max_drawdown: 0.04 },
+        }),
+        create(RunSummarySchema, {
+          id: "p-2",
+          state: RunState.SUCCEEDED,
+          firstDay: "2024-01-02",
+          lastDay: "2026-01-02",
+          params: { fast: { value: { case: "integer", value: 15n } } },
+          metrics: { sharpe: 1.4, total_return: 0.18, max_drawdown: 0.05 },
+        }),
+      ]}
+      selected=""
+      open={vi.fn()}
+    />,
+  );
+  expect(screen.getByText("DSR 置信度")).toBeTruthy();
+  expect(screen.getByText("高原稳健度")).toBeTruthy();
+  // Neighbors of fast=10 (1.6) are 1.0 and 1.4 -> median 1.2 -> plateau ratio 75.00%.
+  expect(screen.getByText("75.00%")).toBeTruthy();
+});
+
+test("run comparison computes correlation matrix, portfolio simulation, and generates a CombinedStrategy", async () => {
+  const saved: Array<{ path?: string; content?: string }> = [];
+  const onGenerated = vi.fn();
+  vi.mocked(lab).mockReset();
+  vi.mocked(lab).mockImplementation(async operation => {
+    if (operation.case === "saveSource") {
+      saved.push({ path: operation.value.source?.path, content: operation.value.content });
+      return {} as never;
+    }
+    if (operation.case !== "getRun") throw new Error("Unexpected operation");
+    const first = operation.value.id === "r1";
+    const equities = first ? [100, 102, 101, 104, 106] : [100, 99, 102, 101, 105];
+    return create(RunDetailSchema, {
+      summary: {
+        id: operation.value.id,
+        strategy: first ? "trend.Trend" : "carry.Carry",
+        symbols: first ? ["SHFE/rb"] : ["SHFE/cu"],
+        firstDay: "2026-01-05",
+        lastDay: "2026-01-09",
+      },
+      record: JSON.stringify({
+        strategy: { id: first ? "trend.Trend" : "carry.Carry", repository: "/research" },
+        params: first ? { lookback: 20 } : { window: 10 },
+        costs: { deposit: "100" },
+      }),
+      days: equities.map((eq, idx) => ({
+        tradingDay: `2026-01-0${idx + 5}`,
+        equity: { text: String(eq) },
+        settledMs: BigInt((idx + 1) * 86400_000),
+      })),
+    }) as never;
+  });
+  render(<RunComparison ids={["r1", "r2"]} repository="/research" onGenerated={onGenerated} />);
+  expect(await screen.findByRole("table", { name: "策略相关性矩阵" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "波动率平价" }));
+  fireEvent.click(screen.getByRole("button", { name: "生成组合策略" }));
+  fireEvent.click(screen.getByRole("button", { name: "创建" }));
+  await waitFor(() => expect(saved).toHaveLength(1));
+  expect(saved[0]!.content).toContain("class TrendCarryPortfolio(CombinedStrategy):");
+  expect(saved[0]!.content).toContain("vol_balance = True");
+  expect(onGenerated).toHaveBeenCalledWith(
+    "strategies/trend_carry_portfolio.py",
+    "trend_carry_portfolio.TrendCarryPortfolio",
+    { symbols: "SHFE/rb, SHFE/cu", begin: "2026-01-05", end: "2026-01-09" },
+  );
 });

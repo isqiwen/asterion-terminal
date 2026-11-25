@@ -281,7 +281,55 @@ export function parameterText(value: { value: { case?: string; value?: unknown }
 
 // A batch's run names its strategy among its swept values, before it has started.
 export const batchKey = "__strategy__";
+export const slippageKey = "__slippage__";
 export const batchStrategy = (run: RunSummary) => parameterText(run.params[batchKey]);
+
+export function slippageStressBase(detail: RunDetail, fallbackRepository: string): RunInit {
+  const rec = JSON.parse(detail.record) as {
+    strategy?: { id?: string; repository?: string };
+    params?: Record<string, unknown>;
+    data?: { symbols?: string[]; begin_day?: string; end_day?: string; bars?: { period?: string } };
+    costs?: { deposit?: string; slippage_ticks?: number };
+    risk?: Record<string, string | number>;
+    statistics?: { annual_periods?: number | null; zero_risk_free?: boolean; holdout_day?: string };
+  };
+  const period = rec.data?.bars?.period ?? "day";
+  const minutes = period === "day" ? 0 : Number(period.replace(/m$/, ""));
+  const params: Record<string, ValueInit> = {};
+  for (const [k, v] of Object.entries(rec.params ?? {})) {
+    if (typeof v === "boolean") params[k] = { value: { case: "flag", value: v } };
+    else if (typeof v === "number" && Number.isInteger(v))
+      params[k] = { value: { case: "integer", value: BigInt(v) } };
+    else if (typeof v === "number") params[k] = { value: { case: "number", value: v } };
+    else if (typeof v === "string") params[k] = { value: { case: "text", value: v } };
+  }
+  const risk = rec.risk ?? {};
+  return {
+    id: detail.summary?.id ?? "",
+    repository: rec.strategy?.repository || fallbackRepository,
+    strategy: rec.strategy?.id || detail.summary?.strategy || "",
+    params,
+    symbols: rec.data?.symbols ?? detail.summary?.symbols ?? [],
+    firstDay: rec.data?.begin_day ?? detail.summary?.firstDay ?? "",
+    lastDay: rec.data?.end_day ?? detail.summary?.lastDay ?? "",
+    period: protocolPeriod(minutes || "day"),
+    deposit: decimal(String(rec.costs?.deposit ?? "1000000")),
+    slippageTicks: Number(rec.costs?.slippage_ticks ?? 0),
+    limits: {
+      maxOrderLots: decimal(String(risk.max_order_lots ?? "100")),
+      maxContractLots: decimal(String(risk.max_contract_lots ?? "500")),
+      maxGrossLots: decimal(String(risk.max_gross_lots ?? "2000")),
+      maxWorkingOrders: Number(risk.max_working_orders ?? 64),
+    },
+    maxGrossWeight: decimal(String(risk.max_gross_weight ?? "1")),
+    maxNetWeight: decimal(String(risk.max_net_weight ?? "1")),
+    maxMarginRatio: decimal(String(risk.max_margin_ratio ?? "0")),
+    minRebalanceWeight: decimal(String(risk.min_rebalance_weight ?? "0")),
+    periodsPerYear: Number(rec.statistics?.annual_periods ?? 252),
+    zeroRiskFreeRate: Boolean(rec.statistics?.zero_risk_free ?? true),
+    holdoutDay: rec.statistics?.holdout_day ?? "",
+  };
+}
 
 export function formFromRun(detail: RunDetail): { strategy: string; form: RunForm } {
   const base = defaultForm();
@@ -1180,6 +1228,330 @@ export function copiedModule(
     next = next.replace(new RegExp(`\\b${symbol}\\b`, "g"), target);
   }
   return { content: next, id: `${name}.${target}` };
+}
+
+export const SLIPPAGE_STRESS_TICKS = [0, 1, 2, 3, 5] as const;
+
+// Standard normal CDF (Abramowitz & Stegun 7.1.26) and Acklam inverse normal CDF.
+function normCdf(x: number) {
+  const sign = x < 0 ? -1 : 1;
+  const z = Math.abs(x) / Math.SQRT2;
+  const t = 1 / (1 + 0.3275911 * z);
+  const poly =
+    ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t;
+  const erf = 1 - poly * Math.exp(-z * z);
+  return 0.5 * (1 + sign * erf);
+}
+
+function normInv(p: number) {
+  const clamped = Math.min(1 - 1e-12, Math.max(1e-12, p));
+  const a = [
+    -3.969683028665376e1, 2.209460984245205e2, -2.759285104469687e2, 1.38357751867269e2,
+    -3.066479806614716e1, 2.506628277459239,
+  ];
+  const b = [
+    -5.447609879822406e1, 1.615858368580409e2, -1.556989798598866e2, 6.680131188771972e1,
+    -1.328068155288572e1,
+  ];
+  const c = [
+    -7.784894002430293e-3, -3.223964580411365e-1, -2.400758277161838, -2.549732539343734,
+    4.374664141464968, 2.938163982698783,
+  ];
+  const d = [7.784695709041462e-3, 3.224671290700398e-1, 2.445134137142996, 3.754408661907416];
+  const pLow = 0.02425;
+  if (clamped < pLow) {
+    const q = Math.sqrt(-2 * Math.log(clamped));
+    return (
+      (((((c[0]! * q + c[1]!) * q + c[2]!) * q + c[3]!) * q + c[4]!) * q + c[5]!) /
+      ((((d[0]! * q + d[1]!) * q + d[2]!) * q + d[3]!) * q + 1)
+    );
+  }
+  if (clamped > 1 - pLow) {
+    const q = Math.sqrt(-2 * Math.log(1 - clamped));
+    return (
+      -(((((c[0]! * q + c[1]!) * q + c[2]!) * q + c[3]!) * q + c[4]!) * q + c[5]!) /
+      ((((d[0]! * q + d[1]!) * q + d[2]!) * q + d[3]!) * q + 1)
+    );
+  }
+  const q = clamped - 0.5;
+  const r = q * q;
+  return (
+    ((((((a[0]! * r + a[1]!) * r + a[2]!) * r + a[3]!) * r + a[4]!) * r + a[5]!) * q) /
+    (((((b[0]! * r + b[1]!) * r + b[2]!) * r + b[3]!) * r + b[4]!) * r + 1)
+  );
+}
+
+// Bailey & Lopez de Prado (2014), "The Deflated Sharpe Ratio: Correcting for Selection Bias,
+// Backtest Overfitting, and Non-Normality", JPM 40(5), 94-107, DOI: 10.3905/jpm.2014.40.5.094.
+// Adapted for sweep summaries with Gaussian baseline (skew=0, kurtosis=3) and daily periods.
+export function deflatedSharpeRatio(
+  bestSharpe: number,
+  trialSharpes: readonly number[],
+  observations: number,
+  periodsPerYear = 252,
+): { dsr: number; expectedMax: number; trials: number } | null {
+  const finite = trialSharpes.filter(Number.isFinite);
+  const n = finite.length;
+  if (n < 2 || !Number.isFinite(bestSharpe) || observations < 5) return null;
+  const mean = finite.reduce((s, v) => s + v, 0) / n;
+  const variance = finite.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1);
+  const scale = Math.sqrt(Math.max(1, periodsPerYear));
+  // Convert annualized Sharpe ratios to per-period Sharpe before applying Eq. (2) and (8).
+  const srStar = bestSharpe / scale;
+  const srStd = Math.sqrt(Math.max(0, variance)) / scale;
+  const euler = 0.5772156649015329;
+  const sr0 =
+    srStd > 0
+      ? srStd * ((1 - euler) * normInv(1 - 1 / n) + euler * normInv(1 - 1 / (n * Math.E)))
+      : 0;
+  const denom = Math.sqrt(Math.max(1e-12, 1 + 0.5 * srStar * srStar));
+  const z = ((srStar - sr0) * Math.sqrt(observations - 1)) / denom;
+  return { dsr: normCdf(z), expectedMax: sr0 * scale, trials: n };
+}
+
+export function medianValue(values: readonly number[]) {
+  const finite = values.filter(Number.isFinite).sort((a, b) => a - b);
+  if (!finite.length) return null;
+  const mid = Math.floor(finite.length / 2);
+  return finite.length % 2 === 1 ? finite[mid]! : (finite[mid - 1]! + finite[mid]!) / 2;
+}
+
+export function breakEvenSlippage(
+  points: readonly { ticks: number; sharpe?: number; totalReturn?: number }[],
+): { ticks: number | null; status: "above_max" | "below_zero" | "interpolated"; maxTicks: number } {
+  const sorted = [...points].sort((a, b) => a.ticks - b.ticks);
+  const maxTicks = sorted.at(-1)?.ticks ?? 0;
+  const score = (item: (typeof sorted)[number]) =>
+    item.sharpe !== undefined && Number.isFinite(item.sharpe)
+      ? item.sharpe
+      : item.totalReturn !== undefined && Number.isFinite(item.totalReturn)
+        ? item.totalReturn
+        : null;
+  const valid = sorted
+    .map(item => ({ ticks: item.ticks, value: score(item) }))
+    .filter((item): item is { ticks: number; value: number } => item.value !== null);
+  if (!valid.length) return { ticks: null, status: "below_zero", maxTicks };
+  if (valid[0]!.value <= 0) return { ticks: valid[0]!.ticks, status: "below_zero", maxTicks };
+  for (let i = 1; i < valid.length; i++) {
+    const prev = valid[i - 1]!;
+    const cur = valid[i]!;
+    if (cur.value <= 0) {
+      const span = prev.value - cur.value;
+      const frac = span > 0 ? prev.value / span : 0;
+      return {
+        ticks: prev.ticks + frac * (cur.ticks - prev.ticks),
+        status: "interpolated",
+        maxTicks,
+      };
+    }
+  }
+  return { ticks: null, status: "above_max", maxTicks };
+}
+
+export type PortfolioComparison = {
+  days: string[];
+  correlations: (number | null)[][];
+  avgCorrelation: number | null;
+  weights: number[];
+  nav: number[];
+  totalReturn: number;
+  annualReturn: number | null;
+  annualVolatility: number | null;
+  sharpe: number | null;
+  maxDrawdown: number;
+  volReduction: number | null;
+};
+
+// Align compared runs on overlapping trading days to compute correlation and synthetic portfolio.
+export function comparePortfolio(
+  details: readonly RunDetail[],
+  mode: "equal" | "inv_vol",
+): PortfolioComparison | null {
+  if (details.length < 2) return null;
+  const navMaps = details.map(detail => {
+    const deposit = Number(JSON.parse(detail.record).costs?.deposit ?? 0);
+    const map = new Map<string, number>();
+    if (!Number.isFinite(deposit) || deposit <= 0) return map;
+    for (const item of detail.days) {
+      const eq = Number(item.equity?.text ?? 0);
+      if (Number.isFinite(eq) && eq > 0) map.set(item.tradingDay, eq / deposit);
+    }
+    return map;
+  });
+  const commonDays = [...(navMaps[0]?.keys() ?? [])].filter(day =>
+    navMaps.every(map => map.has(day)),
+  );
+  if (commonDays.length < 3) return null;
+
+  const seriesReturns = navMaps.map(map => {
+    const rets: number[] = [];
+    for (let i = 1; i < commonDays.length; i++) {
+      const prev = map.get(commonDays[i - 1]!)!;
+      const cur = map.get(commonDays[i]!)!;
+      rets.push(cur / prev - 1);
+    }
+    return rets;
+  });
+
+  const n = details.length;
+  const m = commonDays.length - 1;
+  const means = seriesReturns.map(r => r.reduce((s, v) => s + v, 0) / m);
+  const stds = seriesReturns.map((r, idx) => {
+    const mu = means[idx]!;
+    const v = r.reduce((s, x) => s + (x - mu) ** 2, 0) / Math.max(1, m - 1);
+    return Math.sqrt(v);
+  });
+
+  const correlations: (number | null)[][] = Array.from({ length: n }, () =>
+    Array.from({ length: n }, () => null),
+  );
+  const offDiag: number[] = [];
+  for (let i = 0; i < n; i++) {
+    correlations[i]![i] = 1;
+    for (let j = i + 1; j < n; j++) {
+      const denom = stds[i]! * stds[j]!;
+      let corr: number | null = null;
+      if (denom > 1e-12) {
+        let cov = 0;
+        for (let t = 0; t < m; t++) {
+          cov += (seriesReturns[i]![t]! - means[i]!) * (seriesReturns[j]![t]! - means[j]!);
+        }
+        cov /= Math.max(1, m - 1);
+        corr = Math.max(-1, Math.min(1, cov / denom));
+        offDiag.push(corr);
+      }
+      correlations[i]![j] = corr;
+      correlations[j]![i] = corr;
+    }
+  }
+  const avgCorrelation = offDiag.length
+    ? offDiag.reduce((s, v) => s + v, 0) / offDiag.length
+    : null;
+
+  let weights = Array.from({ length: n }, () => 1 / n);
+  if (mode === "inv_vol" && stds.every(s => s > 1e-12)) {
+    const inv = stds.map(s => 1 / s);
+    const total = inv.reduce((s, v) => s + v, 0);
+    weights = inv.map(v => v / total);
+  }
+
+  const portReturns: number[] = [];
+  const nav: number[] = [1];
+  let peak = 1;
+  let maxDrawdown = 0;
+  for (let t = 0; t < m; t++) {
+    let r = 0;
+    for (let i = 0; i < n; i++) r += weights[i]! * seriesReturns[i]![t]!;
+    portReturns.push(r);
+    const nextNav = nav[t]! * (1 + r);
+    nav.push(nextNav);
+    if (nextNav > peak) peak = nextNav;
+    const dd = peak > 0 ? (peak - nextNav) / peak : 0;
+    if (dd > maxDrawdown) maxDrawdown = dd;
+  }
+
+  const totalReturn = nav.at(-1)! - 1;
+  const meanP = portReturns.reduce((s, v) => s + v, 0) / m;
+  const varP = portReturns.reduce((s, v) => s + (v - meanP) ** 2, 0) / Math.max(1, m - 1);
+  const stdP = Math.sqrt(varP);
+  const annualVolatility = stdP * Math.sqrt(252);
+  const annualReturn = nav.at(-1)! > 0 ? Math.pow(nav.at(-1)!, 252 / m) - 1 : null;
+  const sharpe = stdP > 1e-12 ? (meanP / stdP) * Math.sqrt(252) : null;
+  const weightedAvgVol = weights.reduce((s, w, i) => s + w * stds[i]!, 0) * Math.sqrt(252);
+  const volReduction =
+    weightedAvgVol > 1e-12 ? (weightedAvgVol - annualVolatility) / weightedAvgVol : null;
+
+  return {
+    days: commonDays,
+    correlations,
+    avgCorrelation,
+    weights,
+    nav,
+    totalReturn,
+    annualReturn,
+    annualVolatility,
+    sharpe,
+    maxDrawdown,
+    volReduction,
+  };
+}
+
+export function combinedStrategyStem(details: readonly RunDetail[]) {
+  const parts = details
+    .slice(0, 2)
+    .map(detail =>
+      (detail.summary?.strategy.split(".")[1] ?? "strategy")
+        .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+        .toLowerCase()
+        .replace(/[^a-z0-9_]/g, "_"),
+    )
+    .filter(Boolean);
+  const stem = `${parts.join("_")}_portfolio`.replace(/_+/g, "_").replace(/^_+|_+$/g, "");
+  return /^[a-z_]/.test(stem) ? stem : `combined_${stem || "portfolio"}`;
+}
+
+export function combinedStrategyTemplate(
+  details: readonly RunDetail[],
+  weights: readonly number[],
+  volBalance: boolean,
+  moduleName: string,
+): { content: string; id: string } {
+  const cls = strategyClassName(moduleName);
+  const imports: string[] = [];
+  const paramLines: string[] = [];
+  const componentLines: string[] = [];
+  const names: string[] = [];
+  const usedAliases = new Set<string>();
+
+  details.forEach((detail, idx) => {
+    const rec = JSON.parse(detail.record) as {
+      strategy?: { id?: string };
+      params?: Record<string, unknown>;
+    };
+    const stratId = rec.strategy?.id || detail.summary?.strategy || "";
+    const [mod, stratCls] = stratId.split(".");
+    if (!mod || !stratCls) return;
+    let alias = stratCls;
+    if (usedAliases.has(alias)) alias = `${stratCls}_${idx + 1}`;
+    usedAliases.add(alias);
+    imports.push(
+      alias === stratCls
+        ? `from strategies.${mod} import ${stratCls}`
+        : `from strategies.${mod} import ${stratCls} as ${alias}`,
+    );
+    const share = Number((weights[idx] ?? 1 / details.length).toFixed(4));
+    const shareKey = `share_${idx + 1}`;
+    paramLines.push(`        "${shareKey}": ${share},`);
+    const kwargs = Object.entries(rec.params ?? {})
+      .filter(([, value]) => ["boolean", "number", "string"].includes(typeof value))
+      .map(
+        ([k, v]) => `${k}=${typeof v === "boolean" ? (v ? "True" : "False") : JSON.stringify(v)}`,
+      )
+      .join(", ");
+    componentLines.push(`            (${alias}(${kwargs}), self.params["${shareKey}"]),`);
+    names.push(stratId);
+  });
+
+  const content = `from asterion_strategy import CombinedStrategy
+
+${imports.join("\n")}
+
+
+class ${cls}(CombinedStrategy):
+    """Multi-strategy portfolio combining ${names.join(" + ")}."""
+
+    vol_balance = ${volBalance ? "True" : "False"}
+    max_sector_gross = 0.5
+    params = {
+${paramLines.join("\n")}
+    }
+
+    def components(self):
+        return [
+${componentLines.join("\n")}
+        ]
+`;
+  return { content, id: `${moduleName}.${cls}` };
 }
 
 // The first content of a new module of strategies/ or factors/, which runs as it is.

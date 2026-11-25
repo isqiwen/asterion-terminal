@@ -21,14 +21,22 @@ import { protocolPeriod } from "../../src/ui/periods";
 import type { Tone } from "../../src/ui/StatusBadge";
 import { useVirtualRows } from "../../src/ui/virtual-rows";
 import { Offset, Period, Side } from "../../src/generated/asterion/common_pb";
+import { NewModule, type ModuleDraft } from "./LabParts";
 import {
   batchKey,
   batchStrategy,
+  breakEvenSlippage,
+  combinedStrategyStem,
+  combinedStrategyTemplate,
+  comparePortfolio,
+  deflatedSharpeRatio,
   heatmap,
+  medianValue,
   monthlyReturns,
   parameterText,
   runName,
   runState,
+  slippageKey,
 } from "./research-lab";
 
 const t = (key: string, values?: MessageValues) =>
@@ -1267,17 +1275,50 @@ const overlayColors = [
   "var(--series-2)",
 ];
 
-// Runs side by side: their figures, the parameters that differ, and their net
-// value on the first run's days.
-export function RunComparison({ ids }: { ids: readonly string[] }) {
-  return <Comparison key={ids.join("\n")} joined={ids.join("\n")} />;
+// Runs side by side: their figures, the parameters that differ, their net
+// value on the first run's days, correlation matrix, and portfolio synthesis.
+export function RunComparison({
+  ids,
+  repository,
+  onGenerated,
+}: {
+  ids: readonly string[];
+  repository?: string;
+  onGenerated?: (
+    path: string,
+    id: string,
+    scope: { symbols: string; begin: string; end: string },
+  ) => void;
+}) {
+  return (
+    <Comparison
+      key={ids.join("\n")}
+      joined={ids.join("\n")}
+      repository={repository}
+      onGenerated={onGenerated}
+    />
+  );
 }
 
 // `joined` is the run ids, one a line: a parent's new array of the same ids reads nothing again.
-function Comparison({ joined }: { joined: string }) {
+function Comparison({
+  joined,
+  repository,
+  onGenerated,
+}: {
+  joined: string;
+  repository?: string;
+  onGenerated?: (
+    path: string,
+    id: string,
+    scope: { symbols: string; begin: string; end: string },
+  ) => void;
+}) {
   const ids = joined.split("\n");
   const [details, setDetails] = useState<RunDetail[]>([]);
   const [error, setError] = useState<DisplayError>("");
+  const [simMode, setSimMode] = useState<"equal" | "inv_vol">("equal");
+  const [generating, setGenerating] = useState<ModuleDraft | null>(null);
   useEffect(() => {
     let active = true;
     void Promise.all(joined.split("\n").map(id => lab({ case: "getRun", value: { id } })))
@@ -1287,6 +1328,10 @@ function Comparison({ joined }: { joined: string }) {
       active = false;
     };
   }, [joined]);
+  const portfolio = useMemo(
+    () => (details.length === ids.length ? comparePortfolio(details, simMode) : null),
+    [details, ids.length, simMode],
+  );
   useErrorNotification(error, "asterion.terminal.research");
   if (error) return null;
   if (details.length !== ids.length) return <p className="subtle">{t("正在读取结果…")}</p>;
@@ -1311,6 +1356,27 @@ function Comparison({ joined }: { joined: string }) {
   const differing = params.filter(
     param => new Set(details.map(detail => parameterText(detail.summary!.params[param]))).size > 1,
   );
+  const distinctStrategies = new Set(details.map(d => d.summary!.strategy).filter(Boolean));
+  const resolvedRepo =
+    repository ||
+    (details
+      .map(
+        d => (JSON.parse(d.record) as { strategy?: { repository?: string } }).strategy?.repository,
+      )
+      .find(Boolean) ??
+      "");
+  const canGenerateCombined = Boolean(
+    portfolio && resolvedRepo && distinctStrategies.size >= 2 && onGenerated,
+  );
+  const portfolioByDay = portfolio
+    ? new Map(portfolio.days.map((d, idx) => [d, portfolio.nav[idx]!]))
+    : null;
+  const corrCellStyle = (value: number | null) => {
+    if (value === null) return undefined;
+    const strength = Math.round(Math.min(1, Math.abs(value)) * 45);
+    const tone = value >= 0 ? "var(--quote-up)" : "var(--quote-down)";
+    return { background: `color-mix(in oklab, ${tone} ${strength}%, var(--panel))` };
+  };
   return (
     <div className="lab-result">
       <div className="lab-scroll">
@@ -1386,19 +1452,30 @@ function Comparison({ joined }: { joined: string }) {
             price: String(Number(item.equity?.text) / base(first)),
           })),
         }}
-        overlays={others.map((detail, index) => {
-          const equity = new Map(
-            detail.days.map(item => [item.tradingDay, Number(item.equity?.text)]),
-          );
-          return {
-            label: name(detail),
-            color: overlayColors[index % overlayColors.length],
-            values: first.days.map(item => {
-              const value = equity.get(item.tradingDay);
-              return value === undefined ? null : value / base(detail);
-            }),
-          };
-        })}
+        overlays={[
+          ...others.map((detail, index) => {
+            const equity = new Map(
+              detail.days.map(item => [item.tradingDay, Number(item.equity?.text)]),
+            );
+            return {
+              label: name(detail),
+              color: overlayColors[index % overlayColors.length]!,
+              values: first.days.map(item => {
+                const value = equity.get(item.tradingDay);
+                return value === undefined ? null : value / base(detail);
+              }),
+            };
+          }),
+          ...(portfolioByDay
+            ? [
+                {
+                  label: t("组合试算"),
+                  color: "var(--accent)",
+                  values: first.days.map(item => portfolioByDay.get(item.tradingDay) ?? null),
+                },
+              ]
+            : []),
+        ]}
         label={t("净值：{names}", { names: details.map(name).join(listSeparator()) })}
         titled
         volumeLabel={t("成交量")}
@@ -1410,6 +1487,127 @@ function Comparison({ joined }: { joined: string }) {
             : null
         }
       />
+      {portfolio && (
+        <>
+          <div className="lab-toolbar">
+            <h3>{t("多策略组合试算")}</h3>
+            <div className="lab-segmented" role="group" aria-label={t("合成方式")}>
+              {(
+                [
+                  ["equal", "等权合成"],
+                  ["inv_vol", "波动率平价"],
+                ] as const
+              ).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  aria-pressed={simMode === mode}
+                  onClick={() => setSimMode(mode)}
+                >
+                  {t(label)}
+                </button>
+              ))}
+            </div>
+            <span className="lab-spacer" />
+            {canGenerateCombined && (
+              <button
+                type="button"
+                className="primary"
+                onClick={() =>
+                  setGenerating({
+                    title: "生成组合策略",
+                    name: combinedStrategyStem(details),
+                    build: moduleName =>
+                      combinedStrategyTemplate(
+                        details,
+                        portfolio.weights,
+                        simMode === "inv_vol",
+                        moduleName,
+                      ),
+                  })
+                }
+              >
+                {t("生成组合策略")}
+              </button>
+            )}
+          </div>
+          <dl className="lab-figures">
+            <div>
+              <dt>{t("组合总收益")}</dt>
+              <dd className={signed(portfolio.totalReturn)}>
+                {metric(portfolio.totalReturn, true)}
+              </dd>
+            </div>
+            <div>
+              <dt>{t("组合夏普")}</dt>
+              <dd>{metric(portfolio.sharpe ?? undefined, false)}</dd>
+            </div>
+            <div>
+              <dt>{t("组合最大回撤")}</dt>
+              <dd>{metric(portfolio.maxDrawdown, true)}</dd>
+            </div>
+            <div>
+              <dt>{t("平均相关性")}</dt>
+              <dd>{metric(portfolio.avgCorrelation ?? undefined, false)}</dd>
+            </div>
+            <div>
+              <dt>{t("波动降幅")}</dt>
+              <dd className={signed(portfolio.volReduction)}>
+                {metric(portfolio.volReduction ?? undefined, true)}
+              </dd>
+            </div>
+          </dl>
+          <p className="subtle">
+            {details
+              .map(
+                (detail, idx) => `${name(detail)} ${(portfolio.weights[idx]! * 100).toFixed(1)}%`,
+              )
+              .join(" · ")}
+          </p>
+          <h3>{t("策略相关性矩阵")}</h3>
+          <div className="lab-scroll">
+            <table className="lab-heatmap lab-corr-heatmap" aria-label={t("策略相关性矩阵")}>
+              <thead>
+                <tr>
+                  <th scope="col" />
+                  {details.map(detail => (
+                    <th scope="col" key={detail.summary!.id}>
+                      {name(detail)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {details.map((rowDetail, r) => (
+                  <tr key={rowDetail.summary!.id}>
+                    <th scope="row">{name(rowDetail)}</th>
+                    {portfolio.correlations[r]!.map((val, c) => (
+                      <td key={c} style={corrCellStyle(val)}>
+                        {val === null ? "—" : val.toFixed(3)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {generating && resolvedRepo && (
+            <NewModule
+              hideTrigger
+              folder="strategies"
+              repository={resolvedRepo}
+              generated={generating}
+              cancelGenerated={() => setGenerating(null)}
+              created={(path, id) => {
+                const symbols = [...new Set(details.flatMap(d => d.summary!.symbols))].join(", ");
+                const begin = portfolio.days[0] ?? "";
+                const end = portfolio.days.at(-1) ?? "";
+                onGenerated?.(path, id ?? "", { symbols, begin, end });
+              }}
+            />
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -1463,7 +1661,14 @@ export function SweepResult({
   const sweptParams = names.filter(name => new Set(rows.map(row => row.params[name])).size > 1);
   const sweptAxes = [...(hasSymbols ? [symbolAxis] : []), ...sweptParams];
   const axisLabel = (axis: string) =>
-    axis === symbolAxis ? t("品种") : axis === batchKey ? t("策略") : axis;
+    axis === symbolAxis
+      ? t("品种")
+      : axis === batchKey
+        ? t("策略")
+        : axis === slippageKey
+          ? t("滑点（跳）")
+          : axis;
+  const isSlippage = names.length === 1 && names[0] === slippageKey;
   const grid = sweptAxes.length === 2 ? heatmap(rows, sweptAxes[0]!, sweptAxes[1]!) : null;
   const cellRuns = grid
     ? new Map(rows.map(row => [`${row.params[sweptAxes[0]!]}\0${row.params[sweptAxes[1]!]}`, row]))
@@ -1472,10 +1677,158 @@ export function SweepResult({
   const low = Math.min(...values),
     high = Math.max(...values);
   const percent = percentMetric(measure);
-  const pureMultiSymbol = (hasSymbols && names.length === 0) || names[0] === batchKey;
+  const pureMultiSymbol = (hasSymbols && names.length === 0) || names[0] === batchKey || isSlippage;
   const extraMeasure = !["total_return", "sharpe", "max_drawdown"].includes(measure);
+
+  const slippageSummary = isSlippage
+    ? breakEvenSlippage(
+        runs
+          .filter(run => runState(run.state) === "succeeded")
+          .map(run => ({
+            ticks: Number(parameterText(run.params[slippageKey])),
+            sharpe: run.metrics.sharpe,
+            totalReturn: run.metrics.total_return,
+          })),
+      )
+    : null;
+
+  // Parameter sweep overfitting check: Deflated Sharpe Ratio & immediate grid neighbor median.
+  const sweepCheck = (() => {
+    if (pureMultiSymbol || isSlippage) return null;
+    const sharpeKey = runs.some(r => "development_sharpe" in r.metrics)
+      ? "development_sharpe"
+      : "sharpe";
+    const sharpes = runs
+      .map(r => r.metrics[sharpeKey])
+      .filter((v): v is number => v !== undefined && Number.isFinite(v));
+    if (sharpes.length < 2) return null;
+    const bestSharpe = Math.max(...sharpes);
+    const sampleRun = runs.find(r => r.firstDay && r.lastDay);
+    const daysEstimate = sampleRun
+      ? Math.max(
+          20,
+          Math.round(
+            ((Date.parse(sampleRun.lastDay) - Date.parse(sampleRun.firstDay)) / 86400000) *
+              (252 / 365),
+          ),
+        )
+      : 252;
+    const dsr = deflatedSharpeRatio(bestSharpe, sharpes, daysEstimate);
+
+    // Plateau robustness: median Sharpe of immediate grid neighbors around the best parameter cell.
+    let neighborMedian: number | null = null;
+    if (sweptAxes.length === 2) {
+      const sGrid = heatmap(
+        rows.map(row => ({ params: row.params, metric: row.metrics[sharpeKey] ?? null })),
+        sweptAxes[0]!,
+        sweptAxes[1]!,
+      );
+      let bestRow = -1;
+      let bestCol = -1;
+      let bestVal = -Infinity;
+      sGrid.cells.forEach((rowCells, r) =>
+        rowCells.forEach((val, c) => {
+          if (val !== null && val > bestVal) {
+            bestVal = val;
+            bestRow = r;
+            bestCol = c;
+          }
+        }),
+      );
+      if (bestRow >= 0 && bestCol >= 0) {
+        const neighbors: number[] = [];
+        for (let dr = -1; dr <= 1; dr++) {
+          for (let dc = -1; dc <= 1; dc++) {
+            if (dr === 0 && dc === 0) continue;
+            const v = sGrid.cells[bestRow + dr]?.[bestCol + dc];
+            if (v !== null && v !== undefined && Number.isFinite(v)) neighbors.push(v);
+          }
+        }
+        neighborMedian = medianValue(neighbors);
+      }
+    } else if (sweptAxes.length === 1) {
+      const axis = sweptAxes[0]!;
+      const ordered = [...rows]
+        .filter(row => row.metrics[sharpeKey] !== undefined)
+        .sort((a, b) => Number(a.params[axis]) - Number(b.params[axis]));
+      let bestIdx = -1;
+      let bestVal = -Infinity;
+      ordered.forEach((row, idx) => {
+        const v = row.metrics[sharpeKey]!;
+        if (v > bestVal) {
+          bestVal = v;
+          bestIdx = idx;
+        }
+      });
+      if (bestIdx >= 0) {
+        const neighbors = [ordered[bestIdx - 1], ordered[bestIdx + 1]]
+          .filter((item): item is (typeof ordered)[number] => Boolean(item))
+          .map(item => item.metrics[sharpeKey]!);
+        neighborMedian = medianValue(neighbors);
+      }
+    }
+    const plateauRatio =
+      neighborMedian !== null && bestSharpe > 0 ? neighborMedian / bestSharpe : null;
+    return { bestSharpe, dsr, neighborMedian, plateauRatio };
+  })();
+
   return (
     <div className="lab-result">
+      {slippageSummary && (
+        <dl className="lab-figures" aria-label={t("滑点压力测试")}>
+          <div>
+            <dt>{t("盈亏平衡滑点")}</dt>
+            <dd>
+              {slippageSummary.status === "above_max"
+                ? t("> {ticks} 跳", { ticks: slippageSummary.maxTicks })
+                : slippageSummary.status === "interpolated" && slippageSummary.ticks !== null
+                  ? t("{ticks} 跳", { ticks: slippageSummary.ticks.toFixed(1) })
+                  : t("无正收益")}
+            </dd>
+          </div>
+          {runs
+            .slice()
+            .sort(
+              (a, b) =>
+                Number(parameterText(a.params[slippageKey])) -
+                Number(parameterText(b.params[slippageKey])),
+            )
+            .map(run => (
+              <div key={run.id}>
+                <dt>{t("{ticks} 跳", { ticks: parameterText(run.params[slippageKey]) })}</dt>
+                <dd className={signed(run.metrics.total_return)}>
+                  {run.metrics.sharpe !== undefined
+                    ? metric(run.metrics.sharpe, false)
+                    : metric(run.metrics.total_return, true)}
+                </dd>
+              </div>
+            ))}
+        </dl>
+      )}
+      {sweepCheck && (
+        <dl className="lab-figures" aria-label={t("过拟合体检")}>
+          <div>
+            <dt>{t("最佳夏普")}</dt>
+            <dd>{metric(sweepCheck.bestSharpe, false)}</dd>
+          </div>
+          <div>
+            <dt>{t("检验组数")}</dt>
+            <dd>{sweepCheck.dsr?.trials ?? runs.length}</dd>
+          </div>
+          <div>
+            <dt>{t("DSR 置信度")}</dt>
+            <dd>{metric(sweepCheck.dsr?.dsr, true)}</dd>
+          </div>
+          <div>
+            <dt>{t("邻域中位")}</dt>
+            <dd>{metric(sweepCheck.neighborMedian ?? undefined, false)}</dd>
+          </div>
+          <div>
+            <dt>{t("高原稳健度")}</dt>
+            <dd>{metric(sweepCheck.plateauRatio ?? undefined, true)}</dd>
+          </div>
+        </dl>
+      )}
       <div className="lab-toolbar">
         <label className="lab-inline">
           {t("按指标")}

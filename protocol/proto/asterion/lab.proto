@@ -494,6 +494,8 @@ message Sweep {
   repeated string symbols = 6;
   // A batch: these strategies on the base's settings, one data version and source.
   repeated SweepStrategy strategies = 7;
+  // A slippage stress test: one base run across distinct tick levels.
+  repeated uint32 slippage_ticks = 8;
 }
 
 message SweepStrategy {

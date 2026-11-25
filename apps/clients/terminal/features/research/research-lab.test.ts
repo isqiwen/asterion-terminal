@@ -13,9 +13,13 @@ import {
 import { registerLanguageResources, setLocale } from "../../src/i18n";
 import { feature } from "./feature";
 import {
+  breakEvenSlippage,
+  combinedStrategyTemplate,
+  comparePortfolio,
   cumulativeIc,
   defaultFactorForm,
   defaultForm,
+  deflatedSharpeRatio,
   factorRequest,
   factorStrategyStem,
   factorStrategyTemplate,
@@ -360,4 +364,55 @@ test("factorStrategyTemplate generates deployable Python strategy code preservin
   expect(built.content).toContain('"min_volume": 500.0');
   expect(built.content).toContain("lookback=30");
   expect(built.content).toContain("def ready(self, ctx):");
+});
+
+test("DSR, break-even slippage, portfolio comparison, and combinedStrategyTemplate compute accurate strategy analytics", () => {
+  // Higher trial dispersion lowers DSR confidence; strong Sharpe with many observations gives high DSR.
+  const strong = deflatedSharpeRatio(2.2, [0.4, 0.8, 1.2, 2.2], 504)!;
+  const noisy = deflatedSharpeRatio(0.9, [-0.5, 0.0, 0.4, 0.9, 0.8, 0.7, 0.2, 0.1], 60)!;
+  expect(strong.dsr).toBeGreaterThan(0.9);
+  expect(noisy.dsr).toBeLessThan(strong.dsr);
+
+  // Break-even slippage interpolates zero crossing and reports above_max when still positive.
+  expect(
+    breakEvenSlippage([
+      { ticks: 0, sharpe: 1.0 },
+      { ticks: 2, sharpe: 0.5 },
+      { ticks: 4, sharpe: -0.5 },
+    ]),
+  ).toEqual({ ticks: 3, status: "interpolated", maxTicks: 4 });
+  expect(
+    breakEvenSlippage([
+      { ticks: 0, sharpe: 1.5 },
+      { ticks: 5, sharpe: 0.4 },
+    ]),
+  ).toEqual({ ticks: null, status: "above_max", maxTicks: 5 });
+
+  // Portfolio comparison computes correlation, inverse-vol weights, volatility reduction, and CombinedStrategy code.
+  const makeRun = (id: string, strategy: string, equities: number[], params: object) =>
+    create(RunDetailSchema, {
+      summary: { id, strategy, symbols: ["SHFE/rb", "SHFE/cu"] },
+      record: JSON.stringify({ strategy: { id: strategy }, params, costs: { deposit: "100" } }),
+      days: equities.map((eq, idx) => ({
+        tradingDay: `2026-01-0${idx + 1}`,
+        equity: { text: String(eq) },
+        settledMs: BigInt((idx + 1) * 86400_000),
+      })),
+    });
+  const a = makeRun("r1", "trend.Trend", [100, 102, 101, 103, 102, 105], { lookback: 20 });
+  const b = makeRun("r2", "carry.Carry", [100, 96, 104, 98, 106, 102], { window: 10 });
+  const sim = comparePortfolio([a, b], "inv_vol")!;
+  expect(sim.days).toHaveLength(6);
+  expect(sim.correlations[0]![1]!).toBeLessThan(0);
+  // Lower-volatility strategy `a` gets higher weight under inverse-vol parity.
+  expect(sim.weights[0]!).toBeGreaterThan(sim.weights[1]!);
+  expect(sim.volReduction!).toBeGreaterThan(0);
+
+  const generated = combinedStrategyTemplate([a, b], sim.weights, true, "trend_carry_portfolio");
+  expect(generated.id).toBe("trend_carry_portfolio.TrendCarryPortfolio");
+  expect(generated.content).toContain("from strategies.trend import Trend");
+  expect(generated.content).toContain("from strategies.carry import Carry");
+  expect(generated.content).toContain("vol_balance = True");
+  expect(generated.content).toContain("Trend(lookback=20)");
+  expect(generated.content).toContain("Carry(window=10)");
 });

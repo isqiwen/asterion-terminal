@@ -102,6 +102,7 @@ export function StrategyLibrary({
   setSearch,
   busy,
   startBatch,
+  compareRuns,
   cancelBatch,
   open,
   contextTarget,
@@ -123,6 +124,7 @@ export function StrategyLibrary({
   setSearch: (search: string) => void;
   busy: boolean;
   startBatch: () => void;
+  compareRuns?: (runIds: string[]) => void;
   cancelBatch: () => void;
   open: (item: ModuleItem, run?: string) => void;
   contextTarget?: string;
@@ -166,6 +168,11 @@ export function StrategyLibrary({
   useEffect(() => {
     if (selectAllRef.current) selectAllRef.current.indeterminate = someShown;
   }, [someShown]);
+  const comparableRunIds = selected
+    .map(id => rows.find(entry => entry.item.id === id)?.run)
+    .filter((entry): entry is RunSummary => Boolean(entry && entry.state === RunState.SUCCEEDED))
+    .map(entry => entry.id)
+    .slice(0, 6);
   const ended = batch?.runs.filter(
     run => run.state !== RunState.UNSPECIFIED && run.state !== RunState.RUNNING,
   ).length;
@@ -291,6 +298,11 @@ export function StrategyLibrary({
           </button>
         )}
         {newModule}
+        {compareRuns && comparableRunIds.length >= 2 && (
+          <button type="button" onClick={() => compareRuns(comparableRunIds)}>
+            {t("对比与合成（{count}）", { count: comparableRunIds.length })}
+          </button>
+        )}
         <button
           type="button"
           className="primary"

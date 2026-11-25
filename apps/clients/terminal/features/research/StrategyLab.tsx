@@ -9,6 +9,7 @@ import { notify } from "../../src/host/notifications";
 import { useLabActiveReport } from "../../src/host/lab";
 import { type MessageValues, translate, listSeparator } from "../../src/i18n";
 import {
+  SLIPPAGE_STRESS_TICKS,
   defaultProcesses,
   defaultText,
   formFromRun,
@@ -20,6 +21,8 @@ import {
   runState,
   savedForm,
   scopeOf,
+  slippageKey,
+  slippageStressBase,
   symbolsOf,
   type RunForm,
 } from "./research-lab";
@@ -309,6 +312,24 @@ export function StrategyLab(context: TerminalContext) {
     });
     setBusy(false);
   };
+  const startSlippageStress = (runId: string) =>
+    void reportActed.attempt(async () => {
+      const detail = await lab({ case: "getRun", value: { id: runId } });
+      const sweepId = identity(detail.summary?.strategy || "stress", "slip");
+      const base = slippageStressBase(detail, repository);
+      await lab({
+        case: "startSweep",
+        value: {
+          id: sweepId,
+          base,
+          slippageTicks: [...SLIPPAGE_STRESS_TICKS],
+          processes: Number(form.processes) || 0,
+        },
+      });
+      setReport({ kind: "sweep", id: sweepId });
+      setTab("result");
+    });
+
   const singleRuns = runs.filter(run => !run.sweepId || run.id !== `${run.sweepId}-rolling`);
   // The open strategy's result follows the settings in use.
   useEffect(() => {
@@ -430,11 +451,13 @@ export function StrategyLab(context: TerminalContext) {
             <h2>
               {shownReport.kind === "sweep"
                 ? t(
-                    activeSweep?.id === shownReport.id &&
-                      new Set(activeSweep.runs.map(run => run.symbols.join(","))).size > 1 &&
-                      Object.keys(activeSweep.runs[0]?.params ?? {}).length === 0
-                      ? "多品种回测 {id}"
-                      : "扫描 {id}",
+                    activeSweep?.id === shownReport.id && activeSweep.runs[0]?.params[slippageKey]
+                      ? "滑点压力测试 {id}"
+                      : activeSweep?.id === shownReport.id &&
+                          new Set(activeSweep.runs.map(run => run.symbols.join(","))).size > 1 &&
+                          Object.keys(activeSweep.runs[0]?.params ?? {}).length === 0
+                        ? "多品种回测 {id}"
+                        : "扫描 {id}",
                     {
                       id: recordName(
                         shownReport.id,
@@ -484,16 +507,25 @@ export function StrategyLab(context: TerminalContext) {
           {shownReport?.kind === "run" &&
             activeState === "succeeded" &&
             (!activeRun?.sweepId || shownReport.id !== `${activeRun.sweepId}-rolling`) && (
-              <button
-                type="button"
-                onClick={() =>
-                  context.navigate("workspace.trading-strategies", {
-                    params: { run: shownReport.id },
-                  })
-                }
-              >
-                {t("去部署")}
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="lab-link"
+                  onClick={() => startSlippageStress(shownReport.id)}
+                >
+                  {t("滑点压力测试")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    context.navigate("workspace.trading-strategies", {
+                      params: { run: shownReport.id },
+                    })
+                  }
+                >
+                  {t("去部署")}
+                </button>
+              </>
             )}
         </header>
       )}
@@ -525,6 +557,9 @@ export function StrategyLab(context: TerminalContext) {
           setSearch={setSearch}
           busy={busy || Boolean(context.busy)}
           startBatch={() => void startBatch()}
+          compareRuns={ids =>
+            context.navigate("workspace.lab-runs", { params: { compare: ids.join(",") } })
+          }
           cancelBatch={() =>
             void submitted.attempt(async () => {
               await lab({ case: "cancelSweep", value: { id: batchId } });

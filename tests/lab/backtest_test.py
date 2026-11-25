@@ -2380,6 +2380,45 @@ class BacktestSweeps(BacktestCase):
         self.assertAlmostEqual(diag["components"][0]["ready_rate"], 1.0)
         self.assertGreater(diag["components"][0]["proxy_return"], 0.0)
 
+    def test_slippage_stress_sweep_runs_each_tick_level(self):
+        async def exercise():
+            async with self.service() as service:
+                request = Request(id=1)
+                sweep = request.start_sweep
+                sweep.id, sweep.processes = "stress-1", 2
+                sweep.slippage_ticks.extend([0, 2, 5])
+                run = sweep.base
+                run.repository, run.strategy = str(self.repository), "ma_cross.MaCross"
+                run.symbols.append("SHFE/rb/2026-05")
+                self.fill(run)
+                run.params["fast"].integer = 2
+                run.params["slow"].integer = 4
+                run.periods_per_year, run.zero_risk_free_rate = 252, True
+
+                reply = await service.reply(request)
+                self.assertEqual(reply.WhichOneof("result"), "start_sweep", reply.error.message)
+                for _ in range(120):
+                    poll = await service.reply(Request(id=2, get_sweep={"id": "stress-1"}))
+                    if not poll.get_sweep.active:
+                        break
+                    await asyncio.sleep(0.05)
+                self.assertFalse(poll.get_sweep.active)
+                self.assertEqual(len(poll.get_sweep.runs), 3)
+                self.assertEqual(
+                    [r.params["__slippage__"].integer for r in poll.get_sweep.runs],
+                    [0, 2, 5],
+                )
+                self.assertTrue(all(r.state == RunState.RUN_STATE_SUCCEEDED for r in poll.get_sweep.runs))
+                self.assertEqual(
+                    [r.settings.slippage_ticks for r in poll.get_sweep.runs],
+                    [0, 2, 5],
+                )
+                # Higher slippage reduces or matches total return.
+                returns = [r.metrics["total_return"] for r in poll.get_sweep.runs]
+                self.assertGreaterEqual(returns[0], returns[2])
+
+        asyncio.run(exercise())
+
 
 if __name__ == "__main__":
     unittest.main()

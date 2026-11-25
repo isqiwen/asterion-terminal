@@ -70,6 +70,7 @@ class Plan:
 
 # A batch's run names its strategy here among its swept values.
 BATCH_STRATEGY = "__strategy__"
+SLIPPAGE_STRESS = "__slippage__"
 RUN_COLUMNS = frozenset({
     "id", "strategy", "commit_id", "changes", "dataset_version", "state", "error",
     "started_ns", "finished_ns", "params", "symbols", "begin_day", "end_day",
