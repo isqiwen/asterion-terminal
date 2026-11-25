@@ -8,7 +8,13 @@ import {
   useConditions,
   type ConditionStore,
 } from "./Conditions";
-import { datePlaceholders, SymbolField, type StoredCatalog, useStoredCatalog } from "./LabParts";
+import {
+  datePlaceholders,
+  SymbolField,
+  SymbolPopover,
+  type StoredCatalog,
+  useStoredCatalog,
+} from "./LabParts";
 import {
   defaultForm,
   readConditions,
@@ -51,14 +57,13 @@ const store: ConditionStore<ScopeFields> = {
   write: saveConditions,
   defaults: () => scopeOf(defaultForm()),
   name: fields => `${symbolNames(fields.symbols)} · ${periodName(fields.minutes)}`,
+  same: sameScope,
 };
 
 function summary(form: RunForm, begin: string, end: string) {
   const deposit = Number(form.deposit);
   return [
-    symbolNames(form.symbols),
     dayRange(form.begin, form.end, begin, end),
-    periodName(form.minutes),
     Number.isFinite(deposit)
       ? new Intl.NumberFormat(getLocale(), { notation: "compact" }).format(deposit)
       : form.deposit,
@@ -68,23 +73,10 @@ function summary(form: RunForm, begin: string, end: string) {
 }
 
 export function useRunConditions(setForm: (update: (previous: RunForm) => RunForm) => void) {
-  const conditions = useConditions(store, fields =>
-    setForm(previous => ({ ...previous, ...fields })),
-  );
-  return {
-    ...conditions,
-    // A past run's settings: the set that already holds them, or a new one.
-    adopt: (fields: ScopeFields) => {
-      const current = readConditions();
-      const same = current.items.find(item => sameScope(item.fields, fields));
-      if (same) conditions.commit({ ...current, active: same.name });
-      else conditions.save("", "", fields);
-      return same?.fields ?? fields;
-    },
-  };
+  return useConditions(store, fields => setForm(previous => ({ ...previous, ...fields })));
 }
 
-// What every backtest on this page is measured under: one of the saved sets.
+// What every backtest on this page is measured under: a working draft, optionally backed by a saved preset.
 export function RunScope({
   context,
   form,
@@ -101,14 +93,43 @@ export function RunScope({
   conditions: ReturnType<typeof useRunConditions>;
   catalog?: StoredCatalog;
 }) {
+  const current = scopeOf(form);
+  const hasSymbols = symbolsOf(form.symbols).length > 0;
   return (
     <ConditionBar
       title={t("回测条件")}
       setLabel={t("设置回测条件")}
       editLabel={t("修改回测条件")}
       conditions={conditions}
-      text={conditions.items.length ? summary(form, begin, end) : ""}
-      initial={scopeOf(form)}
+      text={hasSymbols ? summary(form, begin, end) : ""}
+      initial={current}
+      quickControls={
+        <>
+          <SymbolPopover
+            context={context}
+            value={form.symbols}
+            minutes={form.minutes !== "0"}
+            catalog={catalog}
+            fallbackLabel={symbolNames(form.symbols)}
+            onChange={symbols => conditions.update({ ...current, symbols })}
+          />
+          {hasSymbols && (
+            <select
+              className="lab-scope-quick"
+              aria-label={t("快速切换周期")}
+              value={form.minutes}
+              onChange={event => conditions.update({ ...current, minutes: event.target.value })}
+            >
+              <option value="0">{t("日线")}</option>
+              {[1, 5, 10, 15, 30, 60].map(value => (
+                <option key={value} value={String(value)}>
+                  {t("{count} 分钟", { count: value })}
+                </option>
+              ))}
+            </select>
+          )}
+        </>
+      }
       fields={(draft, change) => (
         <RunFields
           context={context}

@@ -117,29 +117,49 @@ const scopeFields = [
 ] as const;
 
 export type ScopeFields = Pick<RunForm, (typeof scopeFields)[number]>;
-// Named sets of settings; a page uses one at a time.
-export type ConditionSet<F> = { active: string; items: { name: string; fields: F }[] };
+// Saved benchmark presets plus the current ad-hoc working draft.
+export type ConditionSet<F> = {
+  active: string;
+  current?: F;
+  items: { name: string; fields: F }[];
+};
 export type RunConditions = ConditionSet<ScopeFields>;
 
 export const scopeOf = (form: RunForm) =>
   Object.fromEntries(scopeFields.map(field => [field, form[field]])) as ScopeFields;
 
+function mergeConditionFields<F extends object>(
+  defaults: () => F,
+  raw: Record<string, unknown> | undefined,
+): F {
+  const fields = defaults() as Record<string, unknown>;
+  for (const field of Object.keys(fields))
+    if (typeof raw?.[field] === typeof fields[field]) fields[field] = raw![field];
+  return fields as F;
+}
+
 function readConditionSet<F extends object>(key: string, defaults: () => F): ConditionSet<F> {
   try {
     const saved = JSON.parse(localStorage.getItem(key) ?? "");
-    const items: ConditionSet<F>["items"] = saved.items
-      .filter((item: { name?: unknown }) => item?.name && typeof item.name === "string")
-      .map((item: { name: string; fields?: Record<string, unknown> }) => {
-        const fields = defaults() as Record<string, unknown>;
-        for (const field of Object.keys(fields))
-          if (typeof item.fields?.[field] === typeof fields[field])
-            fields[field] = item.fields![field];
-        return { name: item.name, fields: fields as F };
-      });
-    const active = items.some(item => item.name === saved.active)
-      ? saved.active
-      : (items[0]?.name ?? "");
-    return { active, items };
+    const items: ConditionSet<F>["items"] = Array.isArray(saved.items)
+      ? saved.items
+          .filter((item: { name?: unknown }) => item?.name && typeof item.name === "string")
+          .map((item: { name: string; fields?: Record<string, unknown> }) => ({
+            name: item.name,
+            fields: mergeConditionFields(defaults, item.fields),
+          }))
+      : [];
+    const active =
+      typeof saved.active === "string" && items.some(item => item.name === saved.active)
+        ? saved.active
+        : "";
+    const current =
+      saved.current && typeof saved.current === "object"
+        ? mergeConditionFields(defaults, saved.current as Record<string, unknown>)
+        : active
+          ? items.find(item => item.name === active)?.fields
+          : undefined;
+    return { active, current, items };
   } catch {
     // Nothing saved yet, or a damaged entry.
     return { active: "", items: [] };
@@ -152,19 +172,24 @@ export function saveConditions(conditions: RunConditions) {
   localStorage.setItem(conditionsKey, JSON.stringify(conditions));
 }
 
-// The form, on the settings the last session was using.
+// The form, on the working draft or active preset from the last session.
 export function savedForm(): RunForm {
-  const { active, items } = readConditions();
-  return { ...defaultForm(), ...items.find(item => item.name === active)?.fields };
+  const { active, current, items } = readConditions();
+  return {
+    ...defaultForm(),
+    ...(current ?? items.find(item => item.name === active)?.fields),
+  };
+}
+
+export function sameSymbolList(a: string, b: string) {
+  const [x, y] = [symbolsOf(a), symbolsOf(b)];
+  return x.length === y.length && x.every(symbol => y.includes(symbol));
 }
 
 // Whether two sets of settings say the same: "1000000.00" is 1000000, blank is 0.
 export function sameScope(a: ScopeFields, b: ScopeFields) {
   return scopeFields.every(field => {
-    if (field === "symbols") {
-      const [x, y] = [symbolsOf(a.symbols), symbolsOf(b.symbols)];
-      return x.length === y.length && x.every(symbol => y.includes(symbol));
-    }
+    if (field === "symbols") return sameSymbolList(a.symbols, b.symbols);
     const [x, y] = [a[field], b[field]];
     return (
       x === y ||
@@ -506,8 +531,173 @@ export function saveFactorConditions(conditions: ConditionSet<FactorScope>) {
 }
 
 export function savedFactorForm(): FactorForm {
-  const { active, items } = readFactorConditions();
-  return { ...defaultFactorForm(), ...items.find(item => item.name === active)?.fields };
+  const { active, current, items } = readFactorConditions();
+  return {
+    ...defaultFactorForm(),
+    ...(current ?? items.find(item => item.name === active)?.fields),
+  };
+}
+
+export function sameFactorScope(a: FactorScope, b: FactorScope) {
+  const sameNum = (x: string, y: string) => Number(x.trim() || 0) === Number(y.trim() || 0);
+  const sameList = (x: string, y: string) => {
+    const [p, q] = [symbolsOf(x).map(Number), symbolsOf(y).map(Number)];
+    return p.length === q.length && p.every((value, idx) => value === q[idx]);
+  };
+  return (
+    sameSymbolList(a.symbols, b.symbols) &&
+    a.begin.trim() === b.begin.trim() &&
+    a.end.trim() === b.end.trim() &&
+    sameList(a.horizons, b.horizons) &&
+    sameNum(a.groups, b.groups) &&
+    a.standardize === b.standardize &&
+    a.holdoutDay.trim() === b.holdoutDay.trim() &&
+    a.returnMode === b.returnMode &&
+    a.winsorize === b.winsorize &&
+    a.neutralize === b.neutralize &&
+    sameNum(a.minVolume, b.minVolume) &&
+    sameNum(a.minOpenInterest, b.minOpenInterest) &&
+    a.volAdjust === b.volAdjust &&
+    sameNum(a.costBps, b.costBps)
+  );
+}
+
+// Shared symbol universes reused across StrategyLab and FactorLab.
+export type Universe = { name: string; symbols: string };
+const universesKey = "asterion.research.universes";
+const universeListeners = new Set<() => void>();
+
+export function readUniverses(): Universe[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(universesKey) ?? "");
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (item): item is Universe =>
+        Boolean(item) &&
+        typeof item.name === "string" &&
+        Boolean(item.name.trim()) &&
+        typeof item.symbols === "string" &&
+        symbolsOf(item.symbols).length > 0,
+    );
+  } catch {
+    return [];
+  }
+}
+
+export function saveUniverses(items: Universe[]) {
+  localStorage.setItem(universesKey, JSON.stringify(items));
+  universeListeners.forEach(listener => listener());
+}
+
+export function subscribeUniverses(listener: () => void) {
+  universeListeners.add(listener);
+  return () => {
+    universeListeners.delete(listener);
+  };
+}
+
+type SectorId =
+  "black" | "nonferrous" | "precious" | "energy_chem" | "oilseeds" | "agriculture" | "financial";
+
+// Mirrors asterion_strategy.PRODUCT_SECTORS so UI universe pools match backend neutralization.
+const PRODUCT_SECTORS: Record<string, SectorId> = Object.fromEntries([
+  ...["rb", "hc", "wr", "ss", "i", "j", "jm", "sf", "sm", "zc", "tc"].map(p => [p, "black"]),
+  ...["cu", "bc", "al", "ad", "ao", "zn", "pb", "ni", "sn", "si", "ps", "lc"].map(p => [
+    p,
+    "nonferrous",
+  ]),
+  ...["au", "ag", "pt", "pd"].map(p => [p, "precious"]),
+  ...[
+    "sc",
+    "fu",
+    "lu",
+    "bu",
+    "ru",
+    "nr",
+    "br",
+    "ta",
+    "px",
+    "pf",
+    "pr",
+    "pl",
+    "ma",
+    "me",
+    "eg",
+    "eb",
+    "bz",
+    "l",
+    "pp",
+    "v",
+    "pg",
+    "fg",
+    "sa",
+    "sh",
+    "ur",
+    "sp",
+    "op",
+    "ec",
+  ].map(p => [p, "energy_chem"]),
+  ...["a", "b", "m", "y", "p", "oi", "ro", "rm", "rs", "pk", "so"].map(p => [p, "oilseeds"]),
+  ...[
+    "c",
+    "cs",
+    "sr",
+    "cf",
+    "cy",
+    "ap",
+    "cj",
+    "jd",
+    "lh",
+    "rr",
+    "jr",
+    "ri",
+    "er",
+    "lr",
+    "wh",
+    "ws",
+    "wt",
+    "pm",
+    "bb",
+    "fb",
+    "lg",
+  ].map(p => [p, "agriculture"]),
+  ...["if", "ih", "ic", "im", "ts", "tf", "t", "tl"].map(p => [p, "financial"]),
+]);
+
+const SECTOR_TITLES: readonly [SectorId, string][] = [
+  ["black", "黑色"],
+  ["nonferrous", "有色"],
+  ["precious", "贵金属"],
+  ["energy_chem", "能化"],
+  ["oilseeds", "油脂油料"],
+  ["agriculture", "农副"],
+  ["financial", "金融"],
+];
+
+function productSector(symbol: string): SectorId | undefined {
+  const parts = symbol.trim().split("/");
+  const code = (parts.length >= 2 ? parts[1] : parts[0])?.toLowerCase();
+  return code ? PRODUCT_SECTORS[code] : undefined;
+}
+
+export function builtInUniverses(storedProducts: readonly string[]): Universe[] {
+  const pools: Universe[] = [];
+  if (storedProducts.length >= 2) {
+    pools.push({ name: t("全部已入库"), symbols: storedProducts.join(", ") });
+  }
+  const bySector = new Map<SectorId, string[]>();
+  for (const product of storedProducts) {
+    const sector = productSector(product);
+    if (!sector) continue;
+    const list = bySector.get(sector);
+    if (list) list.push(product);
+    else bySector.set(sector, [product]);
+  }
+  for (const [sector, label] of SECTOR_TITLES) {
+    const list = bySector.get(sector);
+    if (list?.length) pools.push({ name: t(label), symbols: list.join(", ") });
+  }
+  return pools;
 }
 
 // Whether an evaluation was made on the form's settings. `begin` and `end` are

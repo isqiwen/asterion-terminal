@@ -20,11 +20,17 @@ import { getLocale, listSeparator, type MessageValues, translate } from "../../s
 import { warehouseName } from "../../src/ui/contract-names";
 import { Icon } from "../../src/ui/Icon";
 import {
+  builtInUniverses,
   copiedModule,
   copyStem,
   moduleTemplate,
+  readUniverses,
+  sameSymbolList,
+  saveUniverses,
   strategyClassName,
+  subscribeUniverses,
   symbolsOf,
+  type Universe,
 } from "./research-lab";
 const SourceEditor = lazy(() =>
   import("./SourceEditor").then(module => ({ default: module.SourceEditor })),
@@ -867,12 +873,48 @@ export function datePlaceholders(
   return [unionFirst || "YYYY-MM-DD", unionLast || "YYYY-MM-DD"];
 }
 
+export function useUniverses(catalog?: StoredCatalog) {
+  const [custom, setCustom] = useState<Universe[]>(readUniverses);
+  useEffect(() => subscribeUniverses(() => setCustom(readUniverses())), []);
+  const storedProducts = useMemo(
+    () => (catalog?.products ?? []).filter(item => item.stored).map(item => item.id),
+    [catalog],
+  );
+  const builtIn = useMemo(() => builtInUniverses(storedProducts), [storedProducts]);
+  const save = useCallback((name: string, symbols: string) => {
+    const trimmed = name.trim();
+    if (!trimmed || !symbolsOf(symbols).length) return;
+    const current = readUniverses();
+    const next = current.some(item => item.name === trimmed)
+      ? current.map(item => (item.name === trimmed ? { name: trimmed, symbols } : item))
+      : [...current, { name: trimmed, symbols }];
+    saveUniverses(next);
+  }, []);
+  const remove = useCallback((name: string) => {
+    saveUniverses(readUniverses().filter(item => item.name !== name));
+  }, []);
+  return { custom, builtIn, save, remove };
+}
+
+export function universeLabel(
+  symbols: string,
+  universes: { custom: readonly Universe[]; builtIn: readonly Universe[] },
+) {
+  if (!symbolsOf(symbols).length) return "";
+  const match =
+    universes.custom.find(item => sameSymbolList(item.symbols, symbols)) ??
+    universes.builtIn.find(item => sameSymbolList(item.symbols, symbols));
+  if (!match) return "";
+  return `${match.name} (${symbolsOf(symbols).length})`;
+}
+
 export function SymbolField({
   context,
   value,
   minutes = false,
   allowExchanges = false,
   catalog: providedCatalog,
+  inlineMenu = false,
   onChange,
 }: {
   context: TerminalContext;
@@ -880,6 +922,7 @@ export function SymbolField({
   minutes?: boolean;
   allowExchanges?: boolean;
   catalog?: StoredCatalog;
+  inlineMenu?: boolean;
   onChange: (symbols: string) => void;
 }) {
   const inputId = useId();
@@ -888,20 +931,24 @@ export function SymbolField({
   const inputRef = useRef<HTMLInputElement>(null);
   const internalCatalog = useStoredCatalog(context, minutes, allowExchanges, !providedCatalog);
   const catalog = providedCatalog ?? internalCatalog;
+  const universes = useUniverses(catalog);
   const [open, setOpen] = useState(false);
+  const menuOpen = inlineMenu || open;
+  const [savingPool, setSavingPool] = useState(false);
+  const [poolName, setPoolName] = useState("");
   const [query, setQuery] = useState("");
   const [venue, setVenue] = useState("");
   const [expanded, setExpanded] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || inlineMenu) return;
     const dismiss = (event: MouseEvent) => {
       if (!fieldRef.current?.contains(event.target as Node)) setOpen(false);
     };
     document.addEventListener("mousedown", dismiss);
     return () => document.removeEventListener("mousedown", dismiss);
-  }, [open]);
+  }, [open, inlineMenu]);
 
   const entered = symbolsOf(value);
   const selected = new Set(entered);
@@ -1013,22 +1060,73 @@ export function SymbolField({
       <div
         ref={fieldRef}
         className="wide lab-symbol-field"
-        data-open={open || undefined}
+        data-open={menuOpen || undefined}
+        data-inline={inlineMenu || undefined}
         onBlur={event => {
           if (fieldRef.current?.contains(event.relatedTarget as Node)) return;
           if (query.trim()) commitInput(query);
           setQuery("");
-          setOpen(false);
+          if (!inlineMenu) setOpen(false);
         }}
       >
         <div className="lab-symbol-header">
           <label htmlFor={inputId}>{t("品种")}</label>
-          {entered.length > 1 && (
-            <button type="button" className="lab-link" onClick={() => onChange("")}>
-              {t("清空")}
-            </button>
-          )}
+          <span className="lab-symbol-actions">
+            {entered.length > 0 && !savingPool && (
+              <button
+                type="button"
+                className="lab-link"
+                onClick={() => {
+                  setPoolName("");
+                  setSavingPool(true);
+                }}
+              >
+                {t("存为品种池")}
+              </button>
+            )}
+            {entered.length > 1 && (
+              <button type="button" className="lab-link" onClick={() => onChange("")}>
+                {t("清空")}
+              </button>
+            )}
+          </span>
         </div>
+        {savingPool && (
+          <div className="lab-pool-save">
+            <input
+              aria-label={t("品种池名称")}
+              placeholder={t("如 黑色主力")}
+              value={poolName}
+              onChange={event => setPoolName(event.target.value)}
+              onKeyDown={event => {
+                if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  if (poolName.trim()) {
+                    universes.save(poolName, entered.join(", "));
+                    setSavingPool(false);
+                  }
+                } else if (event.key === "Escape") {
+                  event.preventDefault();
+                  setSavingPool(false);
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="primary"
+              disabled={!poolName.trim()}
+              onClick={() => {
+                universes.save(poolName, entered.join(", "));
+                setSavingPool(false);
+              }}
+            >
+              {t("保存")}
+            </button>
+            <button type="button" className="lab-link" onClick={() => setSavingPool(false)}>
+              {t("取消")}
+            </button>
+          </div>
+        )}
         <div
           className="lab-symbol-box"
           onClick={() => {
@@ -1059,9 +1157,9 @@ export function SymbolField({
             ref={inputRef}
             id={inputId}
             role="combobox"
-            aria-expanded={open}
+            aria-expanded={menuOpen}
             aria-controls={listboxId}
-            aria-activedescendant={open && activeOption ? optionId(activeOption.id) : undefined}
+            aria-activedescendant={menuOpen && activeOption ? optionId(activeOption.id) : undefined}
             aria-autocomplete="list"
             value={query}
             placeholder={
@@ -1083,7 +1181,7 @@ export function SymbolField({
                 onChange(entered.slice(0, -1).join(", "));
                 return;
               }
-              if (event.key === "Escape" && open) {
+              if (event.key === "Escape" && open && !inlineMenu) {
                 event.preventDefault();
                 event.stopPropagation();
                 setOpen(false);
@@ -1091,7 +1189,7 @@ export function SymbolField({
               }
               if (event.key === "ArrowDown") {
                 event.preventDefault();
-                if (!open) {
+                if (!menuOpen) {
                   setOpen(true);
                   return;
                 }
@@ -1104,7 +1202,7 @@ export function SymbolField({
                 }
                 return;
               }
-              if (event.key === "ArrowUp" && open && visibleOptions.length > 0) {
+              if (event.key === "ArrowUp" && menuOpen && visibleOptions.length > 0) {
                 event.preventDefault();
                 const next = (clampedActive - 1 + visibleOptions.length) % visibleOptions.length;
                 setActiveIndex(next);
@@ -1121,8 +1219,45 @@ export function SymbolField({
             }}
           />
         </div>
-        {open && (
+        {menuOpen && (
           <div className="lab-symbol-menu">
+            {!needle && (universes.custom.length > 0 || universes.builtIn.length > 0) && (
+              <div className="lab-symbol-pools" role="group" aria-label={t("品种池")}>
+                {universes.custom.map(pool => (
+                  <span key={`custom:${pool.name}`} className="lab-pool-chip is-custom">
+                    <button
+                      type="button"
+                      aria-pressed={sameSymbolList(value, pool.symbols)}
+                      onMouseDown={event => event.preventDefault()}
+                      onClick={() => onChange(pool.symbols)}
+                    >
+                      {pool.name} ({symbolsOf(pool.symbols).length})
+                    </button>
+                    <button
+                      type="button"
+                      className="lab-pool-del"
+                      aria-label={t("删除品种池 {name}", { name: pool.name })}
+                      onMouseDown={event => event.preventDefault()}
+                      onClick={() => universes.remove(pool.name)}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                {universes.builtIn.map(pool => (
+                  <button
+                    key={`sector:${pool.name}`}
+                    type="button"
+                    className="lab-pool-chip"
+                    aria-pressed={sameSymbolList(value, pool.symbols)}
+                    onMouseDown={event => event.preventDefault()}
+                    onClick={() => onChange(pool.symbols)}
+                  >
+                    {pool.name} ({symbolsOf(pool.symbols).length})
+                  </button>
+                ))}
+              </div>
+            )}
             {!needle && (
               <div className="lab-symbol-venues" role="group" aria-label={t("交易所")}>
                 <button
@@ -1201,5 +1336,75 @@ export function SymbolField({
         </div>
       )}
     </>
+  );
+}
+
+// Compact symbol-pool picker for the top condition bar.
+export function SymbolPopover({
+  context,
+  value,
+  minutes = false,
+  allowExchanges = false,
+  catalog: providedCatalog,
+  fallbackLabel,
+  onChange,
+}: {
+  context: TerminalContext;
+  value: string;
+  minutes?: boolean;
+  allowExchanges?: boolean;
+  catalog?: StoredCatalog;
+  fallbackLabel: string;
+  onChange: (symbols: string) => void;
+}) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const internalCatalog = useStoredCatalog(context, minutes, allowExchanges, !providedCatalog);
+  const catalog = providedCatalog ?? internalCatalog;
+  const universes = useUniverses(catalog);
+  const label = universeLabel(value, universes) || fallbackLabel;
+
+  useEffect(() => {
+    if (!open) return;
+    const dismiss = (event: MouseEvent) => {
+      if (!wrapRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", dismiss);
+    document.addEventListener("keydown", keydown);
+    return () => {
+      document.removeEventListener("mousedown", dismiss);
+      document.removeEventListener("keydown", keydown);
+    };
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="lab-scope-popover-wrap">
+      <button
+        type="button"
+        className={`lab-scope-symbols${label ? "" : " is-empty"}`}
+        aria-label={t("快速选择品种")}
+        aria-expanded={open}
+        title={label || t("选择品种…")}
+        onClick={() => setOpen(previous => !previous)}
+      >
+        <span>{label || t("选择品种…")}</span>
+      </button>
+      {open && (
+        <div className="lab-scope-popover">
+          <SymbolField
+            context={context}
+            value={value}
+            minutes={minutes}
+            allowExchanges={allowExchanges}
+            catalog={catalog}
+            inlineMenu
+            onChange={onChange}
+          />
+        </div>
+      )}
+    </div>
   );
 }

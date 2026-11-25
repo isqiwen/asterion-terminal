@@ -12,11 +12,12 @@ import {
   filterModuleItems,
   NewModule,
   SymbolField,
+  SymbolPopover,
   useSource,
   useStoredCatalog,
   type ModuleItem,
 } from "./LabParts";
-import { copiedModule, copyStem } from "./research-lab";
+import { copiedModule, copyStem, readUniverses } from "./research-lab";
 
 vi.mock("../../src/bridge/lab", () => ({ lab: vi.fn() }));
 registerTerminalFeatures([feature]);
@@ -204,4 +205,63 @@ test("symbol field selects multiple symbols as tags, prioritizes stored products
     <SymbolField context={context} catalog={result.current} value="SHFE/rb" onChange={onChange} />,
   );
   expect(vi.mocked(lab).mock.calls.length).toBe(callsBefore);
+});
+
+test("shared universes expose built-in sector pools and sync custom pools across pickers", async () => {
+  localStorage.clear();
+  vi.mocked(lab).mockResolvedValue(
+    create(StoredContractsSchema, {
+      contracts: [
+        {
+          contract: "SHFE/rb/2026-10",
+          daily: { firstDay: "2020-01-02", lastDay: "2026-02-13", days: 25 },
+        },
+        {
+          contract: "DCE/i/2026-09",
+          daily: { firstDay: "2020-01-02", lastDay: "2026-02-13", days: 25 },
+        },
+        {
+          contract: "SHFE/cu/2026-10",
+          daily: { firstDay: "2020-01-02", lastDay: "2026-02-13", days: 25 },
+        },
+      ],
+    }) as never,
+  );
+  const context = {
+    snapshot: { warehouse_endpoint: { host: "market", port: 7450, fingerprint: "f" } },
+    navigate: vi.fn(),
+  } as unknown as TerminalContext;
+  const { result } = renderHook(() => useStoredCatalog(context));
+  await act(async () => {});
+
+  const onChange = vi.fn();
+  render(
+    <SymbolPopover
+      context={context}
+      catalog={result.current}
+      value="SHFE/rb, DCE/i"
+      fallbackLabel="螺纹钢、铁矿石"
+      onChange={onChange}
+    />,
+  );
+
+  // Built-in sector pool matches current symbols automatically.
+  const trigger = screen.getByRole("button", { name: "快速选择品种" });
+  expect(trigger.textContent).toBe("黑色 (2)");
+
+  // Opening the popover displays built-in pools and allows saving a custom pool.
+  fireEvent.click(trigger);
+  fireEvent.click(screen.getByRole("button", { name: "全部已入库 (3)" }));
+  expect(onChange).toHaveBeenLastCalledWith("SHFE/cu, SHFE/rb, DCE/i");
+
+  fireEvent.click(screen.getByRole("button", { name: "存为品种池" }));
+  fireEvent.change(screen.getByLabelText("品种池名称"), { target: { value: "双焦铁矿" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  expect(readUniverses()).toEqual([{ name: "双焦铁矿", symbols: "SHFE/rb, DCE/i" }]);
+  expect(trigger.textContent).toBe("双焦铁矿 (2)");
+
+  // Deleting the custom pool reverts the label to the built-in sector pool.
+  fireEvent.click(screen.getByRole("button", { name: "删除品种池 双焦铁矿" }));
+  expect(readUniverses()).toEqual([]);
+  expect(trigger.textContent).toBe("黑色 (2)");
 });

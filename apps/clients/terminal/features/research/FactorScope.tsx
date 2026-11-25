@@ -8,11 +8,18 @@ import {
   useConditions,
   type ConditionStore,
 } from "./Conditions";
-import { datePlaceholders, SymbolField, type StoredCatalog, useStoredCatalog } from "./LabParts";
+import {
+  datePlaceholders,
+  SymbolField,
+  SymbolPopover,
+  type StoredCatalog,
+  useStoredCatalog,
+} from "./LabParts";
 import {
   defaultFactorForm,
   factorScopeOf,
   readFactorConditions,
+  sameFactorScope,
   saveFactorConditions,
   symbolsOf,
   type FactorForm,
@@ -27,19 +34,17 @@ const store: ConditionStore<FactorScope> = {
   write: saveFactorConditions,
   defaults: () => factorScopeOf(defaultFactorForm()),
   name: fields => symbolNames(fields.symbols),
+  same: sameFactorScope,
 };
 
 function summary(form: FactorForm, begin: string, end: string) {
   return [
-    symbolNames(form.symbols),
     dayRange(form.begin, form.end, begin, end),
     t("持有 {horizons} 根", { horizons: symbolsOf(form.horizons).join(", ") }),
     t("{count} 组", { count: form.groups }),
-    t(form.returnMode === "close" ? "收盘对收盘" : "次根开盘"),
     ...(form.winsorize ? [t("MAD 去极值")] : []),
     ...(form.standardize === "zscore" ? ["Z-Score"] : []),
     ...(form.standardize === "rank" ? [t("截面排名")] : []),
-    ...(form.neutralize === "sector" ? [t("板块中性")] : []),
     ...(form.volAdjust ? [t("波动归一")] : []),
     ...(Number(form.minVolume) > 0 ? [t("量≥{value}", { value: form.minVolume!.trim() })] : []),
     ...(Number(form.minOpenInterest) > 0
@@ -56,7 +61,7 @@ export function useFactorConditions(
   return useConditions(store, fields => setForm(previous => ({ ...previous, ...fields })));
 }
 
-// What every evaluation on this page is measured under: one of the saved sets.
+// What every evaluation on this page is measured under: a working draft, optionally backed by a saved preset.
 export function FactorScopeBar({
   context,
   form,
@@ -73,14 +78,60 @@ export function FactorScopeBar({
   conditions: ReturnType<typeof useFactorConditions>;
   catalog?: StoredCatalog;
 }) {
+  const current = factorScopeOf(form);
+  const hasSymbols = symbolsOf(form.symbols).length > 0;
   return (
     <ConditionBar
       title={t("评价条件")}
       setLabel={t("设置评价条件")}
       editLabel={t("修改评价条件")}
       conditions={conditions}
-      text={conditions.items.length ? summary(form, begin, end) : ""}
-      initial={factorScopeOf(form)}
+      text={hasSymbols ? summary(form, begin, end) : ""}
+      initial={current}
+      quickControls={
+        <>
+          <SymbolPopover
+            context={context}
+            value={form.symbols}
+            allowExchanges
+            catalog={catalog}
+            fallbackLabel={symbolNames(form.symbols)}
+            onChange={symbols => conditions.update({ ...current, symbols })}
+          />
+          {hasSymbols && (
+            <>
+              <select
+                className="lab-scope-quick"
+                aria-label={t("快速切换收益口径")}
+                value={current.returnMode}
+                onChange={event =>
+                  conditions.update({
+                    ...current,
+                    returnMode: event.target.value as FactorScope["returnMode"],
+                  })
+                }
+              >
+                <option value="open">{t("次根开盘")}</option>
+                <option value="close">{t("收盘对收盘")}</option>
+              </select>
+              <select
+                className="lab-scope-quick"
+                aria-label={t("快速切换中性化")}
+                value={current.neutralize}
+                onChange={event =>
+                  conditions.update({
+                    ...current,
+                    neutralize: event.target.value as FactorScope["neutralize"],
+                  })
+                }
+              >
+                <option value="">{t("不中性化")}</option>
+                <option value="sector">{t("板块中性化")}</option>
+              </select>
+            </>
+          )}
+        </>
+      }
       fields={(draft, change) => (
         <FactorFields context={context} form={draft} change={change} providedCatalog={catalog} />
       )}

@@ -1012,10 +1012,27 @@ button.lab-sort:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   justify-content: space-between;
   gap: var(--space-2);
 }
-.lab-form .lab-symbol-header > label {
+.lab-symbol-header > label {
   display: inline;
   color: var(--muted);
   font-size: var(--font-size-body);
+}
+.lab-symbol-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.lab-pool-save {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.lab-pool-save > input {
+  flex: 1;
+  min-width: 0;
+}
+.lab-pool-save > button {
+  flex: none;
 }
 .lab-symbol-box {
   position: relative;
@@ -1053,7 +1070,7 @@ button.lab-sort:enabled:not([aria-disabled="true"]):is(:hover, :active) {
 .lab-symbol-field[data-open] .lab-symbol-box::after {
   rotate: 180deg;
 }
-.lab-form .lab-symbol-box > input {
+.lab-symbol-box > input {
   flex: 1 1 68px;
   width: auto;
   min-width: 56px;
@@ -1105,6 +1122,74 @@ button.lab-sort:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   background: var(--raised);
   box-shadow: var(--surface-highlight), var(--shadow-popover);
   overflow: hidden;
+}
+.lab-symbol-field[data-inline] .lab-symbol-box::after {
+  display: none;
+}
+.lab-symbol-field[data-inline] .lab-symbol-box {
+  padding-right: var(--space-2);
+}
+.lab-symbol-field[data-inline] .lab-symbol-menu {
+  position: static;
+  margin-top: var(--space-1);
+  max-height: 300px;
+  border-color: var(--line);
+  box-shadow: none;
+}
+.lab-symbol-pools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--line);
+  background: var(--pane);
+}
+.lab-pool-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: calc(var(--control-radius) - 1px);
+  background: var(--field);
+  color: var(--text);
+  font-size: var(--font-size-aux);
+}
+.lab-pool-chip.is-custom {
+  padding: 0 2px 0 0;
+  gap: 0;
+}
+.lab-pool-chip.is-custom > button:first-child {
+  min-height: 20px;
+  padding: 0 var(--space-1) 0 var(--space-2);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+}
+button.lab-pool-chip:enabled:hover,
+.lab-pool-chip.is-custom:has(> button:first-child:hover) {
+  border-color: var(--subtle);
+  color: var(--text-strong);
+}
+button.lab-pool-chip[aria-pressed="true"],
+.lab-pool-chip.is-custom:has(> button[aria-pressed="true"]) {
+  border-color: var(--accent-line);
+  background: var(--accent-surface);
+  color: var(--accent);
+}
+button.lab-pool-del {
+  min-height: 18px;
+  width: 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--font-size-body);
+}
+button.lab-pool-del:enabled:hover {
+  background: transparent;
+  color: var(--danger);
 }
 .lab-symbol-venues {
   display: flex;
@@ -1316,8 +1401,9 @@ button.lab-symbol-months:enabled:hover {
 .lab-scope {
   grid-area: scope;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2) var(--space-3);
   min-width: 0;
   padding: var(--space-2) var(--space-page);
   border-bottom: 1px solid var(--line);
@@ -1333,26 +1419,85 @@ button.lab-symbol-months:enabled:hover {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
   font-size: inherit;
 }
 .lab-scope select {
   width: auto;
-  max-width: 280px;
+  max-width: 240px;
   color: var(--text-strong);
+}
+.lab-scope-popover-wrap {
+  position: relative;
+  flex: none;
+}
+button.lab-scope-symbols {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  max-width: 240px;
+  min-height: var(--control-height);
+  padding: 0 26px 0 var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--control-radius);
+  background: var(--field);
+  color: var(--text-strong);
+  font-size: var(--font-size-body);
+}
+button.lab-scope-symbols.is-empty {
+  color: var(--muted);
+}
+button.lab-scope-symbols > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+button.lab-scope-symbols::after {
+  content: "";
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  width: 10px;
+  height: 6px;
+  translate: 0 -50%;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%237c8796' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+}
+button.lab-scope-symbols[aria-expanded="true"] {
+  border-color: var(--accent-line);
+  box-shadow: var(--accent-glow);
+}
+button.lab-scope-symbols[aria-expanded="true"]::after {
+  rotate: 180deg;
+}
+.lab-scope-popover {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  z-index: 35;
+  width: min(440px, calc(100vw - 32px));
+  padding: var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--panel-radius);
+  background: var(--raised);
+  box-shadow: var(--surface-highlight), var(--shadow-popover);
+}
+.lab-scope-quick {
+  flex: none;
+}
+.lab-scope > .lab-scope-dirty {
+  color: var(--warning);
+  font-size: var(--font-size-aux);
 }
 .lab-scope > p {
   min-width: 0;
   margin: 0;
   overflow: hidden;
-  color: var(--text-strong);
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.lab-scope > p.subtle {
-  color: var(--muted);
-  font-size: var(--font-size-body);
 }
 .lab-scope > button {
   flex: none;
@@ -1386,9 +1531,6 @@ button.lab-scope-cta:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   color: var(--muted);
   font-size: var(--font-size-body);
   font-weight: 400;
-}
-.lab-scope-name {
-  width: min(400px, 100%);
 }
 .lab-scope-fields {
   display: grid;

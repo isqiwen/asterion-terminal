@@ -29,48 +29,106 @@ export type ConditionStore<F> = {
   write: (conditions: ConditionSet<F>) => void;
   // What the page uses with no saved set.
   defaults: () => F;
-  // The name of a set left unnamed.
+  // Suggested name when saving the current draft as a preset.
   name: (fields: F) => string;
+  same: (a: F, b: F) => boolean;
 };
 
-// The saved sets of settings; `apply` mirrors the one in use into the page's form.
+// Working condition draft decoupled from explicitly saved benchmark presets.
 export function useConditions<F>(store: ConditionStore<F>, apply: (fields: F) => void) {
   const [conditions, setConditions] = useState(store.read);
+  const activePreset = conditions.items.find(item => item.name === conditions.active);
+  const currentFields = conditions.current ?? activePreset?.fields ?? store.defaults();
+  const dirty = Boolean(activePreset && !store.same(currentFields, activePreset.fields));
+
   const commit = (next: ConditionSet<F>) => {
     store.write(next);
     setConditions(next);
-    apply(next.items.find(item => item.name === next.active)?.fields ?? store.defaults());
+    const preset = next.items.find(item => item.name === next.active);
+    apply(next.current ?? preset?.fields ?? store.defaults());
   };
-  // `previous` is the set being edited, or empty for a new one.
-  const save = (previous: string, name: string, fields: F) => {
-    const { items } = store.read();
-    const taken = items.filter(item => item.name !== previous).map(item => item.name);
-    const base = name.trim() || store.name(fields);
-    let unique = base;
-    for (let number = 2; taken.includes(unique); number++) unique = `${base} ${number}`;
-    const item = { name: unique, fields };
+
+  // Update the working draft directly; never silently creates a saved preset.
+  const update = (fields: F) => {
+    const state = store.read();
+    const matched = state.items.find(item => store.same(item.fields, fields));
+    const active = state.active || (matched?.name ?? "");
+    commit({ ...state, active, current: fields });
+  };
+
+  // Load settings from a past run or factor bridge into the working draft only.
+  const adopt = (fields: F) => {
+    const state = store.read();
+    const matched = state.items.find(item => store.same(item.fields, fields));
     commit({
-      active: unique,
-      items: previous
-        ? items.map(entry => (entry.name === previous ? item : entry))
-        : [...items, item],
+      ...state,
+      active: matched ? matched.name : "",
+      current: matched ? matched.fields : fields,
+    });
+    return matched?.fields ?? fields;
+  };
+
+  // Explicitly save or overwrite a named benchmark preset.
+  const savePreset = (name: string, fields: F, overwriteName = "") => {
+    const state = store.read();
+    const trimmed = name.trim() || store.name(fields);
+    const existing = state.items.find(item => item.name === trimmed);
+    if (existing && trimmed === overwriteName) {
+      const items = state.items.map(item =>
+        item.name === trimmed ? { name: trimmed, fields } : item,
+      );
+      commit({ active: trimmed, current: fields, items });
+      return trimmed;
+    }
+    const taken = state.items.map(item => item.name);
+    let unique = trimmed;
+    for (let number = 2; taken.includes(unique); number++) unique = `${trimmed} ${number}`;
+    const items = [...state.items, { name: unique, fields }];
+    commit({ active: unique, current: fields, items });
+    return unique;
+  };
+
+  const choose = (name: string) => {
+    const state = store.read();
+    const preset = state.items.find(item => item.name === name);
+    if (!preset) return;
+    commit({ ...state, active: preset.name, current: preset.fields });
+  };
+
+  const revert = () => {
+    const state = store.read();
+    const preset = state.items.find(item => item.name === state.active);
+    if (!preset) return;
+    commit({ ...state, current: preset.fields });
+  };
+
+  const remove = (name: string) => {
+    const state = store.read();
+    const items = state.items.filter(item => item.name !== name);
+    const nextActive = state.active === name ? (items[0]?.name ?? "") : state.active;
+    const nextPreset = items.find(item => item.name === nextActive);
+    commit({
+      active: nextActive,
+      current: state.active === name ? nextPreset?.fields : state.current,
+      items,
     });
   };
+
   return {
     ...conditions,
+    dirty,
     nameOf: store.name,
-    save,
-    commit,
-    choose: (name: string) => commit({ ...store.read(), active: name }),
-    remove: (name: string) => {
-      const current = store.read();
-      const items = current.items.filter(item => item.name !== name);
-      commit({ active: current.active === name ? (items[0]?.name ?? "") : current.active, items });
-    },
+    update,
+    adopt,
+    savePreset,
+    choose,
+    revert,
+    remove,
   };
 }
 
-// One line above a research page: the set in use, what it says, and its editor.
+// One line above a research page: optional saved benchmark preset, inline
+// high-frequency controls, concise summary, and explicit save/settings triggers.
 export function ConditionBar<F extends { symbols: string }>({
   title,
   setLabel,
@@ -78,6 +136,7 @@ export function ConditionBar<F extends { symbols: string }>({
   conditions,
   text,
   initial,
+  quickControls,
   fields,
 }: {
   title: string;
@@ -85,55 +144,80 @@ export function ConditionBar<F extends { symbols: string }>({
   editLabel: string;
   conditions: ReturnType<typeof useConditions<F>>;
   text: string;
-  // What a first set starts from.
   initial: F;
+  quickControls?: ReactNode;
   fields: (form: F, change: (patch: Partial<F>) => void) => ReactNode;
 }) {
-  const [editing, setEditing] = useState<{ name: string; fields: F } | null>(null);
+  const [editing, setEditing] = useState<F | null>(null);
+  const [saving, setSaving] = useState(false);
   const active = conditions.items.find(item => item.name === conditions.active);
+  const hasSymbols = symbolsOf(initial.symbols).length > 0;
+  const canSavePreset = hasSymbols && (!active || conditions.dirty);
+
   return (
     <div className="lab-scope">
-      {active ? (
-        <label>
+      {conditions.items.length > 0 ? (
+        <label className="lab-scope-preset">
           <span>{title}</span>
           <select
-            value={active.name}
-            onChange={event =>
-              event.target.value
-                ? conditions.choose(event.target.value)
-                : setEditing({ name: "", fields: active.fields })
-            }
+            aria-label={title}
+            value={active ? active.name : ""}
+            onChange={event => {
+              if (event.target.value) conditions.choose(event.target.value);
+            }}
           >
+            {!active && <option value="">{t("临时条件")}</option>}
             {conditions.items.map(item => (
               <option key={item.name} value={item.name}>
                 {item.name}
               </option>
             ))}
-            <option value="">{t("＋ 新建")}</option>
           </select>
         </label>
       ) : (
         <span>{title}</span>
       )}
-      {active ? <p title={text}>{text}</p> : <p className="subtle">{t("未设置品种与区间")}</p>}
+      {quickControls}
+      {hasSymbols && text && <p title={text}>{text}</p>}
+      {conditions.dirty && (
+        <>
+          <span className="lab-scope-dirty">{t("已修改")}</span>
+          <button type="button" className="lab-link" onClick={conditions.revert}>
+            {t("恢复")}
+          </button>
+        </>
+      )}
+      {canSavePreset && (
+        <button type="button" className="lab-link" onClick={() => setSaving(true)}>
+          {t("存为预设")}
+        </button>
+      )}
       <button
         type="button"
-        className={active ? "lab-link" : "lab-scope-cta"}
-        aria-label={active ? editLabel : setLabel}
-        onClick={() => setEditing(active ?? { name: "", fields: initial })}
+        className={hasSymbols ? "lab-link" : "lab-scope-cta"}
+        aria-label={hasSymbols ? editLabel : setLabel}
+        onClick={() => setEditing(initial)}
       >
-        {t(active ? "修改" : "设置")}
+        {t(hasSymbols ? "更多设置" : "设置")}
       </button>
       {editing && (
         <ConditionDialog
           title={title}
-          name={editing.name}
-          initial={editing.fields}
-          nameOf={conditions.nameOf}
+          activeName={active?.name ?? ""}
+          initial={editing}
           fields={fields}
-          save={conditions.save}
+          apply={conditions.update}
           remove={conditions.remove}
           close={() => setEditing(null)}
+        />
+      )}
+      {saving && (
+        <SavePresetDialog
+          title={t("存为预设")}
+          activeName={active?.name ?? ""}
+          suggested={active?.name || conditions.nameOf(initial)}
+          save={(name, overwrite) => conditions.savePreset(name, initial, overwrite)}
+          close={() => setSaving(false)}
         />
       )}
     </div>
@@ -142,27 +226,23 @@ export function ConditionBar<F extends { symbols: string }>({
 
 function ConditionDialog<F extends { symbols: string }>({
   title,
-  name,
+  activeName,
   initial,
-  nameOf,
   fields,
-  save,
+  apply,
   remove,
   close,
 }: {
   title: string;
-  // Empty for a new set.
-  name: string;
+  activeName: string;
   initial: F;
-  nameOf: (fields: F) => string;
   fields: (form: F, change: (patch: Partial<F>) => void) => ReactNode;
-  save: (previous: string, name: string, fields: F) => void;
+  apply: (fields: F) => void;
   remove: (name: string) => void;
   close: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const heading = useId();
-  const [label, setLabel] = useState(name);
   const [form, setForm] = useState(initial);
   const hasSymbols = symbolsOf(form.symbols).length > 0;
   useLayoutEffect(() => {
@@ -184,23 +264,15 @@ function ConditionDialog<F extends { symbols: string }>({
       <h2 id={heading} tabIndex={-1}>
         {title}
       </h2>
-      <label className="lab-scope-name">
-        <span>{t("名称")}</span>
-        <input
-          value={label}
-          placeholder={hasSymbols ? nameOf(form) : undefined}
-          onChange={event => setLabel(event.target.value)}
-        />
-      </label>
       <div className="lab-scope-fields">
         {fields(form, patch => setForm(previous => ({ ...previous, ...patch })))}
       </div>
       <footer>
-        {name && (
+        {activeName && (
           <DeleteRecord
-            name={name}
+            name={activeName}
             remove={() => {
-              remove(name);
+              remove(activeName);
               close();
             }}
           />
@@ -214,13 +286,78 @@ function ConditionDialog<F extends { symbols: string }>({
           className="primary"
           disabled={!hasSymbols}
           onClick={() => {
-            save(name, label, form);
+            apply(form);
             close();
           }}
         >
           {t("完成")}
         </button>
       </footer>
+    </dialog>
+  );
+}
+
+function SavePresetDialog({
+  title,
+  activeName,
+  suggested,
+  save,
+  close,
+}: {
+  title: string;
+  activeName: string;
+  suggested: string;
+  save: (name: string, overwriteName?: string) => void;
+  close: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const heading = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [label, setLabel] = useState(suggested);
+  useLayoutEffect(() => {
+    const element = dialog.current;
+    element?.showModal();
+    inputRef.current?.focus();
+    inputRef.current?.select();
+    return () => element?.close();
+  }, []);
+  return (
+    <dialog
+      ref={dialog}
+      className="lab-module-dialog"
+      aria-labelledby={heading}
+      onCancel={event => {
+        event.preventDefault();
+        close();
+      }}
+    >
+      <h2 id={heading}>{title}</h2>
+      <form
+        onSubmit={event => {
+          event.preventDefault();
+          const trimmed = label.trim() || suggested;
+          save(trimmed, trimmed === activeName ? activeName : "");
+          close();
+        }}
+      >
+        <label>
+          <span>{t("名称")}</span>
+          <input
+            ref={inputRef}
+            value={label}
+            placeholder={suggested}
+            onChange={event => setLabel(event.target.value)}
+          />
+        </label>
+        <footer>
+          <button type="button" onClick={close}>
+            {t("取消")}
+          </button>
+          <button type="submit" className="primary">
+            {activeName && label.trim() === activeName ? t("更新预设") : t("保存")}
+          </button>
+        </footer>
+      </form>
     </dialog>
   );
 }

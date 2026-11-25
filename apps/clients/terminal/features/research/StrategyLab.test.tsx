@@ -15,7 +15,7 @@ import {
   SweepRunsSchema,
 } from "../../src/generated/asterion/lab_pb";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "../../src/host/workspace/drafts";
-import { defaultForm, saveConditions, scopeOf } from "./research-lab";
+import { defaultForm, readConditions, saveConditions, scopeOf } from "./research-lab";
 import { StrategyLab } from "./StrategyLab";
 
 vi.mock("../../src/bridge/lab", () => ({
@@ -704,6 +704,7 @@ test("openStrategy workspaceParams opens the generated strategy on code tab with
     expect(screen.getByRole("region", { name: "strategies/momentum_strategy.py" })).toBeTruthy(),
   );
   expect(context.navigate).toHaveBeenCalledWith("workspace.lab-strategies", {});
+  expect(readConditions().items).toEqual([]);
   editScope(() => {
     expect(screen.getByRole("button", { name: "移除 {symbol} SHFE/rb" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "移除 {symbol} SHFE/cu" })).toBeTruthy();
