@@ -18,6 +18,7 @@ test("saves a direct pinned trading destination", async () => {
   const trade = vi.fn().mockResolvedValue(undefined);
   render(<TradingConnections snapshot={readySnapshot()} busy={false} trade={trade} />);
   fireEvent.click(screen.getByRole("button", { name: "添加交易连接" }));
+  expect((screen.getByLabelText("主机地址") as HTMLInputElement).value).toBe("192.168.50.20");
   for (const [label, value] of [
     ["主机地址", "127.0.0.1"],
     ["端口", "7461"],

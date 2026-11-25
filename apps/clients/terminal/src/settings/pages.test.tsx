@@ -28,8 +28,11 @@ test("the two data pages each configure their own service without counter creden
   expect(screen.queryByRole("button", { name: "CTP 行情账户" })).toBeNull();
   const market = screen.getByRole("region", { name: "连接" });
   fireEvent.click(within(market).getByRole("button", { name: "添加行情连接" }));
+  expect((within(market).getByLabelText("主机地址") as HTMLInputElement).value).toBe(
+    "192.168.50.20",
+  );
   fireEvent.change(within(market).getByLabelText("主机地址"), {
-    target: { value: " 192.168.1.20 " },
+    target: { value: " 192.168.50.20 " },
   });
   fireEvent.change(within(market).getByLabelText("行情服务证书指纹"), {
     target: { value: "a".repeat(64) },
@@ -37,7 +40,7 @@ test("the two data pages each configure their own service without counter creden
   fireEvent.click(within(market).getByRole("button", { name: "保存连接" }));
   await waitFor(() =>
     expect(trade).toHaveBeenCalledWith("market.endpoint.save", {
-      host: "192.168.1.20",
+      host: "192.168.50.20",
       port: 7451,
       fingerprint: "a".repeat(64),
     }),
@@ -48,6 +51,9 @@ test("the two data pages each configure their own service without counter creden
   expect(screen.getByRole("heading", { name: "数据服务", level: 1 })).toBeTruthy();
   const warehouse = screen.getByRole("region", { name: "连接" });
   fireEvent.click(within(warehouse).getByRole("button", { name: "添加数据连接" }));
+  expect((within(warehouse).getByLabelText("主机地址") as HTMLInputElement).value).toBe(
+    "192.168.50.20",
+  );
   fireEvent.change(within(warehouse).getByLabelText("主机地址"), { target: { value: "h" } });
   fireEvent.change(within(warehouse).getByLabelText("数据服务证书指纹"), {
     target: { value: "b".repeat(64) },

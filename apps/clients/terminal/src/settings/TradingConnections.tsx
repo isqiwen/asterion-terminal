@@ -8,7 +8,8 @@ import { SettingsDialog } from "./SettingsDialog";
 import { SettingsSection } from "./Section";
 import { ServiceFacts } from "./ServiceFacts";
 const t = (key: string) => translate("host", key);
-const blank = { host: "", port: "7460", instance: "", fingerprint: "" };
+const defaultHost = "192.168.50.20";
+const blank = { host: defaultHost, port: "7460", instance: "", fingerprint: "" };
 
 export function TradingConnections({
   snapshot,
@@ -134,7 +135,7 @@ export function TradingConnections({
             <fieldset disabled={busy} className="futures-fields">
               {(
                 [
-                  ["host", "主机地址", "192.168.1.30"],
+                  ["host", "主机地址", defaultHost],
                   ["port", "端口", ""],
                   ["instance", "账户", "simnow"],
                   ["fingerprint", "交易服务证书指纹", ""],

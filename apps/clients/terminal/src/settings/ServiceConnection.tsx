@@ -8,6 +8,7 @@ import { ServiceFacts } from "./ServiceFacts";
 import { ActionError, useActionError } from "../host/action-error";
 import { asDisplayError, type DisplayError } from "../i18n/errors";
 const t = (key: string) => translate("host", key);
+const defaultHost = "192.168.50.20";
 const words = {
   market: {
     edit: "编辑行情连接",
@@ -41,7 +42,7 @@ export function ServiceConnection({
   const saved = service === "market" ? snapshot?.market_endpoint : snapshot?.warehouse_endpoint;
   const endpoint = saved && "host" in saved ? saved : null;
   const [editing, setEditing] = useState(false);
-  const [host, setHost] = useState("");
+  const [host, setHost] = useState(defaultHost);
   const [fingerprint, setFingerprint] = useState("");
   const [port, setPort] = useState(String(word.port));
   const [clearing, setClearing] = useState(false);
@@ -50,7 +51,7 @@ export function ServiceConnection({
   const { error, attempt } = useActionError();
   const run = (...args: CommandCall) => attempt(() => trade(...args));
   const edit = () => {
-    setHost(endpoint?.host ?? "");
+    setHost(endpoint?.host ?? defaultHost);
     setPort(String(endpoint?.port ?? word.port));
     setFingerprint(endpoint?.fingerprint ?? "");
     setClearing(false);
@@ -133,7 +134,7 @@ export function ServiceConnection({
                 aria-label={t("主机地址")}
                 required
                 maxLength={253}
-                placeholder="192.168.1.20"
+                placeholder={defaultHost}
                 spellCheck={false}
                 autoCorrect="off"
                 autoCapitalize="none"
