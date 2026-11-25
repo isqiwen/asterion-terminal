@@ -160,20 +160,6 @@ button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   z-index: 1;
   background: var(--canvas);
 }
-.lab-library-table tbody tr:hover td {
-  background: var(--row-alt);
-}
-.lab-library-table tbody tr:hover :is(th, td.lab-check-col) {
-  background: color-mix(in oklab, white 1.8%, var(--canvas));
-}
-.lab-library-table tbody tr.current td,
-.lab-library-table tbody tr.selected td {
-  background: var(--accent-surface);
-}
-.lab-library-table tbody tr.current :is(th, td.lab-check-col),
-.lab-library-table tbody tr.selected :is(th, td.lab-check-col) {
-  background: color-mix(in oklab, var(--accent) 9%, var(--canvas));
-}
 .lab-check-col {
   width: 28px;
   padding-inline: var(--space-1) var(--space-2);
@@ -472,12 +458,15 @@ button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
 .lab-table .numeric {
   text-align: right;
 }
-.lab-table tr:hover :is(td, th) {
-  background: var(--row-alt);
+.lab-table tbody tr:hover :is(td, th) {
+  background: var(--hover);
 }
-.lab-table tr.current :is(td, th),
-.lab-table tr.selected :is(td, th) {
-  background: var(--accent-surface);
+.lab-table tbody tr.current :is(td, th),
+.lab-table tbody tr.selected :is(td, th) {
+  background: color-mix(in oklab, var(--accent) 9%, var(--canvas));
+}
+.lab-table tbody tr:is(.current, .selected):hover :is(td, th) {
+  background: color-mix(in oklab, var(--accent) 13%, var(--hover));
 }
 .lab-scroll {
   overflow: auto;
@@ -964,6 +953,9 @@ button.lab-sort:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   background: var(--canvas);
   box-shadow: inset 1px 0 0 var(--line);
 }
+.lab-table.lab-monthly tbody tr:hover :is(th, td):last-child {
+  background: var(--hover);
+}
 .lab-differs td:first-child {
   color: var(--warning);
 }
@@ -1415,7 +1407,9 @@ button.lab-symbol-months:enabled:hover {
 .lab-library-table tbody tr[data-empty]:is(:hover, .current, .selected) td {
   color: var(--text);
 }
-.lab-library-table tbody tr.lab-library-group {
+.lab-library-table tbody tr.lab-library-group,
+.lab-library-table tbody tr.lab-library-group:hover {
+  background: var(--canvas);
   cursor: default;
 }
 .lab-library-table tbody tr.lab-library-group:hover th,
