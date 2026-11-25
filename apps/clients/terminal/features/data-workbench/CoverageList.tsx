@@ -288,7 +288,6 @@ function ContractRow({
 }) {
   const code = contractCode(contract.contract);
   const series = contract[kind];
-  const state = stateOf(series);
   const rule = acquires ? ruleOf(contract, kind) : undefined;
   const busy = !!rule && running.some(task => covers(task, rule));
   return (
@@ -319,10 +318,10 @@ function ContractRow({
           <button
             type="button"
             className="coverage-action"
-            aria-label={t(state === "none" ? "采集 {name}" : "补全 {name}", { name: code })}
+            aria-label={t("采集 {name}", { name: code })}
             onClick={() => start([rule])}
           >
-            {state === "none" ? t("采集") : t("补全")}
+            {t("采集")}
           </button>
         ) : null}
       </td>
@@ -475,26 +474,15 @@ export function CoverageList({
           <td>
             {!acquires ? null : busy ? (
               <span className="coverage-busy">{t("采集中")}</span>
-            ) : needsListed ? (
+            ) : needsListed || needsHistory ? (
               <button
                 type="button"
                 className="coverage-action"
-                aria-label={t(series?.held ? "补全 {name}" : "采集 {name}", {
-                  name: row.id,
-                })}
-                onClick={() => collect(row)}
+                disabled={!needsListed && loadingProduct === row.id}
+                aria-label={t("采集 {name}", { name: row.id })}
+                onClick={() => (needsListed ? collect(row) : void collectHistory(row))}
               >
-                {series?.held ? t("补全") : t("采集")}
-              </button>
-            ) : needsHistory ? (
-              <button
-                type="button"
-                className="coverage-action"
-                disabled={loadingProduct === row.id}
-                aria-label={t(retired ? "采集全部 {name}" : "补历史 {name}", { name: row.id })}
-                onClick={() => void collectHistory(row)}
-              >
-                {t(retired ? "采集全部" : "补历史")}
+                {t("采集")}
               </button>
             ) : null}
           </td>
@@ -533,10 +521,10 @@ export function CoverageList({
                 <button
                   type="button"
                   className="coverage-action"
-                  aria-label={t("采集全部 {name}", { name: row.id })}
+                  aria-label={t("采集 {name}", { name: `${row.id} ${t("历史合约")}` })}
                   onClick={() => startHistory(history)}
                 >
-                  {t("采集全部")}
+                  {t("采集")}
                 </button>
               )}
             </td>
@@ -577,12 +565,10 @@ export function CoverageList({
                       <button
                         type="button"
                         className="coverage-action"
-                        aria-label={t(yearTally.held ? "补全 {name}" : "采集 {name}", {
-                          name: `${row.id} ${year}`,
-                        })}
+                        aria-label={t("采集 {name}", { name: `${row.id} ${year}` })}
                         onClick={() => startHistory(history, year, year)}
                       >
-                        {yearTally.held ? t("补全") : t("采集")}
+                        {t("采集")}
                       </button>
                     )}
                   </td>

@@ -166,7 +166,7 @@ function DatasetBody({ context, address }: { context: TerminalContext; address: 
         submitted
           ? t("已提交 {count} 个更新任务", { count: submitted })
           : hasGaps && !hasActive
-            ? t("各表末日已到最新；中间缺口请点击对应品种或合约的“补全”补齐")
+            ? t("各表末日已到最新；中间缺口请点击对应品种或合约的“采集”补齐")
             : t("各表已是最新，或已有任务在进行"),
       );
       await refreshAll();
@@ -384,7 +384,7 @@ function DatasetBody({ context, address }: { context: TerminalContext; address: 
                 />
                 {offered.length > 0 && (
                   <button type="button" onClick={() => void startUpdate()}>
-                    {t("更新到最新")}
+                    {t("更新")}
                   </button>
                 )}
               </div>

@@ -320,7 +320,7 @@ function TaskRow({
       ? `${t("后台更新")} · ${tableName(request.table)}`
       : isUpdate
         ? batch.members.length > 1
-          ? t("更新到最新")
+          ? t("更新")
           : `${t("更新")} ${tableName(request.table)}`
         : `${t("采集")} ${tableName(request.table)}`;
   return (

@@ -117,7 +117,7 @@ test("weekly report dates do not become missing daily partitions, including in m
   const weekly = screen.getByText("采集 库存周报").closest("tr")!;
   expect(within(weekly).getByText("失败")).toBeTruthy();
   expect(weekly.textContent).toContain("100% · 20 / 20 个分区 · 周报按报告日提供");
-  const update = screen.getByText("更新到最新").closest("tr")!;
+  const update = screen.getByText("更新").closest("tr")!;
   expect(update.textContent).toContain(
     "100% · 30 / 30 个分区 · 2 个分区暂无数据 · 周报按报告日提供",
   );

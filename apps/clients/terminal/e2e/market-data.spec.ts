@@ -36,7 +36,7 @@ test(
       ).toBeVisible();
       await page.keyboard.press("Escape");
       await expect(page.getByRole("table", { name: "最近活动" })).toBeHidden();
-      await expect(page.getByRole("button", { name: "更新到最新", exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "更新", exact: true })).toBeVisible();
       await expect(page.getByRole("rowheader", { name: /^rb\b/ })).toContainText("螺纹钢");
       await expect(page.getByRole("columnheader", { name: "采集进度", exact: true })).toBeVisible();
       expect((await rpc(page.request, "market.watch", { restart: false })).market_watch).toBeNull();

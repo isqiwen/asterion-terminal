@@ -257,7 +257,7 @@ test("the summary shows freshness, acquisition defaults to canonical exchange or
   expect(daily!.title).toBe("数据到 2026-11-10 · 应到 2026-11-12 · 另有 3 个交易日来源无数据");
   expect(minutes!.textContent).toBe("分钟线");
 
-  fireEvent.click(screen.getByRole("button", { name: "更新到最新" }));
+  fireEvent.click(screen.getByRole("button", { name: "更新" }));
   await screen.findByText("已提交 2 个更新任务");
   expect(request).toHaveBeenCalledWith({ case: "startUpdate", value: {} });
 });
@@ -335,7 +335,7 @@ test("a contract is completed at once for the kind on show", async () => {
   serve();
   view(context());
   await openRebar();
-  fireEvent.click(screen.getByRole("button", { name: "补全 rb2702" }));
+  fireEvent.click(screen.getByRole("button", { name: "采集 rb2702" }));
   await waitFor(() => expect(submitted()).toHaveLength(1));
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(submitted()[0]).toMatchObject({
@@ -371,7 +371,7 @@ test("going back to a year or all history starts daily acquisition immediately",
     firstDay: "2023-10-16",
     lastDay: "2024-10-15",
   });
-  fireEvent.click(screen.getByRole("button", { name: "采集全部 SHFE/rb" }));
+  fireEvent.click(screen.getByRole("button", { name: "采集 SHFE/rb 历史合约" }));
   await waitFor(() => expect(submitted()).toHaveLength(2));
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(submitted()[1]).toMatchObject({
@@ -388,7 +388,7 @@ test("going back in minutes submits every missing historical contract directly",
   await openRebar();
   showKind("分钟线");
   fireEvent.click(screen.getByRole("button", { name: "历史合约" }));
-  fireEvent.click(screen.getByRole("button", { name: "采集全部 SHFE/rb" }));
+  fireEvent.click(screen.getByRole("button", { name: "采集 SHFE/rb 历史合约" }));
   await waitFor(() => expect(submitted()).toHaveLength(1));
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(submitted()[0]).toMatchObject({
@@ -427,7 +427,7 @@ test("a contract an active task covers cannot be started again", async () => {
   });
   view(context());
   await openRebar();
-  expect(screen.getByRole("button", { name: "补全 rb2702" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "采集 rb2702" })).toBeTruthy();
   showKind("分钟线");
   await waitFor(() => expect(screen.queryByRole("button", { name: "采集 rb2702" })).toBeNull());
   expect(
@@ -455,7 +455,7 @@ test("retired products fold at the bottom, acquire directly, and expand straight
 
   fireEvent.click(group);
   expect(within(table).getByRole("rowheader", { name: /^pb/ }).textContent).toContain("沪铅");
-  fireEvent.click(within(table).getByRole("button", { name: "采集全部 SHFE/pb" }));
+  fireEvent.click(within(table).getByRole("button", { name: "采集 SHFE/pb" }));
   await waitFor(() => expect(submitted()).toHaveLength(1));
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(submitted()[0]).toMatchObject({
@@ -536,7 +536,7 @@ test("listed-complete products with missing history offer direct history backfil
   view(context());
   const table = await list();
   expect(within(table).queryByRole("button", { name: /SHFE\/ao/ })).toBeNull();
-  fireEvent.click(within(table).getByRole("button", { name: "补历史 SHFE/cu" }));
+  fireEvent.click(within(table).getByRole("button", { name: "采集 SHFE/cu" }));
   await waitFor(() => expect(submitted()).toHaveLength(1));
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(submitted()[0]).toMatchObject({
@@ -598,7 +598,7 @@ test("minute acquisition submits one task, prerequisite requests show live progr
   await list();
 
   showKind("分钟线");
-  fireEvent.click(screen.getByRole("button", { name: "补全 SHFE/rb" }));
+  fireEvent.click(screen.getByRole("button", { name: "采集 SHFE/rb" }));
   await waitFor(() => expect(submitted().map(item => item.table)).toEqual([Table.MINUTES]));
   expect(props.trade).not.toHaveBeenCalled();
 
@@ -626,7 +626,7 @@ test("minute acquisition submits one task, prerequisite requests show live progr
     .getAllByRole("row")
     .filter(row => row.getAttribute("data-kind") === "task");
   expect(taskRows).toHaveLength(1);
-  expect(taskRows[0]!.textContent).toContain("更新到最新");
+  expect(taskRows[0]!.textContent).toContain("更新");
   expect(taskRows[0]!.textContent).toContain("2 / 4 个分区");
 
   fireEvent.click(within(taskRows[0]!).getByRole("button", { name: "取消" }));
@@ -668,7 +668,7 @@ test("versions inspect historical coverage in place and pagination loads earlier
     params: { version: older },
   });
   await screen.findByRole("rowheader", { name: /^cu/ });
-  expect(screen.queryByRole("button", { name: /^补全/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^采集/ })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "回到最新数据" }));
   await screen.findByRole("rowheader", { name: /^rb/ });
 });
@@ -677,8 +677,8 @@ test("without an acquisition source nothing offers acquisition", async () => {
   serve({ tables: [] });
   view(context());
   await openRebar();
-  expect(screen.queryByRole("button", { name: /^补全/ })).toBeNull();
-  expect(screen.queryByRole("button", { name: "更新到最新" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^采集/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: "更新" })).toBeNull();
 });
 
 test("a warehouse without a contract table offers no product to act on", async () => {
@@ -807,6 +807,6 @@ test("partial source-empty contracts stay acquirable while settled empty product
   expect(within(row).getByRole("button", { name: "采集 rb2703" })).toBeTruthy();
   expect(row.querySelector<HTMLElement>(".coverage-lane")!.title).toBe("未采集 · 来源无数据 2 天");
 
-  fireEvent.click(screen.getByRole("button", { name: "更新到最新" }));
-  await screen.findByText("各表末日已到最新；中间缺口请点击对应品种或合约的“补全”补齐");
+  fireEvent.click(screen.getByRole("button", { name: "更新" }));
+  await screen.findByText("各表末日已到最新；中间缺口请点击对应品种或合约的“采集”补齐");
 });
