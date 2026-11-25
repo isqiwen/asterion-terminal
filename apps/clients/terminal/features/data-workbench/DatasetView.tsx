@@ -426,10 +426,11 @@ function DatasetBody({ context, address }: { context: TerminalContext; address: 
                   <ContractHistory
                     key={chart}
                     venue={chart.split("/")[0]!}
-                    symbol={chart}
+                    symbol={contractCode(chart)}
                     historyContractId={chart}
                     datasetVersion={version}
                     context={context}
+                    header={null}
                   />
                 </div>
               </aside>

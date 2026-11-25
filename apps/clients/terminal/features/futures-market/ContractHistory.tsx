@@ -4,7 +4,7 @@ import { useErrorNotification } from "../../src/host/notifications";
 import { chartTime } from "./chart-time";
 import { priceTickOf } from "./price-tick";
 import { averagePeriods, historyLookback, movingAverage } from "./indicators";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { PriceChart, type ChartPriceLine } from "@asterion/terminal/charts/PriceChart";
 import { timestamp } from "../../src/bridge/client";
 import { lab } from "../../src/bridge/lab";
@@ -14,6 +14,7 @@ import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { translate } from "../../src/i18n";
 import { ErrorNotice, type DisplayError, asDisplayError } from "../../src/i18n/errors";
 import { type ChartPeriod, protocolPeriod } from "../../src/ui/periods";
+import "./quotes.css";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 
 type Period = ChartPeriod;
@@ -47,6 +48,7 @@ export function ContractHistory({
   preferenceKey = preferLongest ? "history-long" : "history-main",
   fixedPeriod,
   priceLines,
+  header,
 }: {
   venue: string;
   symbol: string;
@@ -59,6 +61,8 @@ export function ContractHistory({
   // Chosen by an enclosing period tab; hides this chart's own period controls.
   fixedPeriod?: Period;
   priceLines?: readonly ChartPriceLine[];
+  // Custom header content; pass null when an enclosing header already names the contract.
+  header?: ReactNode;
 }) {
   const { snapshot, busy, navigate } = context;
   const market = useMarket();
@@ -196,10 +200,14 @@ export function ContractHistory({
   const disabled = busy || loading;
   return (
     <section className="market-history-chart" aria-label={t("合约历史 K 线")} aria-busy={loading}>
-      {fixedPeriod === undefined && (
+      {header !== null && (header !== undefined || fixedPeriod === undefined) && (
         <header className="market-chart-title">
-          <strong>{symbol}</strong>
-          <span>{t("历史 K 线")}</span>
+          {header ?? (
+            <>
+              <strong>{symbol}</strong>
+              <span>{t("历史 K 线")}</span>
+            </>
+          )}
         </header>
       )}
       {error && (
@@ -245,31 +253,33 @@ export function ContractHistory({
             </button>
           ))}
         </div>
-        <button
-          type="button"
-          title={t("显示均线")}
-          aria-pressed={showAverages}
-          onClick={() => setShowAverages(value => !value)}
-        >
-          MA
-        </button>
-        <div className="market-chart-subpane tabs" role="group" aria-label={t("副图")}>
+        <div className="market-chart-indicators">
           <button
             type="button"
-            aria-label={t("显示成交量")}
-            aria-pressed={!showMacd}
-            onClick={() => setShowMacd(false)}
+            title={t("显示均线")}
+            aria-pressed={showAverages}
+            onClick={() => setShowAverages(value => !value)}
           >
-            {t("成交量")}
+            MA
           </button>
-          <button
-            type="button"
-            aria-label={t("显示 MACD")}
-            aria-pressed={showMacd}
-            onClick={() => setShowMacd(true)}
-          >
-            MACD
-          </button>
+          <div className="market-chart-subpane tabs" role="group" aria-label={t("副图")}>
+            <button
+              type="button"
+              aria-label={t("显示成交量")}
+              aria-pressed={!showMacd}
+              onClick={() => setShowMacd(false)}
+            >
+              {t("成交量")}
+            </button>
+            <button
+              type="button"
+              aria-label={t("显示 MACD")}
+              aria-pressed={showMacd}
+              onClick={() => setShowMacd(true)}
+            >
+              MACD
+            </button>
+          </div>
         </div>
       </div>
       {shown.length ? (
@@ -278,7 +288,7 @@ export function ContractHistory({
             compact
             fitHeight
             showPriceExtremes
-            priceTick={priceTickOf(market, venue, symbol)}
+            priceTick={priceTickOf(market, venue, historyContractId ?? symbol)}
             priceLines={priceLines}
             formatIndicatorValue={value => value.toFixed(2)}
             showVolume={!showMacd}
@@ -297,40 +307,42 @@ export function ContractHistory({
               </>
             )}
           />
-          <div className="market-chart-toolbar market-history-pages">
-            <span>
-              {begin + 1}–{end} / {all.length}
-            </span>
-            <button
-              type="button"
-              disabled={disabled || !begin}
-              onClick={() => setEnd(Math.min(page, all.length))}
-            >
-              {t("最早数据")}
-            </button>
-            <button
-              type="button"
-              disabled={disabled || !begin}
-              onClick={() => setEnd(Math.max(page, end - page))}
-            >
-              {t("向前")}
-            </button>
-            <button
-              type="button"
-              disabled={disabled || end >= all.length}
-              onClick={() => setEnd(Math.min(all.length, end + page))}
-            >
-              {t("向后")}
-            </button>
-            <button
-              type="button"
-              disabled={disabled || end >= all.length}
-              onClick={() => setEnd(all.length)}
-            >
-              {t("最新数据")}
-            </button>
-          </div>
-          <div className="market-chart-source">{t("研究数据 · 历史数据 · 非实时")}</div>
+          <footer className="market-history-footer">
+            <div className="market-history-pages">
+              <button
+                type="button"
+                disabled={disabled || !begin}
+                onClick={() => setEnd(Math.min(page, all.length))}
+              >
+                {t("最早数据")}
+              </button>
+              <button
+                type="button"
+                disabled={disabled || !begin}
+                onClick={() => setEnd(Math.max(page, end - page))}
+              >
+                {t("向前")}
+              </button>
+              <span className="market-history-range">
+                {begin + 1}–{end} / {all.length}
+              </span>
+              <button
+                type="button"
+                disabled={disabled || end >= all.length}
+                onClick={() => setEnd(Math.min(all.length, end + page))}
+              >
+                {t("向后")}
+              </button>
+              <button
+                type="button"
+                disabled={disabled || end >= all.length}
+                onClick={() => setEnd(all.length)}
+              >
+                {t("最新数据")}
+              </button>
+            </div>
+            <span className="market-chart-source">{t("研究数据 · 历史数据 · 非实时")}</span>
+          </footer>
         </>
       ) : (
         <div className="market-chart-empty" role="status">

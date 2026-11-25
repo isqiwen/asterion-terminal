@@ -94,14 +94,52 @@
   flex: 0 0 1ch;
 }
 .market-history-chart {
-  padding: var(--space-1) var(--space-2);
-  border-top: 1px solid var(--grid);
+  display: flex;
+  flex-direction: column;
+  flex: 1;
   min-width: 0;
+  min-height: 0;
+  padding: var(--space-1) var(--space-2);
 }
 .market-history-chart .subtle {
   color: var(--muted);
   font-size: var(--font-size-aux);
   line-height: 1.5;
+}
+.market-history-chart .price-chart[data-fit-height] {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  padding: var(--space-2) 0 0;
+}
+.market-history-chart .price-chart[data-fit-height] > :not(.price-chart-canvas) {
+  flex-shrink: 0;
+}
+.market-history-chart .price-chart[data-fit-height] .price-chart-canvas {
+  flex: 1 1 0;
+  height: auto;
+  min-height: 220px;
+  max-height: none;
+}
+.market-history-chart .price-chart-cursor {
+  min-height: 18px;
+  margin: 0 0 2px;
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-aux);
+  line-height: 1.5;
+  color: var(--muted);
+}
+.market-history-chart .price-chart-legend {
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-aux);
+  line-height: 1.5;
+  margin: 0 0 var(--space-1);
+}
+.market-history-chart .price-chart-legend[data-oscillator] {
+  margin: var(--space-1) 0 0;
 }
 .market-contract .price-chart {
   margin: var(--space-1) 0;
@@ -131,29 +169,92 @@
 .market-chart-title,
 .market-chart-toolbar {
   display: flex;
-  align-items: center;
-  gap: var(--space-1);
+  flex-wrap: wrap;
+  align-items: safe center;
+  gap: var(--space-1) var(--space-2);
   min-width: 0;
   font-size: var(--font-size-body);
 }
 .market-chart-title {
-  padding-bottom: var(--space-2);
+  align-items: baseline;
+  padding-bottom: var(--space-1);
 }
-.market-chart-title span {
+.market-chart-title strong {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+.market-chart-title code {
   color: var(--muted);
-  margin-left: auto;
+  font-size: var(--font-size-xs);
+}
+.market-chart-title > span:last-child {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+  font-variant-numeric: tabular-nums;
+  margin-inline-start: auto;
+}
+.market-chart-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: safe center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  font-size: var(--font-size-body);
+  color: var(--danger);
+}
+.market-chart-toolbar {
+  gap: var(--space-1) var(--space-3);
 }
 .market-chart-toolbar button {
-  min-height: 18px;
-  padding: 0 var(--space-1);
+  min-height: 24px;
+  padding: 0 var(--space-2);
   font-size: var(--font-size-body);
 }
-.market-chart-source {
+.market-chart-indicators {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: safe center;
+  gap: var(--space-2);
+  margin-inline-start: auto;
+}
+.market-chart-indicators > button[aria-pressed="true"] {
+  border-color: var(--accent-line);
+  background: var(--accent-surface);
+  color: var(--accent);
+}
+.market-history-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: safe center;
+  gap: var(--space-2) var(--space-3);
   margin-top: var(--space-1);
   font-size: var(--font-size-aux);
   color: var(--muted);
 }
+.market-history-pages {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: safe center;
+  gap: var(--space-1);
+}
+.market-history-pages button {
+  min-height: 24px;
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-aux);
+}
+.market-history-range {
+  padding: 0 var(--space-2);
+  font-family: var(--font-terminal);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.market-chart-source {
+  margin-inline-start: auto;
+  font-size: var(--font-size-aux);
+  color: var(--subtle);
+}
 .market-chart-empty {
+  flex: 1;
   min-height: 170px;
   display: flex;
   align-items: center;
@@ -184,17 +285,8 @@
   border-color: var(--accent-line);
   color: var(--accent);
 }
-.market-chart-toolbar > button[aria-pressed="true"] {
-  color: var(--accent);
-}
 
 @media (min-width: 901px) {
-  .market-history-chart {
-    display: flex;
-    flex-direction: column;
-    flex: 1 0 300px;
-    min-height: 0;
-  }
   .market-contract .price-chart[data-fit-height] {
     display: flex;
     flex-direction: column;
@@ -212,9 +304,6 @@
 }
 
 .market-periods {
-  flex-wrap: wrap;
-}
-.market-chart-toolbar {
   flex-wrap: wrap;
 }
 .market-quote-table .quote-inline-status {

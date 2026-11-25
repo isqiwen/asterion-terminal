@@ -12,7 +12,8 @@ vi.mock("../../src/bridge/lab", () => ({
 }));
 vi.mock("../../src/i18n", async original => ({
   ...(await original<typeof import("../../src/i18n")>()),
-  translate: (_namespace: string, key: string) => key,
+  translate: (_namespace: string, key: string, values?: Record<string, unknown>) =>
+    key.replace(/\{(\w+)\}/g, (_, name: string) => String(values?.[name])),
 }));
 vi.mock("@asterion/terminal/charts/PriceChart", () => ({ PriceChart: () => null }));
 
@@ -77,4 +78,43 @@ test("stored contracts can be found by short code, identity or product name", as
     expect(contracts.getByRole("button").title).toBe("SHFE/au/2025-12");
     expect(contracts.getByRole("button").getAttribute("aria-pressed")).toBe("true");
   }
+});
+
+test("the list and chart header show readable contract names and exchange metadata instead of raw paths", async () => {
+  vi.mocked(lab).mockImplementation(async operation => {
+    if (operation?.case === "listStoredContracts")
+      return create(StoredContractsSchema, {
+        contracts: [
+          {
+            contract: "CFFEX/ic/2026-11",
+            name: "IC2611",
+            daily: { days: 58 },
+            minutes: { days: 30 },
+          },
+          { contract: "SHFE/au/2025-12", daily: { days: 263 } },
+        ],
+      }) as never;
+    if (operation?.case === "getChartBars") return create(ChartBarsSchema) as never;
+    return new Promise(() => {}) as never;
+  });
+  const context = { snapshot: {}, navigate: vi.fn() } as unknown as TerminalContext;
+  render(
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.data-browse">
+      <StoredContracts version="" context={context} />
+    </WorkspaceDraftScope>,
+  );
+  const contracts = within(await screen.findByRole("group", { name: "已采集合约" }));
+  const buttons = contracts.getAllByRole("button");
+  expect(buttons[0].textContent).toContain("IC2611");
+  expect(buttons[0].textContent).toContain("CFFEX");
+  expect(buttons[0].textContent).not.toContain("CFFEX/ic/2026-11");
+  expect(buttons[0].textContent).not.toContain("ic2611");
+  expect(buttons[1].textContent).toContain("沪金2512");
+  expect(buttons[1].textContent).toContain("au2512 · SHFE");
+
+  const chart = screen.getByRole("region", { name: "合约历史 K 线" });
+  expect(chart.textContent).toContain("IC2611");
+  expect(chart.textContent).toContain("CFFEX");
+  expect(chart.textContent).toContain("日线 58 天 · 分钟线 30 天");
+  expect(chart.textContent).not.toContain("CFFEX/ic/2026-11");
 });

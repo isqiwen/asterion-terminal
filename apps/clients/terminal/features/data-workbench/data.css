@@ -119,38 +119,84 @@ button.data-summary-item[aria-pressed="true"] {
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
-.data-browse .tabs {
-  flex-wrap: wrap;
-}
 .data-browse-nav {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-4);
+  align-items: safe center;
+  gap: var(--space-2) var(--space-3);
   min-width: 0;
 }
-/* The tables of the chosen group: a lighter level than the groups. */
-.data-browse .data-browse-tables {
-  padding-left: var(--space-4);
-  border-left: 1px solid var(--line);
+.data-browse-groups,
+.data-browse-tables {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
 }
-.data-browse .data-browse-tables > button {
-  border-bottom: 0;
-  border-radius: var(--control-radius);
+.data-browse-groups > button {
+  min-height: 28px;
+  padding: 0 var(--space-3);
+  border-color: var(--line);
+  color: var(--muted);
+  font-size: var(--font-size-body);
 }
-.data-browse .data-browse-tables > button[aria-pressed="true"] {
+.data-browse-groups > button[aria-pressed="true"] {
+  border-color: var(--accent);
   background: var(--accent-surface);
   color: var(--text-strong);
+  font-weight: 500;
 }
-.data-browse > .data-fields {
-  padding: var(--space-3) var(--space-page);
+/* The tables of the chosen group: a lighter level than the groups. */
+.data-browse-tables {
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--line);
+}
+.data-browse-tables > button {
+  min-height: 26px;
+  padding: 0 var(--space-2);
+  border: 0;
+  color: var(--muted);
+  font-size: var(--font-size-body);
+}
+.data-browse-tables > button[aria-pressed="true"] {
+  background: var(--accent-surface);
+  color: var(--accent);
+}
+.reference-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: safe center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-page);
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
+}
+.reference-toolbar > label {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--font-size-body);
+}
+.reference-toolbar > label > select {
+  min-width: 120px;
 }
 .data-browse > .data-actions {
   padding: var(--space-2) var(--space-page);
   border-top: 1px solid var(--line);
+  background: var(--pane);
   flex-shrink: 0;
+}
+.data-browse > .data-actions button {
+  min-height: 24px;
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-aux);
+}
+.data-browse > .data-actions .subtle {
+  font-family: var(--font-terminal);
+  font-variant-numeric: tabular-nums;
 }
 .data-browse > p {
   margin: 0;
@@ -639,49 +685,28 @@ html[lang="en-US"] :is(button.coverage-action, .coverage-busy, .coverage-done) {
   margin-left: auto;
 }
 .coverage-drawer-body {
+  --chart-pad: var(--space-3);
   display: flex;
   flex: 1;
   flex-direction: column;
   min-height: 0;
 }
-.coverage-drawer-body :is(.market-history-chart, .price-chart[data-fit-height]) {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-}
-.coverage-drawer-body .price-chart[data-fit-height] > :not(.price-chart-canvas) {
-  flex-shrink: 0;
-}
-.coverage-drawer-body .price-chart[data-fit-height] .price-chart-canvas {
-  flex: 1;
-  height: auto;
+.coverage-drawer-body .market-history-chart .price-chart[data-fit-height] .price-chart-canvas {
   min-height: 190px;
-  max-height: none;
-}
-.data-fields {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3) var(--space-4);
-}
-.data-fields > label {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-1);
-  color: var(--muted);
 }
 .data-actions {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-4);
+  align-items: safe center;
+  gap: var(--space-2) var(--space-3);
 }
 .reference-table {
   flex: 1;
   min-width: 0;
   min-height: 0;
   overflow: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
 }
 .reference-table:focus-visible {
   outline: 1px solid var(--accent);
@@ -720,7 +745,7 @@ html[lang="en-US"] :is(button.coverage-action, .coverage-busy, .coverage-done) {
 }
 .stored-contracts {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-columns: 264px minmax(0, 1fr);
   flex: 1;
   min-height: 0;
 }
@@ -733,7 +758,7 @@ html[lang="en-US"] :is(button.coverage-action, .coverage-busy, .coverage-done) {
 }
 .stored-contracts-search {
   flex-shrink: 0;
-  padding: var(--space-2);
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--line);
 }
 .stored-contracts-search > input {
@@ -744,28 +769,63 @@ html[lang="en-US"] :is(button.coverage-action, .coverage-busy, .coverage-done) {
 .stored-contracts-items {
   flex: 1;
   min-height: 0;
-  overflow: auto;
-  padding: 0 var(--space-2) var(--space-2);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+.stored-contracts-items > p {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
 }
 .stored-contracts-list [role="group"] > button {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-1);
+  align-items: stretch;
+  gap: 2px;
   width: 100%;
   text-align: left;
   border: 0;
-  border-left: 2px solid transparent;
-  border-bottom: 1px solid var(--line);
   border-radius: 0;
-  padding: var(--space-2);
+  box-shadow: inset 0 -1px 0 var(--line);
+  padding: var(--space-2) var(--space-3);
   font-size: var(--font-size-body);
   background: transparent;
 }
+.stored-contracts-list [role="group"] > button:hover {
+  background: var(--hover);
+}
 .stored-contracts-list [role="group"] > button[aria-pressed="true"] {
-  border-left-color: var(--accent);
   background: var(--accent-surface);
+  box-shadow:
+    inset 2px 0 0 var(--accent),
+    inset 0 -1px 0 var(--line);
+}
+.stored-contract-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+}
+.stored-contract-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-strong);
+  font-weight: 500;
+}
+.stored-contracts-list [role="group"] > button[aria-pressed="true"] .stored-contract-name {
   color: var(--accent);
+}
+.stored-contract-meta {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+}
+.stored-contract-days {
+  font-variant-numeric: tabular-nums;
 }
 .stored-contracts-list small,
 .stored-contracts-list p {
@@ -773,25 +833,46 @@ html[lang="en-US"] :is(button.coverage-action, .coverage-busy, .coverage-done) {
   color: var(--muted);
 }
 .stored-contracts-detail {
+  --chart-pad: var(--space-4);
   display: flex;
   flex-direction: column;
   min-width: 0;
-  overflow: auto;
-}
-.stored-contracts-detail .price-chart[data-fit-height] {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
   min-height: 0;
+  overflow: hidden;
+  background: var(--canvas);
 }
-.stored-contracts-detail .price-chart[data-fit-height] > :not(.price-chart-canvas) {
-  flex-shrink: 0;
+:is(.stored-contracts-detail, .coverage-drawer-body) > .market-history-chart {
+  padding: 0;
 }
-.stored-contracts-detail .price-chart[data-fit-height] .price-chart-canvas {
-  flex: 1;
-  height: 0;
+.stored-contracts-detail .market-chart-title {
+  padding: var(--space-2) var(--chart-pad);
+  border-bottom: 1px solid var(--line);
+  background: var(--pane);
+}
+.stored-contracts-detail .market-chart-title strong {
+  font-size: var(--font-size-md);
+}
+:is(.stored-contracts-detail, .coverage-drawer-body) .market-chart-toolbar {
+  padding: var(--space-1) var(--chart-pad);
+  border-bottom: 1px solid var(--line);
+}
+:is(.stored-contracts-detail, .coverage-drawer-body) .market-chart-error {
+  padding: var(--space-2) var(--chart-pad);
+  border-bottom: 1px solid var(--line);
+}
+:is(.stored-contracts-detail, .coverage-drawer-body)
+  .market-history-chart
+  .price-chart[data-fit-height] {
+  padding: var(--space-2) var(--chart-pad);
+}
+.stored-contracts-detail .market-history-chart .price-chart[data-fit-height] .price-chart-canvas {
   min-height: 240px;
-  max-height: none;
+}
+:is(.stored-contracts-detail, .coverage-drawer-body) .market-history-footer {
+  margin-top: 0;
+  padding: var(--space-2) var(--chart-pad);
+  border-top: 1px solid var(--line);
+  background: var(--pane);
 }
 @media (max-width: 900px) {
   .data-browse {
@@ -804,15 +885,11 @@ html[lang="en-US"] :is(button.coverage-action, .coverage-busy, .coverage-done) {
   .stored-contracts-list {
     max-height: 220px;
     border-right: 0;
-    border-bottom: 1px solid var(--grid);
+    border-bottom: 1px solid var(--line);
   }
   .stored-contracts-detail {
-    min-height: 500px;
-  }
-  .stored-contracts-detail .market-history-chart {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
+    min-height: 520px;
+    overflow: visible;
   }
 }
 /* Shown only while an earlier dataset version replaces the latest data. */

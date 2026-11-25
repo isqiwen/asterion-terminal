@@ -15,7 +15,21 @@ const t = (key: string, values?: MessageValues) =>
 const shownAtOnce = 200;
 
 type Stored = { contract: string; name: string; dailyDays: number; minuteDays: number };
-type IndexedStored = Stored & { displayName: string; searchKey: string };
+type IndexedStored = Stored & { displayName: string; meta: string; searchKey: string };
+
+const contractMeta = (id: string, displayName: string) => {
+  const venue = id.split("/")[0] ?? "";
+  const code = contractCode(id);
+  return displayName.toLowerCase() === code.toLowerCase() ? venue : `${code} · ${venue}`;
+};
+
+const coverageText = (item: Stored) =>
+  [
+    item.dailyDays ? t("日线 {days} 天", { days: item.dailyDays }) : "",
+    item.minuteDays ? t("分钟线 {days} 天", { days: item.minuteDays }) : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
 // The contracts a research dataset version holds, and the chosen one's history.
 // An empty version is the current one.
@@ -61,6 +75,7 @@ export function StoredContracts({
         return {
           ...item,
           displayName,
+          meta: contractMeta(item.contract, displayName),
           searchKey: `${item.contract} ${contractCode(item.contract)} ${displayName}`.toUpperCase(),
         };
       }),
@@ -74,7 +89,8 @@ export function StoredContracts({
     return query ? indexed.filter(item => item.searchKey.includes(query)) : indexed;
   }, [indexed, search]);
   const visible = matched.slice(0, shownAtOnce);
-  const active = matched.some(item => item.contract === selected) ? selected : visible[0]?.contract;
+  const activeItem = matched.find(item => item.contract === selected) ?? visible[0];
+  const active = activeItem?.contract;
   return (
     <>
       {!stored ? (
@@ -125,16 +141,11 @@ export function StoredContracts({
                       }
                     }}
                   >
-                    <span>{item.displayName}</span>
-                    {item.displayName !== item.contract && <small>{item.contract}</small>}
-                    <small>
-                      {[
-                        item.dailyDays ? t("日线 {days} 天", { days: item.dailyDays }) : "",
-                        item.minuteDays ? t("分钟线 {days} 天", { days: item.minuteDays }) : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </small>
+                    <span className="stored-contract-head">
+                      <span className="stored-contract-name">{item.displayName}</span>
+                      <code className="stored-contract-meta">{item.meta}</code>
+                    </span>
+                    <small className="stored-contract-days">{coverageText(item)}</small>
                   </button>
                 ))}
               </div>
@@ -148,14 +159,21 @@ export function StoredContracts({
             </div>
           </div>
           <div className="stored-contracts-detail">
-            {active ? (
+            {activeItem ? (
               <ContractHistory
-                key={active}
-                venue={active.split("/")[0]}
-                symbol={active}
-                historyContractId={active}
+                key={activeItem.contract}
+                venue={activeItem.contract.split("/")[0]}
+                symbol={contractCode(activeItem.contract)}
+                historyContractId={activeItem.contract}
                 datasetVersion={version}
                 context={context}
+                header={
+                  <>
+                    <strong>{activeItem.displayName}</strong>
+                    <code>{activeItem.meta}</code>
+                    <span>{coverageText(activeItem)}</span>
+                  </>
+                }
               />
             ) : (
               <p className="market-chart-empty">{t("没有匹配的合约")}</p>

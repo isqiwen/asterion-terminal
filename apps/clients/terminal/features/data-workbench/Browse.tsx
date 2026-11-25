@@ -110,7 +110,7 @@ function BrowseBody({ context, address }: { context: TerminalContext; address: s
       <div className="data-browse">
         <div className="data-toolbar">
           <div className="data-browse-nav">
-            <div className="tabs" role="group" aria-label={t("数据分类")}>
+            <div className="data-browse-groups" role="group" aria-label={t("数据分类")}>
               {groups.map(item => (
                 <button
                   key={item.name}
@@ -123,7 +123,7 @@ function BrowseBody({ context, address }: { context: TerminalContext; address: s
               ))}
             </div>
             {group.tabs.length > 1 && (
-              <div className="tabs data-browse-tables" role="group" aria-label={t(group.name)}>
+              <div className="data-browse-tables" role="group" aria-label={t(group.name)}>
                 {group.tabs.map(item => (
                   <button
                     key={item}

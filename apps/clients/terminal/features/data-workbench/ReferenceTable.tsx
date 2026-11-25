@@ -153,7 +153,7 @@ export function ReferenceTable({
   useErrorNotification(error, "asterion.terminal.data-workbench");
   return (
     <>
-      <div className="data-fields">
+      <div className="reference-toolbar">
         <label>
           {t("交易所")}
           <select
