@@ -6,7 +6,7 @@ import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import type { TradingConnection } from "../../src/bridge/client";
 import { BrokerState, Environment } from "../../src/generated/asterion/trading_pb";
 import { useTradingAccounts, type TradingView } from "../../src/host/trading-accounts";
-import { ErrorNotice } from "../../src/i18n/errors";
+import { ErrorNotice, type DisplayError } from "../../src/i18n/errors";
 import { StatusBadge } from "../../src/ui/StatusBadge";
 import { t, phases, type Run } from "./live-shared";
 import { CreateLive } from "./CreateLive";
@@ -54,6 +54,44 @@ export function AccountList({
         );
       })}
     </nav>
+  );
+}
+
+export function TradingStatusCard({
+  account,
+  failed,
+  openSettings,
+}: {
+  account: TradingConnection;
+  failed?: DisplayError;
+  openSettings: () => void;
+}) {
+  return (
+    <div className="workspace-empty" role={failed ? "alert" : undefined}>
+      <div className="trading-empty-card">
+        <div className="trading-empty-head">
+          <strong>{account.instance}</strong>
+          {failed && <StatusBadge tone="danger">{t("服务未连接")}</StatusBadge>}
+        </div>
+        <code className="trading-empty-address">
+          {account.host}:{account.port}
+        </code>
+        {failed ? (
+          <p>
+            <ErrorNotice error={failed} namespace="asterion.terminal.trading" />
+          </p>
+        ) : (
+          <p>{t("正在读取交易服务…")}</p>
+        )}
+        {failed && (
+          <div className="workspace-empty-actions">
+            <button type="button" className="primary" onClick={openSettings}>
+              {t("交易服务设置")}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -212,35 +250,11 @@ function AccountColumn({
             />
           </div>
         ) : (
-          <div className="workspace-empty" role={view?.failed ? "alert" : undefined}>
-            <div className="trading-empty-card">
-              <div className="trading-empty-head">
-                <strong>{account.instance}</strong>
-                {view?.failed && <StatusBadge tone="danger">{t("服务未连接")}</StatusBadge>}
-              </div>
-              <code className="trading-empty-address">
-                {account.host}:{account.port}
-              </code>
-              {view?.failed ? (
-                <p>
-                  <ErrorNotice error={view.failed} namespace="asterion.terminal.trading" />
-                </p>
-              ) : (
-                <p role="status">{t("正在读取交易服务…")}</p>
-              )}
-              {view?.failed && (
-                <div className="workspace-empty-actions">
-                  <button
-                    type="button"
-                    className="primary"
-                    onClick={() => context.openSettings("trading")}
-                  >
-                    {t("交易服务设置")}
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
+          <TradingStatusCard
+            account={account}
+            failed={view?.failed}
+            openSettings={() => context.openSettings("trading")}
+          />
         )}
       </div>
     </div>

@@ -7,11 +7,9 @@ import { useStrategyHost, useTradingAccounts } from "../../src/host/trading-acco
 import { ServiceUnset } from "../../src/host/components/ServiceUnset";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { ActionError, useActionError } from "../../src/host/action-error";
-import { ErrorNotice } from "../../src/i18n/errors";
-import { StatusBadge } from "../../src/ui/StatusBadge";
 import { AccountIdentityBar } from "./AccountIdentityBar";
 import { EmergencyControls } from "./EmergencyControls";
-import { AccountList } from "./LivePanel";
+import { AccountList, TradingStatusCard } from "./LivePanel";
 import { t, type Run } from "./live-shared";
 import { StrategyInstance } from "./StrategyInstance";
 import { StrategyMonitor } from "./StrategyMonitor";
@@ -122,38 +120,14 @@ function AccountStrategies({
     );
   }
   if (!host.state) {
-    const failed = host.readError || view?.failed;
     return (
       <div className="ctp-account-column">
         <div className="ctp-account-panel">
-          <div className="workspace-empty" role={failed ? "alert" : undefined}>
-            <div className="trading-empty-card">
-              <div className="trading-empty-head">
-                <strong>{account.instance}</strong>
-                {failed && <StatusBadge tone="danger">{t("服务未连接")}</StatusBadge>}
-              </div>
-              <code className="trading-empty-address">
-                {account.host}:{account.port}
-              </code>
-              {failed ? (
-                <p>
-                  <ErrorNotice error={failed} namespace="asterion.terminal.trading" />
-                </p>
-              ) : (
-                <p>{t("正在读取交易服务…")}</p>
-              )}
-              {failed && (
-                <div className="workspace-empty-actions">
-                  <button type="button" disabled={host.reading} onClick={() => void host.refresh()}>
-                    {t("重试")}
-                  </button>
-                  <button type="button" className="primary" onClick={openSettings}>
-                    {t("交易服务设置")}
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
+          <TradingStatusCard
+            account={account}
+            failed={view?.failed || host.readError}
+            openSettings={openSettings}
+          />
         </div>
       </div>
     );

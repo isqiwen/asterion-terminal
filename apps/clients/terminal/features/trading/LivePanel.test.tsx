@@ -986,6 +986,7 @@ test("the strategy view shows a centered status card with settings entry when tr
   expect(within(alert).getByText("account-b")).toBeTruthy();
   expect(within(alert).getByText("服务未连接")).toBeTruthy();
   expect(within(alert).getByText("127.0.0.1:7460")).toBeTruthy();
+  expect(within(alert).queryByRole("button", { name: "重试" })).toBeNull();
   expect(screen.queryByRole("region", { name: "策略版本" })).toBeNull();
   fireEvent.click(within(alert).getByRole("button", { name: "交易服务设置" }));
   expect(openSettings).toHaveBeenCalledWith("trading");

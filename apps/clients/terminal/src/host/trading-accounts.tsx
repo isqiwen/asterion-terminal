@@ -365,6 +365,8 @@ export function TradingAccountsProvider({
 // One account's strategy host, polled every 3 s while mounted: its packages,
 // running instance, and mutation controls.
 export function useStrategyHost(account: string) {
+  const { views } = useTradingAccounts();
+  const cached = views[account]?.strategies;
   const [state, setState] = useState<Strategies>();
   const [busy, setBusy] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -442,7 +444,7 @@ export function useStrategyHost(account: string) {
     setBusy(false);
   }
   return {
-    state,
+    state: state ?? cached,
     busy,
     stopping,
     reading,
