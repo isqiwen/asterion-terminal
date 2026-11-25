@@ -240,8 +240,9 @@ test("deploying a backtest installs its frozen package and loads its settings be
   expect((screen.getByLabelText("window") as HTMLInputElement).value).toBe("9007199254740993");
   expect((screen.getByLabelText("总绝对权重预算") as HTMLInputElement).value).toBe("0.8");
   expect((screen.getByLabelText("SHFE.rb2610") as HTMLInputElement).checked).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "按来源品种勾选" }));
+  expect((screen.getByLabelText("SHFE.rb2610") as HTMLInputElement).checked).toBe(true);
   fireEvent.change(screen.getByLabelText("实例 ID"), { target: { value: "from-backtest" } });
-  fireEvent.click(screen.getByLabelText("SHFE.rb2610"));
   await click("核对启动配置");
   expect(writes()).toHaveLength(1);
   await click("确认启动");

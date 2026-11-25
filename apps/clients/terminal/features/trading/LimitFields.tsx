@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { lab } from "../../src/bridge/lab";
 import { RunState, type RunSummary } from "../../src/generated/asterion/lab_pb";
 import { notify } from "../../src/host/notifications";
@@ -28,19 +28,52 @@ function backtestLimits(record: string): Partial<LimitsDraft> {
   return draft;
 }
 
+const simulationPreset: Partial<LimitsDraft> = {
+  max_order_quantity: "1",
+  max_contract_quantity: "2",
+  max_gross_quantity: "5",
+  max_working_orders: "5",
+  max_price_deviation: "2",
+};
+
+const positive = (raw: string | undefined) => {
+  const text = (raw ?? "").trim();
+  if (!text || !/^\d+(\.\d+)?$/.test(text)) return undefined;
+  const n = Number(text);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+};
+
+export function limitValidationErrors(
+  limits: LimitsDraft,
+): Partial<Record<keyof LimitsDraft, string>> {
+  const errors: Partial<Record<keyof LimitsDraft, string>> = {};
+  const order = positive(limits.max_order_quantity);
+  const contract = positive(limits.max_contract_quantity);
+  const gross = positive(limits.max_gross_quantity);
+  if (contract !== undefined && gross !== undefined && contract > gross)
+    errors.max_contract_quantity = t("单合约持仓上限不能大于账户总持仓上限");
+  if (order !== undefined && contract !== undefined && order > contract)
+    errors.max_order_quantity = t("单笔数量上限不能大于单合约持仓上限");
+  return errors;
+}
+
 // The account's risk limits as a form: the five every account needs, then the
 // optional capital and cancel limits, each with its unit.
 export function LimitFields({
   limits,
   applied,
   change,
+  offerSimPreset = false,
 }: {
   limits: LimitsDraft;
   // What is in force, shown beside a field that differs from it.
   applied?: LimitsDraft;
   change: (next: LimitsDraft) => void;
+  offerSimPreset?: boolean;
 }) {
   const [runs, setRuns] = useState<RunSummary[]>([]);
+  const [touched, setTouched] = useState<Partial<Record<keyof LimitsDraft, boolean>>>({});
+  const errorBaseId = useId();
   useEffect(() => {
     // Without Lab the limits are entered by hand; the choice is not offered.
     void lab({ case: "listRecentRuns", value: {} })
@@ -53,48 +86,73 @@ export function LimitFields({
     void lab({ case: "getRun", value: { id } })
       .then(detail => change({ ...limits, ...backtestLimits(detail.record) }))
       .catch(failure => notify(failure, { namespace: "asterion.terminal.trading" }));
+  const crossErrors = limitValidationErrors(limits);
+
   const field = (
     [name, label, unit]:
       (typeof requiredLimitFields)[number] | (typeof optionalLimitFields)[number],
     required: boolean,
-  ) => (
-    <label key={name}>
-      <span className="limit-label">
-        {t(label)}
-        {applied && (applied[name] ?? "") !== (limits[name] ?? "") && (
-          <small>{t("当前 {value}", { value: applied[name] || "—" })}</small>
+  ) => {
+    const raw = (limits[name] ?? "").trim();
+    const isInt = name === "max_working_orders" || name === "max_daily_cancels_per_contract";
+    const formatError =
+      touched[name] && raw && (isInt ? !/^[1-9]\d*$/.test(raw) : positive(raw) === undefined)
+        ? t("请输入大于 0 的有效数值")
+        : undefined;
+    const errorText = formatError ?? crossErrors[name];
+    const errorId = `${errorBaseId}-${name}`;
+    return (
+      <label key={name} className="limit-field">
+        <span className="limit-label">
+          {t(label)}
+          {applied && (applied[name] ?? "") !== (limits[name] ?? "") && (
+            <small>{t("当前 {value}", { value: applied[name] || "—" })}</small>
+          )}
+        </span>
+        <span className="unit-input">
+          <input
+            aria-label={t(label)}
+            aria-invalid={errorText ? "true" : "false"}
+            aria-describedby={errorText ? errorId : undefined}
+            inputMode={isInt ? "numeric" : "decimal"}
+            required={required}
+            value={limits[name] ?? ""}
+            onBlur={() => setTouched(current => ({ ...current, [name]: true }))}
+            onChange={event => change({ ...limits, [name]: event.target.value })}
+          />
+          <span aria-hidden="true">{t(unit)}</span>
+        </span>
+        {errorText && (
+          <span id={errorId} className="field-error" role="alert">
+            {errorText}
+          </span>
         )}
-      </span>
-      <span className="unit-input">
-        <input
-          aria-label={t(label)}
-          inputMode={
-            name === "max_working_orders" || name === "max_daily_cancels_per_contract"
-              ? "numeric"
-              : "decimal"
-          }
-          required={required}
-          value={limits[name] ?? ""}
-          onChange={event => change({ ...limits, [name]: event.target.value })}
-        />
-        <span aria-hidden="true">{t(unit)}</span>
-      </span>
-    </label>
-  );
+      </label>
+    );
+  };
   return (
     <>
-      {runs.length > 0 && (
-        <label className="limit-source">
-          {t("从回测带入")}
-          <select value="" onChange={event => event.target.value && bring(event.target.value)}>
-            <option value="">{t("选择回测")}</option>
-            {runs.map(run => (
-              <option key={run.id} value={run.id}>
-                {run.label || `${run.strategy} ${run.firstDay}–${run.lastDay}`}
-              </option>
-            ))}
-          </select>
-        </label>
+      {(runs.length > 0 || offerSimPreset) && (
+        <div className="limit-tools">
+          {runs.length > 0 && (
+            <label className="limit-source">
+              {t("从回测带入")}
+              <select value="" onChange={event => event.target.value && bring(event.target.value)}>
+                <option value="">{t("选择回测")}</option>
+                {runs.map(run => (
+                  <option key={run.id} value={run.id}>
+                    {run.label || `${run.strategy} ${run.firstDay}–${run.lastDay}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {offerSimPreset && (
+            <button type="button" onClick={() => change({ ...limits, ...simulationPreset })}>
+              {t("填入轻仓仿真参考")}
+            </button>
+          )}
+        </div>
       )}
       <section className="account-field-group" aria-label={t("委托与持仓限制")}>
         <h3>{t("委托与持仓限制")}</h3>

@@ -10,7 +10,13 @@ import { listSeparator } from "../../src/i18n";
 import { BackendError, ErrorNotice } from "../../src/i18n/errors";
 import { StatusBadge, type Tone } from "../../src/ui/StatusBadge";
 import { key, t } from "./live-shared";
-import { activeStrategy, parameterText, periodText, targetRows } from "./strategy-instance";
+import {
+  activeStrategy,
+  eventTone,
+  parameterText,
+  periodText,
+  targetRows,
+} from "./strategy-instance";
 
 export const instanceStates: Partial<Record<InstanceState, string>> = {
   [InstanceState.STARTING]: "策略正在启动",
@@ -28,6 +34,11 @@ const stateTones: Partial<Record<InstanceState, Tone>> = {
   [InstanceState.INTERRUPTED]: "danger",
   [InstanceState.FAILED]: "danger",
 };
+
+const formatBarTime = (ms: bigint) =>
+  new Date(Number(ms))
+    .toLocaleString("sv-SE", { timeZone: "Asia/Shanghai", hour12: false })
+    .slice(5, 16);
 
 export function StrategyMonitor({
   instance,
@@ -53,6 +64,7 @@ export function StrategyMonitor({
   flatten: (id: string) => Promise<boolean>;
 }) {
   const [confirm, setConfirm] = useState<{ id: string; action: "stop" | "flatten" }>();
+  const [onlyAlerts, setOnlyAlerts] = useState(false);
   const confirmDialog = useRef<HTMLDialogElement>(null);
   const configuration = instance?.instance;
   const confirmOpen = !!(
@@ -76,137 +88,166 @@ export function StrategyMonitor({
       : account?.live && (!account.live.positionsReconciled || account.live.recoveryRequired)
         ? t("持仓待核对")
         : "";
+  const isRunning = activeStrategy(instance.state);
+  const allEvents = [...instance.events].reverse();
+  const alertEvents = allEvents.filter(event => {
+    const tone = eventTone(event.kind);
+    return tone === "danger" || tone === "attention";
+  });
+  const shownEvents = onlyAlerts ? alertEvents : allEvents;
+  const shortPkg = configuration.packageName.split(".").at(-1) || configuration.packageName;
+
   return (
     <section className="strategy-monitor" aria-label={t("策略运行状态")}>
       <div className="strategy-monitor-header">
-        <h2>
-          {t("策略实例")} · {configuration.id}
-        </h2>
-        <StatusBadge tone={fresh ? (stateTones[instance.state] ?? "neutral") : "attention"}>
-          <span role="status">
-            {t(instanceStates[instance.state] ?? "未知策略状态")}
-            {!fresh && ` · ${t("上次已知状态")}`}
-          </span>
-        </StatusBadge>
-        {instance.paused && <StatusBadge tone="attention">{t("暂停新增")}</StatusBadge>}
-        {reconcile && instance.completedSteps > 0n && (
-          <button type="button" onClick={reconcile}>
-            {t("实盘对账")}
-          </button>
-        )}
+        <div className="strategy-monitor-title">
+          <h2>
+            {t("策略实例")} · {configuration.id}
+          </h2>
+          <StatusBadge tone={fresh ? (stateTones[instance.state] ?? "neutral") : "attention"}>
+            <span role="status">
+              {t(instanceStates[instance.state] ?? "未知策略状态")}
+              {!fresh && ` · ${t("上次已知状态")}`}
+            </span>
+          </StatusBadge>
+          {instance.paused && <StatusBadge tone="attention">{t("暂停新增")}</StatusBadge>}
+        </div>
+        <div className="strategy-actions strategy-monitor-actions">
+          {reconcile && instance.completedSteps > 0n && (
+            <button type="button" onClick={reconcile}>
+              {t("实盘对账")}
+            </button>
+          )}
+          {isRunning && (
+            <>
+              <button
+                type="button"
+                disabled={busy || stopping}
+                onClick={() => void pause(configuration.id, !instance.paused)}
+              >
+                {t(instance.paused ? "恢复新增" : "暂停新增")}
+              </button>
+              <button
+                type="button"
+                className="danger-quiet"
+                disabled={busy || stopping}
+                onClick={() => setConfirm({ id: configuration.id, action: "flatten" })}
+              >
+                {t("平仓")}
+              </button>
+              <button
+                type="button"
+                className="danger-quiet"
+                disabled={stopping}
+                onClick={() => setConfirm({ id: configuration.id, action: "stop" })}
+              >
+                {t("停止策略并撤单")}
+              </button>
+            </>
+          )}
+        </div>
       </div>
-      {instance.paused && <p role="status">{t("已暂停新增：目标只减仓。")}</p>}
+      {instance.paused && (
+        <p className="subtle strategy-paused-note">{t("已暂停新增：目标只减仓。")}</p>
+      )}
       {instance.error && (
         <p className="alert" role="alert">
           <ErrorNotice error={new BackendError("operation_failed", instance.error)} />
         </p>
       )}
-      <dl>
-        <dt>{t("已部署版本")}</dt>
-        <dd>
-          {configuration.packageName} · {configuration.packageVersion}
-        </dd>
-        <dt>{t("实际合约")}</dt>
-        <dd>
-          {[
-            ...configuration.instruments.map(key),
-            ...configuration.series.map(item => `${item.exchange}.${item.product}`),
-          ].join(listSeparator())}
-        </dd>
-        <dt>{t("K 线周期")}</dt>
-        <dd>{periodText(configuration.period)}</dd>
-        {configuration.warmup?.datasetVersion && (
-          <>
-            <dt>{t("历史预热")}</dt>
-            <dd>
-              {configuration.warmup.datasetVersion} · {configuration.warmup.sha256.slice(0, 12)}
-            </dd>
-          </>
-        )}
-        <dt>{t("已处理完整 K 线批次")}</dt>
-        <dd>{instance.completedSteps.toString()}</dd>
-        <dt>{t("策略读取时间")}</dt>
-        <dd>
-          {observedAt?.toLocaleTimeString("sv-SE", {
-            timeZone: "Asia/Shanghai",
-            hour12: false,
-          }) ?? "—"}
-        </dd>
-        <dt>{t("持仓读取时间")}</dt>
-        <dd>
-          {[
-            positions
-              ? positions.readAt.toLocaleString("sv-SE", {
-                  timeZone: "Asia/Shanghai",
-                  hour12: false,
-                })
-              : t("持仓未读取"),
-            positionState,
-            positions && positionState ? t("上次已核对持仓") : "",
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-        </dd>
-        <dt>{t("参数覆盖")}</dt>
-        <dd>
-          {Object.entries(configuration.params)
-            .map(([name, value]) => `${name} = ${parameterText(value)}`)
-            .join(listSeparator()) || t("使用默认参数")}
-        </dd>
-        {configuration.weightLimits && (
-          <>
-            <dt>{t("总绝对权重预算")}</dt>
-            <dd>{decimalText(configuration.weightLimits.gross)}</dd>
-            <dt>{t("净权重绝对值预算")}</dt>
-            <dd>{decimalText(configuration.weightLimits.net)}</dd>
-            {configuration.weightLimits.maxMarginRatio?.text && (
-              <>
-                <dt>{t("保证金率上限")}</dt>
-                <dd>{decimalText(configuration.weightLimits.maxMarginRatio)}</dd>
-              </>
-            )}
-            {configuration.weightLimits.minRebalanceWeight?.text && (
-              <>
-                <dt>{t("最小调仓偏离")}</dt>
-                <dd>{decimalText(configuration.weightLimits.minRebalanceWeight)}</dd>
-              </>
-            )}
-          </>
-        )}
-      </dl>
-      <table aria-label={t("目标与实际持仓")}>
-        <thead>
-          <tr>
-            <th scope="col">{t("实际合约")}</th>
-            <th scope="col" className="numeric">
-              {instance.lastDecision
-                ? t("目标（批次 {n}）", { n: instance.lastDecision.sequence.toString() })
-                : t("目标")}
-            </th>
-            <th scope="col" className="numeric">
-              {t("实际净持仓")}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {targetRows(instance, positions?.rows).map(row => (
-            <tr
-              key={row.label}
-              data-off={(/^-?\d+$/.test(row.target) && row.target !== row.net) || undefined}
-            >
-              <td>{row.label}</td>
-              <td className="numeric">{row.target}</td>
-              <td className="numeric">{row.net}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {instance.events.length > 0 && (
+      <dl className="strategy-heartbeat">
         <div>
-          <h3>{t("最近事件")}</h3>
+          <dt>{t("已处理完整 K 线批次")}</dt>
+          <dd>{instance.completedSteps.toString()}</dd>
+        </div>
+        <div>
+          <dt>{t("最近 K 线")}</dt>
+          <dd>{instance.lastBarMs ? formatBarTime(instance.lastBarMs) : "—"}</dd>
+        </div>
+        <div>
+          <dt>{t("策略读取时间")}</dt>
+          <dd>
+            {observedAt?.toLocaleTimeString("sv-SE", {
+              timeZone: "Asia/Shanghai",
+              hour12: false,
+            }) ?? "—"}
+          </dd>
+        </div>
+        <div>
+          <dt>{t("持仓读取时间")}</dt>
+          <dd>
+            {[
+              positions
+                ? positions.readAt.toLocaleString("sv-SE", {
+                    timeZone: "Asia/Shanghai",
+                    hour12: false,
+                  })
+                : t("持仓未读取"),
+              positionState,
+              positions && positionState ? t("上次已核对持仓") : "",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </dd>
+        </div>
+      </dl>
+      <div
+        className="paper-table strategy-monitor-table"
+        role="region"
+        aria-label={t("目标与实际持仓")}
+        tabIndex={0}
+      >
+        <table aria-label={t("目标与实际持仓")}>
+          <thead>
+            <tr>
+              <th scope="col">{t("实际合约")}</th>
+              <th scope="col" className="numeric">
+                {instance.lastDecision
+                  ? t("目标（批次 {n}）", { n: instance.lastDecision.sequence.toString() })
+                  : t("目标")}
+              </th>
+              <th scope="col" className="numeric">
+                {t("实际净持仓")}
+              </th>
+              <th scope="col" className="numeric">
+                {t("偏差")}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {targetRows(instance, positions?.rows).map(row => (
+              <tr key={row.label} data-off={row.off || undefined}>
+                <td>{row.label}</td>
+                <td className="numeric">{row.target}</td>
+                <td className="numeric">{row.net}</td>
+                <td className="numeric strategy-delta">{row.delta}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {allEvents.length > 0 && (
+        <div className="strategy-events-section">
+          <div className="strategy-events-header">
+            <h3>{t("最近事件")}</h3>
+            {alertEvents.length > 0 && (
+              <div className="tabs strategy-event-filter" role="group" aria-label={t("筛选事件")}>
+                <button
+                  type="button"
+                  aria-pressed={!onlyAlerts}
+                  onClick={() => setOnlyAlerts(false)}
+                >
+                  {t("全部 ({n})", { n: String(allEvents.length) })}
+                </button>
+                <button type="button" aria-pressed={onlyAlerts} onClick={() => setOnlyAlerts(true)}>
+                  {t("仅告警 ({n})", { n: String(alertEvents.length) })}
+                </button>
+              </div>
+            )}
+          </div>
           <ul className="strategy-events">
-            {[...instance.events].reverse().map(event => (
-              <li key={`${event.timeMs}-${event.text}`}>
+            {shownEvents.map(event => (
+              <li key={`${event.timeMs}-${event.text}`} data-tone={eventTone(event.kind)}>
                 {new Date(Number(event.timeMs)).toLocaleTimeString("sv-SE", {
                   timeZone: "Asia/Shanghai",
                   hour12: false,
@@ -217,33 +258,61 @@ export function StrategyMonitor({
           </ul>
         </div>
       )}
-      {activeStrategy(instance.state) && (
-        <div className="strategy-actions">
-          <button
-            type="button"
-            disabled={busy || stopping}
-            onClick={() => void pause(configuration.id, !instance.paused)}
-          >
-            {t(instance.paused ? "恢复新增" : "暂停新增")}
-          </button>
-          <button
-            type="button"
-            className="danger-quiet"
-            disabled={busy || stopping}
-            onClick={() => setConfirm({ id: configuration.id, action: "flatten" })}
-          >
-            {t("平仓")}
-          </button>
-          <button
-            type="button"
-            className="danger-quiet"
-            disabled={stopping}
-            onClick={() => setConfirm({ id: configuration.id, action: "stop" })}
-          >
-            {t("停止策略并撤单")}
-          </button>
-        </div>
-      )}
+      <details className="strategy-config-details">
+        <summary>
+          {t("启动配置")} · {shortPkg} · {configuration.packageVersion} ·{" "}
+          {periodText(configuration.period)}
+        </summary>
+        <dl>
+          <dt>{t("已部署版本")}</dt>
+          <dd>
+            {configuration.packageName} · {configuration.packageVersion}
+          </dd>
+          <dt>{t("实际合约")}</dt>
+          <dd>
+            {[
+              ...configuration.instruments.map(key),
+              ...configuration.series.map(item => `${item.exchange}.${item.product}`),
+            ].join(listSeparator())}
+          </dd>
+          <dt>{t("K 线周期")}</dt>
+          <dd>{periodText(configuration.period)}</dd>
+          {configuration.warmup?.datasetVersion && (
+            <>
+              <dt>{t("历史预热")}</dt>
+              <dd>
+                {configuration.warmup.datasetVersion} · {configuration.warmup.sha256.slice(0, 12)}
+              </dd>
+            </>
+          )}
+          <dt>{t("参数覆盖")}</dt>
+          <dd>
+            {Object.entries(configuration.params)
+              .map(([name, value]) => `${name} = ${parameterText(value)}`)
+              .join(listSeparator()) || t("使用默认参数")}
+          </dd>
+          {configuration.weightLimits && (
+            <>
+              <dt>{t("总绝对权重预算")}</dt>
+              <dd>{decimalText(configuration.weightLimits.gross)}</dd>
+              <dt>{t("净权重绝对值预算")}</dt>
+              <dd>{decimalText(configuration.weightLimits.net)}</dd>
+              {configuration.weightLimits.maxMarginRatio?.text && (
+                <>
+                  <dt>{t("保证金率上限")}</dt>
+                  <dd>{decimalText(configuration.weightLimits.maxMarginRatio)}</dd>
+                </>
+              )}
+              {configuration.weightLimits.minRebalanceWeight?.text && (
+                <>
+                  <dt>{t("最小调仓偏离")}</dt>
+                  <dd>{decimalText(configuration.weightLimits.minRebalanceWeight)}</dd>
+                </>
+              )}
+            </>
+          )}
+        </dl>
+      </details>
       {confirmOpen && (
         <dialog
           ref={confirmDialog}

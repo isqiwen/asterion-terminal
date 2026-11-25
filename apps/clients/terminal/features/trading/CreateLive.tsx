@@ -1,5 +1,5 @@
 import { FlowSteps } from "../../src/ui/FlowSteps";
-import { useState } from "react";
+import { useMemo } from "react";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { catalogName } from "../../src/ui/contract-names";
@@ -8,7 +8,8 @@ import { decimal } from "../../src/bridge/decimal";
 import { Environment, type Account } from "../../src/generated/asterion/trading_pb";
 import { BackendError } from "../../src/i18n/errors";
 import { Tag } from "../../src/ui/Tag";
-import { LimitFields } from "./LimitFields";
+import { ContractPicker } from "./ContractPicker";
+import { LimitFields, limitValidationErrors } from "./LimitFields";
 import {
   t,
   environmentName,
@@ -52,9 +53,27 @@ export function CreateLive({
     max_daily_cancels_per_contract: "",
   });
   const [contracts, setContracts] = useWorkspaceDraft<string[]>(`live-contracts:${account.id}`, []);
-  const [choice, setChoice] = useState("");
   const { contracts: listed, ready: catalogReady } = useTradingCatalog(account.id);
-  const products = policyProducts(listed);
+  const selectable = useMemo(() => {
+    const chosen = new Set(contracts);
+    const products = policyProducts(listed);
+    return [
+      ...products
+        .filter(({ key: id }) => !chosen.has(id))
+        .map(({ key: id, sample }) => ({
+          id,
+          label: [catalogName(sample), t("品种")].filter(Boolean).join(" · "),
+          isProduct: true,
+        })),
+      ...listed
+        .filter(item => !chosen.has(listedKey(item)))
+        .map(item => ({
+          id: listedKey(item),
+          label: catalogName(item),
+        })),
+    ];
+  }, [listed, contracts]);
+  const hasLimitErrors = Object.keys(limitValidationErrors(limits)).length > 0;
   return (
     <>
       {real && (
@@ -88,6 +107,7 @@ export function CreateLive({
       <form
         onSubmit={event => {
           event.preventDefault();
+          if (hasLimitErrors) return;
           if (step === 0) {
             setStep(1);
             return;
@@ -116,47 +136,13 @@ export function CreateLive({
               {!catalogReady ? (
                 <p role="status">{t("合约目录同步中")}</p>
               ) : (
-                <div className="futures-file">
-                  <label>
-                    {t("合约")}
-                    <input
-                      aria-label={t("添加合约")}
-                      list="live-catalog"
-                      spellCheck={false}
-                      autoCorrect="off"
-                      autoCapitalize="none"
-                      value={choice}
-                      placeholder="SHFE.rb / SHFE.rb2610"
-                      onChange={event => setChoice(event.target.value)}
-                    />
-                  </label>
-                  <datalist id="live-catalog">
-                    {products.map(({ key: id, sample }) => (
-                      <option key={id} value={id}>
-                        {[catalogName(sample), t("品种")].filter(Boolean).join(" · ")}
-                      </option>
-                    ))}
-                    {listed.map(item => (
-                      <option key={listedKey(item)} value={listedKey(item)}>
-                        {catalogName(item)}
-                      </option>
-                    ))}
-                  </datalist>
-                  <button
-                    type="button"
-                    disabled={
-                      !policyEntryFromCatalog(choice, listed) ||
-                      contracts.includes(choice) ||
-                      contracts.length >= 64
-                    }
-                    onClick={() => {
-                      setContracts([...contracts, choice]);
-                      setChoice("");
-                    }}
-                  >
-                    {t("添加")}
-                  </button>
-                </div>
+                <ContractPicker
+                  ariaLabel={t("添加合约")}
+                  label={t("合约")}
+                  options={selectable}
+                  maxReached={contracts.length >= 64}
+                  onAdd={id => setContracts([...contracts, id])}
+                />
               )}
               <ul className="dataset-list" aria-label={t("已选可交易合约")}>
                 {contracts.map(item => (
@@ -175,7 +161,7 @@ export function CreateLive({
                 ))}
               </ul>
             </section>
-            <LimitFields limits={limits} change={setLimits} />
+            <LimitFields limits={limits} change={setLimits} offerSimPreset={!real} />
           </fieldset>
           {step === 1 && (
             <section className="creation-review">
@@ -212,7 +198,11 @@ export function CreateLive({
                 {t("上一步")}
               </button>
             )}
-            <button className="primary" type="submit" disabled={!contracts.length}>
+            <button
+              className="primary"
+              type="submit"
+              disabled={!contracts.length || hasLimitErrors}
+            >
               {t(step === 1 ? "创建 CTP 账户" : "下一步")}
             </button>
           </div>

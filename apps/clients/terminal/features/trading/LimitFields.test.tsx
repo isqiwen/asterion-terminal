@@ -50,3 +50,34 @@ test("a backtest's limits fill the form and leave the rest as entered", async ()
     }),
   );
 });
+
+test("cross-field risk constraints surface inline errors and simulation preset fills conservative limits", () => {
+  vi.mocked(lab).mockRejectedValue(new Error("offline"));
+  const change = vi.fn();
+  const invalid = {
+    max_order_quantity: "5",
+    max_contract_quantity: "12",
+    max_gross_quantity: "10",
+    max_working_orders: "4",
+    max_price_deviation: "2",
+    max_daily_loss: "",
+    max_drawdown: "",
+    max_margin_ratio: "",
+    max_daily_cancels_per_contract: "",
+  };
+  render(<LimitFields limits={invalid} change={change} offerSimPreset />);
+  expect(screen.getByText("单合约持仓上限不能大于账户总持仓上限")).toBeTruthy();
+  expect(screen.getByRole("textbox", { name: "单合约持仓上限" }).getAttribute("aria-invalid")).toBe(
+    "true",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "填入轻仓仿真参考" }));
+  expect(change).toHaveBeenCalledWith(
+    expect.objectContaining({
+      max_order_quantity: "1",
+      max_contract_quantity: "2",
+      max_gross_quantity: "5",
+      max_working_orders: "5",
+      max_price_deviation: "2",
+    }),
+  );
+});

@@ -1,8 +1,9 @@
-import { useId, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { decimal, decimalText } from "../../src/bridge/decimal";
 import { BrokerState, type Account, type Policy } from "../../src/generated/asterion/trading_pb";
 import { BackendError } from "../../src/i18n/errors";
-import { LimitFields } from "./LimitFields";
+import { ContractPicker } from "./ContractPicker";
+import { LimitFields, limitValidationErrors } from "./LimitFields";
 import { catalogName } from "../../src/ui/contract-names";
 import {
   command,
@@ -49,9 +50,7 @@ export function AccountPolicyEditor({
   const allowed = live.policy?.contracts ?? [];
   const [limits, setLimits] = useState(() => currentLimits(live.policy));
   const [contracts, setContracts] = useState(allowed.map(item => contractKey(item.instrument)));
-  const [choice, setChoice] = useState("");
   const [confirmed, setConfirmed] = useState(false);
-  const catalogListId = useId();
   const { contracts: available, ready: catalogReady } = useTradingCatalog(connection);
   const selectable = useMemo(() => {
     const selected = new Set(contracts);
@@ -62,6 +61,7 @@ export function AccountPolicyEditor({
         .map(({ key: id, sample }) => ({
           id,
           label: [catalogName(sample), t("品种")].filter(Boolean).join(" · "),
+          isProduct: true,
         })),
       ...available
         .filter(item => !selected.has(listedKey(item)))
@@ -71,10 +71,7 @@ export function AccountPolicyEditor({
         })),
     ];
   }, [available, contracts]);
-  const trimmedChoice = choice.trim();
-  const matchedChoice =
-    selectable.find(item => item.id === trimmedChoice) ??
-    selectable.find(item => item.id.toLowerCase() === trimmedChoice.toLowerCase());
+  const hasLimitErrors = Object.keys(limitValidationErrors(limits)).length > 0;
   return (
     <section className="policy-editor" aria-label={t("风控设置")}>
       <div className="workflow-heading">
@@ -89,7 +86,7 @@ export function AccountPolicyEditor({
       <form
         onSubmit={event => {
           event.preventDefault();
-          if (!confirmed || !contracts.length) return;
+          if (!confirmed || !contracts.length || hasLimitErrors) return;
           // A contract already allowed keeps the terms it was recorded with.
           void command(run, record, () => ({
             case: "changePolicy",
@@ -140,38 +137,16 @@ export function AccountPolicyEditor({
               ))}
             </ul>
             <div className="policy-add">
-              <label>
-                {t("添加合约")}
-                <input
-                  aria-label={t("新增可交易合约")}
-                  list={catalogListId}
-                  spellCheck={false}
-                  autoCorrect="off"
-                  autoCapitalize="none"
-                  placeholder="SHFE.rb / SHFE.rb2610"
-                  value={choice}
-                  onChange={event => setChoice(event.target.value)}
-                />
-              </label>
-              <datalist id={catalogListId}>
-                {selectable.map(item => (
-                  <option key={item.id} value={item.id}>
-                    {item.label}
-                  </option>
-                ))}
-              </datalist>
-              <button
-                type="button"
-                disabled={!matchedChoice || contracts.length >= 64}
-                onClick={() => {
-                  if (!matchedChoice) return;
-                  setContracts([...contracts, matchedChoice.id]);
-                  setChoice("");
+              <ContractPicker
+                ariaLabel={t("新增可交易合约")}
+                label={t("添加合约")}
+                options={selectable}
+                maxReached={contracts.length >= 64}
+                onAdd={id => {
+                  setContracts([...contracts, id]);
                   setConfirmed(false);
                 }}
-              >
-                {t("添加")}
-              </button>
+              />
               {!catalogReady && <p className="subtle">{t("合约目录未就绪，暂不能新增合约")}</p>}
             </div>
           </section>
@@ -190,13 +165,16 @@ export function AccountPolicyEditor({
               onClick={() => {
                 setLimits(currentLimits(live.policy));
                 setContracts(allowed.map(item => contractKey(item.instrument)));
-                setChoice("");
                 setConfirmed(false);
               }}
             >
               {t("恢复当前设置")}
             </button>
-            <button type="submit" className="primary" disabled={!confirmed || !contracts.length}>
+            <button
+              type="submit"
+              className="primary"
+              disabled={!confirmed || !contracts.length || hasLimitErrors}
+            >
               {t("应用新风控设置")}
             </button>
           </footer>

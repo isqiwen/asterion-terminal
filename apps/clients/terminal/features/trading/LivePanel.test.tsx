@@ -625,8 +625,9 @@ test("policy editor loads selectable contracts from Trading when Market is offli
   fireEvent.click(await screen.findByRole("button", { name: "风控" }));
   const picker = await screen.findByRole("combobox", { name: "新增可交易合约" });
   await waitFor(() => expect(screen.queryByText("合约目录未就绪，暂不能新增合约")).toBeNull());
-  fireEvent.change(picker, { target: { value: "DCE.m2701" } });
-  fireEvent.click(button("添加"));
+  fireEvent.focus(picker);
+  fireEvent.change(picker, { target: { value: "豆粕" } });
+  fireEvent.mouseDown(await screen.findByRole("option", { name: /DCE\.m2701/ }));
   expect(await screen.findByText(/m2701/)).toBeTruthy();
 });
 

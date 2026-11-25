@@ -31,6 +31,20 @@ const parameterKind = (value?: ParameterValue) =>
 const shownValue = (value?: ParameterValue) =>
   value?.value.case === undefined ? "" : String(value.value.value);
 
+function suggestInstanceId(packageName: string, avoid?: string) {
+  const short = (packageName.split(".").at(-1) || packageName)
+    .replace(/[^A-Za-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
+  const base = short || "run";
+  const stamp = new Date()
+    .toLocaleString("sv-SE", { timeZone: "Asia/Shanghai", hour12: false })
+    .replace(/[-: ]/g, "")
+    .slice(4, 12);
+  const candidate = `${base}-${stamp}`.slice(0, 60);
+  return candidate === avoid ? `${candidate}-2` : candidate;
+}
+
 export function StrategyInstance({
   connection,
   repository,
@@ -57,6 +71,7 @@ export function StrategyInstance({
 }) {
   const { error, attempt } = useActionError();
   const [id, setId] = useState("");
+  const autoIdRef = useRef("");
   const [packageKey, setPackage] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [contractFilter, setContractFilter] = useState("");
@@ -116,11 +131,20 @@ export function StrategyInstance({
   const research = installed?.research;
   const choosePackage = (value: string) => {
     setPackage(value);
-    const source = state.packages.find(item => `${item.name}/${item.version}` === value)?.research;
+    const chosen = state.packages.find(item => `${item.name}/${item.version}` === value);
+    const source = chosen?.research;
+    if (chosen && (!id.trim() || id === autoIdRef.current)) {
+      const nextId = suggestInstanceId(chosen.name, ended?.id);
+      autoIdRef.current = nextId;
+      setId(nextId);
+    }
     setPeriod(source?.period ?? Period.MINUTES_1);
     setValues(
       Object.fromEntries(
-        Object.entries(source?.params ?? {}).map(([name, value]) => [name, shownValue(value)]),
+        Object.entries(source?.params ?? {}).map(([name, paramValue]) => [
+          name,
+          shownValue(paramValue),
+        ]),
       ),
     );
     setBudget(!!source?.weightLimits);
@@ -179,6 +203,36 @@ export function StrategyInstance({
   const visibleFixed = query
     ? fixedKeys.filter(item => item.toLowerCase().includes(query))
     : fixedKeys;
+
+  const researchMatches = research?.symbols.length
+    ? [
+        ...new Set(
+          research.symbols.flatMap(raw => {
+            const [ex, prod] = raw.split("/");
+            if (!ex || !prod) return [];
+            const seriesMatch = seriesEntries.find(
+              entry =>
+                entry.exchange.toUpperCase() === ex.toUpperCase() &&
+                entry.product.toLowerCase() === prod.toLowerCase(),
+            );
+            if (seriesMatch) return [seriesMatch.key];
+            return fixedEntries
+              .filter(
+                entry =>
+                  entry.instrument?.exchange.toUpperCase() === ex.toUpperCase() &&
+                  entry.product.toLowerCase() === prod.toLowerCase(),
+              )
+              .map(entry => key(entry.instrument));
+          }),
+        ),
+      ]
+    : [];
+
+  const validId = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(id.trim());
+  const resumeBlockedByPackage = Boolean(
+    packageKey && ended && !packageKey.startsWith(`${ended.packageName}/`),
+  );
+
   return (
     <section className="strategy-instance" aria-label={t("配置策略实例")}>
       <h2>{t("配置策略实例")}</h2>
@@ -264,6 +318,7 @@ export function StrategyInstance({
                 void start(review.configuration).then(started => {
                   if (started) {
                     setReview(undefined);
+                    autoIdRef.current = "";
                     setId("");
                   }
                 })
@@ -363,6 +418,52 @@ export function StrategyInstance({
           }}
         >
           <fieldset disabled={busy || preparing || !usable}>
+            {ended && (
+              <div className="strategy-resume-bar">
+                <button
+                  type="button"
+                  disabled={!validId || resumeBlockedByPackage}
+                  onClick={() =>
+                    void attempt(async () => {
+                      const configuration = clone(InstanceSchema, ended);
+                      configuration.id = id.trim();
+                      configuration.resumeFrom = ended.id;
+                      // The record already holds the ended instance's warmup bars.
+                      configuration.localBars = false;
+                      configuration.warmup = undefined;
+                      const matched = state.packages.find(
+                        item =>
+                          `${item.name}/${item.version}` === packageKey &&
+                          item.name === ended.packageName,
+                      );
+                      if (matched) configuration.packageVersion = matched.version;
+                      configuration.params = research
+                        ? typedParameters()
+                        : { ...ended.params, ...typedParameters() };
+                      if (budget)
+                        configuration.weightLimits = create(InstanceSchema, {
+                          weightLimits: {
+                            gross: decimal(gross),
+                            net: decimal(net),
+                            maxMarginRatio: maxMarginRatio.trim()
+                              ? decimal(maxMarginRatio)
+                              : undefined,
+                            minRebalanceWeight: minRebalanceWeight.trim()
+                              ? decimal(minRebalanceWeight)
+                              : undefined,
+                          },
+                        }).weightLimits;
+                      setReview({ policy: live!.policyRevision, configuration });
+                    })
+                  }
+                >
+                  {t("从实例 {id} 的记录恢复", { id: ended.id })}
+                </button>
+                {!validId && (
+                  <span className="subtle">{t("填写新实例 ID 后可沿用上次合约与预热记录")}</span>
+                )}
+              </div>
+            )}
             <div className="futures-fields">
               <label>
                 {t("实例 ID")}
@@ -371,6 +472,7 @@ export function StrategyInstance({
                   value={id}
                   maxLength={64}
                   pattern="[A-Za-z0-9][A-Za-z0-9._\-]*"
+                  placeholder={suggestInstanceId(strategyName ?? "run", ended?.id)}
                   spellCheck={false}
                   autoCorrect="off"
                   autoCapitalize="none"
@@ -427,56 +529,19 @@ export function StrategyInstance({
                 {t("从本地录制的 K 线恢复")}
               </label>
             </div>
-            {ended && (
-              <button
-                type="button"
-                disabled={
-                  !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(id.trim()) ||
-                  Boolean(packageKey && !packageKey.startsWith(`${ended.packageName}/`))
-                }
-                onClick={() =>
-                  void attempt(async () => {
-                    const configuration = clone(InstanceSchema, ended);
-                    configuration.id = id.trim();
-                    configuration.resumeFrom = ended.id;
-                    // The record already holds the ended instance's warmup bars.
-                    configuration.localBars = false;
-                    configuration.warmup = undefined;
-                    const installed = state.packages.find(
-                      item =>
-                        `${item.name}/${item.version}` === packageKey &&
-                        item.name === ended.packageName,
-                    );
-                    if (installed) configuration.packageVersion = installed.version;
-                    configuration.params = research
-                      ? typedParameters()
-                      : { ...ended.params, ...typedParameters() };
-                    if (budget)
-                      configuration.weightLimits = create(InstanceSchema, {
-                        weightLimits: {
-                          gross: decimal(gross),
-                          net: decimal(net),
-                          maxMarginRatio: maxMarginRatio.trim()
-                            ? decimal(maxMarginRatio)
-                            : undefined,
-                          minRebalanceWeight: minRebalanceWeight.trim()
-                            ? decimal(minRebalanceWeight)
-                            : undefined,
-                        },
-                      }).weightLimits;
-                    setReview({ policy: live!.policyRevision, configuration });
-                  })
-                }
-              >
-                {t("从实例 {id} 的记录恢复", { id: ended.id })}
-              </button>
-            )}
             <fieldset className="strategy-contracts">
               <legend>{t("实际合约")}</legend>
               {research && (
-                <p>
-                  {t("来源回测")} · {research.runId} · {research.symbols.join(listSeparator())}
-                </p>
+                <div className="strategy-research-match">
+                  <p>
+                    {t("来源回测")} · {research.runId} · {research.symbols.join(listSeparator())}
+                  </p>
+                  {researchMatches.length > 0 && (
+                    <button type="button" onClick={() => setSelected(researchMatches)}>
+                      {t("按来源品种勾选")}
+                    </button>
+                  )}
+                </div>
               )}
               {contracts.length > 8 && (
                 <div className="strategy-contracts-bar">
