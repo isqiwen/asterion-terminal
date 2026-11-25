@@ -3795,6 +3795,14 @@ TEST_F(StrategyExecution, FailedCancellationIsNotRetriedByStopReconnectOrRecover
         act(session, authorize());
         auto owner = session.register_strategy().get();
         session.execute_strategy(basis(owner), submit("resting", "3")).get();
+        ASSERT_TRUE(order_has_status(
+            wait_for(
+                session,
+                [](const Json& state) {
+                    return order_has_status(state, "resting", "accepted");
+                }),
+            "resting",
+            "accepted"));
         const auto effects = exchange.call<int (*)()>("asterion_fake_catalog_side_effects");
         const auto records = number(session.snapshot().at("capacity").at("records_used"));
         exchange.call<void (*)(int)>("asterion_fake_trader_cancel_code", -2);
@@ -3937,6 +3945,14 @@ TEST_F(StrategyExecution, StopDoesNotRepeatAnEarlierFailedManualCancellation)
     act(session, authorize());
     auto owner = session.register_strategy().get();
     session.execute_strategy(basis(owner), submit("resting", "3")).get();
+    ASSERT_TRUE(order_has_status(
+        wait_for(
+            session,
+            [](const Json& state) {
+                return order_has_status(state, "resting", "accepted");
+            }),
+        "resting",
+        "accepted"));
     exchange.call<void (*)(int)>("asterion_fake_trader_cancel_code", -2);
     EXPECT_THROW(
         act(session,
@@ -3979,6 +3995,14 @@ TEST_F(StrategyExecution, FaultCancellationCannotBypassFailedDurabilityOrEraseTh
         act(session, authorize());
         auto owner = session.register_strategy().get();
         session.execute_strategy(basis(owner), submit("resting", "3")).get();
+        ASSERT_TRUE(order_has_status(
+            wait_for(
+                session,
+                [](const Json& state) {
+                    return order_has_status(state, "resting", "accepted");
+                }),
+            "resting",
+            "accepted"));
         const auto effects = exchange.call<int (*)()>("asterion_fake_catalog_side_effects");
         sqlite::fail_next_commits_for_testing(1);
         session.release_strategy(owner).get();
