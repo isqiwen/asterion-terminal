@@ -123,9 +123,9 @@ jobs:
       # Linux jobs share one Release dependency cache (with source-built cpptrace);
       # macOS jobs use distinct deployment-target profiles and stay scoped by job.
       - &conan-cache
-        name: Cache Conan packages
+        name: Restore Conan cache
         id: conan-cache
-        uses: actions/cache@v5
+        uses: actions/cache/restore@v5
         with:
           path: ${{ runner.temp }}/conan-packages.tgz
           key: conan-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.id }}${{ runner.os == 'macOS' && format('-{0}', github.job) || '' }}-${{ hashFiles('VERSION', 'conan.lock', 'conanfile.py', 'conan/**', 'scripts/prepare_ctp.py', 'scripts/desktop/desktop.py') }}
@@ -158,6 +158,13 @@ jobs:
         name: Prepare Conan cache
         if: steps.conan-cache.outputs.cache-hit != 'true'
         run: conan cache save '*:*' --no-source -cc core:compresslevel=1 --file "${{ runner.temp }}/conan-packages.tgz"
+      - &conan-upload
+        name: Save Conan cache
+        if: steps.conan-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ runner.temp }}/conan-packages.tgz
+          key: ${{ steps.conan-cache.outputs.cache-primary-key }}
       # Linux-only Trading daemon process tests run on Release / Linux; keep C++
       # Trading unit tests and every macOS/Lab/Market/Warehouse/Terminal test here.
       - name: Run C++ and Lab test suite
@@ -247,6 +254,7 @@ jobs:
           ASTERION_CONAN_CACHE_HIT: ${{ steps.conan-cache.outputs.cache-hit == 'true' && '1' || '' }}
         run: python scripts/desktop/desktop.py package-test --prepare-python
       - *conan-save
+      - *conan-upload
       - name: Save Python runtime cache
         if: steps.python-runtime-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5
@@ -468,8 +476,10 @@ jobs:
           if [ "${{ runner.os }}" = "Linux" ] && [ "${{ steps.conan-cache.outputs.cache-hit }}" != "true" ]; then
             extra+=(--build=cpptrace/*)
           fi
-          conan install . -s "&:build_type=Debug" -s build_type=Release -s compiler.cppstd=20 -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing "${extra[@]}"
+          env -u CMAKE_C_COMPILER_LAUNCHER -u CMAKE_CXX_COMPILER_LAUNCHER \
+            conan install . -s "&:build_type=Debug" -s build_type=Release -s compiler.cppstd=20 -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing "${extra[@]}"
       - *conan-save
+      - *conan-upload
       - run: cmake --preset conan-debug -DASTERION_SANITIZERS=${{ matrix.sanitizer }}
       - run: cmake --build --preset conan-debug
       # Python loads an uninstrumented interpreter; Lab is covered by the desktop jobs.

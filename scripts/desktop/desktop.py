@@ -340,7 +340,10 @@ def main():
             # On a CI Conan cache hit for this runner image, the cached package was built from source.
             if env.get("ASTERION_CONAN_CACHE_HIT") != "1":
                 install += ["--build=cpptrace/*"]
-        run(install)
+        # Third-party dependencies live in the Conan cache; keep them out of ccache.
+        conan_env = {k: v for k, v in env.items()
+                     if k not in ("CMAKE_C_COMPILER_LAUNCHER", "CMAKE_CXX_COMPILER_LAUNCHER")}
+        run(install, environment=conan_env)
         run(["pnpm", "exec", "node-gyp", "install", "--ensure", "--target=" + electron_version,
              "--dist-url=https://electronjs.org/headers", "--devdir=" + str(sdk)])
         # The compile database is what editors' C++ language servers read.
