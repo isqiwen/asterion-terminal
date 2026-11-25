@@ -1029,8 +1029,10 @@ TEST_F(CtpTrader, PreparationHasNoBrokerEffectsAndDispatchTracksFills)
         Error)
         << "duplicate order ID";
     EXPECT_EQ(fake.query_rejections(), 0) << "queries respect the CTP flow limit";
+    ASSERT_TRUE(trader.snapshot().positions_reconciled);
     trader.disconnect();
     EXPECT_EQ(trader.snapshot().phase, BrokerPhase::disconnected);
+    EXPECT_FALSE(trader.snapshot().positions_reconciled);
 }
 
 TEST_F(CtpTrader, RejectionsAndCancellation)

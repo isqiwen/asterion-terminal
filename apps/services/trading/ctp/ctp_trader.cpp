@@ -1803,6 +1803,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi
         queue.clear();
         query_outstanding = state.refreshing_funds = funds_query_received = false;
         abandon_rates();
+        state.positions_reconciled = false;
         state.phase = BrokerPhase::disconnected;
         changed();
         finish_quotes();

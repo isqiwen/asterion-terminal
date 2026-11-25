@@ -593,7 +593,7 @@ struct HeldCommit
         while (
             !sqlite::commit_waiting_for_testing() && std::chrono::steady_clock::now() < deadline) {
             if (test_clock)
-                test_clock->advance(250ms);
+                test_clock->advance(50ms);
             std::this_thread::sleep_for(5ms);
         }
         return sqlite::commit_waiting_for_testing();
@@ -1454,6 +1454,13 @@ TEST_F(Live, UnreconciledClosingFillsReduceAvailableLotsWithoutBlockingSafeClose
     ASSERT_FALSE(wait_for(session, [](const Json& state) {
         return state.at("trades").size() == 2;
     }).at("positions_reconciled"));
+    wait_for(session, [&](const Json&) {
+        return exchange.call<int (*)()>("asterion_fake_trader_pending_positions") > 0;
+    });
+    ASSERT_GT(exchange.call<int (*)()>("asterion_fake_trader_pending_positions"), 0);
+    // Let the stalled position query expire before asking the counter for a closing price.
+    clock->advance(11s);
+    EXPECT_FALSE(session.wire_snapshot().positions_reconciled());
     const auto effects = exchange.call<int (*)()>("asterion_fake_catalog_side_effects");
     EXPECT_THROW(act(session, close("over.close", "2")), std::invalid_argument);
     EXPECT_EQ(exchange.call<int (*)()>("asterion_fake_catalog_side_effects"), effects);
