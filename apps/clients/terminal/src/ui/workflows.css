@@ -56,10 +56,30 @@
   padding: 32px 0;
   color: var(--muted);
 }
-.account-setup {
-  padding: var(--space-5);
-  max-width: 1040px;
-  margin: auto;
+.account-setup,
+.ctp-account-panel > .account-setup {
+  width: min(960px, 100%);
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-page);
+  border-bottom: 0;
+}
+.account-setup .workflow-heading {
+  margin-bottom: var(--space-3);
+}
+.account-setup .workflow-heading h2 {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.account-setup-meta {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+  background: var(--pane);
+}
+.account-setup .flow-steps {
+  margin: var(--space-4) 0;
 }
 .account-setup details {
   margin-block: var(--space-4);
@@ -328,12 +348,44 @@
   }
 }
 .account-setup .account-field-group {
-  margin: var(--space-4) 0;
-  padding: var(--space-4);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-4) var(--space-5);
   border: 1px solid var(--line);
   border-radius: var(--panel-radius);
+  background: var(--panel);
+  box-shadow: var(--surface-highlight);
 }
-.account-setup label {
+.account-setup .account-field-group > p {
+  margin: 0;
+}
+.account-setup .dataset-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.account-setup .dataset-list li {
+  padding: 2px var(--space-2) 2px var(--space-3);
+  background: var(--pane);
+}
+.account-setup .dataset-list p {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+}
+.account-setup .dataset-list strong {
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-body);
+  font-weight: 500;
+  color: var(--text-strong);
+}
+.account-setup .dataset-list button {
+  min-height: 24px;
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-aux);
+}
+.account-setup label:not(.limit-source, .checkbox) {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -354,6 +406,23 @@
 }
 .account-setup .futures-fields {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-4);
+  margin-block: 0;
+}
+.account-setup .account-limit-required .futures-fields {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.account-setup .creation-review {
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+  background: var(--panel);
+  box-shadow: var(--surface-highlight);
+}
+.account-setup .workflow-actions {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
 }
 .creation-review dl {
   display: grid;
@@ -383,7 +452,8 @@
   display: none !important;
 }
 @media (max-width: 900px) {
-  .account-setup .futures-fields {
+  .account-setup .futures-fields,
+  .account-setup .account-limit-required .futures-fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .workflow-heading {

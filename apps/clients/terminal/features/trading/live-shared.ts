@@ -16,7 +16,12 @@ import {
   type ListedContract,
 } from "../../src/generated/asterion/trading_pb";
 import { useMarket } from "../../src/host/market";
-import { BackendError } from "../../src/i18n/errors";
+import {
+  BackendError,
+  asDisplayError,
+  isDeselectedService,
+  type DisplayError,
+} from "../../src/i18n/errors";
 import { type MessageValues, translate } from "../../src/i18n";
 
 export const t = (key: string, values?: MessageValues) =>
@@ -79,34 +84,64 @@ export const listedKey = (row: CatalogEntry) => key(row.instrument);
 export function useTradingCatalog(connection: string) {
   const market = useMarket()?.board.catalog;
   const marketReady = market?.status?.state === CatalogState.READY;
+  const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<{
     connection: string;
+    attempt: number;
     contracts: ListedContract[];
     ready: boolean;
-  }>({ connection: "", contracts: [], ready: false });
+    error: DisplayError;
+  }>({ connection: "", attempt: 0, contracts: [], ready: false, error: "" });
   useEffect(() => {
     if (marketReady || !connection) return;
     let active = true;
+    setState({ connection, attempt, contracts: [], ready: false, error: "" });
     void tradingRequest(connection, { case: "getCatalog", value: {} })
       .then(reply => {
-        if (active && reply.result.case === "getCatalog")
+        if (active && reply.result.case === "getCatalog") {
+          const contracts = reply.result.value.contracts;
           setState({
             connection,
-            contracts: reply.result.value.contracts,
-            ready: reply.result.value.contracts.length > 0,
+            attempt,
+            contracts,
+            ready: contracts.length > 0,
+            error:
+              contracts.length > 0
+                ? ""
+                : new BackendError("unavailable", "market catalog not ready"),
           });
+        }
       })
-      .catch(() => {
-        if (active) setState({ connection, contracts: [], ready: false });
+      .catch(reason => {
+        if (active)
+          setState({
+            connection,
+            attempt,
+            contracts: [],
+            ready: false,
+            error: isDeselectedService(reason) ? "" : asDisplayError(reason),
+          });
       });
     return () => {
       active = false;
     };
-  }, [connection, marketReady]);
-  if (marketReady) return { contracts: market.contracts as CatalogEntry[], ready: true };
-  if (state.connection === connection && state.ready)
-    return { contracts: state.contracts as CatalogEntry[], ready: true };
-  return { contracts: [] as CatalogEntry[], ready: false };
+  }, [connection, marketReady, attempt]);
+  const retry = () => setAttempt(count => count + 1);
+  if (marketReady)
+    return {
+      contracts: market.contracts as CatalogEntry[],
+      ready: true,
+      error: "" as DisplayError,
+      retry,
+    };
+  if (state.connection === connection && state.attempt === attempt)
+    return {
+      contracts: state.contracts as CatalogEntry[],
+      ready: state.ready,
+      error: state.error,
+      retry,
+    };
+  return { contracts: [] as CatalogEntry[], ready: false, error: "" as DisplayError, retry };
 }
 
 // One account request, built from the owner's input when sent; resolves false

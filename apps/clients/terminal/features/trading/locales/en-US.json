@@ -357,5 +357,7 @@
   "单笔数量上限不能大于单合约持仓上限": "Max order quantity cannot exceed max contract quantity",
   "请输入大于 0 的有效数值": "Enter a valid number greater than 0",
   "输入代码或中文品种名，如 SHFE.rb / 螺纹钢": "Search code or name, e.g. SHFE.rb / Rebar",
-  "未找到匹配品种或合约": "No matching product or contract"
+  "未找到匹配品种或合约": "No matching product or contract",
+  "必填": "required",
+  "重试": "Retry"
 }

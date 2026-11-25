@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { decimal, decimalText } from "../../src/bridge/decimal";
 import { BrokerState, type Account, type Policy } from "../../src/generated/asterion/trading_pb";
-import { BackendError } from "../../src/i18n/errors";
+import { BackendError, ErrorNotice } from "../../src/i18n/errors";
 import { ContractPicker } from "./ContractPicker";
 import { LimitFields, limitValidationErrors } from "./LimitFields";
 import { catalogName } from "../../src/ui/contract-names";
@@ -51,7 +51,12 @@ export function AccountPolicyEditor({
   const [limits, setLimits] = useState(() => currentLimits(live.policy));
   const [contracts, setContracts] = useState(allowed.map(item => contractKey(item.instrument)));
   const [confirmed, setConfirmed] = useState(false);
-  const { contracts: available, ready: catalogReady } = useTradingCatalog(connection);
+  const {
+    contracts: available,
+    ready: catalogReady,
+    error: catalogError,
+    retry: retryCatalog,
+  } = useTradingCatalog(connection);
   const selectable = useMemo(() => {
     const selected = new Set(contracts);
     const products = policyProducts(available);
@@ -147,7 +152,17 @@ export function AccountPolicyEditor({
                   setConfirmed(false);
                 }}
               />
-              {!catalogReady && <p className="subtle">{t("合约目录未就绪，暂不能新增合约")}</p>}
+              {!catalogReady &&
+                (catalogError ? (
+                  <div className="catalog-load-error" role="alert">
+                    <ErrorNotice error={catalogError} namespace="asterion.terminal.trading" />
+                    <button type="button" onClick={retryCatalog}>
+                      {t("重试")}
+                    </button>
+                  </div>
+                ) : (
+                  <p className="subtle">{t("合约目录未就绪，暂不能新增合约")}</p>
+                ))}
             </div>
           </section>
           <footer className="policy-apply">

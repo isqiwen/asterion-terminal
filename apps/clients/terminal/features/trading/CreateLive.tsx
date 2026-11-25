@@ -6,7 +6,7 @@ import { catalogName } from "../../src/ui/contract-names";
 import type { TradingConnection } from "../../src/bridge/client";
 import { decimal } from "../../src/bridge/decimal";
 import { Environment, type Account } from "../../src/generated/asterion/trading_pb";
-import { BackendError } from "../../src/i18n/errors";
+import { BackendError, ErrorNotice } from "../../src/i18n/errors";
 import { Tag } from "../../src/ui/Tag";
 import { ContractPicker } from "./ContractPicker";
 import { LimitFields, limitValidationErrors } from "./LimitFields";
@@ -53,7 +53,12 @@ export function CreateLive({
     max_daily_cancels_per_contract: "",
   });
   const [contracts, setContracts] = useWorkspaceDraft<string[]>(`live-contracts:${account.id}`, []);
-  const { contracts: listed, ready: catalogReady } = useTradingCatalog(account.id);
+  const {
+    contracts: listed,
+    ready: catalogReady,
+    error: catalogError,
+    retry: retryCatalog,
+  } = useTradingCatalog(account.id);
   const selectable = useMemo(() => {
     const chosen = new Set(contracts);
     const products = policyProducts(listed);
@@ -84,21 +89,29 @@ export function CreateLive({
           <Tag danger>{environment}</Tag>
         </div>
       )}
-      <div role="status" aria-label={t("CTP 账户")}>
+      <div className="account-setup-meta" role="status" aria-label={t("CTP 账户")}>
         <dl className="ctp-account-facts">
           {(
             [
-              ["账户", account.instance],
-              ["柜台环境", environment],
-              ["经纪商", broker.brokerId],
-              ["投资者", broker.userId],
-              ["AppID", broker.appId],
-              ["交易前置", broker.front],
+              ["账户", account.instance, false],
+              ["柜台环境", environment, false],
+              ["经纪商", broker.brokerId, true],
+              ["投资者", broker.userId, true],
+              ["AppID", broker.appId, true],
+              ["交易前置", broker.front, true],
             ] as const
-          ).map(([label, value]) => (
+          ).map(([label, value, mono]) => (
             <div key={label}>
               <dt>{t(label)}</dt>
-              <dd>{label === "柜台环境" ? <Tag danger={real}>{value}</Tag> : value}</dd>
+              <dd>
+                {label === "柜台环境" ? (
+                  <Tag danger={real}>{value}</Tag>
+                ) : mono ? (
+                  <code>{value}</code>
+                ) : (
+                  value
+                )}
+              </dd>
             </div>
           ))}
         </dl>
@@ -132,10 +145,12 @@ export function CreateLive({
         <fieldset disabled={busy}>
           <fieldset hidden={step !== 0} disabled={step !== 0}>
             <section className="account-field-group" aria-label={t("可交易合约")}>
-              <h3>{t("可交易合约")}</h3>
-              {!catalogReady ? (
-                <p role="status">{t("合约目录同步中")}</p>
-              ) : (
+              <header className="account-field-group-header">
+                <h3>
+                  {t("可交易合约")} <small>{t("必填")}</small>
+                </h3>
+              </header>
+              {catalogReady ? (
                 <ContractPicker
                   ariaLabel={t("添加合约")}
                   label={t("合约")}
@@ -143,6 +158,17 @@ export function CreateLive({
                   maxReached={contracts.length >= 64}
                   onAdd={id => setContracts([...contracts, id])}
                 />
+              ) : catalogError ? (
+                <div className="catalog-load-error" role="alert">
+                  <ErrorNotice error={catalogError} namespace="asterion.terminal.trading" />
+                  <button type="button" onClick={retryCatalog}>
+                    {t("重试")}
+                  </button>
+                </div>
+              ) : (
+                <p role="status" className="subtle">
+                  {t("合约目录同步中")}
+                </p>
               )}
               <ul className="dataset-list" aria-label={t("已选可交易合约")}>
                 {contracts.map(item => (

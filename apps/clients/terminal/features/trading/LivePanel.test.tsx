@@ -225,6 +225,43 @@ test("an account without a policy offers to open trading in the service's enviro
   expect(screen.getAllByText("CTP 仿真").length).toBeGreaterThan(0);
 });
 
+test("account setup surfaces catalog sync failures with a retry button", async () => {
+  let failCatalog = true;
+  read = () =>
+    create(ResponseSchema, {
+      result: { case: "getAccount", value: create(AccountSchema, account) },
+    });
+  vi.mocked(tradingRequest).mockImplementation(async (_account, operation) => {
+    if (operation?.case === "getCatalog") {
+      if (failCatalog) throw new BackendError("permission_denied", "CTP catalog login rejected: 3");
+      return create(ResponseSchema, {
+        result: {
+          case: "getCatalog",
+          value: {
+            contracts: [
+              {
+                instrument: { exchange: "SHFE", symbol: "rb2610" },
+                product: "rb",
+                name: "螺纹钢2610",
+                multiplier: 10,
+                priceTick: { text: "1" },
+              },
+            ],
+          },
+        },
+      });
+    }
+    if (operation?.case === "getStrategies")
+      return create(ResponseSchema, { result: { case: "getStrategies", value: {} } });
+    return read();
+  });
+  show("create-catalog-retry");
+  expect(await screen.findByText(/合约目录登录失败.*CTP 3/)).toBeTruthy();
+  failCatalog = false;
+  fireEvent.click(screen.getByRole("button", { name: "重试" }));
+  expect(await screen.findByRole("combobox", { name: "添加合约" })).toBeTruthy();
+});
+
 test("the account's broker facts follow each read", async () => {
   show("facts");
   expect(await screen.findByText("持仓已核对")).toBeTruthy();

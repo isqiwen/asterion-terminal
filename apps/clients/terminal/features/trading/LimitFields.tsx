@@ -130,38 +130,51 @@ export function LimitFields({
       </label>
     );
   };
+  const tools = (runs.length > 0 || offerSimPreset) && (
+    <div className="limit-tools">
+      {runs.length > 0 && (
+        <label className="limit-source">
+          <span>{t("从回测带入")}</span>
+          <select value="" onChange={event => event.target.value && bring(event.target.value)}>
+            <option value="">{t("选择回测")}</option>
+            {runs.map(run => (
+              <option key={run.id} value={run.id}>
+                {run.label || `${run.strategy} ${run.firstDay}–${run.lastDay}`}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {offerSimPreset && (
+        <button type="button" onClick={() => change({ ...limits, ...simulationPreset })}>
+          {t("填入轻仓仿真参考")}
+        </button>
+      )}
+    </div>
+  );
   return (
     <>
-      {(runs.length > 0 || offerSimPreset) && (
-        <div className="limit-tools">
-          {runs.length > 0 && (
-            <label className="limit-source">
-              {t("从回测带入")}
-              <select value="" onChange={event => event.target.value && bring(event.target.value)}>
-                <option value="">{t("选择回测")}</option>
-                {runs.map(run => (
-                  <option key={run.id} value={run.id}>
-                    {run.label || `${run.strategy} ${run.firstDay}–${run.lastDay}`}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          {offerSimPreset && (
-            <button type="button" onClick={() => change({ ...limits, ...simulationPreset })}>
-              {t("填入轻仓仿真参考")}
-            </button>
-          )}
-        </div>
-      )}
-      <section className="account-field-group" aria-label={t("委托与持仓限制")}>
-        <h3>{t("委托与持仓限制")}</h3>
+      <section
+        className="account-field-group account-limit-required"
+        aria-label={t("委托与持仓限制")}
+      >
+        <header className="account-field-group-header">
+          <h3>
+            {t("委托与持仓限制")} <small>{t("必填")}</small>
+          </h3>
+          {tools}
+        </header>
         <div className="futures-fields">{requiredLimitFields.map(item => field(item, true))}</div>
       </section>
-      <section className="account-field-group" aria-label={t("资金与撤单限制")}>
-        <h3>
-          {t("资金与撤单限制")} <small>{t("可选")}</small>
-        </h3>
+      <section
+        className="account-field-group account-limit-optional"
+        aria-label={t("资金与撤单限制")}
+      >
+        <header className="account-field-group-header">
+          <h3>
+            {t("资金与撤单限制")} <small>{t("可选")}</small>
+          </h3>
+        </header>
         <div className="futures-fields">{optionalLimitFields.map(item => field(item, false))}</div>
       </section>
     </>

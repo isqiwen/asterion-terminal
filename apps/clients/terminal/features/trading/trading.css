@@ -1003,26 +1003,57 @@
   font-size: var(--font-size-aux);
   pointer-events: none;
 }
+.account-field-group-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: safe center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.account-field-group-header h3,
+.ctp-account-panel .account-field-group-header h3 {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--text-strong);
+}
 .account-field-group h3 small {
   color: var(--muted);
   font-size: var(--font-size-aux);
   font-weight: normal;
 }
+.catalog-load-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: safe center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+}
 .ctp-account-facts {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1) var(--space-5);
+  gap: var(--space-2) var(--space-5);
   margin: 0;
+  font-size: var(--font-size-body);
 }
 .ctp-account-facts div {
   display: flex;
+  align-items: baseline;
   gap: var(--space-2);
 }
 .ctp-account-facts dt {
   color: var(--muted);
+  font-size: var(--font-size-aux);
 }
 .ctp-account-facts dd {
   margin: 0;
+  color: var(--text-strong);
+}
+.ctp-account-facts dd code {
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-body);
+  font-variant-numeric: tabular-nums;
   color: var(--text-strong);
 }
 
@@ -1057,9 +1088,6 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
   gap: var(--space-4) var(--space-5);
-}
-.policy-limits > .limit-source {
-  grid-column: 1 / -1;
 }
 .policy-limits .futures-fields {
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1133,18 +1161,24 @@
 }
 
 .limit-tools {
-  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-3);
+  align-items: safe center;
+  gap: var(--space-2);
 }
 .limit-source {
-  display: flex;
-  align-items: center;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: safe center;
   gap: var(--space-2);
   width: fit-content;
   color: var(--muted);
+  font-size: var(--font-size-aux);
+  white-space: nowrap;
+}
+.limit-source select {
+  width: auto;
+  max-width: 220px;
 }
 .limit-field input:is(:user-invalid, [aria-invalid="true"]) {
   border-color: var(--danger);
