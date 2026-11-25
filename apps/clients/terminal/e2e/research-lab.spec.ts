@@ -77,7 +77,7 @@ test(
     await expect(runs.locator(".status-badge")).toHaveText(["已完成", "已完成"]);
     for (const box of await page.getByRole("checkbox", { name: /^比较 / }).all()) await box.check();
     await page.getByRole("button", { name: "比较所选（2）" }).click();
-    const comparison = page.locator(".lab-runs-view table");
+    const comparison = page.locator(".lab-runs-view table.lab-compare");
     await expect(
       comparison.getByRole("columnheader", { name: /^MaCross \d\d-\d\d \d\d:\d\d:\d\d$/ }),
     ).toHaveCount(2);
