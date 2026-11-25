@@ -86,18 +86,23 @@ function minuteRule(contract: ContractCoverage): Rule | undefined {
 const ruleOf = (contract: ContractCoverage, kind: Kind) =>
   kind === "daily" ? dailyRule(contract) : minuteRule(contract);
 
-// One acquisition spanning every requested contract or daily range.
+// One acquisition spanning every requested contract or daily range per exchange.
 function merged(rules: Rule[]): Rule[] {
   if (!rules.length) return [];
   if (rules[0]!.table === Table.MINUTES)
     return [{ ...rules[0]!, instruments: rules.flatMap(rule => rule.instruments) }];
-  return [
-    {
-      ...rules[0]!,
-      firstDay: earliest(rules.map(rule => rule.firstDay)),
-      lastDay: latest(rules.map(rule => rule.lastDay)),
-    },
-  ];
+  const byExchange = new Map<string, Rule[]>();
+  for (const rule of rules) {
+    const key = rule.exchanges[0]!;
+    const group = byExchange.get(key);
+    if (group) group.push(rule);
+    else byExchange.set(key, [rule]);
+  }
+  return [...byExchange.values()].map(group => ({
+    ...group[0]!,
+    firstDay: earliest(group.map(rule => rule.firstDay)),
+    lastDay: latest(group.map(rule => rule.lastDay)),
+  }));
 }
 
 // A product's listed contracts, and any older one with a gap in what it holds.
@@ -288,7 +293,9 @@ function ContractRow({
 }) {
   const code = contractCode(contract.contract);
   const series = contract[kind];
-  const rule = acquires ? ruleOf(contract, kind) : undefined;
+  const pendingRule = ruleOf(contract, kind);
+  const rule = acquires ? pendingRule : undefined;
+  const done = !!series?.days && !pendingRule;
   const busy = !!rule && running.some(task => covers(task, rule));
   return (
     <tr
@@ -323,6 +330,8 @@ function ContractRow({
           >
             {t("采集")}
           </button>
+        ) : done ? (
+          <span className="coverage-done">{t("齐全")}</span>
         ) : null}
       </td>
     </tr>
@@ -381,6 +390,35 @@ export function CoverageList({
   }, [rows, kind]);
   const activeRows = ordered.filter(row => !!row.coverage?.listed);
   const retiredRows = ordered.filter(row => !row.coverage?.listed);
+  const retiredTally = retiredRows.reduce<Tally>(
+    (acc, row) => {
+      const item = rowTally(row);
+      return {
+        total: acc.total + item.total,
+        held: acc.held + item.held,
+        complete: acc.complete + item.complete,
+        gaps: acc.gaps + item.gaps,
+        pending: acc.pending + item.pending,
+      };
+    },
+    { total: 0, held: 0, complete: 0, gaps: 0, pending: 0 },
+  );
+  const retiredIncomplete = retiredRows.filter(
+    row => (row.coverage?.[kind]?.complete ?? 0) < (row.coverage?.contracts ?? 0),
+  );
+  const retiredDone =
+    retiredTally.total > 0 &&
+    retiredTally.complete >= retiredTally.total &&
+    !retiredTally.gaps &&
+    !retiredTally.pending;
+  const productBusy = (row: ProductRow) =>
+    running.some(({ request }) =>
+      kind === "daily"
+        ? request!.table === Table.DAILY && request!.exchanges.includes(row.exchange)
+        : request!.table === Table.MINUTES &&
+          request!.instruments.some(item => item === row.id || item.startsWith(`${row.id}/`)),
+    );
+  const retiredBusy = retiredIncomplete.some(productBusy);
   const autoExpandRetired =
     !!query || !activeRows.length || retiredRows.some(row => row.id === open);
   const showRetired = retiredOpen || autoExpandRetired;
@@ -414,6 +452,21 @@ export function CoverageList({
     }
   };
 
+  const collectRetiredGroup = async () => {
+    setLoadingProduct("__retired__");
+    try {
+      const loaded = await Promise.all(
+        retiredIncomplete.map(row =>
+          open === row.id && contracts ? Promise.resolve(contracts) : loadContracts(row.id),
+        ),
+      );
+      const history = loaded.flatMap(items => (items ?? []).filter(item => !item.listed));
+      if (!startHistory(history)) setRetiredOpen(true);
+    } finally {
+      setLoadingProduct(current => (current === "__retired__" ? "" : current));
+    }
+  };
+
   const renderProduct = (row: ProductRow) => {
     const contractsCount = row.coverage?.contracts ?? 0;
     const listedCount = row.coverage?.listed ?? 0;
@@ -437,6 +490,12 @@ export function CoverageList({
     const showHistory = !!searchedYears?.size || historyOpen === row.id;
     const historyRules = history.flatMap(item => ruleOf(item, kind) ?? []);
     const historyBusy = historyRules.some(rule => running.some(task => covers(task, rule)));
+    const historyDone =
+      history.length > 0 &&
+      historyTally.complete === history.length &&
+      !historyTally.gaps &&
+      !historyTally.pending &&
+      !historyRules.length;
     const needsListed =
       !retired &&
       (!!series?.withGaps || !!series?.pending || (series?.listedComplete ?? 0) < listedCount);
@@ -444,12 +503,12 @@ export function CoverageList({
       pastCount > 0 &&
       (series?.complete ?? 0) < contractsCount &&
       (!expanded || !contracts || historyRules.length > 0);
-    const busy = running.some(({ request }) =>
-      kind === "daily"
-        ? request!.table === Table.DAILY && request!.exchanges.includes(row.exchange)
-        : request!.table === Table.MINUTES &&
-          request!.instruments.some(item => item === row.id || item.startsWith(`${row.id}/`)),
-    );
+    const productDone =
+      contractsCount > 0 &&
+      (series?.complete ?? 0) >= contractsCount &&
+      !series?.withGaps &&
+      !series?.pending;
+    const busy = productBusy(row);
     return (
       <tbody key={row.id} data-retired={retired || undefined}>
         <tr data-kind="product" data-open={expanded || undefined}>
@@ -472,9 +531,9 @@ export function CoverageList({
             <Progress pieces={tallyPieces(tally)} label={tallySummary(tally)} />
           </td>
           <td>
-            {!acquires ? null : busy ? (
+            {acquires && busy ? (
               <span className="coverage-busy">{t("采集中")}</span>
-            ) : needsListed || needsHistory ? (
+            ) : acquires && (needsListed || needsHistory) ? (
               <button
                 type="button"
                 className="coverage-action"
@@ -484,6 +543,8 @@ export function CoverageList({
               >
                 {t("采集")}
               </button>
+            ) : productDone ? (
+              <span className="coverage-done">{t("齐全")}</span>
             ) : null}
           </td>
         </tr>
@@ -515,18 +576,22 @@ export function CoverageList({
               <Progress pieces={tallyPieces(historyTally)} label={tallySummary(historyTally)} />
             </td>
             <td>
-              {!acquires || !historyRules.length ? null : historyBusy ? (
-                <span className="coverage-busy">{t("采集中")}</span>
-              ) : (
-                <button
-                  type="button"
-                  className="coverage-action"
-                  aria-label={t("采集 {name}", { name: `${row.id} ${t("历史合约")}` })}
-                  onClick={() => startHistory(history)}
-                >
-                  {t("采集")}
-                </button>
-              )}
+              {acquires && historyRules.length > 0 ? (
+                historyBusy ? (
+                  <span className="coverage-busy">{t("采集中")}</span>
+                ) : (
+                  <button
+                    type="button"
+                    className="coverage-action"
+                    aria-label={t("采集 {name}", { name: `${row.id} ${t("历史合约")}` })}
+                    onClick={() => startHistory(history)}
+                  >
+                    {t("采集")}
+                  </button>
+                )
+              ) : historyDone ? (
+                <span className="coverage-done">{t("齐全")}</span>
+              ) : null}
             </td>
           </tr>
         )}
@@ -540,6 +605,12 @@ export function CoverageList({
               const yearKey = `${row.id}/${year}`;
               const shown = yearOpen === yearKey || !!searchedYears;
               const yearBusy = rules.some(rule => running.some(task => covers(task, rule)));
+              const yearDone =
+                inYear.length > 0 &&
+                yearTally.complete === inYear.length &&
+                !yearTally.gaps &&
+                !yearTally.pending &&
+                !rules.length;
               return [
                 <tr key={year} data-kind="year">
                   <th scope="row">
@@ -559,18 +630,22 @@ export function CoverageList({
                     <Progress pieces={tallyPieces(yearTally)} label={tallySummary(yearTally)} />
                   </td>
                   <td>
-                    {!acquires || !rules.length ? null : yearBusy ? (
-                      <span className="coverage-busy">{t("采集中")}</span>
-                    ) : (
-                      <button
-                        type="button"
-                        className="coverage-action"
-                        aria-label={t("采集 {name}", { name: `${row.id} ${year}` })}
-                        onClick={() => startHistory(history, year, year)}
-                      >
-                        {t("采集")}
-                      </button>
-                    )}
+                    {acquires && rules.length > 0 ? (
+                      yearBusy ? (
+                        <span className="coverage-busy">{t("采集中")}</span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="coverage-action"
+                          aria-label={t("采集 {name}", { name: `${row.id} ${year}` })}
+                          onClick={() => startHistory(history, year, year)}
+                        >
+                          {t("采集")}
+                        </button>
+                      )
+                    ) : yearDone ? (
+                      <span className="coverage-done">{t("齐全")}</span>
+                    ) : null}
                   </td>
                 </tr>,
                 ...(shown
@@ -621,8 +696,26 @@ export function CoverageList({
                 </button>
               </th>
               <td className="coverage-count">{t("{count} 个", { count: retiredRows.length })}</td>
-              <td />
-              <td />
+              <td>
+                <Progress pieces={tallyPieces(retiredTally)} label={tallySummary(retiredTally)} />
+              </td>
+              <td>
+                {acquires && retiredBusy ? (
+                  <span className="coverage-busy">{t("采集中")}</span>
+                ) : acquires && retiredIncomplete.length > 0 ? (
+                  <button
+                    type="button"
+                    className="coverage-action"
+                    disabled={loadingProduct === "__retired__"}
+                    aria-label={t("采集 {name}", { name: t("已退市品种") })}
+                    onClick={() => void collectRetiredGroup()}
+                  >
+                    {t("采集")}
+                  </button>
+                ) : retiredDone ? (
+                  <span className="coverage-done">{t("齐全")}</span>
+                ) : null}
+              </td>
             </tr>
           </tbody>
         )}

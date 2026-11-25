@@ -589,6 +589,10 @@ button.coverage-action {
   color: var(--accent);
   font-size: var(--font-size-aux);
 }
+.coverage-done {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
 .coverage-drawer {
   position: absolute;
   inset: 0 0 0 auto;

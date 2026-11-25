@@ -451,14 +451,24 @@ test("retired products fold at the bottom, acquire directly, and expand straight
   const table = await list();
   expect(within(table).queryByRole("rowheader", { name: /^pb/ })).toBeNull();
   const group = within(table).getByRole("button", { name: "已退市品种" });
-  expect(group.closest("tr")!.textContent).toContain("1 个");
+  const groupRow = group.closest("tr")!;
+  expect(groupRow.textContent).toContain("1 个");
+  fireEvent.click(within(groupRow).getByRole("button", { name: "采集 已退市品种" }));
+  await waitFor(() => expect(submitted()).toHaveLength(1));
+  expect(submitted()[0]).toMatchObject({
+    table: Table.DAILY,
+    exchanges: ["SHFE"],
+    refetch: false,
+    firstDay: "2022-10-16",
+    lastDay: "2024-10-15",
+  });
 
   fireEvent.click(group);
   expect(within(table).getByRole("rowheader", { name: /^pb/ }).textContent).toContain("沪铅");
   fireEvent.click(within(table).getByRole("button", { name: "采集 SHFE/pb" }));
-  await waitFor(() => expect(submitted()).toHaveLength(1));
+  await waitFor(() => expect(submitted()).toHaveLength(2));
   expect(screen.queryByRole("dialog")).toBeNull();
-  expect(submitted()[0]).toMatchObject({
+  expect(submitted()[1]).toMatchObject({
     table: Table.DAILY,
     exchanges: ["SHFE"],
     refetch: false,
@@ -535,7 +545,9 @@ test("listed-complete products with missing history offer direct history backfil
   });
   view(context());
   const table = await list();
-  expect(within(table).queryByRole("button", { name: /SHFE\/ao/ })).toBeNull();
+  const aoRow = within(table).getByRole("rowheader", { name: /^ao/ }).closest("tr")!;
+  expect(within(aoRow).queryByRole("button", { name: /SHFE\/ao/ })).toBeNull();
+  expect(within(aoRow).getByText("齐全")).toBeTruthy();
   fireEvent.click(within(table).getByRole("button", { name: "采集 SHFE/cu" }));
   await waitFor(() => expect(submitted()).toHaveLength(1));
   expect(screen.queryByRole("dialog")).toBeNull();
@@ -799,7 +811,9 @@ test("partial source-empty contracts stay acquirable while settled empty product
   });
   view(context());
   const table = await list();
-  expect(within(table).queryByRole("button", { name: "采集 SHFE/cu" })).toBeNull();
+  const cuRow = within(table).getByRole("rowheader", { name: /^cu/ }).closest("tr")!;
+  expect(within(cuRow).queryByRole("button", { name: "采集 SHFE/cu" })).toBeNull();
+  expect(within(cuRow).queryByText("齐全")).toBeNull();
   expect(within(table).getByRole("button", { name: "采集 SHFE/rb" })).toBeTruthy();
 
   fireEvent.click(within(table).getByRole("button", { name: /^rb\s*螺纹钢/ }));

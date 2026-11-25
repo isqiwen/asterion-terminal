@@ -222,5 +222,6 @@
   "数据源无该日数据，或日线分区已入库但无该合约记录": "No data from any source, or no contract bar in a stored daily partition",
   "尚未采集的历史交易日或合约": "Past trading days or contracts not yet acquired",
   "尚未到来的未来存续期（截至摘牌日）": "Future contract life through delisting, not yet due",
-  "已退市品种": "Delisted products"
+  "已退市品种": "Delisted products",
+  "齐全": "Complete"
 }
