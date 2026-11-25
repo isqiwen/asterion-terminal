@@ -149,3 +149,16 @@ test("only results on the current settings rank", () => {
     .map(header => header.textContent);
   expect(titles).toEqual(expect.arrayContaining(["条件不同", "未回测"]));
 });
+
+test("single selection enables batch backtest", () => {
+  const startBatch = vi.fn();
+  library({
+    items: [item("Alpha", "单品种")],
+    selected: ["m.Alpha"],
+    startBatch,
+  });
+  const batch = screen.getByRole("button", { name: "批量回测（1）" }) as HTMLButtonElement;
+  expect(batch.disabled).toBe(false);
+  fireEvent.click(batch);
+  expect(startBatch).toHaveBeenCalledOnce();
+});

@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -75,95 +76,149 @@ export function useModules(repository: string) {
   return { modules, read, forget };
 }
 
-// A new module of strategies/ or factors/, named in place and opened at once.
+// A new module of strategies/ or factors/, named in a dialog and opened at once.
 export function NewModule({
   folder,
   repository,
   copying,
   cancelCopy,
+  hideTrigger,
   created,
 }: {
   folder: Folder;
   repository: string;
   copying?: ModuleCopy | null;
   cancelCopy?: () => void;
+  hideTrigger?: boolean;
   created: (path: string, id?: string) => void;
 }) {
   const [naming, setNaming] = useState(false);
-  const [name, setName] = useState(copying?.name ?? "");
-  const inputRef = useRef<HTMLInputElement>(null);
-  const { error, attempt, clear } = useActionError();
   const open = naming || Boolean(copying);
-  useEffect(() => {
-    if (!open) return;
-    inputRef.current?.focus();
-    inputRef.current?.select();
-  }, [open]);
   const close = () => {
     setNaming(false);
-    setName("");
-    clear();
     cancelCopy?.();
   };
-  if (!open)
-    return (
-      <button type="button" className="lab-add-module" onClick={() => setNaming(true)}>
-        <Icon name="plus" size={14} />
-        <span>{t(folder === "strategies" ? "新建策略" : "新建因子")}</span>
-      </button>
-    );
   return (
-    <form
-      className="lab-new-module"
-      onKeyDown={event => {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          close();
-        }
-      }}
-      onSubmit={event => {
+    <>
+      {!hideTrigger && (
+        <button type="button" className="lab-add-module" onClick={() => setNaming(true)}>
+          <Icon name="plus" size={14} />
+          <span>{t(folder === "strategies" ? "新建策略" : "新建因子")}</span>
+        </button>
+      )}
+      {open && (
+        <NewModuleDialog
+          folder={folder}
+          repository={repository}
+          copying={copying}
+          close={close}
+          created={created}
+        />
+      )}
+    </>
+  );
+}
+
+function NewModuleDialog({
+  folder,
+  repository,
+  copying,
+  close,
+  created,
+}: {
+  folder: Folder;
+  repository: string;
+  copying?: ModuleCopy | null;
+  close: () => void;
+  created: (path: string, id?: string) => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const heading = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [name, setName] = useState(copying?.name ?? "");
+  const { error, attempt } = useActionError();
+  useLayoutEffect(() => {
+    const element = dialog.current;
+    element?.showModal();
+    return () => element?.close();
+  }, []);
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
+  const title = copying
+    ? folder === "strategies"
+      ? "复制策略"
+      : "复制因子"
+    : folder === "strategies"
+      ? "新建策略"
+      : "新建因子";
+  return (
+    <dialog
+      ref={dialog}
+      className="lab-module-dialog"
+      aria-labelledby={heading}
+      onCancel={event => {
         event.preventDefault();
-        const path = `${folder}/${name}.py`;
-        const result = copying
-          ? copiedModule(folder, copying.content, copying.symbol, name)
-          : {
-              content: moduleTemplate(folder, name),
-              id: `${name}.${folder === "strategies" ? strategyClassName(name) : name}`,
-            };
-        void attempt(async () => {
-          await lab({
-            case: "saveSource",
-            value: {
-              source: { repository, path },
-              content: result.content,
-              create: true,
-            },
-          });
-          close();
-          created(path, result.id);
-        });
+        close();
       }}
     >
-      <input
-        ref={inputRef}
-        aria-label={t("模块名")}
-        placeholder={folder === "strategies" ? "my_strategy" : "my_factor"}
-        pattern="[A-Za-z_][A-Za-z0-9_]*"
-        spellCheck={false}
-        autoCorrect="off"
-        autoCapitalize="none"
-        required
-        value={name}
-        onChange={event => setName(event.target.value)}
-      />
-      <button className="primary" type="submit">
-        {t("创建")}
-      </button>
-      <button type="button" onClick={close}>
-        {t("取消")}
-      </button>
-      <ActionError error={error} namespace="asterion.terminal.research" />
-    </form>
+      <h2 id={heading}>{t(title)}</h2>
+      <form
+        onKeyDown={event => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            close();
+          }
+        }}
+        onSubmit={event => {
+          event.preventDefault();
+          const path = `${folder}/${name}.py`;
+          const result = copying
+            ? copiedModule(folder, copying.content, copying.symbol, name)
+            : {
+                content: moduleTemplate(folder, name),
+                id: `${name}.${folder === "strategies" ? strategyClassName(name) : name}`,
+              };
+          void attempt(async () => {
+            await lab({
+              case: "saveSource",
+              value: {
+                source: { repository, path },
+                content: result.content,
+                create: true,
+              },
+            });
+            close();
+            created(path, result.id);
+          });
+        }}
+      >
+        <label>
+          <span>{t("模块名")}</span>
+          <input
+            ref={inputRef}
+            placeholder={folder === "strategies" ? "my_strategy" : "my_factor"}
+            pattern="[A-Za-z_][A-Za-z0-9_]*"
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="none"
+            required
+            value={name}
+            onChange={event => setName(event.target.value)}
+          />
+        </label>
+        <ActionError error={error} namespace="asterion.terminal.research" />
+        <footer>
+          <button type="button" onClick={close}>
+            {t("取消")}
+          </button>
+          <button className="primary" type="submit">
+            {t("创建")}
+          </button>
+        </footer>
+      </form>
+    </dialog>
   );
 }
 
@@ -316,6 +371,7 @@ export function LabCentre({
   modules,
   focus = "",
   changed,
+  onDuplicate,
   onDelete,
 }: {
   source: ReturnType<typeof useSource>;
@@ -324,9 +380,11 @@ export function LabCentre({
   // The chosen `<module>.<symbol>`, shown when its module is open.
   focus?: string;
   changed: () => void;
+  onDuplicate?: (path: string, content: string, symbol?: string) => void;
   onDelete?: (path: string) => void;
 }) {
   const [focusModule, symbol] = focus.split(".");
+  const focusedSymbol = source.path.endsWith(`/${focusModule}.py`) ? symbol : undefined;
   const traceback = modules?.errors.find(
     item =>
       (item.module.startsWith("factors/")
@@ -343,13 +401,16 @@ export function LabCentre({
             path={source.path}
             draft={source.drafts[source.path]}
             traceback={traceback}
-            symbol={source.path.endsWith(`/${focusModule}.py`) ? symbol : undefined}
+            symbol={focusedSymbol}
             edited={content => source.draft(source.path, content)}
             saved={content => source.saved(source.path, content)}
             changed={changed}
             opened={source.jump}
             back={source.back}
             onBack={source.goBack}
+            onDuplicate={
+              onDuplicate ? content => onDuplicate(source.path, content, focusedSymbol) : undefined
+            }
             onDelete={onDelete ? () => onDelete(source.path) : undefined}
           />
         </Suspense>
@@ -623,6 +684,7 @@ export function useModuleMenu({
   );
   return {
     open,
+    copy,
     remove,
     target: menu?.target,
     copying,

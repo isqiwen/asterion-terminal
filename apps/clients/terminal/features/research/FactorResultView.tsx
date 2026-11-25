@@ -192,7 +192,7 @@ export function FactorResultView({ result }: { result: FactorResult }) {
               {result.horizons.map(item => (
                 <tr key={item.horizon}>
                   <td>{t("{count} 根", { count: item.horizon })}</td>
-                  <td className="numeric">{metric(item.mean, false)}</td>
+                  <td className={`numeric ${signed(item.mean)}`}>{metric(item.mean, false)}</td>
                   <td className="lab-bar-cell" aria-hidden="true">
                     <span
                       className={`lab-bar ${signed(item.mean)}`}
@@ -235,9 +235,11 @@ export function FactorResultView({ result }: { result: FactorResult }) {
                     return (
                       <tr key={dev.horizon}>
                         <td>{t("{count} 根", { count: dev.horizon })}</td>
-                        <td className="numeric">{metric(dev.mean, false)}</td>
+                        <td className={`numeric ${signed(dev.mean)}`}>{metric(dev.mean, false)}</td>
                         <td className="numeric">{metric(dev.ir, false)}</td>
-                        <td className="numeric">{metric(out?.mean, false)}</td>
+                        <td className={`numeric ${signed(out?.mean)}`}>
+                          {metric(out?.mean, false)}
+                        </td>
                         <td className="numeric">{metric(out?.ir, false)}</td>
                       </tr>
                     );

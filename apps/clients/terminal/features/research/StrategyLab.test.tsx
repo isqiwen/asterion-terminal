@@ -281,7 +281,9 @@ test("recent runs open in place and loadRun populates the form", async () => {
 
   const recent = await screen.findByRole("region", { name: "最近运行" });
   expect(recent.textContent).not.toContain("other-1");
-  fireEvent.click(screen.getByRole("button", { name: /快线/ }));
+  const fastRun = screen.getByRole("button", { name: /快线/ });
+  expect(fastRun.getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(fastRun);
   expect(await screen.findByRole("heading", { name: "快线" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "全部回测记录" }));
   expect(context.navigate).toHaveBeenCalledWith("workspace.lab-runs", {});
@@ -456,6 +458,9 @@ test("editor indents four spaces on Tab, saves on Ctrl+S, and duplicates or dele
     expect(screen.getByRole("region", { name: "strategies/builtin.py" })).toBeTruthy(),
   );
   expect(screen.queryByRole("button", { name: /^返回/ })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "复制并编辑" }));
+  expect(screen.getByRole("dialog", { name: "复制策略" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "取消" }));
   fireEvent.click(screen.getByRole("button", { name: "← 策略库" }));
   fireEvent.contextMenu(screen.getByRole("button", { name: "Builtin" }));
   await waitFor(() =>

@@ -434,3 +434,46 @@ test("factor result view shows in-sample vs holdout horizons, yearly IC stabilit
   const offDiag = within(corr).getAllByText("-0.250")[0]!;
   expect(offDiag.style.background).toContain("--quote-down");
 });
+
+test("cancelling a batch factor evaluation skips remaining factors", async () => {
+  const evaluated: string[] = [];
+  let finishFirst!: () => void;
+  vi.mocked(lab).mockImplementation(async operation => {
+    switch (operation?.case) {
+      case "listStrategies":
+        return create(StrategiesSchema, {
+          factors: [{ id: "price.first" }, { id: "price.second" }],
+        }) as never;
+      case "listFactorResults":
+        return create(FactorResultsSchema, {}) as never;
+      case "evaluateFactor":
+        evaluated.push(operation.value.factor!);
+        if (evaluated.length === 1) {
+          await new Promise<void>(resolve => {
+            finishFirst = resolve;
+          });
+        }
+        return create(FactorResultSchema, { id: operation.value.id }) as never;
+    }
+    return new Promise(() => {}) as never;
+  });
+  saveFactorConditions({
+    active: "SHFE",
+    items: [{ name: "SHFE", fields: factorScopeOf({ ...defaultFactorForm(), symbols: "SHFE" }) }],
+  });
+  const context = { snapshot: { research_directory: "/research" } } as unknown as TerminalContext;
+  render(
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.lab-factors">
+      <FactorLab {...context} />
+    </WorkspaceDraftScope>,
+  );
+  const library = await screen.findByRole("table", { name: "因子库" });
+  fireEvent.click(within(library).getByLabelText("选择 price.first"));
+  fireEvent.click(within(library).getByLabelText("选择 price.second"));
+  fireEvent.click(screen.getByRole("button", { name: "批量评价（2）" }));
+  const cancel = await screen.findByRole("button", { name: "取消" });
+  fireEvent.click(cancel);
+  finishFirst();
+  await vi.waitFor(() => expect(screen.queryByRole("button", { name: "取消" })).toBeNull());
+  expect(evaluated).toEqual(["price.first"]);
+});

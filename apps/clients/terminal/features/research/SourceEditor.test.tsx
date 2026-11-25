@@ -185,8 +185,9 @@ test("window focus reloads clean external edits without creating a draft", async
   expect((screen.getByRole("button", { name: "保存" }) as HTMLButtonElement).disabled).toBe(true);
 });
 
-test("source header offers two-click delete for custom modules only", async () => {
+test("source header offers duplicate-and-edit for read-only modules and two-click delete for custom modules only", async () => {
   const onDelete = vi.fn();
+  const onDuplicate = vi.fn();
   vi.mocked(lab).mockResolvedValueOnce(
     create(SourceSchema, { content: "builtin = 1", readOnly: true }) as never,
   );
@@ -198,11 +199,14 @@ test("source header offers two-click delete for custom modules only", async () =
       edited={vi.fn()}
       saved={vi.fn()}
       changed={vi.fn()}
+      onDuplicate={onDuplicate}
       onDelete={onDelete}
     />,
   );
   await screen.findByText("只读");
   expect(screen.queryByRole("button", { name: /删除/ })).toBeNull();
+  fireEvent.click(await screen.findByRole("button", { name: "复制并编辑" }));
+  expect(onDuplicate).toHaveBeenCalledWith("builtin = 1");
 
   vi.mocked(lab).mockResolvedValueOnce(
     create(SourceSchema, { content: "custom = 2", readOnly: false }) as never,
@@ -216,10 +220,12 @@ test("source header offers two-click delete for custom modules only", async () =
       edited={vi.fn()}
       saved={vi.fn()}
       changed={vi.fn()}
+      onDuplicate={onDuplicate}
       onDelete={onDelete}
     />,
   );
   const del = await screen.findByRole("button", { name: "删除 strategies/custom.py" });
+  expect(screen.queryByRole("button", { name: "复制并编辑" })).toBeNull();
   fireEvent.click(del);
   expect(onDelete).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "确认删除 strategies/custom.py" }));

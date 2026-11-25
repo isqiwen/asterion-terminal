@@ -73,6 +73,8 @@ export function FactorLab(context: TerminalContext) {
   const [search, setSearch] = useWorkspaceDraft("modules-search:factors", "");
   const [busy, setBusy] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
+  const [cancellingBatch, setCancellingBatch] = useState(false);
+  const batchCancelledRef = useRef(false);
   const { error, attempt } = useActionError();
   const source = useSource(repository, "factors");
   const [saved, setSaved] = useState<string[]>([]);
@@ -180,6 +182,8 @@ export function FactorLab(context: TerminalContext) {
     if (!targets.length) return;
     setBusy(true);
     setSaved([]);
+    batchCancelledRef.current = false;
+    setCancellingBatch(false);
     setBatchProgress({ done: 0, total: targets.length });
     await attempt(async () => {
       const requests = targets.map((entry, index) => ({
@@ -191,11 +195,14 @@ export function FactorLab(context: TerminalContext) {
       if (written.length) await read();
       try {
         for (let i = 0; i < requests.length; i++) {
+          if (batchCancelledRef.current) break;
           const item = requests[i]!;
           await lab({ case: "evaluateFactor", value: { ...item.request, id: item.id } });
           setBatchProgress({ done: i + 1, total: requests.length });
         }
       } finally {
+        batchCancelledRef.current = false;
+        setCancellingBatch(false);
         await readKept();
       }
     });
@@ -280,6 +287,14 @@ export function FactorLab(context: TerminalContext) {
   const showsResult = !library && tab === "result" && Boolean(report);
   return (
     <section className="lab-research" data-folded={(!library && folded) || undefined}>
+      <FactorScopeBar
+        context={context}
+        form={form}
+        begin={scopeBegin}
+        end={scopeEnd}
+        conditions={conditions}
+        catalog={catalog}
+      />
       {!library && (
         <header className="lab-report-header lab-page-head">
           <button type="button" className="lab-link" onClick={openLibrary}>
@@ -301,6 +316,25 @@ export function FactorLab(context: TerminalContext) {
           ) : (
             <h2>{source.path}</h2>
           )}
+          {factor && (
+            <div className="lab-segmented" role="group" aria-label={t("因子")}>
+              {(
+                [
+                  ["result", "评价"],
+                  ["code", "代码"],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={tab === key}
+                  onClick={() => setTab(key)}
+                >
+                  {t(label)}
+                </button>
+              ))}
+            </div>
+          )}
           {showsResult && <h2>{shownResult ? recordTime(shownResult.id) : reportName}</h2>}
           {showsResult && shownResult && inScope && !inScope(shownResult) && (
             <StatusBadge tone="neutral">{t("条件不同")}</StatusBadge>
@@ -309,15 +343,21 @@ export function FactorLab(context: TerminalContext) {
           {showsResult && <DeleteRecord name={report} remove={() => remove(report)} />}
         </header>
       )}
-      <FactorScopeBar
-        context={context}
-        form={form}
-        begin={scopeBegin}
-        end={scopeEnd}
-        conditions={conditions}
-        catalog={catalog}
-      />
       {menu.overlay}
+      {menu.copying && (
+        <NewModule
+          key={menu.copying.id}
+          hideTrigger
+          folder="factors"
+          repository={repository}
+          copying={menu.copying}
+          cancelCopy={menu.clearCopy}
+          created={(path, id) => {
+            openCode(path, id);
+            void read();
+          }}
+        />
+      )}
       {library && report ? (
         <div className="lab-center lab-runs-view">
           <header className="lab-report-header">
@@ -343,7 +383,12 @@ export function FactorLab(context: TerminalContext) {
           composites={composites}
           busy={busy || Boolean(context.busy)}
           batchProgress={batchProgress}
+          cancellingBatch={cancellingBatch}
           onBatchEvaluate={() => void evaluateBatch()}
+          onCancelBatch={() => {
+            batchCancelledRef.current = true;
+            setCancellingBatch(true);
+          }}
           onCompositeEvaluate={() => void evaluateComposite()}
           open={choose}
           openComposite={setReport}
@@ -352,11 +397,8 @@ export function FactorLab(context: TerminalContext) {
           combination={combinationField("lab-inline")}
           newModule={
             <NewModule
-              key={menu.copying?.id ?? "new"}
               folder="factors"
               repository={repository}
-              copying={menu.copying}
-              cancelCopy={menu.clearCopy}
               created={(path, id) => {
                 openCode(path, id);
                 void read();
@@ -380,25 +422,6 @@ export function FactorLab(context: TerminalContext) {
         />
       ) : (
         <div className="lab-detail">
-          {factor && (
-            <nav className="tabs" aria-label={t("因子")}>
-              {(
-                [
-                  ["result", "评价"],
-                  ["code", "代码"],
-                ] as const
-              ).map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  aria-pressed={tab === key}
-                  onClick={() => setTab(key)}
-                >
-                  {t(label)}
-                </button>
-              ))}
-            </nav>
-          )}
           {tab === "result" ? (
             report ? (
               <div className="lab-center lab-runs-view">
@@ -414,6 +437,7 @@ export function FactorLab(context: TerminalContext) {
               modules={modules}
               focus={chosen}
               changed={() => void read()}
+              onDuplicate={source.path.startsWith("factors/") ? menu.copy : undefined}
               onDelete={path => menu.remove(path)}
             />
           )}
@@ -626,7 +650,9 @@ function FactorLibrary({
   composites,
   busy,
   batchProgress,
+  cancellingBatch,
   onBatchEvaluate,
+  onCancelBatch,
   onCompositeEvaluate,
   open,
   openComposite,
@@ -648,7 +674,9 @@ function FactorLibrary({
   composites: readonly FactorResult[];
   busy: boolean;
   batchProgress: { done: number; total: number } | null;
+  cancellingBatch: boolean;
   onBatchEvaluate: () => void;
+  onCancelBatch: () => void;
   onCompositeEvaluate: () => void;
   open: (id: string) => void;
   openComposite: (id: string) => void;
@@ -795,6 +823,16 @@ function FactorLibrary({
               ? t("批量评价（{count}）", { count: selected.length })
               : t("批量评价")}
         </button>
+        {batchProgress && (
+          <button
+            type="button"
+            className="lab-link"
+            disabled={cancellingBatch}
+            onClick={onCancelBatch}
+          >
+            {t("取消")}
+          </button>
+        )}
       </div>
       {notices}
       {status}

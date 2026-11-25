@@ -7,8 +7,8 @@
   grid-template-rows: auto auto auto minmax(0, 1fr);
   grid-template-areas:
     "notice notice"
-    "head head"
     "scope scope"
+    "head head"
     "center config";
   height: 100%;
   min-height: 0;
@@ -20,8 +20,8 @@
   grid-template-columns: minmax(0, 1fr);
   grid-template-areas:
     "notice"
-    "head"
     "scope"
+    "head"
     "center";
 }
 @media (min-width: 2200px) and (min-height: 1200px) {
@@ -99,6 +99,7 @@ button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   min-height: 0;
 }
 .lab-library-table {
+  --lab-check-width: 34px;
   border-collapse: separate;
   border-spacing: 0;
 }
@@ -129,9 +130,25 @@ button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   border-bottom: 0;
   box-shadow: inset 0 -1px 0 var(--line);
 }
-.lab-library-table thead th.lab-name-col {
+.lab-table.lab-library-table .lab-check-col {
   position: sticky;
   inset-inline-start: 0;
+  width: var(--lab-check-width);
+  min-width: var(--lab-check-width);
+  max-width: var(--lab-check-width);
+  box-sizing: border-box;
+  padding-inline: var(--space-2);
+}
+.lab-library-table thead th.lab-check-col {
+  z-index: 3;
+}
+.lab-library-table tbody td.lab-check-col {
+  z-index: 1;
+  background: var(--canvas);
+}
+.lab-library-table thead th.lab-name-col {
+  position: sticky;
+  inset-inline-start: var(--lab-check-width);
   z-index: 3;
 }
 .lab-library-table tbody tr {
@@ -139,22 +156,22 @@ button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
 }
 .lab-library-table tbody th {
   position: sticky;
-  inset-inline-start: 0;
+  inset-inline-start: var(--lab-check-width);
   z-index: 1;
   background: var(--canvas);
 }
 .lab-library-table tbody tr:hover td {
   background: var(--row-alt);
 }
-.lab-library-table tbody tr:hover th {
+.lab-library-table tbody tr:hover :is(th, td.lab-check-col) {
   background: color-mix(in oklab, white 1.8%, var(--canvas));
 }
 .lab-library-table tbody tr.current td,
 .lab-library-table tbody tr.selected td {
   background: var(--accent-surface);
 }
-.lab-library-table tbody tr.current th,
-.lab-library-table tbody tr.selected th {
+.lab-library-table tbody tr.current :is(th, td.lab-check-col),
+.lab-library-table tbody tr.selected :is(th, td.lab-check-col) {
   background: color-mix(in oklab, var(--accent) 9%, var(--canvas));
 }
 .lab-check-col {
@@ -235,6 +252,8 @@ button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
 }
 .lab-evaluations {
   grid-column: 1 / -1;
+  max-height: 240px;
+  overflow: auto;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -379,8 +398,31 @@ button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
 }
+.lab-segmented > button {
+  min-height: calc(var(--control-height) - 4px);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: calc(var(--control-radius) - 1px);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--font-size-body);
+}
+.lab-segmented > button:enabled:not([aria-pressed="true"]):is(:hover, :active) {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-strong);
+}
+.lab-segmented > button[aria-pressed="true"],
+.lab-segmented > button[aria-pressed="true"]:enabled:is(:hover, :active) {
+  background: var(--accent-surface);
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+  color: var(--accent);
+  font-weight: 500;
+}
 @media (forced-colors: active) {
-  :is(.lab-form, .lab-toolbar) .lab-segmented label:has(:checked) {
+  :is(.lab-form, .lab-toolbar) .lab-segmented label:has(:checked),
+  .lab-segmented > button[aria-pressed="true"] {
     outline: 2px solid SelectedItem;
     outline-offset: -2px;
   }
@@ -388,7 +430,8 @@ button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
 .lab-submit {
   position: sticky;
   bottom: 0;
-  margin: 0 -16px;
+  margin-top: auto;
+  margin-inline: calc(-1 * var(--space-4));
   padding: var(--space-3) var(--space-4) var(--space-4);
   border-top: 1px solid var(--line);
   background: color-mix(in oklab, var(--panel) 88%, var(--canvas));
@@ -722,16 +765,40 @@ label.lab-inline {
   overflow: hidden;
   background: var(--field);
 }
-.lab-new-module {
+.lab-module-dialog[open] {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  width: min(400px, calc(100vw - 32px));
+  padding: var(--space-5);
+}
+.lab-module-dialog h2 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-lg);
+}
+.lab-module-dialog form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.lab-module-dialog label {
+  display: grid;
+  gap: var(--space-1);
+}
+.lab-module-dialog label > span {
+  color: var(--muted);
+  font-size: var(--font-size-body);
+}
+.lab-module-dialog input {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--font-terminal);
+}
+.lab-module-dialog footer {
+  display: flex;
+  justify-content: flex-end;
   gap: var(--space-2);
 }
-.lab-new-module input {
-  width: 180px;
-  margin: 0;
-}
-.lab-new-module .action-error {
+.lab-module-dialog .action-error {
   margin: 0;
 }
 .lab-rejections summary {
@@ -1122,13 +1189,15 @@ button.lab-symbol-months:enabled:hover {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  margin-top: var(--space-3);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--line);
 }
 .lab-recent-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
+  margin-bottom: var(--space-1);
 }
 .lab-recent h3 {
   margin: 0;
@@ -1139,14 +1208,31 @@ button.lab-symbol-months:enabled:hover {
 .lab-recent > button.lab-link {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
   width: 100%;
-  padding: 2px var(--space-1);
-  border-radius: var(--control-radius);
+  min-height: var(--control-height);
+  padding: 0 var(--space-2);
+  border-left: 2px solid transparent;
+  border-radius: 0 var(--control-radius) var(--control-radius) 0;
   color: var(--text);
 }
-.lab-recent > button.lab-link:enabled:not([aria-disabled="true"]):is(:hover, :active) {
+.lab-recent > button.lab-link > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lab-recent
+  > button.lab-link:enabled:not([aria-disabled="true"], [aria-pressed="true"]):is(:hover, :active) {
   background: var(--hover);
   color: var(--text-strong);
+  text-decoration: none;
+}
+.lab-recent > button.lab-link[aria-pressed="true"],
+.lab-recent > button.lab-link[aria-pressed="true"]:enabled:is(:hover, :active) {
+  border-left-color: var(--accent);
+  background: var(--accent-surface);
+  color: var(--accent);
   text-decoration: none;
 }
 @media (max-width: 1080px) {
@@ -1156,6 +1242,9 @@ button.lab-symbol-months:enabled:hover {
   .lab-config,
   .lab-center {
     padding: var(--space-3);
+  }
+  .lab-config {
+    padding-bottom: 0;
   }
   .lab-submit {
     margin-inline: calc(-1 * var(--space-3));
@@ -1168,8 +1257,8 @@ button.lab-symbol-months:enabled:hover {
 
 .lab-page-head {
   grid-area: head;
-  padding: var(--space-3) var(--space-page) var(--space-2);
-  border-bottom: 0;
+  padding: var(--space-2) var(--space-page);
+  border-bottom: 1px solid var(--line);
 }
 .lab-strategy-switch {
   width: auto;
@@ -1188,9 +1277,6 @@ button.lab-symbol-months:enabled:hover {
   border-bottom: 1px solid var(--line);
   background: var(--pane);
   font-size: var(--font-size-body);
-}
-.lab-page-head + .lab-scope {
-  border-top: 1px solid var(--line);
 }
 .lab-scope > span,
 .lab-scope > label {
@@ -1217,6 +1303,9 @@ button.lab-symbol-months:enabled:hover {
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.lab-scope > p.subtle {
+  color: var(--muted);
 }
 .lab-scope > button {
   flex: none;
@@ -1260,10 +1349,6 @@ button.lab-symbol-months:enabled:hover {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-}
-.lab-detail > .tabs {
-  flex: none;
-  padding: var(--space-2) var(--space-page) 0;
 }
 .lab-detail > .lab-center {
   flex: 1;

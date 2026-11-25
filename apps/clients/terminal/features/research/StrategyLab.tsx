@@ -333,6 +333,14 @@ export function StrategyLab(context: TerminalContext) {
 
   return (
     <section className="lab-research" data-folded={(!library && folded) || undefined}>
+      <RunScope
+        context={context}
+        form={form}
+        begin={beginPlaceholder}
+        end={endPlaceholder}
+        conditions={conditions}
+        catalog={catalog}
+      />
       {!library && (
         <header className="lab-report-header lab-page-head">
           <button type="button" className="lab-link" onClick={() => setView("library")}>
@@ -353,6 +361,25 @@ export function StrategyLab(context: TerminalContext) {
             </select>
           ) : (
             <h2>{source.path}</h2>
+          )}
+          {strategy && (
+            <div className="lab-segmented" role="group" aria-label={t("策略")}>
+              {(
+                [
+                  ["result", "回测"],
+                  ["code", "代码"],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={tab === key}
+                  onClick={() => setTab(key)}
+                >
+                  {t(label)}
+                </button>
+              ))}
+            </div>
           )}
           {shownReport?.kind === "run" && shownReport.fromSweep && (
             <button
@@ -434,15 +461,21 @@ export function StrategyLab(context: TerminalContext) {
             )}
         </header>
       )}
-      <RunScope
-        context={context}
-        form={form}
-        begin={beginPlaceholder}
-        end={endPlaceholder}
-        conditions={conditions}
-        catalog={catalog}
-      />
       {menu.overlay}
+      {menu.copying && (
+        <NewModule
+          key={menu.copying.id}
+          hideTrigger
+          folder="strategies"
+          repository={repository}
+          copying={menu.copying}
+          cancelCopy={menu.clearCopy}
+          created={(path, id) => {
+            openCode(path, id);
+            void readStrategies();
+          }}
+        />
+      )}
       {library ? (
         <StrategyLibrary
           items={items}
@@ -466,11 +499,8 @@ export function StrategyLab(context: TerminalContext) {
           onMenu={menu.open}
           newModule={
             <NewModule
-              key={menu.copying?.id ?? "new"}
               folder="strategies"
               repository={repository}
-              copying={menu.copying}
-              cancelCopy={menu.clearCopy}
               created={(path, id) => {
                 openCode(path, id);
                 void readStrategies();
@@ -492,25 +522,6 @@ export function StrategyLab(context: TerminalContext) {
         />
       ) : (
         <div className="lab-detail">
-          {strategy && (
-            <nav className="tabs" aria-label={t("策略")}>
-              {(
-                [
-                  ["result", "回测"],
-                  ["code", "代码"],
-                ] as const
-              ).map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  aria-pressed={tab === key}
-                  onClick={() => setTab(key)}
-                >
-                  {t(label)}
-                </button>
-              ))}
-            </nav>
-          )}
           {tab === "result" ? (
             report ? (
               <div className="lab-center lab-runs-view">
@@ -554,6 +565,7 @@ export function StrategyLab(context: TerminalContext) {
               modules={strategies}
               focus={chosen}
               changed={() => void readStrategies()}
+              onDuplicate={source.path.startsWith("strategies/") ? menu.copy : undefined}
               onDelete={path => menu.remove(path)}
             />
           )}
@@ -631,6 +643,15 @@ export function StrategyLab(context: TerminalContext) {
                 )}
                 {field("并行进程数", "processes", { placeholder: defaultProcesses() }, "wide")}
               </Section>
+              <RecentRuns
+                runs={singleRuns.filter(run => run.strategy === strategy.id)}
+                activeId={report?.kind === "run" ? report.id : ""}
+                open={id => {
+                  setReport({ kind: "run", id });
+                  setTab("result");
+                }}
+                openAll={() => context.navigate("workspace.lab-runs", {})}
+              />
               <footer className="lab-submit">
                 {(() => {
                   const sweepCount = strategy.parameters.reduce((total, parameter) => {
@@ -659,14 +680,6 @@ export function StrategyLab(context: TerminalContext) {
                   </p>
                 )}
                 <ActionError error={submitted.error} namespace="asterion.terminal.research" />
-                <RecentRuns
-                  runs={singleRuns.filter(run => run.strategy === strategy.id)}
-                  open={id => {
-                    setReport({ kind: "run", id });
-                    setTab("result");
-                  }}
-                  openAll={() => context.navigate("workspace.lab-runs", {})}
-                />
               </footer>
             </>
           )}
@@ -679,10 +692,12 @@ export function StrategyLab(context: TerminalContext) {
 // The strategy's last runs, each opening its report in place.
 function RecentRuns({
   runs,
+  activeId,
   open,
   openAll,
 }: {
   runs: RunSummary[];
+  activeId: string;
   open: (id: string) => void;
   openAll: () => void;
 }) {
@@ -695,8 +710,14 @@ function RecentRuns({
           {t("全部回测记录")}
         </button>
       </div>
-      {runs.slice(0, 3).map(run => (
-        <button key={run.id} type="button" className="lab-link" onClick={() => open(run.id)}>
+      {runs.slice(0, 6).map(run => (
+        <button
+          key={run.id}
+          type="button"
+          className="lab-link"
+          aria-pressed={activeId === run.id}
+          onClick={() => open(run.id)}
+        >
           <span>{runName(run)}</span>
           <span className={signed(run.metrics.total_return)}>
             {metric(run.metrics.total_return, true)}

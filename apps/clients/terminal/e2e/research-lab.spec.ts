@@ -121,10 +121,7 @@ test(
     await expect(page.getByText(/3 个品种/)).toBeVisible();
     await page.screenshot({ path: join(__dirname, "../test-results/research-lab-factor.png") });
     // The evaluation is kept under the factor's settings and reopens from there.
-    await page
-      .locator(".lab-detail > .tabs")
-      .getByRole("button", { name: "代码", exact: true })
-      .click();
+    await page.locator(".lab-page-head").getByRole("button", { name: "代码", exact: true }).click();
     const records = page.getByRole("list", { name: "评价记录" }).getByRole("button");
     await expect(records).toHaveCount(1);
     await records.click();

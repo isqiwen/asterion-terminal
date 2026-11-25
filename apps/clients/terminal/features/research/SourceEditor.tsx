@@ -247,6 +247,7 @@ export function SourceEditor({
   opened,
   back,
   onBack,
+  onDuplicate,
   onDelete,
 }: {
   repository: string;
@@ -260,6 +261,7 @@ export function SourceEditor({
   opened?: (path: string) => void;
   back?: string;
   onBack?: () => void;
+  onDuplicate?: (content: string) => void;
   onDelete?: () => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
@@ -278,6 +280,7 @@ export function SourceEditor({
   const loadedRef = useRef("");
   const savingRef = useRef(false);
   const syncingRef = useRef(false);
+  const [loaded, setLoaded] = useState(false);
   const [readOnly, setReadOnly] = useState(true);
   const [loadedText, setLoadedText] = useState("");
   const [dirty, setDirty] = useState(draft !== undefined);
@@ -319,6 +322,7 @@ export function SourceEditor({
       if (!active || !host.current) return;
       const initial = stateRef.current.draft ?? source.content;
       setReadOnly(source.readOnly);
+      setLoaded(true);
       loadedRef.current = source.content;
       setLoadedText(source.content);
       setDirty(initial !== source.content);
@@ -461,7 +465,14 @@ export function SourceEditor({
         <code>{path}</code>
         {dirty && <span className="lab-unsaved">{t("未保存")}</span>}
         {readOnly ? (
-          <span className="lab-readonly">{t("只读")}</span>
+          <>
+            <span className="lab-readonly">{t("只读")}</span>
+            {loaded && onDuplicate && (
+              <button type="button" onClick={() => onDuplicate(loadedRef.current)}>
+                {t("复制并编辑")}
+              </button>
+            )}
+          </>
         ) : (
           <>
             {onDelete && (

@@ -312,5 +312,9 @@
   "相关性与合成": "Correlation & Combine",
   "批量评价": "Batch evaluate",
   "多值用逗号分隔即扫描": "Separate multiple values with commas to sweep",
-  "运行扫描（{count} 组）": "Run sweep ({count})"
+  "运行扫描（{count} 组）": "Run sweep ({count})",
+  "未设置品种与区间": "No symbols or range set",
+  "复制并编辑": "Duplicate & edit",
+  "复制策略": "Duplicate strategy",
+  "复制因子": "Duplicate factor"
 }

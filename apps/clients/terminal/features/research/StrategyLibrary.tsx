@@ -285,7 +285,7 @@ export function StrategyLibrary({
         <button
           type="button"
           className="primary"
-          disabled={busy || selected.length < 2}
+          disabled={busy || selected.length === 0}
           onClick={startBatch}
         >
           {selected.length ? t("批量回测（{count}）", { count: selected.length }) : t("批量回测")}

@@ -488,8 +488,17 @@ export function RunResult({
             <table className="lab-table">
               <thead>
                 <tr>
-                  {["合约", "目标手数", "原因", "次数", "首次", "末次"].map(label => (
-                    <th scope="col" key={label}>
+                  {(
+                    [
+                      ["合约", false],
+                      ["目标手数", true],
+                      ["原因", false],
+                      ["次数", true],
+                      ["首次", true],
+                      ["末次", true],
+                    ] as const
+                  ).map(([label, numeric]) => (
+                    <th scope="col" key={label} className={numeric ? "numeric" : undefined}>
                       {t(label)}
                     </th>
                   ))}
@@ -499,11 +508,11 @@ export function RunResult({
                 {rejections.map(row => (
                   <tr key={`${row.contract} ${row.lots} ${row.reason}`}>
                     <td>{row.contract}</td>
-                    <td>{row.lots}</td>
+                    <td className="numeric">{row.lots}</td>
                     <td>{reasons[row.reason] ? t(reasons[row.reason]) : row.reason}</td>
-                    <td>{row.count}</td>
-                    <td>{minute(BigInt(row.first_ms) * 1_000_000n)}</td>
-                    <td>{minute(BigInt(row.last_ms) * 1_000_000n)}</td>
+                    <td className="numeric">{row.count}</td>
+                    <td className="numeric">{minute(BigInt(row.first_ms) * 1_000_000n)}</td>
+                    <td className="numeric">{minute(BigInt(row.last_ms) * 1_000_000n)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -585,8 +594,19 @@ export function RunResult({
           columns={8}
           headers={
             <tr>
-              {["交易日", "时间", "合约", "方向", "开平", "手数", "价格", "手续费"].map(label => (
-                <th scope="col" key={label}>
+              {(
+                [
+                  ["交易日", false],
+                  ["时间", false],
+                  ["合约", false],
+                  ["方向", false],
+                  ["开平", false],
+                  ["手数", true],
+                  ["价格", true],
+                  ["手续费", true],
+                ] as const
+              ).map(([label, numeric]) => (
+                <th scope="col" key={label} className={numeric ? "numeric" : undefined}>
                   {t(label)}
                 </th>
               ))}
@@ -600,9 +620,9 @@ export function RunResult({
               <td>{fill.contract}</td>
               <td>{fill.side === Side.BUY ? t("买") : t("卖")}</td>
               <td>{offsets[fill.offset] ? t(offsets[fill.offset]!) : "—"}</td>
-              <td>{groupedText(fill.lots)}</td>
-              <td>{fill.price?.text}</td>
-              <td>{groupedText(fill.fee)}</td>
+              <td className="numeric">{groupedText(fill.lots)}</td>
+              <td className="numeric">{fill.price?.text}</td>
+              <td className="numeric">{groupedText(fill.fee)}</td>
             </tr>
           )}
         />
