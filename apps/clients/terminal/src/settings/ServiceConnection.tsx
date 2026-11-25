@@ -96,15 +96,6 @@ export function ServiceConnection({
             address={`${endpoint.host}:${endpoint.port}`}
             service={service}
           />
-          <details>
-            <summary>{t("技术详情")}</summary>
-            <dl>
-              <dt>{t(word.fingerprint)}</dt>
-              <dd>
-                <code>{endpoint.fingerprint}</code>
-              </dd>
-            </dl>
-          </details>
           <ActionError error={error} namespace={namespace} />
         </>
       )}

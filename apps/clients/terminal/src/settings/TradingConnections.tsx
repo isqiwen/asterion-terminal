@@ -94,17 +94,6 @@ export function TradingConnections({
                   </div>
                 )}
               </div>
-              {!("error" in entry) && (
-                <details>
-                  <summary>{t("技术详情")}</summary>
-                  <dl>
-                    <dt>{t("交易服务证书指纹")}</dt>
-                    <dd>
-                      <code>{entry.fingerprint}</code>
-                    </dd>
-                  </dl>
-                </details>
-              )}
             </section>
           ))}
         </div>
