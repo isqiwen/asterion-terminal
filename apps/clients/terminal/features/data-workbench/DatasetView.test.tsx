@@ -236,8 +236,6 @@ const submitted = () =>
     .map(([body]) => body)
     .filter(body => body.case === "startAcquisition")
     .map(body => body.value);
-const startInDialog = () =>
-  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "开始采集" }));
 const list = () => screen.findByRole("table", { name: "品种采集进度" });
 const showKind = (name: "日线" | "分钟线") =>
   fireEvent.click(
@@ -359,26 +357,24 @@ test("a contract is completed at once for the kind on show", async () => {
   });
 });
 
-test("going back to a year confirms how many contracts and from when", async () => {
+test("going back to a year or all history starts daily acquisition immediately", async () => {
   serve();
   view(context());
   await openRebar();
   fireEvent.click(screen.getByRole("button", { name: "历史合约" }));
   fireEvent.click(screen.getByRole("button", { name: "采集 SHFE/rb 2024" }));
-  fireEvent.click(
-    within(screen.getByRole("dialog", { name: "采集 rb 2024 年交割的 1 个合约" })).getByRole(
-      "button",
-      { name: "取消" },
-    ),
-  );
-  fireEvent.click(screen.getByRole("button", { name: "采集全部 SHFE/rb" }));
-  const dialog = screen.getByRole("dialog", { name: "采集 rb 2024–2025 年交割的 2 个合约" });
-  expect(dialog.textContent).toContain("数据大约从 2023-10 开始");
-  expect(dialog.textContent).toContain("SHFE 其他品种");
-  expect(submitted()).toHaveLength(0);
-  startInDialog();
   await waitFor(() => expect(submitted()).toHaveLength(1));
+  expect(screen.queryByRole("dialog")).toBeNull();
   expect(submitted()[0]).toMatchObject({
+    exchanges: ["SHFE"],
+    refetch: false,
+    firstDay: "2023-10-16",
+    lastDay: "2024-10-15",
+  });
+  fireEvent.click(screen.getByRole("button", { name: "采集全部 SHFE/rb" }));
+  await waitFor(() => expect(submitted()).toHaveLength(2));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(submitted()[1]).toMatchObject({
     exchanges: ["SHFE"],
     refetch: false,
     firstDay: "2023-10-16",
@@ -386,17 +382,15 @@ test("going back to a year confirms how many contracts and from when", async () 
   });
 });
 
-test("going back in minutes names every contract and the requests it takes", async () => {
+test("going back in minutes submits every missing historical contract directly", async () => {
   serve();
   view(context());
   await openRebar();
   showKind("分钟线");
   fireEvent.click(screen.getByRole("button", { name: "历史合约" }));
   fireEvent.click(screen.getByRole("button", { name: "采集全部 SHFE/rb" }));
-  const dialog = screen.getByRole("dialog", { name: "采集 rb 2024–2026 年交割的 3 个合约" });
-  expect(dialog.textContent).toContain("次请求");
-  startInDialog();
   await waitFor(() => expect(submitted()).toHaveLength(1));
+  expect(screen.queryByRole("dialog")).toBeNull();
   expect(submitted()[0]).toMatchObject({
     table: Table.MINUTES,
     instruments: ["SHFE/rb/2024-10", "SHFE/rb/2025-10", "SHFE/rb/2026-10"],
@@ -451,7 +445,7 @@ test("searching a contract code opens its product and shows that contract", asyn
   expect(screen.queryByRole("rowheader", { name: /^ag/ })).toBeNull();
 });
 
-test("retired products fold at the bottom, confirm before acquiring all, and expand straight to years", async () => {
+test("retired products fold at the bottom, acquire directly, and expand straight to years", async () => {
   serve();
   view(context());
   const table = await list();
@@ -462,10 +456,15 @@ test("retired products fold at the bottom, confirm before acquiring all, and exp
   fireEvent.click(group);
   expect(within(table).getByRole("rowheader", { name: /^pb/ }).textContent).toContain("沪铅");
   fireEvent.click(within(table).getByRole("button", { name: "采集全部 SHFE/pb" }));
-  const dialog = await screen.findByRole("dialog", { name: "采集 pb 2023–2024 年交割的 2 个合约" });
-  expect(dialog.textContent).toContain("数据大约从 2022-10 开始");
-  expect(submitted()).toHaveLength(0);
-  fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+  await waitFor(() => expect(submitted()).toHaveLength(1));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(submitted()[0]).toMatchObject({
+    table: Table.DAILY,
+    exchanges: ["SHFE"],
+    refetch: false,
+    firstDay: "2022-10-16",
+    lastDay: "2024-10-15",
+  });
 
   fireEvent.click(within(table).getByRole("button", { name: /^pb\s*沪铅/ }));
   expect(await within(table).findByRole("button", { name: "2024 年交割" })).toBeTruthy();
@@ -478,6 +477,75 @@ test("retired products fold at the bottom, confirm before acquiring all, and exp
   expect(within(table).queryByRole("rowheader", { name: /^pb/ })).toBeNull();
   fireEvent.change(screen.getByRole("searchbox"), { target: { value: "pb2410" } });
   expect(await screen.findByRole("button", { name: "查看 pb2410" })).toBeTruthy();
+});
+
+test("listed-complete products with missing history offer direct history backfill while 100% complete ones stay empty", async () => {
+  request.mockImplementation(async (body: { case: string }) => {
+    switch (body.case) {
+      case "getAcquisitionOptions":
+        return { tables: [{ table: Table.DAILY, exchanges: ["SHFE"] }] };
+      case "getDatasetSummary":
+        return { dataset: { version: current, createdMs: 3n }, tables: [] };
+      case "getDatasetCoverage":
+        return create(DatasetCoverageSchema, {
+          products: [
+            {
+              product: "SHFE/ao",
+              contracts: 2,
+              listed: 1,
+              daily: { held: 2, complete: 2, listedComplete: 1 },
+            },
+            {
+              product: "SHFE/cu",
+              contracts: 3,
+              listed: 1,
+              daily: { held: 1, complete: 1, listedComplete: 1 },
+            },
+          ],
+        });
+      case "getProductCoverage":
+        return create(ProductContractsSchema, {
+          contracts: [
+            {
+              contract: "SHFE/cu/2027-01",
+              listDay: "2026-01-16",
+              delistDay: "2099-01-15",
+              listed: true,
+              daily: series(10),
+            },
+            {
+              contract: "SHFE/cu/2024-10",
+              listDay: "2023-10-16",
+              delistDay: "2024-10-15",
+            },
+            {
+              contract: "SHFE/cu/2025-10",
+              listDay: "2024-10-16",
+              delistDay: "2025-10-15",
+            },
+          ],
+        });
+      case "listAcquisitionTasks":
+        return { tasks: [], nextId: "" };
+      case "listDatasetVersions":
+        return { versions: [], nextVersion: "" };
+      default:
+        return {};
+    }
+  });
+  view(context());
+  const table = await list();
+  expect(within(table).queryByRole("button", { name: /SHFE\/ao/ })).toBeNull();
+  fireEvent.click(within(table).getByRole("button", { name: "补历史 SHFE/cu" }));
+  await waitFor(() => expect(submitted()).toHaveLength(1));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(submitted()[0]).toMatchObject({
+    table: Table.DAILY,
+    exchanges: ["SHFE"],
+    refetch: false,
+    firstDay: "2023-10-16",
+    lastDay: "2025-10-15",
+  });
 });
 
 test("a contract's chart opens over the list and closes on a second click or Escape", async () => {

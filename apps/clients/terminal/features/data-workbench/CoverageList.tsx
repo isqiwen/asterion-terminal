@@ -7,8 +7,6 @@ import {
   type SeriesCoverage,
   type SeriesSummary,
 } from "../../src/generated/asterion/warehouse_pb";
-import { getLocale } from "../../src/i18n";
-import { Dialog } from "./Dialog";
 import { beijingDay, exchanges, t, type startAcquisition } from "./dataset";
 
 export type Rule = Parameters<typeof startAcquisition>[0];
@@ -332,8 +330,6 @@ function ContractRow({
   );
 }
 
-type Confirm = { title: string; from: string; note: string; rules: Rule[] };
-
 // Products with their contracts for one kind of data: what is held of each,
 // from listing to delisting, and one action that takes what is missing.
 export function CoverageList({
@@ -370,7 +366,6 @@ export function CoverageList({
   const [loadingProduct, setLoadingProduct] = useState("");
   const [historyOpen, setHistoryOpen] = useState("");
   const [yearOpen, setYearOpen] = useState("");
-  const [confirm, setConfirm] = useState<Confirm>();
   const rowTally = (row: ProductRow) =>
     summaryTally(row.coverage?.contracts ?? 0, row.coverage?.[kind]);
   const ordered = useMemo(() => {
@@ -395,66 +390,36 @@ export function CoverageList({
     !searching || contractCode(item.contract).toUpperCase().includes(query);
   const rowProps = { kind, running, acquires, start, viewing, view };
 
-  const askHistory = (product: string, history: ContractCoverage[], from: string, to: string) => {
-    const chosen = history.filter(item => {
-      const year = deliveryYear(item.contract);
-      return year >= from && year <= to && !!ruleOf(item, kind);
-    });
-    const rules = chosen.flatMap(item => ruleOf(item, kind) ?? []);
+  const startHistory = (history: readonly ContractCoverage[], from?: string, to?: string) => {
+    const rules = history
+      .filter(item => {
+        if (!from && !to) return true;
+        const year = deliveryYear(item.contract);
+        return (!from || year >= from) && (!to || year <= to);
+      })
+      .flatMap(item => ruleOf(item, kind) ?? []);
     if (!rules.length) return false;
-    const years = chosen.map(item => deliveryYear(item.contract));
-    const [low, high] = [earliest(years), latest(years)];
-    const title = t("采集 {code} {years} 年交割的 {count} 个合约", {
-      code: product.split("/")[1]!,
-      years: low === high ? low : `${low}–${high}`,
-      count: chosen.length,
-    });
-    if (kind === "minutes") {
-      const requests = chosen.reduce(
-        (sum, { minutes }) =>
-          sum +
-          Math.max(0, (minutes?.openDays ?? 0) - (minutes?.days ?? 0) - (minutes?.emptyDays ?? 0)),
-        0,
-      );
-      setConfirm({
-        title,
-        from: earliest(chosen.map(item => item.listDay || throughOf(item))).slice(0, 7),
-        note: t("分钟线按合约逐日采集，约 {count} 次请求", {
-          count: requests.toLocaleString(getLocale()),
-        }),
-        rules: merged(rules),
-      });
-      return true;
-    }
-    const firstDay = earliest(rules.map(rule => rule.firstDay));
-    setConfirm({
-      title,
-      from: firstDay.slice(0, 7),
-      note: t("日线按交易所整日采集，{exchange} 其他品种这些交易日的数据也会入库", {
-        exchange: product.split("/")[0]!,
-      }),
-      rules: merged(rules),
-    });
+    start(merged(rules));
     return true;
   };
 
-  const askRetired = async (row: ProductRow) => {
+  const collectHistory = async (row: ProductRow) => {
     setLoadingProduct(row.id);
     try {
       const loaded = open === row.id && contracts ? contracts : await loadContracts(row.id);
       if (!loaded) return;
       const history = loaded.filter(item => !item.listed);
-      const years = [...new Set(history.map(item => deliveryYear(item.contract)))].sort((a, b) =>
-        b.localeCompare(a),
-      );
-      if (!years.length || !askHistory(row.id, history, years.at(-1)!, years[0]!)) setOpen(row.id);
+      if (!startHistory(history)) setOpen(row.id);
     } finally {
       setLoadingProduct(current => (current === row.id ? "" : current));
     }
   };
 
   const renderProduct = (row: ProductRow) => {
-    const retired = !row.coverage?.listed;
+    const contractsCount = row.coverage?.contracts ?? 0;
+    const listedCount = row.coverage?.listed ?? 0;
+    const pastCount = Math.max(0, contractsCount - listedCount);
+    const retired = !listedCount;
     const expanded = open === row.id;
     const series = row.coverage?.[kind];
     const tally = rowTally(row);
@@ -473,13 +438,13 @@ export function CoverageList({
     const showHistory = !!searchedYears?.size || historyOpen === row.id;
     const historyRules = history.flatMap(item => ruleOf(item, kind) ?? []);
     const historyBusy = historyRules.some(rule => running.some(task => covers(task, rule)));
-    const needsWork = retired
-      ? (series?.complete ?? 0) < (row.coverage?.contracts ?? 0) &&
-        (!expanded || !contracts || historyRules.length > 0)
-      : (!!row.coverage?.listed || !!series?.withGaps) &&
-        (!!series?.withGaps ||
-          !!series?.pending ||
-          (series?.listedComplete ?? 0) < (row.coverage?.listed ?? 0));
+    const needsListed =
+      !retired &&
+      (!!series?.withGaps || !!series?.pending || (series?.listedComplete ?? 0) < listedCount);
+    const needsHistory =
+      pastCount > 0 &&
+      (series?.complete ?? 0) < contractsCount &&
+      (!expanded || !contracts || historyRules.length > 0);
     const busy = running.some(({ request }) =>
       kind === "daily"
         ? request!.table === Table.DAILY && request!.exchanges.includes(row.exchange)
@@ -510,29 +475,27 @@ export function CoverageList({
           <td>
             {!acquires ? null : busy ? (
               <span className="coverage-busy">{t("采集中")}</span>
-            ) : needsWork ? (
-              retired ? (
-                <button
-                  type="button"
-                  className="coverage-action"
-                  disabled={loadingProduct === row.id}
-                  aria-label={t("采集全部 {name}", { name: row.id })}
-                  onClick={() => void askRetired(row)}
-                >
-                  {t("采集全部")}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="coverage-action"
-                  aria-label={t(series?.held ? "补全 {name}" : "采集 {name}", {
-                    name: row.id,
-                  })}
-                  onClick={() => collect(row)}
-                >
-                  {series?.held ? t("补全") : t("采集")}
-                </button>
-              )
+            ) : needsListed ? (
+              <button
+                type="button"
+                className="coverage-action"
+                aria-label={t(series?.held ? "补全 {name}" : "采集 {name}", {
+                  name: row.id,
+                })}
+                onClick={() => collect(row)}
+              >
+                {series?.held ? t("补全") : t("采集")}
+              </button>
+            ) : needsHistory ? (
+              <button
+                type="button"
+                className="coverage-action"
+                disabled={loadingProduct === row.id}
+                aria-label={t(retired ? "采集全部 {name}" : "补历史 {name}", { name: row.id })}
+                onClick={() => void collectHistory(row)}
+              >
+                {t(retired ? "采集全部" : "补历史")}
+              </button>
             ) : null}
           </td>
         </tr>
@@ -571,7 +534,7 @@ export function CoverageList({
                   type="button"
                   className="coverage-action"
                   aria-label={t("采集全部 {name}", { name: row.id })}
-                  onClick={() => askHistory(row.id, history, years.at(-1)!, years[0]!)}
+                  onClick={() => startHistory(history)}
                 >
                   {t("采集全部")}
                 </button>
@@ -617,7 +580,7 @@ export function CoverageList({
                         aria-label={t(yearTally.held ? "补全 {name}" : "采集 {name}", {
                           name: `${row.id} ${year}`,
                         })}
-                        onClick={() => askHistory(row.id, history, year, year)}
+                        onClick={() => startHistory(history, year, year)}
                       >
                         {yearTally.held ? t("补全") : t("采集")}
                       </button>
@@ -684,29 +647,6 @@ export function CoverageList({
         )}
         {showRetired && retiredRows.map(renderProduct)}
       </table>
-      {confirm && (
-        <Dialog title={confirm.title} close={() => setConfirm(undefined)}>
-          <p className="coverage-confirm">
-            {t("数据大约从 {month} 开始", { month: confirm.from })}
-          </p>
-          <p className="subtle">{confirm.note}</p>
-          <div className="data-actions">
-            <button type="button" onClick={() => setConfirm(undefined)}>
-              {t("取消")}
-            </button>
-            <button
-              type="button"
-              className="primary"
-              onClick={() => {
-                start(confirm.rules);
-                setConfirm(undefined);
-              }}
-            >
-              {t("开始采集")}
-            </button>
-          </div>
-        </Dialog>
-      )}
     </div>
   );
 }

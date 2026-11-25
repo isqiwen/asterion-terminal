@@ -55,7 +55,6 @@
   "未知": "Unknown",
   "样本": "Samples",
   "采集": "Acquire",
-  "开始采集": "Acquire",
   "区间": "Range",
   "{count} 个分区暂无数据": "{count} partitions have no data",
   "周报按报告日提供": "Weekly reports are available by report date",
@@ -204,14 +203,10 @@
   "查看 {code}": "View {code}",
   "补全 {name}": "Complete {name}",
   "采集 {name}": "Acquire {name}",
-  "采集 {code} {years} 年交割的 {count} 个合约": "Acquire {count} {code} contracts delivering in {years}",
-  "数据大约从 {month} 开始": "Data starts around {month}",
-  "日线按交易所整日采集，{exchange} 其他品种这些交易日的数据也会入库": "Daily bars are acquired per exchange and day, so other {exchange} products on these days are stored too",
   "没有匹配的品种或合约": "No matching products or contracts",
   "采集进度": "Progress",
   "未到期": "Not yet due",
   "部分采集": "Partly stored",
-  "分钟线按合约逐日采集，约 {count} 次请求": "Minutes are requested per contract and day: about {count} requests",
   "数据到 {day}": "Data through {day}",
   "品种采集进度": "Product acquisition progress",
   "采集全部": "Acquire all",
@@ -232,5 +227,7 @@
   "数据源无该日数据，或日线分区已入库但无该合约记录": "No data from any source, or no contract bar in a stored daily partition",
   "尚未采集的历史交易日或合约": "Past trading days or contracts not yet acquired",
   "尚未到来的未来存续期（截至摘牌日）": "Future contract life through delisting, not yet due",
-  "已退市品种": "Delisted products"
+  "已退市品种": "Delisted products",
+  "补历史": "Fill history",
+  "补历史 {name}": "Fill history {name}"
 }

@@ -589,10 +589,6 @@ button.coverage-action {
   color: var(--accent);
   font-size: var(--font-size-aux);
 }
-.coverage-confirm {
-  margin: 0;
-  color: var(--text-strong);
-}
 .coverage-drawer {
   position: absolute;
   inset: 0 0 0 auto;
@@ -639,27 +635,6 @@ button.coverage-action {
   height: auto;
   min-height: 190px;
   max-height: none;
-}
-.data-dialog[open] {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  width: min(580px, calc(100vw - 32px));
-  max-height: calc(100vh - 32px);
-  overflow: auto;
-  padding: var(--space-5);
-}
-.data-dialog h2 {
-  margin: 0;
-  font-size: var(--font-size-lg);
-}
-.data-dialog-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-.data-dialog .data-actions {
-  justify-content: flex-end;
 }
 .data-fields {
   display: flex;
