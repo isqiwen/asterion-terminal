@@ -986,6 +986,7 @@ export function factorStrategyTemplate(result: FactorResult, moduleName: string)
   if (standardize === "zscore") strategyImports.push("cross_section_zscore");
   if (standardize === "rank") strategyImports.push("cross_section_rank");
   if (sectorNeutral) strategyImports.push("sector_neutralize");
+  strategyImports.push("cap_sector_weights", "smooth_weights");
 
   let maxWindow = 20;
   for (const spec of specs) {
@@ -1069,6 +1070,8 @@ class ${cls}(Strategy):
         "rebalance": ${rebalance},
         "count": ${tailCount},
         "gross_weight": 0.6,
+        "max_sector_gross": 0.4,
+        "smooth_alpha": 1.0,
         "volatility": 20,
         "direction": ${direction},
         "min_volume": ${Number.isInteger(minVolume) ? `${minVolume}.0` : minVolume},
@@ -1082,6 +1085,8 @@ class ${cls}(Strategy):
             p["rebalance"] < 1
             or p["count"] < 1
             or p["gross_weight"] <= 0
+            or p["max_sector_gross"] < 0
+            or not (0.0 < p["smooth_alpha"] <= 1.0)
             or p["volatility"] < 2
             or p["direction"] not in (-1, 1)
             or p["min_volume"] < 0
@@ -1090,6 +1095,7 @@ class ${cls}(Strategy):
             raise ValueError("invalid factor strategy parameters")
         self.need = max(${factorNeed}, p["volatility"] + 1)
         self._steps = 0
+        self._prev_weights = {}
 
     def ready(self, ctx):
         required = min(len(ctx.symbols), 2 * self.params["count"])
@@ -1121,6 +1127,7 @@ ${scoreLines.join("\n")}
         count = p["count"]
         target = dict.fromkeys(ctx.symbols, 0.0)
         if len(ordered) < 2 * count or scores[ordered[count - 1]] <= scores[ordered[-count]]:
+            self._prev_weights = dict(target)
             ctx.weights(target)
             return
         budget = int(Decimal(str(p["gross_weight"])) / (2 * WEIGHT_STEP))
@@ -1131,6 +1138,11 @@ ${scoreLines.join("\n")}
                 units = remaining if i == len(side_symbols) - 1 else int(budget / risk[s] / total)
                 target[s] = side * float(units * WEIGHT_STEP)
                 remaining -= units
+        if p["max_sector_gross"] > 0:
+            target = cap_sector_weights(target, max_sector_gross=p["max_sector_gross"])
+        if p["smooth_alpha"] < 1.0 and self._prev_weights:
+            target = smooth_weights(self._prev_weights, target, alpha=p["smooth_alpha"])
+        self._prev_weights = dict(target)
         ctx.weights(target)
 `;
   return { content, id: `${moduleName}.${cls}` };

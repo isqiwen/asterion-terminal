@@ -907,6 +907,102 @@ class Records(unittest.TestCase):
         self.assertEqual(eligible, ["DCE/i"])
         self.assertEqual(caught, [])
 
+    def test_strategy_portfolio_primitives_and_vol_balanced_combiner(self):
+        import numpy as np
+        from asterion_strategy import (
+            CombinedStrategy,
+            cap_sector_weights,
+            check_factor,
+            drawdown_scale,
+            smooth_weights,
+            ts_ewma_vol,
+            vol_target_weights,
+        )
+
+        # EWMA volatility is strictly causal.
+        closes = 100.0 * np.exp(np.cumsum(np.sin(np.arange(35) * 0.4) * 0.015))
+        check_factor(ts_ewma_vol, {"close": closes}, count=35, span=10)
+        ewma = ts_ewma_vol(closes, span=10)
+        self.assertTrue(np.isnan(ewma[9]))
+        self.assertTrue(np.isfinite(ewma[10]) and ewma[10] > 0)
+
+        # Volatility targeting scales inversely with risk, clips, and caps gross exposure.
+        sized = vol_target_weights(
+            {"SHFE/rb": 1.0, "SHFE/cu": 1.0, "DCE/i": -1.0},
+            {"SHFE/rb": 0.10, "SHFE/cu": 0.40, "DCE/i": 0.20},
+            target_vol=0.10,
+            gross_weight=0.5,
+            max_weight=0.30,
+        )
+        self.assertLessEqual(sum(abs(v) for v in sized.values()), 0.5 + 1e-8)
+        self.assertGreater(sized["SHFE/rb"], sized["SHFE/cu"])
+        self.assertLess(sized["DCE/i"], 0.0)
+
+        # Sector capping bounds gross & net exposure per China futures sector without flipping sides.
+        capped = cap_sector_weights(
+            {"SHFE/rb": 0.30, "SHFE/hc": 0.30, "DCE/i": -0.10, "SHFE/cu": 0.25, "SHFE/au": 0.12},
+            max_sector_gross=0.35,
+            max_sector_net=0.15,
+        )
+        black_gross = abs(capped["SHFE/rb"]) + abs(capped["SHFE/hc"]) + abs(capped["DCE/i"])
+        black_net = capped["SHFE/rb"] + capped["SHFE/hc"] + capped["DCE/i"]
+        self.assertLessEqual(black_gross, 0.35 + 1e-7)
+        self.assertLessEqual(abs(black_net), 0.15 + 1e-7)
+        self.assertLess(capped["DCE/i"], 0.0)
+        self.assertAlmostEqual(capped["SHFE/cu"], 0.15)
+        self.assertAlmostEqual(capped["SHFE/au"], 0.12)
+
+        # Smoothing suppresses tiny same-sign changes under deadband but allows closes and flips.
+        sm = smooth_weights(
+            {"a": 0.20, "b": 0.20, "c": 0.20},
+            {"a": 0.22, "b": 0.0, "c": -0.20},
+            alpha=0.5,
+            deadband=0.05,
+        )
+        self.assertAlmostEqual(sm["a"], 0.20)
+        self.assertAlmostEqual(sm["b"], 0.10)
+        self.assertAlmostEqual(sm["c"], 0.0)
+
+        # Drawdown scaling reduces risk linearly between soft and hard thresholds.
+        self.assertAlmostEqual(drawdown_scale([100.0, 110.0, 108.0], soft_dd=0.05, hard_dd=0.15), 1.0)
+        self.assertAlmostEqual(drawdown_scale([100.0, 100.0, 90.0], soft_dd=0.05, hard_dd=0.15, min_scale=0.2), 0.6)
+        self.assertAlmostEqual(drawdown_scale([100.0, 80.0], soft_dd=0.05, hard_dd=0.15, min_scale=0.2), 0.2)
+
+        # CombinedStrategy with vol_balance gives higher effective share to the lower-vol component.
+        class LowVolSub(Strategy):
+            def ready(self, ctx):
+                return True
+
+            def on_bars(self, ctx, bars):
+                ctx.weights({"SHFE/rb": 0.2, "SHFE/cu": 0.0})
+
+        class HighVolSub(Strategy):
+            def ready(self, ctx):
+                return True
+
+            def on_bars(self, ctx, bars):
+                ctx.weights({"SHFE/rb": 0.0, "SHFE/cu": 0.8})
+
+        class Balanced(CombinedStrategy):
+            vol_balance = True
+            vol_window = 5
+            max_sector_gross = 0.5
+            smooth_alpha = 0.5
+
+            def components(self):
+                return [(LowVolSub(), 0.5), (HighVolSub(), 0.5)]
+
+        ctx = Context(["SHFE/rb", "SHFE/cu"])
+        comb = Balanced()
+        rb_price, cu_price = 3000.0, 70000.0
+        for step_idx in range(10):
+            rb_price *= 1.0 + (0.002 if step_idx % 2 == 0 else -0.001)
+            cu_price *= 1.0 + (0.03 if step_idx % 2 == 0 else -0.025)
+            wanted = step(comb, ctx, [bar("SHFE/rb", step_idx, rb_price), bar("SHFE/cu", step_idx, cu_price)])
+        self.assertEqual(len(comb.last_components), 2)
+        self.assertGreater(comb.last_components[0]["share"], comb.last_components[1]["share"])
+        self.assertLessEqual(abs(wanted["SHFE/rb"]), 0.5 + 1e-7)
+
 
 if __name__ == "__main__":
     unittest.main()

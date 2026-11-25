@@ -160,6 +160,31 @@ const API_COMPLETIONS = completeFromList([
   { label: "ts_zscore", type: "function", detail: "(values, window) -> ndarray" },
   { label: "ts_corr", type: "function", detail: "(x, y, window) -> ndarray" },
   { label: "decay_linear", type: "function", detail: "(values, window) -> ndarray" },
+  {
+    label: "ts_ewma_vol",
+    type: "function",
+    detail: "(close, span=20, annualize=252.0) -> ndarray",
+  },
+  {
+    label: "vol_target_weights",
+    type: "function",
+    detail: "(signals, vols, target_vol, gross_weight, max_weight) -> dict",
+  },
+  {
+    label: "cap_sector_weights",
+    type: "function",
+    detail: "(weights, max_sector_gross=0.4, max_sector_net=0.0) -> dict",
+  },
+  {
+    label: "smooth_weights",
+    type: "function",
+    detail: "(previous, target, alpha=0.5, deadband=0.0) -> dict",
+  },
+  {
+    label: "drawdown_scale",
+    type: "function",
+    detail: "(equity_curve, soft_dd=0.05, hard_dd=0.15) -> float",
+  },
   { label: "winsorize_mad", type: "function", detail: "(scores, n=5.0) -> dict" },
   { label: "sector_neutralize", type: "function", detail: "(scores, sectors=None) -> dict" },
   { label: "orthogonalize", type: "function", detail: "(target, controls) -> dict" },

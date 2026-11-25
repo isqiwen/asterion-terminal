@@ -354,6 +354,8 @@ test("factorStrategyTemplate generates deployable Python strategy code preservin
   expect(built.content).toContain("winsorize_mad");
   expect(built.content).toContain("cross_section_rank");
   expect(built.content).toContain("sector_neutralize");
+  expect(built.content).toContain("cap_sector_weights");
+  expect(built.content).toContain("smooth_weights");
   expect(built.content).toContain('"direction": -1');
   expect(built.content).toContain('"min_volume": 500.0');
   expect(built.content).toContain("lookback=30");

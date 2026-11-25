@@ -34,7 +34,7 @@ ctx.history is not scaled; a change of bar.contract marks the roll.
 """
 from dataclasses import dataclass
 import datetime
-from decimal import Decimal, ROUND_HALF_EVEN
+from decimal import Decimal, ROUND_DOWN, ROUND_HALF_EVEN
 import functools
 import inspect
 import math
@@ -332,6 +332,34 @@ def decay_linear(values, window: int) -> np.ndarray:
     valid = np.all(np.isfinite(win), axis=1)
     safe = np.where(valid[:, None], win, 0.0)
     out[window - 1:] = np.where(valid, safe @ weights, np.nan)
+    return out
+
+
+def ts_ewma_vol(close, span: int = 20, annualize: float = 252.0) -> np.ndarray:
+    """Strictly causal EWMA volatility of log returns (`alpha = 2 / (span + 1)`)."""
+    if type(span) is not int or span < 2:
+        raise ValueError("span must be an integer of at least 2")
+    if not isinstance(annualize, numbers.Real) or isinstance(annualize, bool) \
+            or not math.isfinite(annualize) or annualize < 0:
+        raise ValueError("annualize must be a nonnegative finite number")
+    arr = np.asarray(close, dtype=float)
+    out = np.full(len(arr), np.nan)
+    if len(arr) < 2:
+        return out
+    alpha = 2.0 / (span + 1.0)
+    scale = math.sqrt(float(annualize)) if annualize > 0 else 1.0
+    var = None
+    seen = 0
+    for i in range(1, len(arr)):
+        prev, cur = arr[i - 1], arr[i]
+        if not (math.isfinite(prev) and math.isfinite(cur) and prev > 0 and cur > 0):
+            continue
+        r = math.log(cur / prev)
+        sq = r * r
+        var = sq if var is None else (1.0 - alpha) * var + alpha * sq
+        seen += 1
+        if seen >= span:
+            out[i] = math.sqrt(var) * scale
     return out
 
 
@@ -675,6 +703,126 @@ def liquid_symbols(ctx: Context, bars: dict, min_bars: int = 1,
     return eligible
 
 
+def vol_target_weights(
+    signals: dict,
+    volatilities: dict,
+    target_vol: float = 0.10,
+    gross_weight: float = 1.0,
+    max_weight: float = 0.25,
+) -> dict:
+    """Scale finite signals by `target_vol / vol`, clip to `max_weight`, and cap gross exposure."""
+    if target_vol <= 0 or gross_weight <= 0 or max_weight <= 0:
+        raise ValueError("target_vol, gross_weight, and max_weight must be positive")
+    raw = {}
+    for symbol, signal in signals.items():
+        vol = volatilities.get(symbol)
+        if (
+            isinstance(signal, numbers.Real)
+            and not isinstance(signal, bool)
+            and math.isfinite(signal)
+            and isinstance(vol, numbers.Real)
+            and not isinstance(vol, bool)
+            and math.isfinite(vol)
+            and vol > 0
+        ):
+            raw[symbol] = float(np.clip(float(signal) * target_vol / float(vol), -max_weight, max_weight))
+        else:
+            raw[symbol] = 0.0
+    gross = sum(abs(v) for v in raw.values())
+    scale = min(1.0, gross_weight / gross) if gross > 0 else 1.0
+    # Round toward zero so wire precision never exceeds the declared gross budget.
+    return {
+        symbol: float(Decimal(str(value * scale)).quantize(WEIGHT_STEP, rounding=ROUND_DOWN))
+        for symbol, value in raw.items()
+    }
+
+
+def cap_sector_weights(
+    weights: dict,
+    max_sector_gross: float = 0.4,
+    max_sector_net: float = 0.0,
+    sectors: dict | None = None,
+) -> dict:
+    """Cap per-sector gross and net exposure across China futures sectors without flipping signs."""
+    if max_sector_gross < 0 or max_sector_net < 0:
+        raise ValueError("sector limits must be nonnegative")
+    out = {symbol: float(value) for symbol, value in weights.items()}
+    groups: dict[str, list[str]] = {}
+    for symbol in out:
+        sec = sectors[symbol] if sectors and symbol in sectors else (product_sector(symbol) or "other")
+        groups.setdefault(sec, []).append(symbol)
+    for members in groups.values():
+        if max_sector_gross > 0:
+            gross = sum(abs(out[s]) for s in members)
+            if gross > max_sector_gross:
+                factor = max_sector_gross / gross
+                for s in members:
+                    out[s] *= factor
+        if max_sector_net > 0:
+            net = sum(out[s] for s in members)
+            if abs(net) > max_sector_net:
+                # Trim only the dominant side so opposite hedges are preserved and no sign flips.
+                dom = [s for s in members if (out[s] > 0 if net > 0 else out[s] < 0)]
+                opp_abs = sum(abs(out[s]) for s in members if s not in dom)
+                dom_abs = sum(abs(out[s]) for s in dom)
+                target_dom_abs = opp_abs + max_sector_net
+                factor = min(1.0, max(0.0, target_dom_abs / dom_abs)) if dom_abs > 0 else 1.0
+                for s in dom:
+                    out[s] *= factor
+    return {
+        symbol: float(Decimal(str(value)).quantize(WEIGHT_STEP, rounding=ROUND_DOWN))
+        for symbol, value in out.items()
+    }
+
+
+def smooth_weights(
+    previous: dict,
+    target: dict,
+    alpha: float = 0.5,
+    deadband: float = 0.0,
+) -> dict:
+    """Blend `target` with `previous` via `alpha` and suppress same-sign deltas under `deadband`."""
+    if not (0.0 < alpha <= 1.0) or deadband < 0.0:
+        raise ValueError("alpha must be in (0, 1] and deadband must be nonnegative")
+    symbols = set(previous) | set(target)
+    out = {}
+    for symbol in symbols:
+        prev = float(previous.get(symbol, 0.0))
+        tgt = float(target.get(symbol, 0.0))
+        blended = alpha * tgt + (1.0 - alpha) * prev
+        # Never suppress opening from flat, closing to flat, or reversing side.
+        same_side = prev != 0.0 and tgt != 0.0 and (prev > 0) == (tgt > 0)
+        if deadband > 0.0 and same_side and abs(blended - prev) < deadband:
+            out[symbol] = prev
+        else:
+            out[symbol] = blended
+    return out
+
+
+def drawdown_scale(
+    equity_curve,
+    soft_dd: float = 0.05,
+    hard_dd: float = 0.15,
+    min_scale: float = 0.25,
+) -> float:
+    """Linear risk multiplier in `[min_scale, 1.0]` from trailing peak-to-trough drawdown."""
+    if not (0.0 <= soft_dd < hard_dd < 1.0) or not (0.0 <= min_scale <= 1.0):
+        raise ValueError("require 0 <= soft_dd < hard_dd < 1 and 0 <= min_scale <= 1")
+    arr = np.asarray(equity_curve, dtype=float)
+    finite = arr[np.isfinite(arr) & (arr > 0)]
+    if len(finite) == 0:
+        return 1.0
+    peak = float(np.max(finite))
+    current = float(finite[-1])
+    dd = max(0.0, 1.0 - current / peak)
+    if dd <= soft_dd:
+        return 1.0
+    if dd >= hard_dd:
+        return float(min_scale)
+    frac = (dd - soft_dd) / (hard_dd - soft_dd)
+    return float(1.0 - frac * (1.0 - min_scale))
+
+
 def combine_weights(allocations: list, symbols) -> dict:
     """Linearly combine `[(weights_by_symbol, share), ...]` across `symbols`."""
     combined = {symbol: 0.0 for symbol in symbols}
@@ -731,7 +879,19 @@ class _SubView:
 
 
 class CombinedStrategy(Strategy):
-    """Standard single-instance combiner merging target weights of sub-strategies."""
+    """Standard single-instance combiner merging target weights of sub-strategies.
+
+    Subclasses may set `vol_balance=True` for inverse-volatility risk budgeting across
+    components, `max_sector_gross` / `max_sector_net` for sector exposure caps, and
+    `smooth_alpha` / `deadband` for portfolio-level turnover control.
+    """
+
+    vol_balance: bool = False
+    vol_window: int = 20
+    max_sector_gross: float = 0.0
+    max_sector_net: float = 0.0
+    smooth_alpha: float = 1.0
+    deadband: float = 0.0
 
     def components(self) -> list:
         raise NotImplementedError
@@ -752,12 +912,56 @@ class CombinedStrategy(Strategy):
         self._standing = [{} for _ in self._subs]
         self._was_ready = [False for _ in self._subs]
         self._all_ready = False
+        self._comp_returns: list[list[float]] = [[] for _ in self._subs]
+        self._prev_combined: dict[str, float] = {}
         self.last_components: list[dict] = []
 
     def ready(self, ctx: Context) -> bool:
         return self._all_ready
 
+    def _effective_shares(self) -> list[float]:
+        base = [share for _, share in self._subs]
+        if not self.vol_balance:
+            return base
+        window = max(2, int(self.vol_window))
+        total_share = sum(base)
+        if total_share <= 0:
+            return base
+        inv_vols = []
+        for idx, share in enumerate(base):
+            if share <= 0:
+                inv_vols.append(0.0)
+                continue
+            hist = self._comp_returns[idx]
+            if len(hist) < window:
+                return base
+            vol = float(np.std(hist[-window:], ddof=1))
+            if not math.isfinite(vol) or vol <= 1e-12:
+                return base
+            inv_vols.append(share / vol)
+        denom = sum(inv_vols)
+        if denom <= 0:
+            return base
+        return [total_share * w / denom for w in inv_vols]
+
     def on_bars(self, ctx: Context, bars: dict):
+        # Update strictly causal component return proxies from roll-adjusted closes before stepping.
+        if self.vol_balance:
+            bar_returns = {}
+            for sym in bars:
+                closes = ctx.history(sym, "close", 2)
+                if len(closes) == 2 and closes[0] > 0 and math.isfinite(closes[0]) and math.isfinite(closes[1]):
+                    bar_returns[sym] = float(closes[1] / closes[0] - 1.0)
+            if bar_returns:
+                for idx in range(len(self._subs)):
+                    if self._was_ready[idx] and self._standing[idx]:
+                        ret = sum(
+                            w * bar_returns[s]
+                            for s, w in self._standing[idx].items()
+                            if s in bar_returns
+                        )
+                        self._comp_returns[idx].append(ret)
+
         changed = False
         ready_flags = []
         for idx, (sub, _) in enumerate(self._subs):
@@ -780,16 +984,34 @@ class CombinedStrategy(Strategy):
                 self._standing[idx] = view.wanted
                 changed = True
         self._all_ready = all(ready_flags)
+        shares = self._effective_shares()
         self.last_components = [
             {
                 "name": type(sub).__name__,
-                "share": share,
+                "share": shares[idx],
                 "ready": bool(self._was_ready[idx]),
                 "weights": dict(self._standing[idx]),
             }
-            for idx, (sub, share) in enumerate(self._subs)
+            for idx, (sub, _) in enumerate(self._subs)
         ]
-        if self._all_ready and changed:
-            ctx.weights(combine_weights(
-                [(self._standing[i], share) for i, (_, share) in enumerate(self._subs)],
-                ctx.symbols))
+        if self._all_ready and (changed or self.vol_balance):
+            combined = combine_weights(
+                [(self._standing[i], shares[i]) for i in range(len(self._subs))],
+                ctx.symbols,
+            )
+            if self.max_sector_gross > 0 or self.max_sector_net > 0:
+                combined = cap_sector_weights(
+                    combined,
+                    max_sector_gross=self.max_sector_gross,
+                    max_sector_net=self.max_sector_net,
+                )
+            if self.smooth_alpha < 1.0 or self.deadband > 0.0:
+                if self._prev_combined:
+                    combined = smooth_weights(
+                        self._prev_combined,
+                        combined,
+                        alpha=self.smooth_alpha,
+                        deadband=self.deadband,
+                    )
+                self._prev_combined = dict(combined)
+            ctx.weights(combined)
