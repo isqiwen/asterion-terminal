@@ -81,7 +81,7 @@
   "invalid Trading response": "Trading returned an unreadable response. Check the trading host version and logs.",
   "Trading response identity mismatch": "Trading reply ID does not match the request.",
   "missing quote frame": "Market returned a stream message without a quote frame.",
-  "lab runs database schema is outdated": "The Lab runs index database schema is outdated. Delete this file and restart Terminal to rebuild it.",
+  "lab runs database schema is outdated": "The Lab runs index database schema is outdated. Deleting this file while Terminal is closed creates an empty index on restart; run history, metrics and sweep groups are not restored.",
   "lab needs the Python runtime; it is installed at the first launch": "Lab requires the Python runtime, which is installed during first-launch setup.",
   "process exited; restarting": "Lab exited unexpectedly and is restarting automatically. Check local logs if this repeats.",
   "lab heartbeat unavailable": "Lab stopped responding to health checks and is restarting. Check local logs.",

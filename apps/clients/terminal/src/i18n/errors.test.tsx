@@ -144,8 +144,8 @@ test("RPC, stream, TLS and Lab schema failures state exact causes in both langua
     ],
     [
       "lab runs database schema is outdated: /tmp/runs.sqlite",
-      "研究运行索引数据库表结构已过期",
-      "Lab runs index database schema is outdated",
+      "原有运行历史、指标和扫描分组不会自动恢复",
+      "run history, metrics and sweep groups are not restored",
     ],
   ] as const;
   for (const [diagnostic, zh, en] of cases) {

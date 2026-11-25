@@ -81,7 +81,7 @@
   "invalid Trading response": "交易服务返回了无法解析的响应数据，请核对交易主机版本并查看日志。",
   "Trading response identity mismatch": "交易服务返回的请求编号与发送的不匹配。",
   "missing quote frame": "行情服务返回了缺少内容的推送帧。",
-  "lab runs database schema is outdated": "研究运行索引数据库表结构已过期，请删除该文件并重启终端以自动重建。",
+  "lab runs database schema is outdated": "研究运行索引数据库表结构已过期。关闭终端后删除该文件，重启将创建空索引；原有运行历史、指标和扫描分组不会自动恢复。",
   "lab needs the Python runtime; it is installed at the first launch": "研究服务（Lab）缺少 Python 运行环境，请在首次启动引导中完成安装。",
   "process exited; restarting": "研究服务（Lab）进程意外退出，正在自动重启；如反复出现请查看本机日志。",
   "lab heartbeat unavailable": "研究服务（Lab）心跳无响应，正在尝试重启；请查看本机日志。",
