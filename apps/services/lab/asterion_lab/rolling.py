@@ -220,12 +220,25 @@ def run(directory: Path, identity: str, sweep: str, config, training: int, valid
         result.update({f"out_of_sample_{name}": value for name, value in
                        backtest.segment_metrics(config, engine, training).items()})
         run_tables = backtest.tables(engine, contracts)
-        run_diag = diagnostics.compute(config, contracts, run_tables)
+        run_diag = diagnostics.compute(
+            config,
+            contracts,
+            run_tables,
+            series=series,
+            trials=runs.strategy_trials(config.strategy, config.holdout_day),
+            uses_pit_fundamentals=backtest.uses_pit_fundamentals(config.source),
+        )
         runs.succeed(
             identity,
             run_tables,
             result,
-            backtest.replay_record(engine, contracts, config.minutes, run_diagnostics=run_diag),
+            backtest.replay_record(
+                engine,
+                contracts,
+                config.minutes,
+                run_diagnostics=run_diag,
+                lineage=backtest.strategy_lineage(strategies[0]) if strategies else None,
+            ),
         )
     except BaseException as error:
         runs.end(identity, "failed", str(error) or type(error).__name__)

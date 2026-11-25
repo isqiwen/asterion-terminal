@@ -644,6 +644,51 @@ export function subscribeUniverses(listener: () => void) {
   };
 }
 
+// Experiment annotations (stars and one-line notes) shared across runs and factor evaluations.
+export type ExperimentAnnotation = { starred?: boolean; note?: string };
+const annotationsKey = "asterion.research.annotations";
+const annotationListeners = new Set<() => void>();
+
+export function readAnnotations(): Record<string, ExperimentAnnotation> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(annotationsKey) ?? "");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const out: Record<string, ExperimentAnnotation> = {};
+    for (const [id, raw] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!raw || typeof raw !== "object") continue;
+      const item = raw as Record<string, unknown>;
+      const starred = item.starred === true;
+      const note = typeof item.note === "string" ? item.note.trim() : "";
+      if (starred || note)
+        out[id] = { ...(starred ? { starred: true } : {}), ...(note ? { note } : {}) };
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+export function saveAnnotation(id: string, patch: Partial<ExperimentAnnotation>) {
+  const all = readAnnotations();
+  const prev = all[id] ?? {};
+  const starred = patch.starred !== undefined ? Boolean(patch.starred) : Boolean(prev.starred);
+  const note = patch.note !== undefined ? patch.note.trim().slice(0, 160) : (prev.note ?? "");
+  if (starred || note) {
+    all[id] = { ...(starred ? { starred: true } : {}), ...(note ? { note } : {}) };
+  } else {
+    delete all[id];
+  }
+  localStorage.setItem(annotationsKey, JSON.stringify(all));
+  annotationListeners.forEach(listener => listener());
+}
+
+export function subscribeAnnotations(listener: () => void) {
+  annotationListeners.add(listener);
+  return () => {
+    annotationListeners.delete(listener);
+  };
+}
+
 type SectorId =
   "black" | "nonferrous" | "precious" | "energy_chem" | "oilseeds" | "agriculture" | "financial";
 
@@ -1103,6 +1148,7 @@ export function factorStrategyTemplate(result: FactorResult, moduleName: string)
     if (sectorNeutral) scoreLines.push("        scores = sector_neutralize(scores)");
   }
 
+  const sourceLine = result.id ? `\n    source_evaluation = ${JSON.stringify(result.id)}` : "";
   const content = `from decimal import Decimal
 
 import numpy as np
@@ -1112,7 +1158,7 @@ ${importLines.join("\n")}
 
 
 class ${cls}(Strategy):
-    """Cross-sectional inverse-volatility portfolio generated from ${summary}."""
+    """Cross-sectional inverse-volatility portfolio generated from ${summary}."""${sourceLine}
 
     params = {
         "rebalance": ${rebalance},
@@ -1284,6 +1330,29 @@ function normInv(p: number) {
 // Bailey & Lopez de Prado (2014), "The Deflated Sharpe Ratio: Correcting for Selection Bias,
 // Backtest Overfitting, and Non-Normality", JPM 40(5), 94-107, DOI: 10.3905/jpm.2014.40.5.094.
 // Adapted for sweep summaries with Gaussian baseline (skew=0, kurtosis=3) and daily periods.
+export function deflatedSharpeFromStd(
+  bestSharpe: number,
+  trials: number,
+  sharpeStd: number,
+  observations: number,
+  periodsPerYear = 252,
+): { dsr: number; expectedMax: number; trials: number } | null {
+  if (trials < 2 || !Number.isFinite(bestSharpe) || !Number.isFinite(sharpeStd) || observations < 5)
+    return null;
+  const scale = Math.sqrt(Math.max(1, periodsPerYear));
+  // Convert annualized Sharpe ratios to per-period Sharpe before applying Eq. (2) and (8).
+  const srStar = bestSharpe / scale;
+  const srStd = Math.max(0, sharpeStd) / scale;
+  const euler = 0.5772156649015329;
+  const sr0 =
+    srStd > 0
+      ? srStd * ((1 - euler) * normInv(1 - 1 / trials) + euler * normInv(1 - 1 / (trials * Math.E)))
+      : 0;
+  const denom = Math.sqrt(Math.max(1e-12, 1 + 0.5 * srStar * srStar));
+  const z = ((srStar - sr0) * Math.sqrt(observations - 1)) / denom;
+  return { dsr: normCdf(z), expectedMax: sr0 * scale, trials };
+}
+
 export function deflatedSharpeRatio(
   bestSharpe: number,
   trialSharpes: readonly number[],
@@ -1292,21 +1361,16 @@ export function deflatedSharpeRatio(
 ): { dsr: number; expectedMax: number; trials: number } | null {
   const finite = trialSharpes.filter(Number.isFinite);
   const n = finite.length;
-  if (n < 2 || !Number.isFinite(bestSharpe) || observations < 5) return null;
+  if (n < 2) return null;
   const mean = finite.reduce((s, v) => s + v, 0) / n;
   const variance = finite.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1);
-  const scale = Math.sqrt(Math.max(1, periodsPerYear));
-  // Convert annualized Sharpe ratios to per-period Sharpe before applying Eq. (2) and (8).
-  const srStar = bestSharpe / scale;
-  const srStd = Math.sqrt(Math.max(0, variance)) / scale;
-  const euler = 0.5772156649015329;
-  const sr0 =
-    srStd > 0
-      ? srStd * ((1 - euler) * normInv(1 - 1 / n) + euler * normInv(1 - 1 / (n * Math.E)))
-      : 0;
-  const denom = Math.sqrt(Math.max(1e-12, 1 + 0.5 * srStar * srStar));
-  const z = ((srStar - sr0) * Math.sqrt(observations - 1)) / denom;
-  return { dsr: normCdf(z), expectedMax: sr0 * scale, trials: n };
+  return deflatedSharpeFromStd(
+    bestSharpe,
+    n,
+    Math.sqrt(Math.max(0, variance)),
+    observations,
+    periodsPerYear,
+  );
 }
 
 export function medianValue(values: readonly number[]) {
@@ -1532,13 +1596,19 @@ export function combinedStrategyTemplate(
     names.push(stratId);
   });
 
+  const sourceIds = details
+    .map(detail => detail.summary?.id)
+    .filter((id): id is string => Boolean(id));
+  const sourceRunsLine = sourceIds.length
+    ? `\n    source_runs = (${sourceIds.map(id => JSON.stringify(id)).join(", ")}${sourceIds.length === 1 ? "," : ""})`
+    : "";
   const content = `from asterion_strategy import CombinedStrategy
 
 ${imports.join("\n")}
 
 
 class ${cls}(CombinedStrategy):
-    """Multi-strategy portfolio combining ${names.join(" + ")}."""
+    """Multi-strategy portfolio combining ${names.join(" + ")}."""${sourceRunsLine}
 
     vol_balance = ${volBalance ? "True" : "False"}
     max_sector_gross = 0.5
@@ -1552,6 +1622,434 @@ ${componentLines.join("\n")}
         ]
 `;
   return { content, id: `${moduleName}.${cls}` };
+}
+
+export type DrawdownEpisode = {
+  peak_day: string;
+  trough_day: string;
+  recovery_day: string | null;
+  depth: number;
+  peak_to_trough_days: number;
+  duration_days: number;
+};
+
+export function computeDrawdowns(
+  days: readonly RunDay[],
+  deposit: number,
+  limit = 5,
+): DrawdownEpisode[] {
+  if (!days.length) return [];
+  const equities = days.map(item => Number(item.equity?.text ?? 0));
+  let peak = deposit > 0 ? deposit : equities[0]!;
+  let peakIdx = deposit > 0 && deposit >= equities[0]! ? -1 : 0;
+  let peakDay = days[0]!.tradingDay;
+  let trough = peak;
+  let troughIdx = peakIdx;
+  let troughDay = peakDay;
+  const episodes: DrawdownEpisode[] = [];
+
+  for (let idx = 0; idx < days.length; idx++) {
+    const eq = equities[idx]!;
+    const dayStr = days[idx]!.tradingDay;
+    if (eq >= peak) {
+      if (peak > 0 && trough < peak) {
+        episodes.push({
+          peak_day: peakDay,
+          trough_day: troughDay,
+          recovery_day: dayStr,
+          depth: trough / peak - 1,
+          peak_to_trough_days: Math.max(1, troughIdx - Math.max(0, peakIdx)),
+          duration_days: Math.max(1, idx - Math.max(0, peakIdx)),
+        });
+      }
+      peak = eq;
+      peakIdx = idx;
+      peakDay = dayStr;
+      trough = eq;
+      troughIdx = idx;
+      troughDay = dayStr;
+    } else if (eq < trough) {
+      trough = eq;
+      troughIdx = idx;
+      troughDay = dayStr;
+    }
+  }
+  if (peak > 0 && trough < peak) {
+    episodes.push({
+      peak_day: peakDay,
+      trough_day: troughDay,
+      recovery_day: null,
+      depth: trough / peak - 1,
+      peak_to_trough_days: Math.max(1, troughIdx - Math.max(0, peakIdx)),
+      duration_days: Math.max(1, days.length - 1 - Math.max(0, peakIdx)),
+    });
+  }
+  return episodes.sort((a, b) => a.depth - b.depth).slice(0, limit);
+}
+
+export type ReturnBin = { from: number; to: number; count: number; center: number };
+
+export function returnHistogram(returns: readonly number[], bucketCount = 17) {
+  const valid = returns.filter(value => Number.isFinite(value));
+  if (valid.length < 3) return null;
+  const sorted = [...valid].sort((a, b) => a - b);
+  const mean = valid.reduce((acc, v) => acc + v, 0) / valid.length;
+  const p05 = sorted[Math.max(0, Math.floor((sorted.length - 1) * 0.05))]!;
+  const p95 = sorted[Math.min(sorted.length - 1, Math.ceil((sorted.length - 1) * 0.95))]!;
+  const minVal = sorted[0]!;
+  const maxVal = sorted[sorted.length - 1]!;
+  const span = maxVal - minVal;
+  if (span <= 1e-12) return null;
+  const width = span / bucketCount;
+  const bins: ReturnBin[] = Array.from({ length: bucketCount }, (_, i) => ({
+    from: minVal + i * width,
+    to: minVal + (i + 1) * width,
+    count: 0,
+    center: minVal + (i + 0.5) * width,
+  }));
+  for (const val of valid) {
+    const idx = Math.min(bucketCount - 1, Math.max(0, Math.floor((val - minVal) / width)));
+    bins[idx]!.count += 1;
+  }
+  const maxCount = Math.max(...bins.map(b => b.count), 1);
+  return { bins, mean, p05, p95, minVal, maxVal, maxCount, total: valid.length };
+}
+
+export function metricDeltaText(
+  current: number | undefined,
+  previous: number | undefined,
+  percent: boolean,
+) {
+  if (
+    current === undefined ||
+    previous === undefined ||
+    !Number.isFinite(current) ||
+    !Number.isFinite(previous)
+  )
+    return "";
+  const delta = current - previous;
+  if (Math.abs(delta) < (percent ? 5e-5 : 5e-4)) return "";
+  const sign = delta > 0 ? "+" : "";
+  return percent ? `${sign}${(delta * 100).toFixed(2)}%` : `${sign}${delta.toFixed(3)}`;
+}
+
+export type VerdictItem = { tone: "ok" | "attention"; label: string; detail: string };
+
+export function evaluateRunVerdicts(
+  summary: RunSummary,
+  record: {
+    data?: {
+      rejections?: Array<{ count: number }>;
+      diagnostics?: {
+        costs?: {
+          gross_pnl?: number;
+          fees?: number;
+          estimated_slippage?: number;
+          net_pnl?: number;
+        };
+        by_symbol?: Array<{ symbol: string; net_pnl: number }>;
+        trials?: { strategy_runs?: number; holdout_runs?: number; sharpe_std?: number | null };
+        uses_pit_fundamentals?: boolean;
+      };
+    };
+  },
+  dayCount: number,
+): VerdictItem[] {
+  const items: VerdictItem[] = [];
+  const metrics = summary.metrics;
+  const diag = record.data?.diagnostics;
+  const refused = (record.data?.rejections ?? []).reduce((acc, row) => acc + row.count, 0);
+
+  const devSharpe = metrics.development_sharpe;
+  const holdSharpe = metrics.holdout_sharpe;
+  if (
+    devSharpe !== undefined &&
+    holdSharpe !== undefined &&
+    devSharpe > 0.3 &&
+    (holdSharpe <= 0 || holdSharpe < devSharpe * 0.5)
+  ) {
+    items.push({
+      tone: "attention",
+      label: t("留出衰减"),
+      detail: t("留出前夏普 {dev} → 留出段 {hold}", {
+        dev: devSharpe.toFixed(2),
+        hold: holdSharpe.toFixed(2),
+      }),
+    });
+  }
+
+  const gross = diag?.costs?.gross_pnl;
+  const costSum = (diag?.costs?.fees ?? 0) + (diag?.costs?.estimated_slippage ?? 0);
+  if (gross !== undefined && gross > 0 && costSum / gross > 0.4) {
+    items.push({
+      tone: "attention",
+      label: t("成本偏高"),
+      detail: t("手续费与滑点占毛盈亏 {pct}%", { pct: ((costSum / gross) * 100).toFixed(0) }),
+    });
+  }
+
+  const bySymbol = diag?.by_symbol ?? [];
+  const net = diag?.costs?.net_pnl;
+  if (bySymbol.length >= 2 && net !== undefined && net > 0) {
+    const top = [...bySymbol].sort((a, b) => b.net_pnl - a.net_pnl)[0];
+    if (top && top.net_pnl / net > 0.7) {
+      items.push({
+        tone: "attention",
+        label: t("品种集中"),
+        detail: t("{symbol} 贡献净盈亏 {pct}%", {
+          symbol: top.symbol,
+          pct: ((top.net_pnl / net) * 100).toFixed(0),
+        }),
+      });
+    }
+  }
+
+  if (refused > 0) {
+    items.push({
+      tone: "attention",
+      label: t("存在拒单"),
+      detail: t("{count} 次目标被风控或资金拒绝", { count: refused }),
+    });
+  }
+
+  const strategyTrials = diag?.trials?.strategy_runs ?? 0;
+  const holdoutTrials = diag?.trials?.holdout_runs ?? 0;
+  if (holdoutTrials >= 15 || strategyTrials >= 30) {
+    const sharpeStd = diag?.trials?.sharpe_std;
+    const dsr =
+      metrics.sharpe !== undefined && dayCount >= 20 && sharpeStd != null && sharpeStd > 0
+        ? (deflatedSharpeFromStd(
+            metrics.sharpe,
+            Math.max(strategyTrials, holdoutTrials),
+            sharpeStd,
+            dayCount,
+          )?.dsr ?? null)
+        : null;
+    items.push({
+      tone: "attention",
+      label: t("高频试错"),
+      detail:
+        dsr !== null
+          ? t("累计 {total} 次（同留出 {hold} 次）· 跨实验 DSR {dsr}%", {
+              total: strategyTrials,
+              hold: holdoutTrials,
+              dsr: (dsr * 100).toFixed(0),
+            })
+          : t("累计测试 {total} 次（同留出 {hold} 次）", {
+              total: strategyTrials,
+              hold: holdoutTrials,
+            }),
+    });
+  }
+
+  if (diag?.uses_pit_fundamentals) {
+    items.push({
+      tone: "attention",
+      label: t("PIT 基本面"),
+      detail: t("Trading 实盘暂无实时基本面更新流"),
+    });
+  }
+
+  if (!items.length && (metrics.fills ?? 0) > 0) {
+    items.push({
+      tone: "ok",
+      label: t("体检通过"),
+      detail: t("无留出衰减、成本过载、拒单或实盘流缺口警示"),
+    });
+  }
+  return items;
+}
+
+const fmtPct = (v: number | undefined | null) =>
+  v === undefined || v === null || !Number.isFinite(v) ? "—" : `${(v * 100).toFixed(2)}%`;
+const fmtNum = (v: number | undefined | null, digits = 3) =>
+  v === undefined || v === null || !Number.isFinite(v) ? "—" : v.toFixed(digits);
+
+export function formatRunSummaryMarkdown(
+  detail: RunDetail,
+  record: Record<string, unknown>,
+  note?: string,
+) {
+  const s = detail.summary!;
+  const rec = record as {
+    strategy?: { id?: string; commit?: string };
+    params?: Record<string, unknown>;
+    costs?: { deposit?: string; slippage_ticks?: number };
+    data?: {
+      dataset_version?: string;
+      symbols?: string[];
+      begin_day?: string;
+      end_day?: string;
+      bars?: { period?: string };
+      diagnostics?: {
+        trades?: {
+          count?: number;
+          win_rate?: number | null;
+          payoff_ratio?: number | null;
+          profit_factor?: number | null;
+          avg_holding_days?: number | null;
+        };
+        costs?: {
+          gross_pnl?: number;
+          fees?: number;
+          estimated_slippage?: number;
+          net_pnl?: number;
+          annual_turnover?: number | null;
+        };
+        exposure?: {
+          peak_margin_ratio?: number | null;
+          peak_gross_leverage?: number | null;
+          avg_net_exposure?: number | null;
+          max_drawdown_days?: number;
+        };
+        benchmark?: {
+          total_return?: number | null;
+          max_drawdown?: number | null;
+          sharpe?: number | null;
+        };
+        by_symbol?: Array<{ symbol: string; net_pnl: number; fills: number }>;
+        trials?: { strategy_runs?: number; holdout_runs?: number };
+      };
+    };
+  };
+  const diag = rec.data?.diagnostics;
+  const lines = [
+    `## Backtest: ${runName(s)} (${s.strategy})`,
+    `- Symbols: ${(rec.data?.symbols ?? s.symbols).join(", ")}`,
+    `- Period: ${rec.data?.begin_day ?? s.firstDay} to ${rec.data?.end_day ?? s.lastDay} (${rec.data?.bars?.period ?? "day"})`,
+    `- Params: ${JSON.stringify(rec.params ?? {})}`,
+    `- Deposit: ${rec.costs?.deposit ?? "—"}, Slippage: ${rec.costs?.slippage_ticks ?? 0} ticks`,
+    `- Dataset: ${(rec.data?.dataset_version ?? "").slice(0, 12)}${rec.strategy?.commit ? ` · Commit: ${rec.strategy.commit.slice(0, 12)}` : ""}`,
+  ];
+  if (note) lines.push(`- Note: ${note}`);
+  lines.push(
+    "",
+    "### Core Metrics",
+    `| Total Return | Annual Return | Sharpe | Max Drawdown | Calmar | Volatility | Win Days | Fills |`,
+    `| --- | --- | --- | --- | --- | --- | --- | --- |`,
+    `| ${fmtPct(s.metrics.total_return)} | ${fmtPct(s.metrics.annual_return)} | ${fmtNum(s.metrics.sharpe)} | ${fmtPct(s.metrics.max_drawdown)} | ${fmtNum(s.metrics.calmar)} | ${fmtPct(s.metrics.annual_volatility)} | ${fmtPct(s.metrics.winning_days)} | ${s.metrics.fills ?? 0} |`,
+  );
+  if (s.metrics.holdout_sharpe !== undefined || s.metrics.holdout_total_return !== undefined) {
+    lines.push(
+      `- Holdout: return ${fmtPct(s.metrics.holdout_total_return)}, sharpe ${fmtNum(s.metrics.holdout_sharpe)}, drawdown ${fmtPct(s.metrics.holdout_max_drawdown)} (dev sharpe ${fmtNum(s.metrics.development_sharpe)})`,
+    );
+  }
+  if (diag?.benchmark) {
+    lines.push(
+      `- Equal-Weight Benchmark: return ${fmtPct(diag.benchmark.total_return)}, sharpe ${fmtNum(diag.benchmark.sharpe)}, drawdown ${fmtPct(diag.benchmark.max_drawdown)}`,
+    );
+  }
+  if (diag) {
+    lines.push(
+      "",
+      "### Diagnostics",
+      `- Trades: ${diag.trades?.count ?? 0}, win rate ${fmtPct(diag.trades?.win_rate)}, payoff ${fmtNum(diag.trades?.payoff_ratio, 2)}, profit factor ${fmtNum(diag.trades?.profit_factor, 2)}, avg hold ${fmtNum(diag.trades?.avg_holding_days, 1)}d`,
+      `- Costs: gross ${fmtNum(diag.costs?.gross_pnl, 0)}, fees ${fmtNum(diag.costs?.fees, 0)}, slippage ${fmtNum(diag.costs?.estimated_slippage, 0)}, net ${fmtNum(diag.costs?.net_pnl, 0)}, turnover ${fmtNum(diag.costs?.annual_turnover, 2)}x`,
+      `- Exposure: peak margin ${fmtPct(diag.exposure?.peak_margin_ratio)}, peak leverage ${fmtNum(diag.exposure?.peak_gross_leverage, 2)}x, avg net ${fmtPct(diag.exposure?.avg_net_exposure)}, max underwater ${diag.exposure?.max_drawdown_days ?? 0}d`,
+    );
+    if (diag.trials?.strategy_runs) {
+      lines.push(
+        `- Trials: ${diag.trials.strategy_runs} runs for strategy${diag.trials.holdout_runs ? ` (${diag.trials.holdout_runs} on same holdout)` : ""}`,
+      );
+    }
+    if (diag.by_symbol?.length) {
+      lines.push(
+        `- Top Symbols: ${diag.by_symbol
+          .slice(0, 6)
+          .map(item => `${item.symbol}: ${item.net_pnl.toFixed(0)} (${item.fills} fills)`)
+          .join(", ")}`,
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
+export function formatFactorSummaryMarkdown(result: FactorResult, note?: string) {
+  const ev = result.evaluation;
+  const title =
+    result.factorNames.length >= 2 ? result.factorNames.join(" + ") : (ev?.factor ?? result.id);
+  const lines = [
+    `## Factor Evaluation: ${title}`,
+    `- Symbols (${result.symbols.length}): ${result.symbols.slice(0, 12).join(", ")}${result.symbols.length > 12 ? ", ..." : ""}`,
+    `- Range: ${ev?.firstDay ?? ""} to ${ev?.lastDay ?? ""}`,
+    `- Hygiene: return=${ev?.returnMode || "close"}, winsorize=${Boolean(ev?.winsorize)}, neutralize=${ev?.neutralize || "none"}, vol_adjust=${Boolean(ev?.volAdjust)}, cost=${ev?.costBps ?? 0}bps`,
+    `- Dataset: ${(result.pinned?.datasetVersion ?? "").slice(0, 12)}`,
+  ];
+  if (note) lines.push(`- Note: ${note}`);
+  if (result.horizons.length) {
+    lines.push(
+      "",
+      "### IC Decay",
+      `| Horizon | Mean IC | Std | ICIR | t-stat | Positive | Days |`,
+      `| --- | --- | --- | --- | --- | --- | --- |`,
+      ...result.horizons.map(
+        h =>
+          `| ${h.horizon} | ${fmtNum(h.mean)} | ${fmtNum(h.deviation)} | ${fmtNum(h.ir)} | ${fmtNum(h.t)} | ${fmtPct(h.positiveShare)} | ${h.days} |`,
+      ),
+    );
+  }
+  if (result.groups.length) {
+    lines.push(
+      "",
+      "### Groups",
+      ...result.groups.map(
+        g => `- G${g.group}: mean ${fmtPct(g.meanReturn)}, turnover ${fmtPct(g.turnover)}`,
+      ),
+    );
+  }
+  return lines.join("\n");
+}
+
+export function formatReconcileSummaryMarkdown(report: {
+  ok: boolean;
+  metadata: {
+    instance_id: string;
+    package: string;
+    symbols: string[];
+    window_begin_day: string;
+    window_end_day: string;
+    period: string;
+    dataset_version: string;
+  };
+  summary: {
+    bars: { matched: number; missing_in_live: number; extra_in_live: number; mismatched: number };
+    decisions: {
+      matched: number;
+      missing_in_live: number;
+      extra_in_live: number;
+      mismatched: number;
+    };
+    fills: {
+      live_fill_count: number;
+      backtest_fill_count: number;
+      matched: number;
+      slippage_samples: number;
+      mean_slippage_ticks: number | null;
+      median_slippage_ticks: number | null;
+      p90_slippage_ticks: number | null;
+      max_slippage_ticks: number | null;
+    };
+  };
+}) {
+  const { metadata: m, summary: s } = report;
+  const ratio = (x: {
+    matched: number;
+    missing_in_live: number;
+    extra_in_live: number;
+    mismatched: number;
+  }) => {
+    const total = x.matched + x.missing_in_live + x.extra_in_live + x.mismatched;
+    return total ? `${((x.matched / total) * 100).toFixed(2)}% (${x.matched}/${total})` : "—";
+  };
+  return [
+    `## Live Reconciliation: ${m.package} (${report.ok ? "PASS" : "DIFF"})`,
+    `- Instance: ${m.instance_id} · Symbols: ${m.symbols.join(", ")} · ${m.window_begin_day} to ${m.window_end_day} (${m.period})`,
+    `- Dataset: ${m.dataset_version.slice(0, 12)}`,
+    `- Input Bars Match: ${ratio(s.bars)}`,
+    `- Decisions Match: ${ratio(s.decisions)}`,
+    `- Fills: live ${s.fills.live_fill_count}, backtest ${s.fills.backtest_fill_count}, matched ${s.fills.matched}`,
+    `- Adverse Slippage (ticks, n=${s.fills.slippage_samples}): mean ${fmtNum(s.fills.mean_slippage_ticks, 2)}, median ${fmtNum(s.fills.median_slippage_ticks, 2)}, P90 ${fmtNum(s.fills.p90_slippage_ticks, 2)}, max ${fmtNum(s.fills.max_slippage_ticks, 2)}`,
+  ].join("\n");
 }
 
 // The first content of a new module of strategies/ or factors/, which runs as it is.

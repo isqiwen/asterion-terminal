@@ -17,6 +17,13 @@ export const feature: TerminalFeature = {
   languageResources: { "zh-CN": zh, "en-US": en },
   workspaces: [
     {
+      id: "workspace.lab-factors",
+      get title() {
+        return t("因子");
+      },
+      component: context => <FactorLab {...context} />,
+    },
+    {
       id: "workspace.lab-strategies",
       get title() {
         return t("策略");
@@ -29,13 +36,6 @@ export const feature: TerminalFeature = {
         return t("回测");
       },
       component: context => <Runs {...context} />,
-    },
-    {
-      id: "workspace.lab-factors",
-      get title() {
-        return t("因子");
-      },
-      component: context => <FactorLab {...context} />,
     },
   ],
 };

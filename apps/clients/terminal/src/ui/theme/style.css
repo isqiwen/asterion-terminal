@@ -312,6 +312,7 @@ small,
 /* Digits align; a column's heading reads as text. */
 th.numeric {
   font-family: inherit;
+  letter-spacing: 0;
 }
 .panel-spacer {
   flex: 1;

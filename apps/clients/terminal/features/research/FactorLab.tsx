@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { lab } from "../../src/bridge/lab";
 import type { FactorResult } from "../../src/generated/asterion/lab_pb";
 import { ActionError, useActionError } from "../../src/host/action-error";
@@ -35,6 +42,7 @@ import {
   type ModuleItem,
   NewModule,
   Section,
+  useAnnotations,
   useConfigFold,
   useLibrarySort,
   useModuleMenu,
@@ -71,8 +79,9 @@ export function FactorLab(context: TerminalContext) {
   const scopeText = JSON.stringify(factorScopeOf(form));
   const shownScope = useRef(scopeText);
   const [view, setView] = useWorkspaceDraft<"library" | "detail">("factor-view", "library");
-  const [tab, setTab] = useWorkspaceDraft<"result" | "code">("factor-tab", "code");
+  const [tab, setTab] = useWorkspaceDraft<"result" | "code" | "split">("factor-tab", "code");
   const [search, setSearch] = useWorkspaceDraft("modules-search:factors", "");
+  const annotations = useAnnotations();
   const [busy, setBusy] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
   const [cancellingBatch, setCancellingBatch] = useState(false);
@@ -171,7 +180,7 @@ export function FactorLab(context: TerminalContext) {
       });
       if (openPage.current === factor.id) {
         setReport(id);
-        setTab("result");
+        setTab(previous => (previous === "split" ? "split" : "result"));
       }
       await readKept();
     });
@@ -257,6 +266,26 @@ export function FactorLab(context: TerminalContext) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeText]);
 
+  // Deep-link from a generated strategy's lineage record back to its factor evaluation.
+  const openFactorResultId = context.workspaceParams?.factorResult;
+  useEffect(() => {
+    if (!openFactorResultId) return;
+    const found = kept.find(item => item.id === openFactorResultId);
+    if (found && !isCompositeResult(found) && found.evaluation?.factor) {
+      const target = found.evaluation.factor;
+      setChosen(target);
+      source.open(`factors/${target.split(".")[0]}.py`);
+      setView("detail");
+      setReport(found.id);
+      setTab("result");
+    } else {
+      setView("library");
+      setReport(openFactorResultId);
+    }
+    context.navigate("workspace.lab-factors", {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openFactorResultId]);
+
   const [folded, setFolded] = useConfigFold();
   const menu = useModuleMenu({
     repository,
@@ -287,9 +316,26 @@ export function FactorLab(context: TerminalContext) {
   );
   const sameName = (item: ModuleItem) => items.filter(other => other.name === item.name).length > 1;
   const reportName = shownResult ? resultName(shownResult) : recordName(report);
-  const showsResult = !library && tab === "result" && Boolean(report);
+  const showsResult = !library && tab !== "code" && Boolean(report);
+  const onEvaluateShortcut = (event: KeyboardEvent) => {
+    if (
+      !library &&
+      factor &&
+      !busy &&
+      !context.busy &&
+      (event.metaKey || event.ctrlKey) &&
+      event.key === "Enter"
+    ) {
+      event.preventDefault();
+      void evaluate();
+    }
+  };
   return (
-    <section className="lab-research" data-folded={(!library && folded) || undefined}>
+    <section
+      className="lab-research"
+      data-folded={(!library && folded) || undefined}
+      onKeyDown={onEvaluateShortcut}
+    >
       <FactorScopeBar
         context={context}
         form={form}
@@ -325,11 +371,13 @@ export function FactorLab(context: TerminalContext) {
                 [
                   ["result", "评价"],
                   ["code", "代码"],
+                  ["split", "分屏"],
                 ] as const
               ).map(([key, label]) => (
                 <button
                   key={key}
                   type="button"
+                  className={key === "split" ? "lab-split-toggle" : undefined}
                   aria-pressed={tab === key}
                   onClick={() => setTab(key)}
                 >
@@ -462,16 +510,8 @@ export function FactorLab(context: TerminalContext) {
           }
         />
       ) : (
-        <div className="lab-detail">
-          {tab === "result" ? (
-            report ? (
-              <div className="lab-center lab-runs-view">
-                <Report key={report} id={report} />
-              </div>
-            ) : (
-              <p className="lab-placeholder">{t("还没有评价")}</p>
-            )
-          ) : (
+        <div className={`lab-detail${tab === "split" ? " lab-detail-split" : ""}`}>
+          {(tab === "code" || tab === "split") && (
             <LabCentre
               source={source}
               repository={repository}
@@ -482,6 +522,19 @@ export function FactorLab(context: TerminalContext) {
               onDelete={path => menu.remove(path)}
             />
           )}
+          {(tab === "result" || tab === "split") &&
+            (report ? (
+              <div className="lab-center lab-runs-view">
+                <Report key={report} id={report} />
+              </div>
+            ) : (
+              <div className="lab-placeholder">
+                <div>
+                  <p>{t("还没有评价")}</p>
+                  <p className="subtle">{t("按 ⌘Enter / Ctrl+Enter 或点击右侧「评价」发起评价")}</p>
+                </div>
+              </div>
+            ))}
         </div>
       )}
       {factor && !library && (
@@ -549,18 +602,22 @@ export function FactorLab(context: TerminalContext) {
                         : Object.entries(item.evaluation?.params ?? {})
                             .map(([name, value]) => `${name}=${String(value.value.value)}`)
                             .join(" ") || recordName(item.id);
+                      const ann = annotations[item.id];
                       return (
                         <li key={item.id}>
                           <button
                             type="button"
                             aria-pressed={item.id === report}
-                            title={item.id}
+                            title={ann?.note || item.id}
                             onClick={() => {
                               setReport(item.id);
-                              setTab("result");
+                              setTab(previous => (previous === "split" ? "split" : "result"));
                             }}
                           >
-                            <span>{label}</span>
+                            <span>
+                              {ann?.starred && <span className="lab-star-mark">★ </span>}
+                              {label}
+                            </span>
                             <small>
                               {item.evaluation?.firstDay} – {item.evaluation?.lastDay}
                             </small>

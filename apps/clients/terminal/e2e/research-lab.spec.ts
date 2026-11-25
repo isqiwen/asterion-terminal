@@ -21,7 +21,7 @@ function prepare() {
 }
 
 async function backtest(page: Page, fast: string, slow: string) {
-  const form = page.locator(".lab-research");
+  const form = page.locator(".lab-research:visible");
   await form.getByLabel("fast").fill(fast);
   await form.getByLabel("slow").fill(slow);
   await form.getByRole("button", { name: "运行", exact: true }).click();
@@ -64,7 +64,7 @@ test(
     }
     await expect(page.getByText(/^成交（[1-9]\d* 笔）$/)).toBeVisible();
     await expect(page.getByText("K 线与买卖点")).toBeVisible();
-    await page.getByText("QuantStats 指标").click();
+    await page.getByText("归因与诊断").click();
     await expect(page.getByText(/^QuantStats \d/)).toBeVisible({ timeout: 65000 });
     await page.screenshot({ path: join(__dirname, "../test-results/research-lab-result.png") });
 
@@ -72,7 +72,7 @@ test(
     await backtest(page, "3", "6");
     await page.getByRole("button", { name: "在回测中打开", exact: true }).click();
     await page.getByRole("button", { name: "← 回测记录", exact: true }).click();
-    const runs = page.locator(".lab-records tbody tr");
+    const runs = page.getByRole("table", { name: "回测记录" }).locator("tbody tr");
     await expect(runs).toHaveCount(2);
     await expect(runs.locator(".status-badge")).toHaveText(["已完成", "已完成"]);
     for (const box of await page.getByRole("checkbox", { name: /^比较 / }).all()) await box.check();

@@ -9,7 +9,14 @@ import type { StrategyStep } from "../../src/generated/asterion/trading_pb";
 import { ActionError, useActionError } from "../../src/host/action-error";
 import { type MessageValues, listSeparator, translate } from "../../src/i18n";
 import { StatusBadge } from "../../src/ui/StatusBadge";
-import { defaultForm, readConditions, saveConditions, scopeOf } from "./research-lab";
+import { CopySummaryButton } from "./LabParts";
+import {
+  defaultForm,
+  formatReconcileSummaryMarkdown,
+  readConditions,
+  saveConditions,
+  scopeOf,
+} from "./research-lab";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
@@ -383,6 +390,7 @@ export function ReconcileView({
           </StatusBadge>
         )}
         <span className="lab-spacer" />
+        {report && <CopySummaryButton build={() => formatReconcileSummaryMarkdown(report)} />}
         {report?.metadata.run_id && openRun && (
           <button
             type="button"

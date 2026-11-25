@@ -290,6 +290,40 @@ class Runs:
     def get(self, identity: str):
         return next(iter(self.list([identity])), None)
 
+    def strategy_trials(self, strategy: str, holdout_day: str = "") -> dict:
+        """Cumulative completed runs and Sharpe dispersion for cross-trial DSR."""
+        self._require_schema()
+        total = self.index.execute(
+            "select count(*) from runs where strategy = ? and state = 'succeeded'",
+            (strategy,),
+        ).fetchone()[0]
+        holdout = 0
+        if holdout_day:
+            holdout = self.index.execute(
+                "select count(*) from runs where strategy = ? and state = 'succeeded'"
+                " and json_extract(settings, '$.statistics.holdout_day') = ?",
+                (strategy, holdout_day),
+            ).fetchone()[0]
+        sharpes = [
+            float(row[0])
+            for row in self.index.execute(
+                "select m.value from runs r join metrics m on m.run = r.id and m.name = 'sharpe'"
+                " where r.strategy = ? and r.state = 'succeeded' and m.value is not null",
+                (strategy,),
+            ).fetchall()
+            if math.isfinite(row[0])
+        ]
+        sharpe_std = None
+        if len(sharpes) >= 2:
+            mean = sum(sharpes) / len(sharpes)
+            var = sum((x - mean) ** 2 for x in sharpes) / (len(sharpes) - 1)
+            sharpe_std = round(math.sqrt(max(0.0, var)), 4)
+        return {
+            "strategy_runs": int(total) + 1,
+            "holdout_runs": int(holdout) + (1 if holdout_day else 0),
+            "sharpe_std": sharpe_std,
+        }
+
     def recent(self):
         """Each strategy's last three runs outside parameter sweeps and, under each
         settings, its latest outcome and success, so a ranking can return to them."""

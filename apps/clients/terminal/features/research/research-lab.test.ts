@@ -16,22 +16,29 @@ import {
   breakEvenSlippage,
   combinedStrategyTemplate,
   comparePortfolio,
+  computeDrawdowns,
   cumulativeIc,
   defaultFactorForm,
   defaultForm,
   deflatedSharpeRatio,
+  evaluateRunVerdicts,
   factorRequest,
   factorStrategyStem,
   factorStrategyTemplate,
   factorTurnover,
+  formatRunSummaryMarkdown,
   formFromRun,
   heatmap,
   identity,
+  metricDeltaText,
   monthlyReturns,
   onScope,
   parameterValues,
+  readAnnotations,
+  returnHistogram,
   runRequest,
   sameScope,
+  saveAnnotation,
   saveConditions,
   savedForm,
   scopeOf,
@@ -415,4 +422,88 @@ test("DSR, break-even slippage, portfolio comparison, and combinedStrategyTempla
   expect(generated.content).toContain("vol_balance = True");
   expect(generated.content).toContain("Trend(lookback=20)");
   expect(generated.content).toContain("Carry(window=10)");
+  expect(generated.content).toContain('source_runs = ("r1", "r2")');
+});
+
+test("experiment annotations, verdicts, drawdowns, histogram, deltas, and AI summary markdown work end-to-end", () => {
+  localStorage.clear();
+  saveAnnotation("run-1", { starred: true, note: "  robust at 2 ticks  " });
+  expect(readAnnotations()["run-1"]).toEqual({ starred: true, note: "robust at 2 ticks" });
+  saveAnnotation("run-1", { starred: false, note: "" });
+  expect(readAnnotations()["run-1"]).toBeUndefined();
+
+  expect(metricDeltaText(0.125, 0.1, true)).toBe("+2.50%");
+  expect(metricDeltaText(1.1, 1.35, false)).toBe("-0.250");
+  expect(metricDeltaText(1.0, 1.0, false)).toBe("");
+
+  const days = [100, 110, 99, 105, 115, 100, 102].map((eq, i) => ({
+    tradingDay: `2026-01-0${i + 1}`,
+    equity: { text: String(eq) },
+    balance: { text: String(eq) },
+    fees: { text: "0" },
+    margin: { text: "0" },
+    settledMs: BigInt((i + 1) * 86400_000),
+  }));
+  const dds = computeDrawdowns(days as never, 100);
+  expect(dds).toHaveLength(2);
+  expect(dds[0]!.peak_day).toBe("2026-01-05");
+  expect(dds[0]!.trough_day).toBe("2026-01-06");
+  expect(dds[0]!.recovery_day).toBeNull();
+  expect(dds[0]!.depth).toBeCloseTo(100 / 115 - 1, 5);
+  expect(dds[1]!.recovery_day).toBe("2026-01-05");
+
+  const hist = returnHistogram([-0.03, -0.01, 0.0, 0.005, 0.01, 0.02, 0.04], 5)!;
+  expect(hist.total).toBe(7);
+  expect(hist.bins.reduce((acc, b) => acc + b.count, 0)).toBe(7);
+  expect(hist.p05).toBeLessThan(0);
+
+  const summary = create(RunDetailSchema, {
+    summary: {
+      id: "run-verdict",
+      strategy: "trend.Trend",
+      symbols: ["SHFE/rb", "SHFE/cu"],
+      metrics: {
+        total_return: 0.12,
+        sharpe: 1.4,
+        development_sharpe: 1.8,
+        holdout_sharpe: 0.4,
+        fills: 20,
+      },
+    },
+    record: JSON.stringify({
+      strategy: { id: "trend.Trend", commit: "abcdef123456" },
+      params: { lookback: 20 },
+      costs: { deposit: "1000000", slippage_ticks: 1 },
+      data: {
+        dataset_version: "1234567890abcdef",
+        symbols: ["SHFE/rb", "SHFE/cu"],
+        begin_day: "2026-01-01",
+        end_day: "2026-06-01",
+        bars: { period: "day" },
+        rejections: [{ count: 2 }],
+        diagnostics: {
+          costs: { gross_pnl: 1000, fees: 300, estimated_slippage: 200, net_pnl: 500 },
+          by_symbol: [
+            { symbol: "SHFE/rb", net_pnl: 450, fills: 12 },
+            { symbol: "SHFE/cu", net_pnl: 50, fills: 8 },
+          ],
+          trials: { strategy_runs: 35, holdout_runs: 18, sharpe_std: 0.4 },
+          uses_pit_fundamentals: true,
+        },
+      },
+    }),
+  });
+  const verdicts = evaluateRunVerdicts(summary.summary!, JSON.parse(summary.record), 100);
+  expect(verdicts.map(v => v.label)).toEqual([
+    "留出衰减",
+    "成本偏高",
+    "品种集中",
+    "存在拒单",
+    "高频试错",
+    "PIT 基本面",
+  ]);
+  const md = formatRunSummaryMarkdown(summary, JSON.parse(summary.record), "holdout decayed");
+  expect(md).toContain("## Backtest:");
+  expect(md).toContain("holdout decayed");
+  expect(md).toContain("Trials: 35");
 });

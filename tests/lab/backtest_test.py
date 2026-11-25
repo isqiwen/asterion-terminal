@@ -2379,6 +2379,16 @@ class BacktestSweeps(BacktestCase):
         self.assertAlmostEqual(diag["components"][0]["share"], 0.6)
         self.assertAlmostEqual(diag["components"][0]["ready_rate"], 1.0)
         self.assertGreater(diag["components"][0]["proxy_return"], 0.0)
+        # Daily process risk series, drawdowns, and equal-weight benchmark are computed.
+        n_days = run_tables["settlements"].height
+        self.assertEqual(len(diag["daily"]["days"]), n_days)
+        self.assertEqual(len(diag["daily"]["gross_leverage"]), n_days)
+        self.assertEqual(len(diag["daily"]["net_exposure"]), n_days)
+        self.assertEqual(len(diag["daily"]["margin_ratio"]), n_days)
+        self.assertEqual(len(diag["daily"]["daily_return"]), n_days)
+        self.assertIsNotNone(diag["benchmark"])
+        self.assertEqual(len(diag["benchmark"]["nav"]), n_days)
+        self.assertIsInstance(diag["drawdowns"], list)
 
     def test_slippage_stress_sweep_runs_each_tick_level(self):
         async def exercise():

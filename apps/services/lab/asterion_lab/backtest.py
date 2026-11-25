@@ -893,16 +893,51 @@ def held_without_prices(engine, contracts: list):
                              f"{spans(days, item['unpriced'])}, while it is held")
 
 
+PIT_TOKENS = ("receipt_volume", "member_long", "member_short", "inventory_total", "factors.fundamentals")
+
+
+def uses_pit_fundamentals(source_root: str) -> bool:
+    if not source_root:
+        return False
+    root = Path(source_root)
+    if not root.is_dir():
+        return False
+    for path in root.rglob("*.py"):
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if any(token in text for token in PIT_TOKENS):
+            return True
+    return False
+
+
+def strategy_lineage(strategy) -> dict | None:
+    lineage = {}
+    evaluation = getattr(strategy, "source_evaluation", None)
+    if isinstance(evaluation, str) and evaluation.strip():
+        lineage["factor_evaluation"] = evaluation.strip()
+    source_runs = getattr(strategy, "source_runs", None)
+    if isinstance(source_runs, (list, tuple)):
+        ids = [item.strip() for item in source_runs if isinstance(item, str) and item.strip()]
+        if ids:
+            lineage["source_runs"] = ids
+    return lineage or None
+
+
 def replay_record(
     engine,
     contracts: list,
     minutes: int,
     *,
     run_diagnostics: dict | None = None,
+    lineage: dict | None = None,
 ) -> dict:
     data = {"rejections": rejections_record(engine, contracts)}
     if run_diagnostics is not None:
         data["diagnostics"] = run_diagnostics
+    if lineage:
+        data["lineage"] = lineage
     if minutes:
         days = [day for item in contracts for day in item["excluded"]]
         data["excluded"] = {"bars": len(days), "days": sorted(set(days))}
@@ -976,9 +1011,13 @@ def run(directory: Path, identity: str, config: Config, started=lambda: None):
             contracts,
             run_tables,
             tracker.summary() if tracker is not None else None,
+            series=series,
+            trials=runs.strategy_trials(config.strategy, config.holdout_day),
+            uses_pit_fundamentals=uses_pit_fundamentals(config.source),
         )
         runs.succeed(identity, run_tables, metrics(config, engine),
-                     replay_record(engine, contracts, config.minutes, run_diagnostics=run_diag))
+                     replay_record(engine, contracts, config.minutes,
+                                   run_diagnostics=run_diag, lineage=strategy_lineage(strategy)))
     except BaseException as error:
         runs.end(identity, "failed", str(error) or type(error).__name__)
         raise

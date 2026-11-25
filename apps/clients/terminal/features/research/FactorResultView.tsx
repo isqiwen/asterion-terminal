@@ -2,7 +2,8 @@ import { useMemo, useState } from "react";
 import { PriceChart } from "@asterion/terminal/charts/PriceChart";
 import type { FactorResult } from "../../src/generated/asterion/lab_pb";
 import { type MessageValues, translate } from "../../src/i18n";
-import { cumulativeIc, yearlyIc } from "./research-lab";
+import { CopySummaryButton, ExperimentNoteBar, useAnnotations } from "./LabParts";
+import { cumulativeIc, formatFactorSummaryMarkdown, yearlyIc } from "./research-lab";
 import { metric, signed } from "./ResearchResult";
 
 const t = (key: string, values?: MessageValues) =>
@@ -123,6 +124,7 @@ export function FactorResultView({ result }: { result: FactorResult }) {
         ]
       : []),
   ];
+  const annotations = useAnnotations();
   const tabs = [
     ["overview", t("概览")],
     ["code", t("评价时的源码")],
@@ -132,26 +134,50 @@ export function FactorResultView({ result }: { result: FactorResult }) {
   ] as const;
   return (
     <div className="lab-result">
-      <p className="subtle">
-        {composite
-          ? `${result.factorNames.join(" + ")} · ${combinationLabel}`
-          : result.evaluation?.factor}
-        {!composite &&
-          Object.entries(result.evaluation?.params ?? {}).map(
-            ([name, value]) => ` · ${name}=${String(value.value.value)}`,
-          )}{" "}
-        · {t("{count} 个品种", { count: result.symbols.length })} · {result.evaluation?.firstDay} –{" "}
-        {result.evaluation?.lastDay}
-        {hygieneTags.length > 0 && ` · ${hygieneTags.join(" · ")}`} · {t("研究数据")}{" "}
-        <code>{result.pinned?.datasetVersion.slice(0, 8)}</code>
-        {result.pinned?.commit && (
-          <>
-            {" "}
-            · {t("代码")} <code>{result.pinned.commit.slice(0, 8)}</code>
-          </>
-        )}
-        {result.pinned?.changes && ` · ${t("含未提交改动")}`}
-      </p>
+      <div className="lab-meta-head">
+        <div className="lab-meta-main">
+          <span className="lab-meta-title">
+            {composite
+              ? `${result.factorNames.join(" + ")} · ${combinationLabel}`
+              : result.evaluation?.factor}
+            {!composite &&
+              Object.entries(result.evaluation?.params ?? {}).map(
+                ([name, value]) => ` · ${name}=${String(value.value.value)}`,
+              )}
+          </span>
+          <span className="subtle">
+            {t("{count} 个品种", { count: result.symbols.length })} · {result.evaluation?.firstDay}{" "}
+            – {result.evaluation?.lastDay}
+          </span>
+          {hygieneTags.length > 0 && (
+            <span className="lab-meta-tags">
+              {hygieneTags.map(tag => (
+                <span key={tag} className="lab-meta-chip">
+                  {tag}
+                </span>
+              ))}
+            </span>
+          )}
+        </div>
+        <span className="lab-meta-pinned subtle">
+          {t("研究数据")} <code>{result.pinned?.datasetVersion.slice(0, 8)}</code>
+          {result.pinned?.commit && (
+            <>
+              {" "}
+              · {t("代码")} <code>{result.pinned.commit.slice(0, 8)}</code>
+            </>
+          )}
+          {result.pinned?.changes && ` · ${t("含未提交改动")}`}
+        </span>
+      </div>
+      <ExperimentNoteBar
+        id={result.id}
+        trailing={
+          <CopySummaryButton
+            build={() => formatFactorSummaryMarkdown(result, annotations[result.id]?.note)}
+          />
+        }
+      />
       {first && (
         <dl className="lab-figures">
           {(

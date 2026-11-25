@@ -9,7 +9,7 @@ import { useLabRunningPoll } from "../../src/host/lab";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { type MessageValues, translate, listSeparator } from "../../src/i18n";
 import { StatusBadge } from "../../src/ui/StatusBadge";
-import { DeleteRecord } from "./LabParts";
+import { DeleteRecord, useAnnotations } from "./LabParts";
 import { ReconcileView } from "./ReconcileView";
 import {
   RunComparison,
@@ -31,6 +31,7 @@ import {
   recordTime,
   runName,
   runState,
+  saveAnnotation,
   slippageKey,
   slippageStressBase,
 } from "./research-lab";
@@ -80,6 +81,8 @@ export function Runs(context: TerminalContext) {
   const [compared, setCompared] = useState<string[]>([]);
   const [strategy, setStrategy] = useWorkspaceDraft("runs-strategy", "");
   const [search, setSearch] = useWorkspaceDraft("runs-search", "");
+  const [starredOnly, setStarredOnly] = useState(false);
+  const annotations = useAnnotations();
   const [sort, setSort] = useState<{ key: SortKey; descending: boolean }>({
     key: "started",
     descending: true,
@@ -199,7 +202,9 @@ export function Runs(context: TerminalContext) {
     };
   }, [shown, runs]);
 
-  const rows = runs ?? [];
+  const rows = starredOnly
+    ? (runs ?? []).filter(run => Boolean(annotations[run.sweepId || run.id]?.starred))
+    : (runs ?? []);
   const byId = new Map((runs ?? []).map(run => [run.id, run]));
   const back = () => {
     setShown(null);
@@ -286,6 +291,10 @@ export function Runs(context: TerminalContext) {
           openVersion={version =>
             context.navigate("workspace.data-dataset", { params: { version } })
           }
+          openFactor={factorId =>
+            context.navigate("workspace.lab-factors", { params: { factorResult: factorId } })
+          }
+          openRun={runId => setShown({ kind: "run", id: runId })}
         />
       </section>
     );
@@ -448,6 +457,14 @@ export function Runs(context: TerminalContext) {
             setSearch(event.target.value);
           }}
         />
+        <button
+          type="button"
+          className={`lab-star-filter${starredOnly ? " is-active" : ""}`}
+          aria-pressed={starredOnly}
+          onClick={() => setStarredOnly(previous => !previous)}
+        >
+          ★ {t("仅看星标")}
+        </button>
         <span className="lab-spacer" />
         {tradingAccounts.length > 0 && (
           <button type="button" onClick={() => setShown({ kind: "reconcile" })}>
@@ -534,29 +551,48 @@ export function Runs(context: TerminalContext) {
                       )}
                     </td>
                     <td>
-                      <button
-                        type="button"
-                        className="lab-link strong"
-                        onClick={event => {
-                          event.stopPropagation();
-                          openRow();
-                        }}
-                      >
-                        {group
-                          ? run.sweepStrategies
-                            ? t("批量 {id}（{count} 个策略）", {
-                                id: recordTime(group),
-                                count: run.sweepStrategies,
-                              })
-                            : t("扫描 {id}（{count} 组）", {
-                                id: recordName(group, run.strategy.split(".")[1]),
-                                count: run.sweepSize,
-                              })
-                          : runName(run)}
-                      </button>
+                      <div className="lab-run-title">
+                        <button
+                          type="button"
+                          className="lab-link strong"
+                          onClick={event => {
+                            event.stopPropagation();
+                            openRow();
+                          }}
+                        >
+                          {group
+                            ? run.sweepStrategies
+                              ? t("批量 {id}（{count} 个策略）", {
+                                  id: recordTime(group),
+                                  count: run.sweepStrategies,
+                                })
+                              : t("扫描 {id}（{count} 组）", {
+                                  id: recordName(group, run.strategy.split(".")[1]),
+                                  count: run.sweepSize,
+                                })
+                            : runName(run)}
+                        </button>
+                        {!group && (
+                          <button
+                            type="button"
+                            className={`lab-star${annotations[run.id]?.starred ? " is-starred" : ""}`}
+                            aria-pressed={Boolean(annotations[run.id]?.starred)}
+                            aria-label={t(annotations[run.id]?.starred ? "取消星标" : "加星标")}
+                            onClick={event => {
+                              event.stopPropagation();
+                              saveAnnotation(run.id, { starred: !annotations[run.id]?.starred });
+                            }}
+                          >
+                            {annotations[run.id]?.starred ? "★" : "☆"}
+                          </button>
+                        )}
+                      </div>
                       <small className="lab-id">
                         {run.sweepStrategies ? "" : run.strategy}
                         {!group && run.label ? ` · ${run.id}` : ""}
+                        {!group && annotations[run.id]?.note
+                          ? ` · ${annotations[run.id]!.note}`
+                          : ""}
                       </small>
                     </td>
                     <td>{run.symbols.join(listSeparator())}</td>

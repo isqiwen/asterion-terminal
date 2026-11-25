@@ -74,7 +74,7 @@ test(
     await scope.getByLabel("净权重上限", { exact: true }).fill("0.2");
     await scope.getByRole("button", { name: "完成", exact: true }).click();
     await page.getByRole("button", { name: "DeploymentProbe", exact: true }).click();
-    const research = page.locator(".lab-research");
+    const research = page.locator(".lab-research:visible");
     await research.getByLabel("fast").fill("2");
     await research.getByLabel("slow").fill("4");
     await research.getByRole("button", { name: "运行", exact: true }).click();

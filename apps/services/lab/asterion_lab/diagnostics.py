@@ -113,11 +113,143 @@ class ComponentTracker:
         return out
 
 
+def _top_drawdowns(days: list[str], equities: list[float], deposit: float, limit: int = 5) -> list[dict]:
+    if not days or not equities:
+        return []
+    peak = deposit if deposit > 0 else equities[0]
+    peak_idx = -1 if deposit > 0 and deposit >= equities[0] else 0
+    peak_day = days[0]
+    trough = peak
+    trough_idx = peak_idx
+    trough_day = peak_day
+    episodes: list[dict] = []
+
+    for idx, (day_str, eq) in enumerate(zip(days, equities)):
+        if eq >= peak:
+            if peak > 0 and trough < peak:
+                episodes.append({
+                    "peak_day": peak_day,
+                    "trough_day": trough_day,
+                    "recovery_day": day_str,
+                    "depth": round(trough / peak - 1.0, 6),
+                    "peak_to_trough_days": max(1, trough_idx - max(0, peak_idx)),
+                    "duration_days": max(1, idx - max(0, peak_idx)),
+                })
+            peak = eq
+            peak_idx = idx
+            peak_day = day_str
+            trough = eq
+            trough_idx = idx
+            trough_day = day_str
+        elif eq < trough:
+            trough = eq
+            trough_idx = idx
+            trough_day = day_str
+
+    if peak > 0 and trough < peak:
+        episodes.append({
+            "peak_day": peak_day,
+            "trough_day": trough_day,
+            "recovery_day": None,
+            "depth": round(trough / peak - 1.0, 6),
+            "peak_to_trough_days": max(1, trough_idx - max(0, peak_idx)),
+            "duration_days": max(1, (len(equities) - 1) - max(0, peak_idx)),
+        })
+    episodes.sort(key=lambda item: item["depth"])
+    return episodes[:limit]
+
+
+def _equal_weight_benchmark(
+    config,
+    contracts: list[dict],
+    series: list[list[tuple[str, int]]] | None,
+    days: list[str],
+) -> dict | None:
+    if not days or not contracts:
+        return None
+    settle_maps = [
+        {day: price / R for day, price in item.get("settlements", ()) if price and price > 0}
+        for item in contracts
+    ]
+    by_symbol: dict[str, list[tuple[str, int]]] = {}
+    if series:
+        for schedule in series:
+            if schedule:
+                sym = contracts[schedule[0][1]]["run_symbol"]
+                by_symbol[sym] = sorted(schedule, key=lambda pair: pair[0])
+    for idx, item in enumerate(contracts):
+        sym = item["run_symbol"]
+        if sym not in by_symbol:
+            by_symbol[sym] = [("", idx)]
+
+    prev_price: dict[str, float] = {}
+    prev_idx: dict[str, int] = {}
+    nav: list[float] = []
+    bench_returns: list[float] = []
+    current_nav = 1.0
+
+    for day_str in days:
+        rets: list[float] = []
+        for sym, schedule in by_symbol.items():
+            active = schedule[0][1]
+            for roll_day, c_idx in schedule:
+                if roll_day <= day_str:
+                    active = c_idx
+                else:
+                    break
+            price = settle_maps[active].get(day_str)
+            if price is None or price <= 0:
+                continue
+            p_prev = prev_price.get(sym)
+            i_prev = prev_idx.get(sym)
+            if p_prev is not None and p_prev > 0:
+                if i_prev is not None and i_prev != active:
+                    p_prev *= float(contracts[active].get("roll_ratio", 1.0))
+                if p_prev > 0:
+                    rets.append(price / p_prev - 1.0)
+            prev_price[sym] = price
+            prev_idx[sym] = active
+        day_ret = sum(rets) / len(rets) if rets else 0.0
+        current_nav *= 1.0 + day_ret
+        nav.append(round(current_nav, 6))
+        if len(nav) > 1:
+            bench_returns.append(day_ret)
+
+    peak = 1.0
+    max_dd = 0.0
+    for val in nav:
+        if val > peak:
+            peak = val
+        if peak > 0:
+            dd = val / peak - 1.0
+            if dd < max_dd:
+                max_dd = dd
+
+    sharpe = None
+    annual_periods = getattr(config, "annual_periods", None)
+    if annual_periods and getattr(config, "zero_risk_free", False) and len(bench_returns) >= 2:
+        mean_r = sum(bench_returns) / len(bench_returns)
+        var = sum((r - mean_r) ** 2 for r in bench_returns) / (len(bench_returns) - 1)
+        if var > 0:
+            sharpe = mean_r / math.sqrt(var) * math.sqrt(float(annual_periods))
+
+    return {
+        "days": days,
+        "nav": nav,
+        "total_return": _finite(nav[-1] - 1.0),
+        "max_drawdown": _finite(max_dd),
+        "sharpe": _finite(sharpe),
+    }
+
+
 def compute(
     config,
     contracts: list[dict],
     run_tables: dict,
     components: list[dict] | None = None,
+    series: list[list[tuple[str, int]]] | None = None,
+    trials: dict | None = None,
+    uses_pit_fundamentals: bool = False,
 ) -> dict:
     """Compute symbol/sector/direction attribution, trade quality, cost and exposure diagnostics."""
     by_contract = {item["symbol"]: item for item in contracts}
@@ -282,20 +414,26 @@ def compute(
         sum(1 for t in short_trips if t["net_pnl"] > 0) / len(short_trips) if short_trips else None
     )
 
-    # Daily equity, margin, leverage, net exposure, and underwater duration.
+    # Daily equity, margin, leverage, net exposure, return, and underwater duration.
     settlements_df = run_tables["settlements"]
     peak = deposit
     cur_dd_days = 0
     max_dd_days = 0
+    daily_days: list[str] = []
     margin_ratios: list[float] = []
     gross_leverages: list[float] = []
     net_exposures: list[float] = []
+    daily_returns: list[float] = []
     equities: list[float] = []
+    prev_eq = deposit
     for row in settlements_df.iter_rows(named=True):
         day_str = row["trading_day"].isoformat()
         eq = _safe_float(row["equity"])
         margin = _safe_float(row["margin"])
+        daily_days.append(day_str)
         equities.append(eq)
+        daily_returns.append(round(eq / prev_eq - 1.0, 6) if prev_eq > 0 else 0.0)
+        prev_eq = eq
         if eq >= peak:
             peak = eq
             cur_dd_days = 0
@@ -307,6 +445,10 @@ def compute(
             margin_ratios.append(margin / eq)
             gross_leverages.append(daily_gross_notional.get(day_str, 0.0) / eq)
             net_exposures.append(daily_net_notional.get(day_str, 0.0) / eq)
+        else:
+            margin_ratios.append(0.0)
+            gross_leverages.append(0.0)
+            net_exposures.append(0.0)
 
     n_days = len(equities)
     mean_equity = sum(equities) / n_days if n_days else deposit
@@ -339,7 +481,7 @@ def compute(
 
     gross_total = sum(item["gross_pnl"] for item in by_symbol)
     net_total = sum(item["net_pnl"] for item in by_symbol)
-    return {
+    result = {
         "trades": {
             "count": trade_count,
             "wins": len(wins),
@@ -373,7 +515,20 @@ def compute(
             "long_win_rate": _finite(long_win_rate),
             "short_win_rate": _finite(short_win_rate),
         },
+        "daily": {
+            "days": daily_days,
+            "margin_ratio": [round(v, 4) for v in margin_ratios],
+            "gross_leverage": [round(v, 4) for v in gross_leverages],
+            "net_exposure": [round(v, 4) for v in net_exposures],
+            "daily_return": daily_returns,
+        },
+        "drawdowns": _top_drawdowns(daily_days, equities, deposit),
+        "benchmark": _equal_weight_benchmark(config, contracts, series, daily_days),
         "by_symbol": by_symbol,
         "by_sector": by_sector,
         "components": list(components or []),
+        "uses_pit_fundamentals": bool(uses_pit_fundamentals),
     }
+    if trials is not None:
+        result["trials"] = trials
+    return result

@@ -23,7 +23,7 @@ for (const locale of ["zh-CN", "en-US"]) {
     await fits();
     await page.screenshot({ path: `apps/clients/terminal/test-results/ctp-setup-${locale}.png` });
     await openView(page, "research");
-    await expect(page.locator(".lab-research")).toBeVisible();
+    await expect(page.locator(".lab-research:visible")).toBeVisible();
     await fits();
     // Check visible product copy in English.
     if (en)

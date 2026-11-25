@@ -1,5 +1,5 @@
 import { StatusBadge } from "../../src/ui/StatusBadge";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { lab } from "../../src/bridge/lab";
 import { ActionError, useActionError } from "../../src/host/action-error";
@@ -34,6 +34,7 @@ import {
   type ModuleItem,
   NewModule,
   Section,
+  useAnnotations,
   useConfigFold,
   useModuleMenu,
   useModules,
@@ -69,7 +70,7 @@ export function StrategyLab(context: TerminalContext) {
   const scopeText = JSON.stringify(scopeOf(form));
   const shownScope = useRef(scopeText);
   const [view, setView] = useWorkspaceDraft<"library" | "detail">("strategy-view", "library");
-  const [tab, setTab] = useWorkspaceDraft<"result" | "code">("strategy-tab", "code");
+  const [tab, setTab] = useWorkspaceDraft<"result" | "code" | "split">("strategy-tab", "code");
   const [search, setSearch] = useWorkspaceDraft("modules-search:strategies", "");
   const source = useSource(repository);
   const [runs, setRuns] = useState<RunSummary[]>([]);
@@ -234,7 +235,7 @@ export function StrategyLab(context: TerminalContext) {
         await lab({ case: "startBacktest", value: run });
         setReport({ kind: "run", id });
       }
-      setTab("result");
+      setTab(previous => (previous === "split" ? "split" : "result"));
       void readRecentRuns().catch(() => {});
     });
     setBusy(false);
@@ -330,7 +331,15 @@ export function StrategyLab(context: TerminalContext) {
       setTab("result");
     });
 
+  const annotations = useAnnotations();
   const singleRuns = runs.filter(run => !run.sweepId || run.id !== `${run.sweepId}-rolling`);
+  const strategyRuns = strategy ? singleRuns.filter(run => run.strategy === strategy.id) : [];
+  const previousRun = (() => {
+    if (report?.kind !== "run" || !strategy) return undefined;
+    const idx = strategyRuns.findIndex(run => run.id === report.id);
+    if (idx < 0) return undefined;
+    return strategyRuns.slice(idx + 1).find(run => runState(run.state) === "succeeded");
+  })();
   // The open strategy's result follows the settings in use.
   useEffect(() => {
     if (shownScope.current === scopeText) return;
@@ -382,14 +391,31 @@ export function StrategyLab(context: TerminalContext) {
     report?.kind === "run"
       ? activeState === "running"
       : report?.kind === "sweep" && activeSweep?.id === report.id && activeSweep.active;
-  const shownReport = tab === "result" ? report : null;
+  const shownReport = tab !== "code" ? report : null;
   // The strategy is named by the switch beside the run.
   const shortName = (run: RunSummary) =>
     run.label || runName(run).replace(`${chosen.split(".")[1]} `, "");
   const sameName = (item: ModuleItem) => items.filter(other => other.name === item.name).length > 1;
+  const onRunShortcut = (event: KeyboardEvent) => {
+    if (
+      !library &&
+      strategy &&
+      !busy &&
+      !context.busy &&
+      (event.metaKey || event.ctrlKey) &&
+      event.key === "Enter"
+    ) {
+      event.preventDefault();
+      void submit();
+    }
+  };
 
   return (
-    <section className="lab-research" data-folded={(!library && folded) || undefined}>
+    <section
+      className="lab-research"
+      data-folded={(!library && folded) || undefined}
+      onKeyDown={onRunShortcut}
+    >
       <RunScope
         context={context}
         form={form}
@@ -425,11 +451,13 @@ export function StrategyLab(context: TerminalContext) {
                 [
                   ["result", "回测"],
                   ["code", "代码"],
+                  ["split", "分屏"],
                 ] as const
               ).map(([key, label]) => (
                 <button
                   key={key}
                   type="button"
+                  className={key === "split" ? "lab-split-toggle" : undefined}
                   aria-pressed={tab === key}
                   onClick={() => setTab(key)}
                 >
@@ -592,9 +620,20 @@ export function StrategyLab(context: TerminalContext) {
           }
         />
       ) : (
-        <div className="lab-detail">
-          {tab === "result" ? (
-            report ? (
+        <div className={`lab-detail${tab === "split" ? " lab-detail-split" : ""}`}>
+          {(tab === "code" || tab === "split") && (
+            <LabCentre
+              source={source}
+              repository={repository}
+              modules={strategies}
+              focus={chosen}
+              changed={() => void readStrategies()}
+              onDuplicate={source.path.startsWith("strategies/") ? menu.copy : undefined}
+              onDelete={path => menu.remove(path)}
+            />
+          )}
+          {(tab === "result" || tab === "split") &&
+            (report ? (
               <div className="lab-center lab-runs-view">
                 <ActionError error={reportActed.error} namespace="asterion.terminal.research" />
                 {report.kind === "run" ? (
@@ -602,8 +641,17 @@ export function StrategyLab(context: TerminalContext) {
                     key={report.id}
                     id={report.id}
                     state={activeState}
+                    previous={previousRun}
                     openVersion={version =>
                       context.navigate("workspace.data-dataset", { params: { version } })
+                    }
+                    openFactor={factorId =>
+                      context.navigate("workspace.lab-factors", {
+                        params: { factorResult: factorId },
+                      })
+                    }
+                    openRun={runId =>
+                      context.navigate("workspace.lab-runs", { params: { run: runId } })
                     }
                   />
                 ) : activeSweep?.id === report.id ? (
@@ -627,19 +675,13 @@ export function StrategyLab(context: TerminalContext) {
                 )}
               </div>
             ) : (
-              <p className="lab-placeholder">{t("还没有回测")}</p>
-            )
-          ) : (
-            <LabCentre
-              source={source}
-              repository={repository}
-              modules={strategies}
-              focus={chosen}
-              changed={() => void readStrategies()}
-              onDuplicate={source.path.startsWith("strategies/") ? menu.copy : undefined}
-              onDelete={path => menu.remove(path)}
-            />
-          )}
+              <div className="lab-placeholder">
+                <div>
+                  <p>{t("还没有回测")}</p>
+                  <p className="subtle">{t("按 ⌘Enter / Ctrl+Enter 或点击右侧「运行」发起回测")}</p>
+                </div>
+              </div>
+            ))}
         </div>
       )}
       {strategy && !library && (
@@ -715,11 +757,12 @@ export function StrategyLab(context: TerminalContext) {
                 {field("并行进程数", "processes", { placeholder: defaultProcesses() }, "wide")}
               </Section>
               <RecentRuns
-                runs={singleRuns.filter(run => run.strategy === strategy.id)}
+                runs={strategyRuns}
                 activeId={report?.kind === "run" ? report.id : ""}
+                annotations={annotations}
                 open={id => {
                   setReport({ kind: "run", id });
-                  setTab("result");
+                  setTab(previous => (previous === "split" ? "split" : "result"));
                 }}
                 openAll={() => context.navigate("workspace.lab-runs", {})}
               />
@@ -764,11 +807,13 @@ export function StrategyLab(context: TerminalContext) {
 function RecentRuns({
   runs,
   activeId,
+  annotations,
   open,
   openAll,
 }: {
   runs: RunSummary[];
   activeId: string;
+  annotations: Record<string, { starred?: boolean; note?: string }>;
   open: (id: string) => void;
   openAll: () => void;
 }) {
@@ -781,20 +826,27 @@ function RecentRuns({
           {t("全部回测记录")}
         </button>
       </div>
-      {runs.slice(0, 6).map(run => (
-        <button
-          key={run.id}
-          type="button"
-          className="lab-link"
-          aria-pressed={activeId === run.id}
-          onClick={() => open(run.id)}
-        >
-          <span>{runName(run)}</span>
-          <span className={signed(run.metrics.total_return)}>
-            {metric(run.metrics.total_return, true)}
-          </span>
-        </button>
-      ))}
+      {runs.slice(0, 6).map(run => {
+        const ann = annotations[run.id];
+        return (
+          <button
+            key={run.id}
+            type="button"
+            className="lab-link"
+            aria-pressed={activeId === run.id}
+            title={ann?.note || runName(run)}
+            onClick={() => open(run.id)}
+          >
+            <span>
+              {ann?.starred && <span className="lab-star-mark">★ </span>}
+              {runName(run)}
+            </span>
+            <span className={signed(run.metrics.total_return)}>
+              {metric(run.metrics.total_return, true)}
+            </span>
+          </button>
+        );
+      })}
     </section>
   );
 }

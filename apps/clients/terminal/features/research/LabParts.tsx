@@ -24,12 +24,16 @@ import {
   copiedModule,
   copyStem,
   moduleTemplate,
+  readAnnotations,
   readUniverses,
   sameSymbolList,
+  saveAnnotation,
   saveUniverses,
   strategyClassName,
+  subscribeAnnotations,
   subscribeUniverses,
   symbolsOf,
+  type ExperimentAnnotation,
   type Universe,
 } from "./research-lab";
 const SourceEditor = lazy(() =>
@@ -1405,6 +1409,82 @@ export function SymbolPopover({
           />
         </div>
       )}
+    </div>
+  );
+}
+
+export function useAnnotations(): Record<string, ExperimentAnnotation> {
+  const [items, setItems] = useState(readAnnotations);
+  useEffect(() => subscribeAnnotations(() => setItems(readAnnotations())), []);
+  return items;
+}
+
+export function CopySummaryButton({ build }: { build: () => string }) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+  const copy = () => {
+    const text = build();
+    if (!navigator.clipboard?.writeText) return;
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => setCopied(false), 1800);
+    });
+  };
+  return (
+    <button type="button" className="lab-link" onClick={copy}>
+      {copied ? t("已复制") : t("复制摘要")}
+    </button>
+  );
+}
+
+export function ExperimentNoteBar({ id, trailing }: { id: string; trailing?: ReactNode }) {
+  const annotations = useAnnotations();
+  const entry = annotations[id];
+  const starred = Boolean(entry?.starred);
+  const [draft, setDraft] = useState(entry?.note ?? "");
+  useEffect(() => {
+    setDraft(entry?.note ?? "");
+  }, [id, entry?.note]);
+  const commit = () => {
+    if (draft.trim() !== (entry?.note ?? "")) saveAnnotation(id, { note: draft });
+  };
+  return (
+    <div className="lab-annotation-bar">
+      <button
+        type="button"
+        className={`lab-star${starred ? " is-starred" : ""}`}
+        aria-pressed={starred}
+        aria-label={t(starred ? "取消星标" : "加星标")}
+        title={t(starred ? "取消星标" : "加星标")}
+        onClick={() => saveAnnotation(id, { starred: !starred })}
+      >
+        {starred ? "★" : "☆"}
+      </button>
+      <input
+        type="text"
+        className="lab-note-input"
+        aria-label={t("实验备忘")}
+        placeholder={t("添加一句话实验结论…")}
+        maxLength={160}
+        value={draft}
+        onChange={event => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={event => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commit();
+            (event.target as HTMLInputElement).blur();
+          }
+        }}
+      />
+      {trailing}
     </div>
   );
 }

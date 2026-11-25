@@ -18,10 +18,16 @@ import { getLocale, type MessageValues, translate, listSeparator } from "../../s
 import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
 import { warehouseName } from "../../src/ui/contract-names";
 import { protocolPeriod } from "../../src/ui/periods";
-import type { Tone } from "../../src/ui/StatusBadge";
+import { StatusBadge, type Tone } from "../../src/ui/StatusBadge";
 import { useVirtualRows } from "../../src/ui/virtual-rows";
 import { Offset, Period, Side } from "../../src/generated/asterion/common_pb";
-import { NewModule, type ModuleDraft } from "./LabParts";
+import {
+  CopySummaryButton,
+  ExperimentNoteBar,
+  NewModule,
+  useAnnotations,
+  type ModuleDraft,
+} from "./LabParts";
 import {
   batchKey,
   batchStrategy,
@@ -29,14 +35,20 @@ import {
   combinedStrategyStem,
   combinedStrategyTemplate,
   comparePortfolio,
+  computeDrawdowns,
   deflatedSharpeRatio,
+  evaluateRunVerdicts,
+  formatRunSummaryMarkdown,
   heatmap,
   medianValue,
+  metricDeltaText,
   monthlyReturns,
   parameterText,
+  returnHistogram,
   runName,
   runState,
   slippageKey,
+  type DrawdownEpisode,
 } from "./research-lab";
 
 const t = (key: string, values?: MessageValues) =>
@@ -105,17 +117,36 @@ function day(timeNs: bigint) {
   return new Date(Number(timeNs / 1_000_000n) + 8 * 3600_000).toISOString().slice(0, 10);
 }
 
-function Figures({ summary, prefix = "" }: { summary: RunSummary; prefix?: string }) {
+function Figures({
+  summary,
+  prefix = "",
+  previous,
+}: {
+  summary: RunSummary;
+  prefix?: string;
+  previous?: RunSummary;
+}) {
   return (
     <dl className="lab-figures">
       {figures.map(([name, label, percent]) => {
         const value = summary.metrics[prefix + name];
+        const delta = previous
+          ? metricDeltaText(value, previous.metrics[prefix + name], percent)
+          : "";
         return (
           <div key={name}>
             <dt>{t(label)}</dt>
             <dd className={name.endsWith("return") ? signed(value) : undefined}>
               {metric(value, percent)}
             </dd>
+            {delta && (
+              <dd
+                className="lab-delta"
+                title={t("相对上次运行 {name}", { name: runName(previous!) })}
+              >
+                Δ {delta}
+              </dd>
+            )}
           </div>
         );
       })}
@@ -341,19 +372,27 @@ function RunChart({
 export function RunResult({
   id,
   state,
+  previous,
   openVersion,
+  openFactor,
+  openRun,
 }: {
   id: string;
   state: string;
+  previous?: RunSummary;
   openVersion?: (version: string) => void;
+  openFactor?: (id: string) => void;
+  openRun?: (id: string) => void;
 }) {
   const [detail, setDetail] = useState<RunDetail | null>(null);
   const [contract, setContract] = useState("");
   const [error, setError] = useState<DisplayError>("");
-  const [tab, setTab] = useState<
-    "overview" | "diagnostics" | "bars" | "fills" | "days" | "quantstats" | "record"
-  >("overview");
+  const [tab, setTab] = useState<"overview" | "diagnostics" | "bars" | "fills" | "days" | "record">(
+    "overview",
+  );
   const [focusedDay, setFocusedDay] = useState<string | null>(null);
+  const [showBenchmark, setShowBenchmark] = useState(true);
+  const annotations = useAnnotations();
   useEffect(() => {
     let active = true;
     setDetail(null);
@@ -436,6 +475,23 @@ export function RunResult({
         })),
       },
       months: monthlyReturns(record.costs.deposit, detail.days),
+      benchmark: (() => {
+        const bench = record.data?.diagnostics?.benchmark as BenchmarkData | undefined;
+        if (!bench?.days?.length || !bench.nav?.length || !Number.isFinite(deposit) || deposit <= 0)
+          return null;
+        const navByDay = new Map(bench.days.map((d, i) => [d, bench.nav[i]]));
+        const values = detail.days.map(item => {
+          const nav = navByDay.get(item.tradingDay);
+          return nav === undefined ? null : nav * deposit;
+        });
+        if (!values.some(v => v !== null)) return null;
+        return {
+          totalReturn: bench.total_return ?? null,
+          maxDrawdown: bench.max_drawdown ?? null,
+          sharpe: bench.sharpe ?? null,
+          values,
+        };
+      })(),
     };
   }, [detail, record]);
   useErrorNotification(error, "asterion.terminal.research");
@@ -449,7 +505,12 @@ export function RunResult({
           {t(states[runState(summary.state)] ?? "未开始")}
           {summary.error ? ` · ${summary.error}` : ""}
         </p>
-        <RunDetails record={detail.record} openVersion={openVersion} />
+        <RunDetails
+          record={detail.record}
+          openVersion={openVersion}
+          openFactor={openFactor}
+          openRun={openRun}
+        />
       </div>
     );
   const {
@@ -462,7 +523,9 @@ export function RunResult({
     equityPriceLines,
     drawdownSeries,
     months,
+    benchmark,
   } = overview;
+  const verdicts = evaluateRunVerdicts(summary, record, detail.days.length);
   const excluded = record.data.excluded as { bars: number; days: string[] } | undefined;
   const coverage = (record.data.minute_coverage ?? []) as {
     contract: string;
@@ -478,7 +541,6 @@ export function RunResult({
     ["bars", t("K 线与买卖点")],
     ["fills", t("成交（{count} 笔）", { count: detail.fills.length })],
     ["days", t("每日资金")],
-    ["quantstats", t("QuantStats 指标")],
     ["record", t("复现信息")],
   ] as const;
   return (
@@ -572,7 +634,25 @@ export function RunResult({
           </div>
         </details>
       )}
-      <Figures summary={summary} />
+      <Figures summary={summary} previous={previous} />
+      {verdicts.length > 0 && (
+        <div className="lab-verdicts" role="list" aria-label={t("研究体检")}>
+          {verdicts.map(item => (
+            <div key={item.label} className="lab-verdict-item" role="listitem">
+              <StatusBadge tone={item.tone}>{item.label}</StatusBadge>
+              <span className="subtle">{item.detail}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <ExperimentNoteBar
+        id={summary.id}
+        trailing={
+          <CopySummaryButton
+            build={() => formatRunSummaryMarkdown(detail, record, annotations[summary.id]?.note)}
+          />
+        }
+      />
       {(holdout || rolling) && (
         <SegmentFigures
           summary={summary}
@@ -596,8 +676,35 @@ export function RunResult({
       </nav>
       {tab === "overview" && (
         <>
+          {benchmark && (
+            <div className="lab-chart-controls">
+              <label className="lab-check">
+                <input
+                  type="checkbox"
+                  checked={showBenchmark}
+                  onChange={event => setShowBenchmark(event.target.checked)}
+                />
+                {t("叠加等权基准")}
+              </label>
+              <span className="subtle numeric">
+                {t("基准收益 {ret}", {
+                  ret: metric(benchmark.totalReturn ?? undefined, true),
+                })}
+                {benchmark.totalReturn !== null &&
+                  summary.metrics.total_return !== undefined &&
+                  ` · ${t("超额 {excess}", {
+                    excess: metric(summary.metrics.total_return - benchmark.totalReturn, true),
+                  })}`}
+              </span>
+            </div>
+          )}
           <PriceChart
             series={equitySeries}
+            overlays={
+              benchmark && showBenchmark
+                ? [{ label: t("等权基准"), color: "var(--series-2)", values: benchmark.values }]
+                : undefined
+            }
             label={t("权益（逐日结算）")}
             titled
             volumeLabel={t("成交量")}
@@ -633,7 +740,15 @@ export function RunResult({
           <MonthlyReturns months={months} />
         </>
       )}
-      {tab === "diagnostics" && <RunDiagnostics detail={detail} record={record} />}
+      {tab === "diagnostics" && (
+        <RunDiagnostics
+          id={summary.id}
+          detail={detail}
+          record={record}
+          focusedDay={focusedDay}
+          onFocusChange={setFocusedDay}
+        />
+      )}
       {tab === "bars" && (
         <RunChart detail={detail} data={record.data} contract={contract} choose={setContract} />
       )}
@@ -701,8 +816,14 @@ export function RunResult({
           )}
         />
       )}
-      {tab === "quantstats" && <QuantStats id={id} />}
-      {tab === "record" && <RunDetails record={detail.record} openVersion={openVersion} />}
+      {tab === "record" && (
+        <RunDetails
+          record={detail.record}
+          openVersion={openVersion}
+          openFactor={openFactor}
+          openRun={openRun}
+        />
+      )}
     </div>
   );
 }
@@ -717,6 +838,22 @@ const sectorLabels: Record<string, string> = {
   agriculture: "农副",
   financial: "金融",
   other: "其他",
+};
+
+type BenchmarkData = {
+  days: string[];
+  nav: number[];
+  total_return?: number | null;
+  max_drawdown?: number | null;
+  sharpe?: number | null;
+};
+
+type DailyRiskSeries = {
+  days: string[];
+  margin_ratio: number[];
+  gross_leverage: number[];
+  net_exposure: number[];
+  daily_return: number[];
 };
 
 type DiagnosticsData = {
@@ -753,6 +890,11 @@ type DiagnosticsData = {
     long_win_rate?: number | null;
     short_win_rate?: number | null;
   };
+  daily?: DailyRiskSeries;
+  drawdowns?: DrawdownEpisode[];
+  benchmark?: BenchmarkData | null;
+  trials?: { strategy_runs?: number; holdout_runs?: number };
+  uses_pit_fundamentals?: boolean;
   by_symbol?: Array<{
     symbol: string;
     sector: string;
@@ -794,17 +936,68 @@ function money(value: number | null | undefined) {
   }).format(value);
 }
 
+function ReturnDistribution({ returns }: { returns: readonly number[] }) {
+  const hist = useMemo(() => returnHistogram(returns), [returns]);
+  if (!hist) return null;
+  const zeroPct =
+    hist.maxVal > hist.minVal
+      ? Math.max(0, Math.min(100, ((0 - hist.minVal) / (hist.maxVal - hist.minVal)) * 100))
+      : 50;
+  return (
+    <div className="lab-dist-card">
+      <div className="lab-yearly-head">
+        <h3>{t("日收益分布")}</h3>
+        <span className="subtle numeric">
+          {t("均值 {mean} · P05 {p05} · P95 {p95}", {
+            mean: metric(hist.mean, true),
+            p05: metric(hist.p05, true),
+            p95: metric(hist.p95, true),
+          })}
+        </span>
+      </div>
+      <div className="lab-hist" role="img" aria-label={t("日收益分布")}>
+        <span className="lab-hist-zero" style={{ left: `${zeroPct}%` }} aria-hidden="true" />
+        {hist.bins.map((bin, idx) => (
+          <div
+            key={idx}
+            className="lab-hist-col"
+            title={`${metric(bin.from, true)} ~ ${metric(bin.to, true)}: ${bin.count}`}
+          >
+            <span
+              className={`lab-hist-bar ${bin.center >= 0 ? "lab-up" : "lab-down"}`}
+              style={{
+                height: `${Math.max(bin.count > 0 ? 4 : 0, (bin.count / hist.maxCount) * 100)}%`,
+              }}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="lab-hist-axis subtle numeric">
+        <span>{metric(hist.minVal, true)}</span>
+        <span>0%</span>
+        <span>{metric(hist.maxVal, true)}</span>
+      </div>
+    </div>
+  );
+}
+
 function RunDiagnostics({
+  id,
   detail,
   record,
+  focusedDay,
+  onFocusChange,
 }: {
+  id: string;
   detail: RunDetail;
   record: { costs?: { deposit?: string }; data?: { diagnostics?: DiagnosticsData } };
+  focusedDay: string | null;
+  onFocusChange: (time: string | null) => void;
 }) {
+  const deposit = Number(record.costs?.deposit ?? 0);
   const diag = useMemo<DiagnosticsData>(() => {
     if (record.data?.diagnostics) return record.data.diagnostics;
     // Fallback for runs recorded before diagnostics were persisted.
-    const deposit = Number(record.costs?.deposit ?? 0);
     let peak = Number.isFinite(deposit) && deposit > 0 ? deposit : 0;
     let curDd = 0;
     let maxDd = 0;
@@ -842,7 +1035,7 @@ function RunDiagnostics({
         max_drawdown_days: maxDd,
       },
     };
-  }, [detail.days, record]);
+  }, [detail.days, deposit, record]);
 
   const trades = diag.trades ?? {};
   const costs = diag.costs ?? {};
@@ -851,15 +1044,100 @@ function RunDiagnostics({
   const bySymbol = diag.by_symbol ?? [];
   const bySector = diag.by_sector ?? [];
   const components = diag.components ?? [];
-  const sectorName = (id: string) => t(sectorLabels[id] ?? "其他");
+  const drawdowns = useMemo(
+    () => (diag.drawdowns?.length ? diag.drawdowns : computeDrawdowns(detail.days, deposit)),
+    [diag.drawdowns, detail.days, deposit],
+  );
+  const dailyReturns = useMemo(() => {
+    if (diag.daily?.daily_return?.length) return diag.daily.daily_return;
+    let prev = deposit;
+    return detail.days.map(item => {
+      const eq = Number(item.equity?.text ?? 0);
+      const r = prev > 0 ? eq / prev - 1 : 0;
+      prev = eq;
+      return r;
+    });
+  }, [diag.daily, detail.days, deposit]);
+
+  const riskChart = useMemo(() => {
+    if (!detail.days.length) return null;
+    const timeAt = (index: number) => String(detail.days[index].settledMs * 1_000_000n);
+    const hasLeverage = Boolean(diag.daily?.days?.length && diag.daily.gross_leverage.length);
+    if (hasLeverage) {
+      const idxByDay = new Map(diag.daily!.days.map((d, i) => [d, i]));
+      const gross = detail.days.map(item => {
+        const i = idxByDay.get(item.tradingDay);
+        return i === undefined ? null : diag.daily!.gross_leverage[i]!;
+      });
+      const net = detail.days.map(item => {
+        const i = idxByDay.get(item.tradingDay);
+        return i === undefined ? null : diag.daily!.net_exposure[i]!;
+      });
+      const margin = detail.days.map(item => {
+        const i = idxByDay.get(item.tradingDay);
+        return i === undefined ? null : diag.daily!.margin_ratio[i]!;
+      });
+      return {
+        label: t("过程风险敞口（杠杆 / 净敞口 / 保证金率）"),
+        series: {
+          kind: "line" as const,
+          points: detail.days.map((_, idx) => ({
+            timestamp_ns: timeAt(idx),
+            price: gross[idx] === null ? "" : gross[idx]!.toFixed(3),
+          })),
+        },
+        overlays: [
+          { label: t("净敞口"), color: "var(--series-1)", values: net },
+          { label: t("保证金率"), color: "var(--series-3)", values: margin },
+        ],
+        describe: (index: number) =>
+          `${detail.days[index].tradingDay} · ${t("总杠杆")} ${gross[index]?.toFixed(2) ?? "—"}x · ${t("净敞口")} ${metric(net[index] ?? undefined, true)} · ${t("保证金率")} ${metric(margin[index] ?? undefined, true)}`,
+      };
+    }
+    const margin = detail.days.map(item => {
+      const eq = Number(item.equity?.text ?? 0);
+      const m = Number(item.margin?.text ?? 0);
+      return eq > 0 ? m / eq : 0;
+    });
+    return {
+      label: t("每日保证金占用率（%）"),
+      series: {
+        kind: "line" as const,
+        points: detail.days.map((_, idx) => ({
+          timestamp_ns: timeAt(idx),
+          price: (margin[idx]! * 100).toFixed(2),
+        })),
+      },
+      overlays: undefined,
+      describe: (index: number) =>
+        `${detail.days[index].tradingDay} · ${t("保证金率")} ${metric(margin[index], true)}`,
+    };
+  }, [detail.days, diag.daily]);
+
+  const maxCostAbs = Math.max(
+    Math.abs(costs.gross_pnl ?? 0),
+    Math.abs(costs.fees ?? 0),
+    Math.abs(costs.estimated_slippage ?? 0),
+    Math.abs(costs.net_pnl ?? 0),
+    1e-9,
+  );
+  const maxDirAbs = Math.max(
+    Math.abs(direction.long_pnl ?? 0),
+    Math.abs(direction.short_pnl ?? 0),
+    1e-9,
+  );
+  const maxSymAbs = Math.max(...bySymbol.map(row => Math.abs(row.net_pnl)), 1e-9);
+  const maxSecAbs = Math.max(...bySector.map(row => Math.abs(row.net_pnl)), 1e-9);
+
+  const sectorName = (code: string) => t(sectorLabels[code] ?? "其他");
   const symbolLabel = (symbol: string) => {
     const name = warehouseName(symbol);
     return name ? `${name} ${symbol}` : symbol;
   };
   return (
     <>
-      <h3>{t("交易质量")}</h3>
-      <dl className="lab-figures">
+      <h3>{t("交易质量与风控摘要")}</h3>
+      <dl className="lab-kv-strip">
         <div>
           <dt>{t("回合数")}</dt>
           <dd>{trades.count ?? "—"}</dd>
@@ -916,33 +1194,129 @@ function RunDiagnostics({
         </div>
       </dl>
 
-      <h3>{t("成本与方向")}</h3>
-      <dl className="lab-figures">
-        <div>
-          <dt>{t("毛盈亏")}</dt>
-          <dd className={signed(costs.gross_pnl)}>{money(costs.gross_pnl)}</dd>
+      <div className="lab-segments">
+        <div className="lab-flow-card">
+          <h3>{t("成本拆解")}</h3>
+          <dl className="lab-flow-list">
+            {(
+              [
+                [t("毛盈亏"), costs.gross_pnl, signed(costs.gross_pnl)],
+                [t("手续费"), costs.fees ? -Math.abs(costs.fees) : costs.fees, "subtle"],
+                [
+                  t("估算滑点"),
+                  costs.estimated_slippage
+                    ? -Math.abs(costs.estimated_slippage)
+                    : costs.estimated_slippage,
+                  "subtle",
+                ],
+                [t("净盈亏"), costs.net_pnl, signed(costs.net_pnl)],
+              ] as const
+            ).map(([label, val, tone]) => (
+              <div key={label} className="lab-flow-row">
+                <dt>{label}</dt>
+                <dd className="lab-flow-track" aria-hidden="true">
+                  <span
+                    className={`lab-bar ${tone === "subtle" ? "lab-cost-bar" : tone}`}
+                    style={{ width: `${(100 * Math.abs(val ?? 0)) / maxCostAbs}%` }}
+                  />
+                </dd>
+                <dd className={`numeric ${tone === "subtle" ? "" : tone}`}>{money(val)}</dd>
+              </div>
+            ))}
+          </dl>
         </div>
-        <div>
-          <dt>{t("手续费")}</dt>
-          <dd>{money(costs.fees)}</dd>
+        <div className="lab-flow-card">
+          <h3>{t("多空方向")}</h3>
+          <dl className="lab-flow-list">
+            {(
+              [
+                [t("多头盈亏"), direction.long_pnl, direction.long_trades, direction.long_win_rate],
+                [
+                  t("空头盈亏"),
+                  direction.short_pnl,
+                  direction.short_trades,
+                  direction.short_win_rate,
+                ],
+              ] as const
+            ).map(([label, val, count, wr]) => (
+              <div key={label} className="lab-flow-row">
+                <dt>
+                  {label}
+                  {count !== undefined && (
+                    <small className="subtle">
+                      {" "}
+                      {count} · {metric(wr ?? undefined, true)}
+                    </small>
+                  )}
+                </dt>
+                <dd className="lab-flow-track" aria-hidden="true">
+                  <span
+                    className={`lab-bar ${signed(val)}`}
+                    style={{ width: `${(100 * Math.abs(val ?? 0)) / maxDirAbs}%` }}
+                  />
+                </dd>
+                <dd className={`numeric ${signed(val)}`}>{money(val)}</dd>
+              </div>
+            ))}
+          </dl>
         </div>
-        <div>
-          <dt>{t("估算滑点")}</dt>
-          <dd>{money(costs.estimated_slippage)}</dd>
+      </div>
+
+      {riskChart && (
+        <PriceChart
+          series={riskChart.series}
+          overlays={riskChart.overlays}
+          label={riskChart.label}
+          titled
+          compact
+          volumeLabel={t("成交量")}
+          showVolume={false}
+          baselineValue={0}
+          focusedTime={focusedDay}
+          onFocusChange={onFocusChange}
+          formatTime={value => day(BigInt(value))}
+          describe={riskChart.describe}
+        />
+      )}
+
+      {(dailyReturns.length >= 3 || drawdowns.length > 0) && (
+        <div className="lab-segments">
+          <ReturnDistribution returns={dailyReturns} />
+          {drawdowns.length > 0 && (
+            <div>
+              <h3>{t("最大回撤区间（Top 5）")}</h3>
+              <div className="lab-scroll">
+                <table className="lab-table" aria-label={t("最大回撤区间")}>
+                  <thead>
+                    <tr>
+                      <th scope="col">{t("峰值日")}</th>
+                      <th scope="col">{t("谷底日")}</th>
+                      <th scope="col">{t("恢复日")}</th>
+                      <th scope="col" className="numeric">
+                        {t("回撤")}
+                      </th>
+                      <th scope="col" className="numeric">
+                        {t("持续")}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {drawdowns.map(item => (
+                      <tr key={`${item.peak_day}-${item.trough_day}`}>
+                        <td className="numeric">{item.peak_day}</td>
+                        <td className="numeric">{item.trough_day}</td>
+                        <td className="numeric subtle">{item.recovery_day ?? t("未恢复")}</td>
+                        <td className="numeric lab-down">{metric(item.depth, true)}</td>
+                        <td className="numeric">{t("{days} 天", { days: item.duration_days })}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
-        <div>
-          <dt>{t("净盈亏")}</dt>
-          <dd className={signed(costs.net_pnl)}>{money(costs.net_pnl)}</dd>
-        </div>
-        <div>
-          <dt>{t("多头盈亏")}</dt>
-          <dd className={signed(direction.long_pnl)}>{money(direction.long_pnl)}</dd>
-        </div>
-        <div>
-          <dt>{t("空头盈亏")}</dt>
-          <dd className={signed(direction.short_pnl)}>{money(direction.short_pnl)}</dd>
-        </div>
-      </dl>
+      )}
 
       {bySymbol.length > 0 && (
         <>
@@ -956,6 +1330,7 @@ function RunDiagnostics({
                   <th scope="col" className="numeric">
                     {t("净盈亏")}
                   </th>
+                  <td aria-hidden="true" />
                   <th scope="col" className="numeric">
                     {t("毛盈亏")}
                   </th>
@@ -982,6 +1357,12 @@ function RunDiagnostics({
                     <th scope="row">{symbolLabel(row.symbol)}</th>
                     <td>{sectorName(row.sector)}</td>
                     <td className={`numeric ${signed(row.net_pnl)}`}>{money(row.net_pnl)}</td>
+                    <td className="lab-bar-cell" aria-hidden="true">
+                      <span
+                        className={`lab-bar ${signed(row.net_pnl)}`}
+                        style={{ width: `${(100 * Math.abs(row.net_pnl)) / maxSymAbs}%` }}
+                      />
+                    </td>
                     <td className={`numeric ${signed(row.gross_pnl)}`}>{money(row.gross_pnl)}</td>
                     <td className="numeric">{money(row.fees)}</td>
                     <td className="numeric">{money(row.slippage_cost)}</td>
@@ -1007,6 +1388,7 @@ function RunDiagnostics({
                   <th scope="col" className="numeric">
                     {t("净盈亏")}
                   </th>
+                  <td aria-hidden="true" />
                   <th scope="col" className="numeric">
                     {t("毛盈亏")}
                   </th>
@@ -1029,6 +1411,12 @@ function RunDiagnostics({
                   <tr key={row.sector}>
                     <th scope="row">{sectorName(row.sector)}</th>
                     <td className={`numeric ${signed(row.net_pnl)}`}>{money(row.net_pnl)}</td>
+                    <td className="lab-bar-cell" aria-hidden="true">
+                      <span
+                        className={`lab-bar ${signed(row.net_pnl)}`}
+                        style={{ width: `${(100 * Math.abs(row.net_pnl)) / maxSecAbs}%` }}
+                      />
+                    </td>
                     <td className={`numeric ${signed(row.gross_pnl)}`}>{money(row.gross_pnl)}</td>
                     <td className="numeric">{money(row.fees)}</td>
                     <td className={`numeric ${signed(row.long_pnl)}`}>{money(row.long_pnl)}</td>
@@ -1085,23 +1473,49 @@ function RunDiagnostics({
           </div>
         </>
       )}
+
+      <h3>{t("风险与尾部（QuantStats）")}</h3>
+      <QuantStats id={id} />
     </>
   );
 }
+function monthlyTint(value: number | undefined, scale: number) {
+  if (value === undefined || !Number.isFinite(value) || value === 0 || scale <= 0) return undefined;
+  const ratio = Math.min(1, Math.abs(value) / scale);
+  const strength = Math.round(4 + ratio * 7);
+  const tone = value > 0 ? "var(--quote-up)" : "var(--quote-down)";
+  return { "--cell-tint": `color-mix(in oklab, ${tone} ${strength}%, var(--canvas))` } as Record<
+    string,
+    string
+  >;
+}
+
 function MonthlyReturns({ months }: { months: { month: string; value: number }[] }) {
   const years = [...new Set(months.map(item => item.month.slice(0, 4)))];
   const of = new Map(months.map(item => [item.month, item.value]));
+  const monthScale = Math.max(0.02, ...months.map(item => Math.abs(item.value)));
+  const monthName = new Intl.DateTimeFormat(getLocale(), { month: "short", timeZone: "UTC" });
+  const headers = Array.from({ length: 12 }, (_, index) =>
+    monthName.format(new Date(Date.UTC(2026, index, 1))),
+  );
   return (
-    <div className="lab-scroll">
+    <div className="lab-scroll" tabIndex={0} role="region" aria-label={t("月度收益")}>
       <table className="lab-table lab-monthly" aria-label={t("月度收益")}>
+        <colgroup>
+          <col className="lab-monthly-year" />
+          {headers.map((_, index) => (
+            <col key={index} />
+          ))}
+          <col className="lab-monthly-total" />
+        </colgroup>
         <thead>
           <tr>
             <th scope="col">
               <span className="sr-only">{t("年份")}</span>
             </th>
-            {Array.from({ length: 12 }, (_, index) => (
+            {headers.map((label, index) => (
               <th scope="col" key={index} className="numeric">
-                {index + 1}
+                {label}
               </th>
             ))}
             <th scope="col" className="numeric">
@@ -1116,15 +1530,28 @@ function MonthlyReturns({ months }: { months: { month: string; value: number }[]
             );
             const total =
               values.reduce<number>((product, value) => product * (1 + (value ?? 0)), 1) - 1;
+            const totalScale = Math.max(0.06, monthScale * 2.5, Math.abs(total));
             return (
               <tr key={year}>
                 <th scope="row">{year}</th>
                 {values.map((value, index) => (
-                  <td key={index} className={`numeric ${signed(value)}`}>
-                    {value === undefined ? "" : metric(value, true)}
+                  <td
+                    key={index}
+                    className={`numeric ${signed(value)}`}
+                    style={monthlyTint(value, monthScale)}
+                  >
+                    {value === undefined ? (
+                      <span className="lab-monthly-empty" aria-hidden="true">
+                        —
+                      </span>
+                    ) : (
+                      metric(value, true)
+                    )}
                   </td>
                 ))}
-                <td className={`numeric ${signed(total)}`}>{metric(total, true)}</td>
+                <td className={`numeric ${signed(total)}`} style={monthlyTint(total, totalScale)}>
+                  {metric(total, true)}
+                </td>
               </tr>
             );
           })}
@@ -1214,15 +1641,23 @@ export const runTones: Record<string, Tone> = {
   interrupted: "attention",
 };
 
-// What reproduces the run: strategy version, data, engine, costs and limits.
+// What reproduces the run: strategy version, data, engine, costs, lineage and limits.
 function RunDetails({
   record,
   openVersion,
+  openFactor,
+  openRun,
 }: {
   record: string;
   openVersion?: (version: string) => void;
+  openFactor?: (id: string) => void;
+  openRun?: (id: string) => void;
 }) {
   const value = JSON.parse(record);
+  const lineage = value.data?.lineage as
+    { factor_evaluation?: string; source_runs?: string[] } | undefined;
+  const trials = value.data?.diagnostics?.trials as
+    { strategy_runs?: number; holdout_runs?: number } | undefined;
   return (
     <div className="lab-details">
       <dl>
@@ -1258,6 +1693,56 @@ function RunDetails({
         </dd>
         <dt>{t("引擎")}</dt>
         <dd>{value.engine.version}</dd>
+        {trials?.strategy_runs ? (
+          <>
+            <dt>{t("累计尝试")}</dt>
+            <dd>
+              {t("该策略累计 {total} 次成功运行", { total: trials.strategy_runs })}
+              {trials.holdout_runs
+                ? ` · ${t("同留出期 {hold} 次", { hold: trials.holdout_runs })}`
+                : ""}
+            </dd>
+          </>
+        ) : null}
+        {lineage?.factor_evaluation && (
+          <>
+            <dt>{t("来源因子评价")}</dt>
+            <dd>
+              {openFactor ? (
+                <button
+                  type="button"
+                  className="lab-link"
+                  onClick={() => openFactor(lineage.factor_evaluation!)}
+                >
+                  <code>{lineage.factor_evaluation}</code>
+                </button>
+              ) : (
+                <code>{lineage.factor_evaluation}</code>
+              )}
+            </dd>
+          </>
+        )}
+        {lineage?.source_runs && lineage.source_runs.length > 0 && (
+          <>
+            <dt>{t("来源子策略回测")}</dt>
+            <dd className="lab-lineage-links">
+              {lineage.source_runs.map(runId =>
+                openRun ? (
+                  <button
+                    key={runId}
+                    type="button"
+                    className="lab-link"
+                    onClick={() => openRun(runId)}
+                  >
+                    <code>{runId}</code>
+                  </button>
+                ) : (
+                  <code key={runId}>{runId}</code>
+                ),
+              )}
+            </dd>
+          </>
+        )}
       </dl>
       <pre>
         {JSON.stringify({ params: value.params, costs: value.costs, risk: value.risk }, null, 2)}
