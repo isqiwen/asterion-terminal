@@ -545,7 +545,9 @@ setup() {
             place_shortcut
             for INSTANCE in $(accounts); do refresh_settings "$(account_file)" current_account; done
             INSTANCE=
+            exec {program_lock}<&-
             echo "已完成程序与离线策略运行时升级：$ROOT（业务数据未改动；请显式启动账户并在 Terminal 重新允许下单）。"
+            menu
         else
             install_once "$1"
             place "$1"
