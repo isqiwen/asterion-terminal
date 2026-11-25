@@ -23,18 +23,24 @@ import {
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
 
-const limits = [
-  ["初始资金", "deposit"],
-  ["滑点（跳）", "slippage"],
-  ["单笔手数", "maxOrderLots"],
-  ["单合约持仓手数", "maxContractLots"],
-  ["账户总持仓手数", "maxGrossLots"],
-  ["在途委托数", "maxWorkingOrders"],
-  ["总权重上限", "maxGrossWeight"],
-  ["净权重上限", "maxNetWeight"],
-  ["保证金率上限", "maxMarginRatio"],
-  ["最小调仓偏离", "minRebalanceWeight"],
-  ["每年期数", "annualPeriods"],
+const costFields = [
+  ["初始资金", "deposit", ""],
+  ["滑点（跳）", "slippage", ""],
+] as const;
+
+const riskLimitFields = [
+  ["单笔手数", "maxOrderLots", ""],
+  ["单合约持仓手数", "maxContractLots", ""],
+  ["账户总持仓手数", "maxGrossLots", ""],
+  ["在途委托数", "maxWorkingOrders", ""],
+] as const;
+
+const portfolioFields = [
+  ["总权重上限", "maxGrossWeight", "如 1.0"],
+  ["净权重上限", "maxNetWeight", "如 1.0"],
+  ["保证金率上限", "maxMarginRatio", "0–1，如 0.8"],
+  ["最小调仓偏离", "minRebalanceWeight", "如 0.05"],
+  ["每年期数", "annualPeriods", "252"],
 ] as const;
 
 const periodName = (minutes: string) =>
@@ -143,6 +149,21 @@ function RunFields({
       />
     </label>
   );
+  const renderField = ([label, key, placeholder]: readonly [
+    string,
+    Exclude<keyof ScopeFields, "zeroRiskFree">,
+    string,
+  ]) => (
+    <label key={key}>
+      <span>{t(label)}</span>
+      <input
+        className="lab-param"
+        placeholder={placeholder ? (placeholder === "252" ? "252" : t(placeholder)) : undefined}
+        value={form[key]}
+        onChange={event => change({ [key]: event.target.value })}
+      />
+    </label>
+  );
   return (
     <>
       <section>
@@ -174,25 +195,30 @@ function RunFields({
           {dateField("留出日", "holdoutDay")}
         </div>
       </section>
-      <section>
-        <h3>{t("资金与风控")}</h3>
-        <div className="lab-form">
-          {limits.map(([label, key]) => (
-            <label key={key}>
-              <span>{t(label)}</span>
-              <input value={form[key]} onChange={event => change({ [key]: event.target.value })} />
+      <div className="lab-scope-groups">
+        <section className="lab-scope-group">
+          <h3>{t("资金与成本")}</h3>
+          <div className="lab-form">{costFields.map(renderField)}</div>
+        </section>
+        <section className="lab-scope-group">
+          <h3>{t("风控限额")}</h3>
+          <div className="lab-form">{riskLimitFields.map(renderField)}</div>
+        </section>
+        <section className="lab-scope-group">
+          <h3>{t("组合与统计")}</h3>
+          <div className="lab-form">
+            {portfolioFields.map(renderField)}
+            <label className="lab-check wide">
+              <input
+                type="checkbox"
+                checked={form.zeroRiskFree}
+                onChange={event => change({ zeroRiskFree: event.target.checked })}
+              />
+              {t("无风险利率为零")}
             </label>
-          ))}
-          <label className="lab-check wide">
-            <input
-              type="checkbox"
-              checked={form.zeroRiskFree}
-              onChange={event => change({ zeroRiskFree: event.target.checked })}
-            />
-            {t("无风险利率为零")}
-          </label>
-        </div>
-      </section>
+          </div>
+        </section>
+      </div>
     </>
   );
 }

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 import { expect, test, vi } from "vitest";
 import { lab } from "../../src/bridge/lab";
@@ -342,4 +342,74 @@ test("reproduction details omit the commit suffix when the strategy has no git c
   fireEvent.click(await screen.findByRole("button", { name: "复现信息" }));
   const strategy = screen.getByText("策略").nextElementSibling!;
   expect(strategy.textContent).toBe("ma_cross.MaCross");
+});
+
+test("holdout metrics render in one compact comparison table instead of duplicate figure strips", async () => {
+  vi.mocked(lab).mockReset();
+  vi.mocked(lab).mockImplementation(async operation => {
+    if (operation.case !== "getRun") throw new Error("Unexpected operation");
+    return create(RunDetailSchema, {
+      summary: {
+        id: "with-holdout",
+        state: RunState.SUCCEEDED,
+        metrics: {
+          total_return: 0.2,
+          development_total_return: 0.15,
+          development_sharpe: 1.4,
+          holdout_total_return: 0.05,
+          holdout_sharpe: 0.9,
+        },
+      },
+      record: JSON.stringify({
+        strategy: { id: "ma_cross.MaCross", commit: "", changes: "" },
+        costs: { deposit: "1000000" },
+        statistics: { holdout_day: "2026-02-01" },
+        engine: { version: "test" },
+        data: {
+          dataset_version: "a".repeat(64),
+          symbols: ["SHFE/rb"],
+          begin_day: "2026-01-05",
+          end_day: "2026-02-13",
+          bars: { period: "day" },
+        },
+      }),
+    }) as never;
+  });
+  const { container } = render(<RunResult id="with-holdout" state="succeeded" />);
+  const table = await screen.findByRole("table", { name: "分段对比" });
+  expect(container.querySelectorAll("dl.lab-figures")).toHaveLength(1);
+  expect(within(table).getByRole("rowheader", { name: "留出日 2026-02-01 之前" })).toBeTruthy();
+  expect(within(table).getByRole("rowheader", { name: "留出段" })).toBeTruthy();
+  expect(within(table).getByText("15.00%")).toBeTruthy();
+  expect(within(table).getByText("0.900")).toBeTruthy();
+});
+
+test("run comparison shows series swatches, differing run contexts, and date alignment notice", async () => {
+  vi.mocked(lab).mockReset();
+  vi.mocked(lab).mockImplementation(async operation => {
+    if (operation.case !== "getRun") throw new Error("Unexpected operation");
+    const first = operation.value.id === "r1";
+    return create(RunDetailSchema, {
+      summary: {
+        id: operation.value.id,
+        strategy: first ? "a.Alpha" : "b.Beta",
+        symbols: first ? ["SHFE/rb"] : ["DCE/i"],
+        firstDay: first ? "2025-01-02" : "2025-06-01",
+        lastDay: "2026-02-13",
+      },
+      record: JSON.stringify({ costs: { deposit: "1000000" } }),
+    }) as never;
+  });
+  render(<RunComparison ids={["r1", "r2"]} />);
+  const firstHeader = await screen.findByRole("columnheader", { name: "r1" });
+  const secondHeader = screen.getByRole("columnheader", { name: "r2" });
+  expect((firstHeader.querySelector(".lab-swatch") as HTMLElement).style.background).toBe(
+    "var(--price-line)",
+  );
+  expect((secondHeader.querySelector(".lab-swatch") as HTMLElement).style.background).toBe(
+    "var(--series-1)",
+  );
+  expect(screen.getByRole("row", { name: /策略 a\.Alpha b\.Beta/ })).toBeTruthy();
+  expect(screen.getByRole("row", { name: /品种 SHFE\/rb DCE\/i/ })).toBeTruthy();
+  expect(screen.getByText("净值曲线按首次运行（r1）的交易日对齐")).toBeTruthy();
 });

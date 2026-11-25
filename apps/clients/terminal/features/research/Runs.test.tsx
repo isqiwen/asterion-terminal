@@ -139,8 +139,10 @@ test("records page through history and a new search starts from its first page",
   view();
   await screen.findByRole("table", { name: "回测记录" });
   expect(names()).toHaveLength(50);
+  expect(screen.getByText("第 1–50 条")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "下一页" }));
   await waitFor(() => expect(names()).toEqual(["r50"]));
+  expect(screen.getByText("第 51–51 条")).toBeTruthy();
   fireEvent.change(screen.getByLabelText("搜索名称或品种"), { target: { value: "r0" } });
   await waitFor(() => expect(names()).toEqual(["r0"]));
   expect(screen.queryByRole("button", { name: "上一页" })).toBeNull();
@@ -153,9 +155,20 @@ test("selected runs open side by side", async () => {
   const compare = screen.getByRole("button", { name: "比较所选（0）" });
   expect(compare.hasAttribute("disabled")).toBe(true);
   for (const id of ["r1", "r3"]) fireEvent.click(screen.getByLabelText(`比较 ${id}`));
+  fireEvent.click(screen.getByRole("button", { name: "清空选择" }));
+  expect(screen.queryByRole("button", { name: "清空选择" })).toBeNull();
+  for (const id of ["r1", "r3"]) fireEvent.click(screen.getByLabelText(`比较 ${id}`));
   fireEvent.click(screen.getByRole("button", { name: "比较所选（2）" }));
   await screen.findByRole("columnheader", { name: "r3" });
   expect(screen.getByRole("columnheader", { name: "r1" })).toBeTruthy();
+});
+
+test("clicking a record row opens its report", async () => {
+  serve([run("r1", 1, { label: "快线" })]);
+  view();
+  const row = await screen.findByRole("row", { name: /快线/ });
+  fireEvent.click(row);
+  await screen.findByRole("heading", { name: "快线" });
 });
 
 test("a rolling account report cannot be deployed as a single strategy configuration", async () => {
@@ -225,7 +238,13 @@ test("drawdown sorts lowest first and a sweep with two swept parameters plus a f
   view({ sweep: "s1" });
   const heatmap = await screen.findByRole("table", { name: "参数热力图" });
   expect(heatmap.textContent).toContain("fast \\ slow");
+  expect(screen.getByText("已完成 2 / 2")).toBeTruthy();
   fireEvent.change(screen.getByLabelText("按指标"), { target: { value: "max_drawdown" } });
-  const rankedRows = within(screen.getAllByRole("table")[1]!).getAllByRole("row").slice(1);
+  const rankedTable = screen.getAllByRole("table")[1]!;
+  expect(within(rankedTable).getByRole("columnheader", { name: "总收益" })).toBeTruthy();
+  expect(within(rankedTable).getByRole("columnheader", { name: "夏普比率" })).toBeTruthy();
+  const rankedRows = within(rankedTable).getAllByRole("row").slice(1);
   expect(rankedRows[0]!.textContent).toContain("8.00%");
+  fireEvent.click(within(heatmap).getByRole("button", { name: "8.00%" }));
+  await screen.findByRole("heading", { name: "s1-2" });
 });

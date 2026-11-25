@@ -115,6 +115,49 @@ function Figures({ summary, prefix = "" }: { summary: RunSummary; prefix?: strin
   );
 }
 
+function SegmentFigures({
+  summary,
+  segments,
+}: {
+  summary: RunSummary;
+  segments: readonly (readonly [string, string])[];
+}) {
+  return (
+    <div className="lab-scroll">
+      <table className="lab-table" aria-label={t("分段对比")}>
+        <thead>
+          <tr>
+            <th scope="col">{t("分段")}</th>
+            {figures.map(([name, label]) => (
+              <th scope="col" key={name} className="numeric">
+                {t(label)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {segments.map(([label, prefix]) => (
+            <tr key={prefix}>
+              <th scope="row">{label}</th>
+              {figures.map(([name, , percent]) => {
+                const value = summary.metrics[prefix + name];
+                return (
+                  <td
+                    key={name}
+                    className={`numeric ${name.endsWith("return") ? signed(value) : ""}`}
+                  >
+                    {metric(value, percent)}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function VirtualScrollTable<T>({
   label,
   columns,
@@ -521,23 +564,19 @@ export function RunResult({
         </details>
       )}
       <Figures summary={summary} />
-      {holdout && (
-        <div className="lab-segments">
-          <div>
-            <h3>{t("留出日 {day} 之前", { day: holdout })}</h3>
-            <Figures summary={summary} prefix="development_" />
-          </div>
-          <div>
-            <h3>{t("留出段")}</h3>
-            <Figures summary={summary} prefix="holdout_" />
-          </div>
-        </div>
-      )}
-      {rolling && (
-        <>
-          <h3>{t("样本外（第一轮验证起）")}</h3>
-          <Figures summary={summary} prefix="out_of_sample_" />
-        </>
+      {(holdout || rolling) && (
+        <SegmentFigures
+          summary={summary}
+          segments={[
+            ...(holdout
+              ? ([
+                  [t("留出日 {day} 之前", { day: holdout }), "development_"],
+                  [t("留出段"), "holdout_"],
+                ] as const)
+              : []),
+            ...(rolling ? ([[t("样本外（第一轮验证起）"), "out_of_sample_"]] as const) : []),
+          ]}
+        />
       )}
       <nav className="lab-report-tabs tabs" aria-label={t("报告")}>
         {tabs.map(([key, label]) => (
@@ -872,6 +911,20 @@ function Comparison({ joined }: { joined: string }) {
   const [first, ...others] = details;
   const name = (detail: RunDetail) => runName(detail.summary!);
   const base = (detail: RunDetail) => Number(JSON.parse(detail.record).costs.deposit);
+  const seriesColor = (index: number) =>
+    index === 0 ? "var(--price-line)" : overlayColors[(index - 1) % overlayColors.length];
+  const rangeOf = (detail: RunDetail) =>
+    detail.summary!.firstDay || detail.summary!.lastDay
+      ? `${detail.summary!.firstDay} – ${detail.summary!.lastDay}`
+      : "";
+  const contextRows = (
+    [
+      [t("策略"), (detail: RunDetail) => detail.summary!.strategy],
+      [t("品种"), (detail: RunDetail) => detail.summary!.symbols.join(listSeparator())],
+      [t("区间"), rangeOf],
+    ] as const
+  ).filter(([, read]) => new Set(details.map(read)).size > 1);
+  const diffRange = new Set(details.map(rangeOf)).size > 1;
   const params = [...new Set(details.flatMap(detail => Object.keys(detail.summary!.params)))];
   const differing = params.filter(
     param => new Set(details.map(detail => parameterText(detail.summary!.params[param]))).size > 1,
@@ -885,8 +938,13 @@ function Comparison({ joined }: { joined: string }) {
               <th scope="col">
                 <span className="sr-only">{t("指标")}</span>
               </th>
-              {details.map(detail => (
+              {details.map((detail, index) => (
                 <th scope="col" key={detail.summary!.id} className="numeric">
+                  <span
+                    className="lab-swatch"
+                    aria-hidden="true"
+                    style={{ background: seriesColor(index) }}
+                  />
                   {name(detail)}
                 </th>
               ))}
@@ -910,6 +968,16 @@ function Comparison({ joined }: { joined: string }) {
                 </tr>
               ),
             )}
+            {contextRows.map(([label, read]) => (
+              <tr key={label} className="lab-differs">
+                <td>{label}</td>
+                {details.map(detail => (
+                  <td key={detail.summary!.id} className="numeric">
+                    {read(detail) || "—"}
+                  </td>
+                ))}
+              </tr>
+            ))}
             {differing.map(param => (
               <tr key={param} className="lab-differs">
                 <td>{param}</td>
@@ -923,6 +991,11 @@ function Comparison({ joined }: { joined: string }) {
           </tbody>
         </table>
       </div>
+      {diffRange && (
+        <p className="subtle">
+          {t("净值曲线按首次运行（{name}）的交易日对齐", { name: name(first) })}
+        </p>
+      )}
       <PriceChart
         series={{
           kind: "line",
@@ -1010,13 +1083,15 @@ export function SweepResult({
   const axisLabel = (axis: string) =>
     axis === symbolAxis ? t("品种") : axis === batchKey ? t("策略") : axis;
   const grid = sweptAxes.length === 2 ? heatmap(rows, sweptAxes[0]!, sweptAxes[1]!) : null;
+  const cellRuns = grid
+    ? new Map(rows.map(row => [`${row.params[sweptAxes[0]!]}\0${row.params[sweptAxes[1]!]}`, row]))
+    : null;
   const values = rows.flatMap(row => (row.metric === null ? [] : [row.metric]));
   const low = Math.min(...values),
     high = Math.max(...values);
   const percent = percentMetric(measure);
   const pureMultiSymbol = (hasSymbols && names.length === 0) || names[0] === batchKey;
-  const extraMeasure =
-    pureMultiSymbol && !["total_return", "sharpe", "max_drawdown"].includes(measure);
+  const extraMeasure = !["total_return", "sharpe", "max_drawdown"].includes(measure);
   return (
     <div className="lab-result">
       <div className="lab-toolbar">
@@ -1037,54 +1112,77 @@ export function SweepResult({
         )}
       </div>
       {grid && (
-        <table className="lab-heatmap" aria-label={t("参数热力图")}>
-          <thead>
-            <tr>
-              <th scope="col">
-                {axisLabel(sweptAxes[0]!)} \ {axisLabel(sweptAxes[1]!)}
-              </th>
-              {grid.columns.map(column => (
-                <th scope="col" key={column}>
-                  {column}
+        <div className="lab-scroll" tabIndex={0} role="region" aria-label={t("参数热力图")}>
+          <table className="lab-heatmap" aria-label={t("参数热力图")}>
+            <thead>
+              <tr>
+                <th scope="col">
+                  {axisLabel(sweptAxes[0]!)} \ {axisLabel(sweptAxes[1]!)}
                 </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {grid.rows.map((row, r) => (
-              <tr key={row}>
-                <th scope="row">{row}</th>
-                {grid.cells[r].map((cell, c) => {
-                  const ratio =
-                    cell === null || high === low
-                      ? null
-                      : lowerBetter
-                        ? (high - cell) / (high - low)
-                        : (cell - low) / (high - low);
-                  return (
-                    <td
-                      key={c}
-                      style={
-                        ratio === null
-                          ? undefined
-                          : {
-                              background: `color-mix(in oklab, var(--accent) ${Math.round(12 + 56 * ratio)}%, var(--panel))`,
-                            }
-                      }
-                    >
-                      {cell === null ? "—" : metric(cell, percent)}
-                    </td>
-                  );
-                })}
+                {grid.columns.map(column => (
+                  <th scope="col" key={column}>
+                    {column}
+                  </th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {grid.rows.map((row, r) => (
+                <tr key={row}>
+                  <th scope="row">{row}</th>
+                  {grid.cells[r].map((cell, c) => {
+                    const column = grid.columns[c]!;
+                    const match = cellRuns?.get(`${row}\0${column}`);
+                    const text = cell === null ? "—" : metric(cell, percent);
+                    const ratio =
+                      cell === null || high === low
+                        ? null
+                        : lowerBetter
+                          ? (high - cell) / (high - low)
+                          : (cell - low) / (high - low);
+                    return (
+                      <td
+                        key={c}
+                        className={match?.id === selected ? "selected" : undefined}
+                        style={
+                          ratio === null
+                            ? undefined
+                            : {
+                                background: `color-mix(in oklab, var(--accent) ${Math.round(12 + 56 * ratio)}%, var(--panel))`,
+                              }
+                        }
+                      >
+                        {match?.state === "succeeded" ? (
+                          <button
+                            type="button"
+                            className="lab-heatmap-cell"
+                            title={`${axisLabel(sweptAxes[0]!)}=${row}, ${axisLabel(sweptAxes[1]!)}=${column} · ${metricLabel(measure)}: ${text}`}
+                            onClick={() => open(match.id)}
+                          >
+                            {text}
+                          </button>
+                        ) : (
+                          text
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       <VirtualScrollTable
         label={t("排名")}
         columns={
-          pureMultiSymbol ? 7 + (extraMeasure ? 1 : 0) : (hasSymbols ? 1 : 0) + names.length + 3
+          1 +
+          (hasSymbols ? 1 : 0) +
+          names.length +
+          (pureMultiSymbol ? 1 : 0) +
+          3 +
+          (extraMeasure ? 1 : 0) +
+          1
         }
         headers={
           <tr>
@@ -1096,24 +1194,16 @@ export function SweepResult({
               </th>
             ))}
             {pureMultiSymbol && <th scope="col">{t("区间")}</th>}
-            {pureMultiSymbol ? (
-              <>
-                <th scope="col" className="numeric">
-                  {metricLabel("total_return")}
-                </th>
-                <th scope="col" className="numeric">
-                  {metricLabel("sharpe")}
-                </th>
-                <th scope="col" className="numeric">
-                  {metricLabel("max_drawdown")}
-                </th>
-                {extraMeasure && (
-                  <th scope="col" className="numeric">
-                    {metricLabel(measure)}
-                  </th>
-                )}
-              </>
-            ) : (
+            <th scope="col" className="numeric">
+              {metricLabel("total_return")}
+            </th>
+            <th scope="col" className="numeric">
+              {metricLabel("sharpe")}
+            </th>
+            <th scope="col" className="numeric">
+              {metricLabel("max_drawdown")}
+            </th>
+            {extraMeasure && (
               <th scope="col" className="numeric">
                 {metricLabel(measure)}
               </th>
@@ -1123,32 +1213,36 @@ export function SweepResult({
         }
         rows={ranked}
         renderRow={(row, index) => (
-          <tr key={row.id} className={row.id === selected ? "selected" : undefined}>
+          <tr
+            key={row.id}
+            className={row.id === selected ? "selected" : undefined}
+            data-openable={row.state === "succeeded" || undefined}
+            onClick={row.state === "succeeded" ? () => open(row.id) : undefined}
+          >
             <td>{index + 1}</td>
             {hasSymbols && <td>{row.symbols}</td>}
             {names.map(name => (
               <td key={name}>{row.params[name]}</td>
             ))}
             {pureMultiSymbol && <td className="subtle">{row.span || "—"}</td>}
-            {pureMultiSymbol ? (
-              <>
-                <td className={`numeric ${signed(row.metrics.total_return)}`}>
-                  {metric(row.metrics.total_return, true)}
-                </td>
-                <td className="numeric">{metric(row.metrics.sharpe, false)}</td>
-                <td className="numeric">{metric(row.metrics.max_drawdown, true)}</td>
-                {extraMeasure && (
-                  <td className="numeric">
-                    {row.metric === null ? "—" : metric(row.metric, percent)}
-                  </td>
-                )}
-              </>
-            ) : (
+            <td className={`numeric ${signed(row.metrics.total_return)}`}>
+              {metric(row.metrics.total_return, true)}
+            </td>
+            <td className="numeric">{metric(row.metrics.sharpe, false)}</td>
+            <td className="numeric">{metric(row.metrics.max_drawdown, true)}</td>
+            {extraMeasure && (
               <td className="numeric">{row.metric === null ? "—" : metric(row.metric, percent)}</td>
             )}
             <td>
               {row.state === "succeeded" ? (
-                <button type="button" className="lab-link" onClick={() => open(row.id)}>
+                <button
+                  type="button"
+                  className="lab-link"
+                  onClick={event => {
+                    event.stopPropagation();
+                    open(row.id);
+                  }}
+                >
                   {t("查看")}
                 </button>
               ) : (

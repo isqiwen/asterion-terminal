@@ -604,6 +604,37 @@ label.lab-inline {
   text-align: right;
   color: var(--text-strong);
 }
+.lab-heatmap td:has(> .lab-heatmap-cell) {
+  padding: 0;
+}
+.lab-heatmap td.selected {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+button.lab-heatmap-cell {
+  display: block;
+  width: 100%;
+  min-width: 72px;
+  min-height: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: right;
+  cursor: pointer;
+}
+button.lab-heatmap-cell:enabled:not([aria-disabled="true"]):is(:hover, :focus-visible) {
+  background: color-mix(in oklab, white 8%, transparent);
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1px var(--accent);
+  color: var(--text-strong);
+  outline: none;
+}
+.lab-table tbody tr[data-openable],
+.lab-records tbody tr {
+  cursor: pointer;
+}
 .lab-corr-heatmap thead th:first-child,
 .lab-corr-heatmap tbody th {
   text-align: left;
@@ -1337,6 +1368,11 @@ button.lab-symbol-months:enabled:hover {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: var(--space-5);
+}
+.lab-scope-group + .lab-scope-group {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
 }
 .lab-scope-dialog footer {
   display: flex;

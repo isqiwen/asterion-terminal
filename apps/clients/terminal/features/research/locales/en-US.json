@@ -177,7 +177,12 @@
   "结存": "Balance",
   "保证金": "Margin",
   "品种与区间": "Symbols and range",
-  "资金与风控": "Funds and risk",
+  "资金与成本": "Funds and costs",
+  "风控限额": "Risk limits",
+  "组合与统计": "Portfolio and statistics",
+  "如 1.0": "e.g. 1.0",
+  "0–1，如 0.8": "0–1, e.g. 0.8",
+  "如 0.05": "e.g. 0.05",
   "扫描与验证": "Sweeps and validation",
   "最近运行": "Recent runs",
   "IC 均值（{count} 根）": "Mean IC ({count} bars)",
@@ -316,5 +321,9 @@
   "未设置品种与区间": "No symbols or range set",
   "复制并编辑": "Duplicate & edit",
   "复制策略": "Duplicate strategy",
-  "复制因子": "Duplicate factor"
+  "复制因子": "Duplicate factor",
+  "分段": "Segment",
+  "分段对比": "Segment comparison",
+  "净值曲线按首次运行（{name}）的交易日对齐": "Net value aligned to {name}'s trading days",
+  "第 {first}–{last} 条": "{first}–{last}"
 }

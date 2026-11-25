@@ -166,6 +166,19 @@ export function Runs(context: TerminalContext) {
         : lab({ case: "cancelRun", value: { id: run.id } }));
       await readRuns();
     });
+  const cancelSweep = (id: string) =>
+    void acted.attempt(async () => {
+      await lab({ case: "cancelSweep", value: { id } });
+      const reply = await lab({ case: "getSweep", value: { id } });
+      setSweep({
+        id,
+        runs: [...reply.runs],
+        selected: reply.selectedId,
+        rolling: reply.rolling,
+        active: reply.active,
+      });
+      await readRuns();
+    });
 
   if (shown?.kind === "run") {
     const run =
@@ -207,29 +220,62 @@ export function Runs(context: TerminalContext) {
       </section>
     );
   }
-  if (shown?.kind === "sweep")
+  if (shown?.kind === "sweep") {
+    const currentSweep = sweep?.id === shown.id ? sweep : null;
+    const sweepSucceeded = currentSweep
+      ? currentSweep.runs.filter(item => item.state === RunState.SUCCEEDED).length
+      : 0;
+    const sweepAnchor = currentSweep?.runs[0]?.id;
+    const sweepTitle = currentSweep?.runs[0]?.params[batchKey]
+      ? t("批量回测 {id}", { id: recordTime(shown.id) })
+      : t("扫描 {id}", {
+          id: recordName(shown.id, currentSweep?.runs[0]?.strategy.split(".")[1]),
+        });
     return (
       <section className="lab-runs-view">
         <header className="lab-report-header">
           <button type="button" className="lab-link" onClick={back}>
             {t("← 回测记录")}
           </button>
-          <h2>
-            {sweep?.runs[0]?.params[batchKey]
-              ? t("批量回测 {id}", { id: recordTime(shown.id) })
-              : t("扫描 {id}", {
-                  id: recordName(shown.id, sweep?.runs[0]?.strategy.split(".")[1]),
-                })}
-          </h2>
+          <h2>{sweepTitle}</h2>
+          {currentSweep && (
+            <StatusBadge
+              tone={
+                currentSweep.active
+                  ? "neutral"
+                  : sweepSucceeded === currentSweep.runs.length
+                    ? "ok"
+                    : "attention"
+              }
+            >
+              {t("已完成 {done} / {count}", {
+                done: sweepSucceeded,
+                count: currentSweep.runs.length,
+              })}
+            </StatusBadge>
+          )}
+          <span className="lab-spacer" />
+          {currentSweep?.active ? (
+            <button type="button" className="lab-link" onClick={() => cancelSweep(shown.id)}>
+              {t("取消")}
+            </button>
+          ) : (
+            sweepAnchor && <DeleteRecord name={sweepTitle} remove={() => remove(sweepAnchor)} />
+          )}
         </header>
-        {sweep?.id === shown.id ? (
+        <ActionError error={acted.error} namespace="asterion.terminal.research" />
+        {currentSweep ? (
           <SweepResult
-            runs={sweep.runs}
-            selected={sweep.selected}
+            runs={currentSweep.runs}
+            selected={currentSweep.selected}
             open={id => setShown({ kind: "run", id })}
             rolling={
-              sweep.rolling || byId.has(`${shown.id}-rolling`)
-                ? () => setShown({ kind: "run", id: sweep.rolling?.id ?? `${shown.id}-rolling` })
+              currentSweep.rolling || byId.has(`${shown.id}-rolling`)
+                ? () =>
+                    setShown({
+                      kind: "run",
+                      id: currentSweep.rolling?.id ?? `${shown.id}-rolling`,
+                    })
                 : undefined
             }
           />
@@ -238,6 +284,7 @@ export function Runs(context: TerminalContext) {
         )}
       </section>
     );
+  }
   if (shown?.kind === "compare")
     return (
       <section className="lab-runs-view">
@@ -302,6 +349,11 @@ export function Runs(context: TerminalContext) {
           }}
         />
         <span className="lab-spacer" />
+        {compared.length > 0 && (
+          <button type="button" className="lab-link" onClick={() => setCompared([])}>
+            {t("清空选择")}
+          </button>
+        )}
         <button
           type="button"
           className="primary"
@@ -350,18 +402,22 @@ export function Runs(context: TerminalContext) {
                 const group = run.sweepId;
                 const active = group ? run.sweepRunning : runState(run.state) === "running";
                 const comparable = !group && runState(run.state) === "succeeded";
+                const checked = !group && compared.includes(run.id);
+                const openRow = () =>
+                  setShown(group ? { kind: "sweep", id: group } : { kind: "run", id: run.id });
                 return (
-                  <tr key={group || run.id}>
-                    <td>
+                  <tr
+                    key={group || run.id}
+                    className={checked ? "selected" : undefined}
+                    onClick={openRow}
+                  >
+                    <td onClick={event => event.stopPropagation()}>
                       {!group && (
                         <input
                           type="checkbox"
                           aria-label={t("比较 {id}", { id: runName(run) })}
-                          checked={compared.includes(run.id)}
-                          disabled={
-                            !comparable ||
-                            (!compared.includes(run.id) && compared.length >= compareAtMost)
-                          }
+                          checked={checked}
+                          disabled={!comparable || (!checked && compared.length >= compareAtMost)}
                           onChange={event =>
                             setCompared(previous =>
                               event.target.checked
@@ -376,11 +432,10 @@ export function Runs(context: TerminalContext) {
                       <button
                         type="button"
                         className="lab-link strong"
-                        onClick={() =>
-                          setShown(
-                            group ? { kind: "sweep", id: group } : { kind: "run", id: run.id },
-                          )
-                        }
+                        onClick={event => {
+                          event.stopPropagation();
+                          openRow();
+                        }}
                       >
                         {group
                           ? run.sweepStrategies
@@ -404,23 +459,35 @@ export function Runs(context: TerminalContext) {
                       {run.firstDay} – {run.lastDay} · {periodText(run.period)}
                     </td>
                     <td className="subtle lab-params" title={group ? "" : paramsText(run)}>
-                      {group ? "" : paramsText(run)}
+                      {group ? "—" : paramsText(run)}
                     </td>
                     {columns.map(([key, , percent]) => (
                       <td
                         key={key}
-                        className={`numeric ${key.endsWith("return") ? signed(run.metrics[key]) : ""}`}
+                        className={`numeric ${group ? "subtle" : key.endsWith("return") ? signed(run.metrics[key]) : ""}`}
                       >
-                        {group ? "" : metric(run.metrics[key], percent)}
+                        {group ? "—" : metric(run.metrics[key], percent)}
                       </td>
                     ))}
-                    <td className="numeric">{group ? "" : (run.metrics.fills ?? "—")}</td>
+                    <td className={`numeric ${group ? "subtle" : ""}`}>
+                      {group ? "—" : (run.metrics.fills ?? "—")}
+                    </td>
                     <td>
                       {group ? (
-                        t("已完成 {done} / {count}", {
-                          done: run.sweepSucceeded,
-                          count: run.sweepSize,
-                        })
+                        <StatusBadge
+                          tone={
+                            active
+                              ? "neutral"
+                              : run.sweepSucceeded === run.sweepSize
+                                ? "ok"
+                                : "attention"
+                          }
+                        >
+                          {t("已完成 {done} / {count}", {
+                            done: run.sweepSucceeded,
+                            count: run.sweepSize,
+                          })}
+                        </StatusBadge>
                       ) : (
                         <StatusBadge tone={runTones[runState(run.state)] ?? "neutral"}>
                           {states[runState(run.state)]
@@ -430,7 +497,7 @@ export function Runs(context: TerminalContext) {
                       )}
                     </td>
                     <td className="subtle numeric">{shortTime(run.startedMs)}</td>
-                    <td>
+                    <td onClick={event => event.stopPropagation()}>
                       {active ? (
                         <button type="button" className="lab-link" onClick={() => cancel(run)}>
                           {t("取消")}
@@ -455,6 +522,11 @@ export function Runs(context: TerminalContext) {
           >
             {t("上一页")}
           </button>
+          {rows.length > 0 && (
+            <span className="subtle numeric">
+              {t("第 {first}–{last} 条", { first: offset + 1, last: offset + rows.length })}
+            </span>
+          )}
           <button
             type="button"
             disabled={loading || !hasMore}
