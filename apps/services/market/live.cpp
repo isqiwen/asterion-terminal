@@ -4,6 +4,7 @@
 #include <asterion/protocol/market.hpp>
 #include <asterion/system/log.hpp>
 #include <algorithm>
+#include <array>
 #include <set>
 
 namespace asterion::market {
@@ -12,6 +13,19 @@ using namespace std::chrono_literals;
 namespace wire = ::market;
 
 namespace {
+
+constexpr std::array<std::chrono::seconds, 4> kReconnectBackoff{5s, 10s, 30s, 60s};
+
+std::chrono::seconds reconnect_delay(std::size_t attempt, std::chrono::seconds minimum = 5s)
+{
+    const auto delay = kReconnectBackoff[std::min(attempt, kReconnectBackoff.size() - 1)];
+    return std::max(delay, minimum);
+}
+
+bool is_transient_ctp_error(int code)
+{
+    return code == 7 || code == 8;
+}
 
 std::int64_t now_ms()
 {
@@ -38,8 +52,8 @@ Live::~Live()
 
 void Live::login(Clock::time_point now)
 {
+    next_login_ = {};
     feed_.connect(settings_.market, {});
-    connection_error_.clear();
     subscribed_ = 0;
     subscribed_catalog_ = 0;
     connection_deadline_ = now + 30s;
@@ -55,17 +69,20 @@ void Live::maintain(Clock::time_point now)
         connection_error_ = phase == MarketPhase::logging_in
             ? "CTP market login timed out"
             : "CTP market front connection timed out";
-        log::warn("{}: {}; retrying in 5 seconds", connection_error_, settings_.market.front);
+        const auto delay = reconnect_delay(reconnect_attempts_++);
+        log::warn(
+            "{}: {}; retrying in {} seconds",
+            connection_error_,
+            settings_.market.front,
+            delay.count());
         feed_.disconnect();
-        next_login_ = now + 5s;
+        next_login_ = now + delay;
     }
     if (feed_.phase() == MarketPhase::connected && now >= next_retry_) {
         feed_.retry_failed_subscriptions();
         next_retry_ = now + 5min;
     }
-    if (((feed_.phase() == MarketPhase::error && (feed_error_ == 7 || feed_error_ == 8))
-            || !connection_error_.empty())
-        && now >= next_login_)
+    if (next_login_ != Clock::time_point{} && now >= next_login_)
         login(now);
     const auto catalog = catalog_.state().status().state();
     const auto retry = catalog_.retry_delay();
@@ -117,9 +134,14 @@ void Live::apply(const ctp::FeedEvent& event)
             if (status->phase == MarketPhase::logging_in
                 || status->phase == MarketPhase::reconnecting)
                 connection_deadline_ = Clock::now() + 30s;
-            if (status->phase == MarketPhase::error
-                && (status->error_code == 7 || status->error_code == 8))
-                next_login_ = Clock::now() + 10s;
+            if (status->phase == MarketPhase::error && is_transient_ctp_error(status->error_code))
+                next_login_ = Clock::now() + reconnect_delay(reconnect_attempts_++, 10s);
+        }
+        if (status->phase == MarketPhase::connected || status->phase == MarketPhase::error)
+            connection_error_.clear();
+        if (status->phase == MarketPhase::connected) {
+            reconnect_attempts_ = 0;
+            next_login_ = {};
         }
         if (status->phase != phase_ || status->error_code != feed_error_) {
             if (!status->error_code)
@@ -162,8 +184,11 @@ void Live::apply(const ctp::FeedEvent& event)
 wire::Feed Live::feed_state() const
 {
     auto out = protocol::encode_feed(feed_.phase(), feed_error_);
-    if (!connection_error_.empty()) {
-        out.set_state(wire::FEED_STATE_FAILED);
+    if (feed_.phase() == MarketPhase::error && is_transient_ctp_error(feed_error_)) {
+        out.set_state(wire::FEED_STATE_RECONNECTING);
+    } else if (!connection_error_.empty() && feed_.phase() != MarketPhase::connected
+        && feed_.phase() != MarketPhase::error) {
+        out.set_state(wire::FEED_STATE_RECONNECTING);
         out.set_ctp_error(0);
         out.set_error(connection_error_);
     }

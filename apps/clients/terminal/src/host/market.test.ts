@@ -1,7 +1,7 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { expect, test } from "vitest";
 import { CatalogState, QuoteFrameSchema, Subscription } from "../generated/asterion/market_pb";
-import { applyFrames, contractGeneration } from "./market";
+import { applyFrames, contractGeneration, isMarketSessionOpen } from "./market";
 
 const row = (symbol: string, last: string, exchangeMs: bigint) => ({
   instrument: { exchange: "SHFE", symbol },
@@ -131,4 +131,20 @@ test("a day or volume reset on one contract does not bump another contract's gen
   const after = applyFrames(before, [roll], true).view!;
   expect(contractGeneration(after, "SHFE.rb2610")).toBe(beforeRb10);
   expect(contractGeneration(after, "SHFE.rb2611")).not.toBe(beforeRb11);
+});
+
+test("isMarketSessionOpen matches Beijing day, night and Saturday early-morning trading windows", () => {
+  const bj = (iso: string) => new Date(`${iso}+08:00`);
+  // Weekday day & night windows (with 15m pre-open / post-close buffer).
+  expect(isMarketSessionOpen(bj("2026-10-12T08:44:00"))).toBe(false);
+  expect(isMarketSessionOpen(bj("2026-10-12T08:45:00"))).toBe(true);
+  expect(isMarketSessionOpen(bj("2026-10-13T09:32:00"))).toBe(true);
+  expect(isMarketSessionOpen(bj("2026-10-13T15:30:00"))).toBe(true);
+  expect(isMarketSessionOpen(bj("2026-10-13T15:31:00"))).toBe(false);
+  expect(isMarketSessionOpen(bj("2026-10-13T20:45:00"))).toBe(true);
+  // Friday night runs into Saturday 02:30 (+15m buffer); Sunday & Monday early morning are closed.
+  expect(isMarketSessionOpen(bj("2026-10-17T02:30:00"))).toBe(true);
+  expect(isMarketSessionOpen(bj("2026-10-17T02:46:00"))).toBe(false);
+  expect(isMarketSessionOpen(bj("2026-10-18T10:00:00"))).toBe(false);
+  expect(isMarketSessionOpen(bj("2026-10-12T02:00:00"))).toBe(false);
 });

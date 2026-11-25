@@ -9,7 +9,7 @@ import { TaskState } from "../../generated/asterion/warehouse_pb";
 import { warehouseData } from "../../bridge/warehouse-data";
 import { readySnapshot } from "../../testing/core";
 import { openPopover } from "../../testing/popover";
-import { useMarket, useMarketOpenError, type MarketView } from "../market";
+import { isMarketSessionOpen, useMarket, useMarketOpenError, type MarketView } from "../market";
 import { TradingAccountsProvider } from "../trading-accounts";
 import { WarehouseProvider } from "../warehouse";
 import { NotificationCenter } from "../notifications";
@@ -21,6 +21,7 @@ vi.mock("../../bridge/trading", () => ({
 }));
 
 vi.mock("../market", () => ({
+  isMarketSessionOpen: vi.fn(() => true),
   useMarket: vi.fn(() => null),
   useMarketOpenError: vi.fn(() => ""),
 }));
@@ -116,17 +117,26 @@ test("the market indicator shows the service's own link to the broker and why it
   view.rerender(show());
   expect(indicator("● 行情 柜台重连中")).toBeTruthy();
 
-  const timeout = market(FeedState.FAILED);
+  const timeout = market(FeedState.RECONNECTING);
   timeout.board.feed!.error = "CTP market front connection timed out";
+  vi.mocked(isMarketSessionOpen).mockReturnValue(true);
   vi.mocked(useMarket).mockReturnValue(timeout);
   view.rerender(show());
-  expect(indicator("● 行情 柜台未连接").title).toContain("超过 30 秒未响应");
+  expect(indicator("● 行情 柜台重连中").dataset.tone).toBe("attention");
+  expect(indicator("● 行情 柜台重连中").title).toContain("超过 30 秒未响应");
 
-  const inactive = market(FeedState.FAILED);
+  vi.mocked(isMarketSessionOpen).mockReturnValue(false);
+  view.rerender(show());
+  expect(indicator("● 行情 柜台重连中").dataset.tone).toBeUndefined();
+  expect(indicator("● 行情 柜台重连中").title).toContain("超过 30 秒未响应");
+
+  vi.mocked(isMarketSessionOpen).mockReturnValue(true);
+  const inactive = market(FeedState.RECONNECTING);
   inactive.board.feed!.ctpError = 8;
   vi.mocked(useMarket).mockReturnValue(inactive);
   view.rerender(show());
-  expect(indicator("● 行情 柜台未连接").title).toContain("柜台前置未就绪");
+  expect(indicator("● 行情 柜台重连中").dataset.tone).toBe("attention");
+  expect(indicator("● 行情 柜台重连中").title).toContain("柜台前置未就绪");
 
   vi.mocked(useMarket).mockReturnValue(market(FeedState.CONNECTED));
   view.rerender(show());

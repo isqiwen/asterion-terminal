@@ -97,14 +97,18 @@ export function notify(error: unknown, options: { namespace?: string; severity?:
 }
 
 // undefined means a read or reconnect is pending; only a successful read clears the failure.
-export function useErrorNotification(error: DisplayError | undefined, namespace = "host") {
+export function useErrorNotification(
+  error: DisplayError | undefined,
+  namespace = "host",
+  severity: Severity = "error",
+) {
   const reported = useRef("");
   useEffect(() => {
     if (error === undefined || isDeselectedService(error)) return;
-    const key = error ? `${namespace}: ${identity(error)}` : "";
-    if (key && key !== reported.current) notify(error, { namespace });
+    const key = error ? `${namespace}: ${severity}: ${identity(error)}` : "";
+    if (key && key !== reported.current) notify(error, { namespace, severity });
     reported.current = key;
-  }, [error, namespace]);
+  }, [error, namespace, severity]);
 }
 
 function useEntries() {

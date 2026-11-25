@@ -1,7 +1,7 @@
 import type { Snapshot, TradingConnection } from "../../bridge/client";
 import { translate, useLocale, type MessageValues } from "../../i18n";
 import { ctpErrorSummary, diagnosticSummary, errorSummary } from "../../i18n/errors";
-import { useMarket, useMarketOpenError } from "../market";
+import { isMarketSessionOpen, useMarket, useMarketOpenError } from "../market";
 import { stalled, useTradingAccounts } from "../trading-accounts";
 import { useWarehouse } from "../warehouse";
 import { FeedState, Subscription } from "../../generated/asterion/market_pb";
@@ -56,6 +56,7 @@ export function StatusIndicators({
     (item): item is TradingConnection => !("error" in item),
   );
   const feed = market?.board.feed;
+  const brokerNotice = Boolean(feed?.error || feed?.ctpError);
   // The link to Market first, then Market's own link to the broker.
   const [marketTone, marketState] = !market?.online
     ? ["danger", "中断"]
@@ -66,7 +67,7 @@ export function StatusIndicators({
         : feed?.state === FeedState.LOGGING_IN
           ? ["", "登录柜台中"]
           : feed?.state === FeedState.RECONNECTING
-            ? ["", "柜台重连中"]
+            ? [brokerNotice && isMarketSessionOpen() ? "attention" : "", "柜台重连中"]
             : ["danger", "柜台未连接"];
   const subscribedCount = (market?.board.rows ?? []).filter(
     row => row.subscription === Subscription.ACTIVE,

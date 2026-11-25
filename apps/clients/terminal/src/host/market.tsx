@@ -1,5 +1,6 @@
 import { fromJson, type JsonValue } from "@bufbuild/protobuf";
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import sessionFile from "../../../../../core/config/futures-sessions.json";
 import { call } from "../bridge/client";
 import { marketData } from "../bridge/market-data";
 import {
@@ -128,20 +129,69 @@ export function applyFrames(previous: MarketView | null, frames: QuoteFrame[], o
   return { view, restart: false };
 }
 
+// Market sessions from core/config/futures-sessions.json are defined in UTC+8.
+const MARKET_UTC_OFFSET_MS = 8 * 60 * 60 * 1000;
+const SESSION_BUFFER_MINUTES = 15;
+const sessions = sessionFile as unknown as {
+  day_sessions: Record<string, [string, string][]>;
+  night_sessions: Record<string, [string, string]>;
+};
+const parseMinutes = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+const dayWindows = Object.values(sessions.day_sessions).flat();
+const nightWindows = Object.values(sessions.night_sessions);
+const dayOpen =
+  Math.min(...dayWindows.map(([start]) => parseMinutes(start))) - SESSION_BUFFER_MINUTES;
+const dayClose =
+  Math.max(...dayWindows.map(([, end]) => parseMinutes(end))) + SESSION_BUFFER_MINUTES;
+const nightOpen =
+  Math.min(...nightWindows.map(([start]) => parseMinutes(start))) - SESSION_BUFFER_MINUTES;
+const nightClose =
+  Math.max(
+    ...nightWindows
+      .filter(([start, end]) => parseMinutes(end) < parseMinutes(start))
+      .map(([, end]) => parseMinutes(end)),
+  ) + SESSION_BUFFER_MINUTES;
+
+export function isMarketSessionOpen(now: Date = new Date()): boolean {
+  const beijing = new Date(now.getTime() + MARKET_UTC_OFFSET_MS);
+  const day = beijing.getUTCDay();
+  const minute = beijing.getUTCHours() * 60 + beijing.getUTCMinutes();
+  if (day >= 1 && day <= 5 && ((minute >= dayOpen && minute <= dayClose) || minute >= nightOpen))
+    return true;
+  // Mon-Fri night sessions extend into Tue-Sat early morning.
+  return day >= 2 && day <= 6 && minute <= nightClose;
+}
+
+const RECOVERABLE_CATALOG_PREFIXES = [
+  "CTP catalog front connection timed out",
+  "CTP catalog authentication timed out",
+  "CTP catalog login timed out",
+  "CTP catalog not initialized",
+  "CTP catalog front inactive",
+  "CTP catalog disconnected",
+];
+
 // The open watch's frames are read twice a second, hidden window or not.
 export function MarketProvider({ endpoint, children }: { endpoint: string; children: ReactNode }) {
   const [view, setView] = useState<MarketView | null>(null);
   const [openError, setOpenError] = useState<DisplayError>("");
   const namespace = "asterion.terminal.futures-market";
+  const inSession = isMarketSessionOpen();
   useErrorNotification(openError, namespace);
   const feed = view?.board.feed;
+  const feedDiagnostic =
+    feed?.error || (feed?.ctpError ? `CTP market rejected: ${feed.ctpError}` : "");
+  const feedRecovering = feed?.state === FeedState.RECONNECTING && Boolean(feedDiagnostic);
   useErrorNotification(
-    feed?.error || feed?.ctpError
-      ? new BackendError("unavailable", feed.error || `CTP market rejected: ${feed.ctpError}`)
-      : feed?.state === FeedState.CONNECTED
-        ? ""
-        : undefined,
+    feed?.state === FeedState.CONNECTED
+      ? ""
+      : feed?.state === FeedState.FAILED && feedDiagnostic
+        ? new BackendError("unavailable", feedDiagnostic)
+        : feedRecovering && inSession
+          ? new BackendError("unavailable", feedDiagnostic)
+          : undefined,
     namespace,
+    feedRecovering ? "warning" : "error",
   );
   const refused = view?.board.rows.filter(row => row.subscription === Subscription.FAILED).length;
   useErrorNotification(
@@ -153,13 +203,17 @@ export function MarketProvider({ endpoint, children }: { endpoint: string; child
     namespace,
   );
   const catalog = view?.board.catalog?.status;
+  const catalogRecoverable =
+    catalog?.state === CatalogState.FAILED &&
+    RECOVERABLE_CATALOG_PREFIXES.some(prefix => catalog.error.startsWith(prefix));
   useErrorNotification(
-    catalog?.state === CatalogState.FAILED
-      ? new BackendError("operation_failed", catalog.error)
-      : catalog?.state === CatalogState.READY
-        ? ""
+    catalog?.state === CatalogState.READY
+      ? ""
+      : catalog?.state === CatalogState.FAILED && (!catalogRecoverable || inSession)
+        ? new BackendError("operation_failed", catalog.error)
         : undefined,
     namespace,
+    catalogRecoverable ? "warning" : "error",
   );
   useEffect(() => {
     setView(null);

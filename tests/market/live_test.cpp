@@ -63,11 +63,20 @@ TEST_F(MarketRecovery, AStalledConnectionReportsItsTimeoutAndReconnects)
     live = std::make_unique<Live>(settings);
     const auto started = Live::Clock::now();
     EXPECT_EQ(advance().feed().state(), wire::FEED_STATE_CONNECTING);
-    const auto failed = advance(started + 31s);
-    EXPECT_EQ(failed.feed().state(), wire::FEED_STATE_FAILED);
-    EXPECT_EQ(failed.feed().error(), "CTP market front connection timed out");
+    const auto first = advance(started + 31s);
+    EXPECT_EQ(first.feed().state(), wire::FEED_STATE_RECONNECTING);
+    EXPECT_EQ(first.feed().error(), "CTP market front connection timed out");
+    // Retry attempt stays steadily in reconnecting state without flapping back to connecting.
+    const auto retrying = advance(started + 37s);
+    EXPECT_EQ(retrying.feed().state(), wire::FEED_STATE_RECONNECTING);
+    EXPECT_EQ(retrying.feed().error(), "CTP market front connection timed out");
+    // Second timeout backs off to 10 s instead of retrying after 5 s.
+    const auto second = advance(started + 68s);
+    EXPECT_EQ(second.feed().state(), wire::FEED_STATE_RECONNECTING);
     std::filesystem::remove(hold);
-    advance(started + 37s);
+    advance(started + 74s);
+    EXPECT_EQ(advance(started + 74s).feed().state(), wire::FEED_STATE_RECONNECTING);
+    advance(started + 79s);
     ASSERT_TRUE(wait([](const auto& status) {
         return status.feed().state() == wire::FEED_STATE_CONNECTED;
     }));
@@ -84,9 +93,9 @@ TEST_F(MarketRecovery, AStalledLoginReportsItsOwnStageAndReconnects)
         return status.feed().state() == wire::FEED_STATE_LOGGING_IN;
     }));
     const auto started = Live::Clock::now();
-    const auto failed = advance(started + 31s);
-    EXPECT_EQ(failed.feed().state(), wire::FEED_STATE_FAILED);
-    EXPECT_EQ(failed.feed().error(), "CTP market login timed out");
+    const auto timed_out = advance(started + 31s);
+    EXPECT_EQ(timed_out.feed().state(), wire::FEED_STATE_RECONNECTING);
+    EXPECT_EQ(timed_out.feed().error(), "CTP market login timed out");
     std::filesystem::remove(hold);
     advance(started + 37s);
     ASSERT_TRUE(wait([](const auto& status) {
@@ -113,6 +122,7 @@ TEST_F(MarketRecovery, AnInactiveMarketFrontRecovers)
     ASSERT_TRUE(wait([](const auto& status) {
         return status.feed().ctp_error() == 8;
     }));
+    EXPECT_EQ(advance().feed().state(), wire::FEED_STATE_RECONNECTING);
     std::filesystem::remove(inactive);
     advance(Live::Clock::now() + 11s);
     ASSERT_TRUE(wait([](const auto& status) {

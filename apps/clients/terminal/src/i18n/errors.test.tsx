@@ -86,8 +86,8 @@ test("an unfamiliar catalog refusal keeps the broker's reason and code visible",
 });
 
 test.each([
-  ["CTP market front connection timed out", "行情柜台连接超过 30 秒未响应"],
-  ["CTP market login timed out", "行情柜台超过 30 秒未回应登录请求"],
+  ["CTP market front connection timed out", "行情服务已连接，但行情柜台超过 30 秒未响应"],
+  ["CTP market login timed out", "行情服务已连接，但行情柜台超过 30 秒未回应登录请求"],
 ])("%s identifies the stalled stage and recovery", (diagnostic, message) => {
   setLocale("zh-CN");
   const { container } = render(<ErrorNotice error={new BackendError("unavailable", diagnostic)} />);

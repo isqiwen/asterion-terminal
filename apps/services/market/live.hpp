@@ -67,6 +67,7 @@ private:
     std::string trading_day_;
     Clock::time_point next_login_{}, next_refresh_{}, next_retry_{};
     Clock::time_point connection_deadline_{};
+    std::size_t reconnect_attempts_ = 0;
 };
 
 } // namespace asterion::market

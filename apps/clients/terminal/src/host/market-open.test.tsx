@@ -65,7 +65,8 @@ test("an initial protocol mismatch is notified without occupying the workspace o
 
 test("broker, catalog and subscription failures are notified off-page, once until recovery", async () => {
   vi.useFakeTimers();
-  let feed = FeedState.FAILED;
+  vi.setSystemTime(new Date("2026-10-13T09:30:00+08:00"));
+  let feed = FeedState.RECONNECTING;
   let catalog = CatalogState.FAILED;
   let refused = true;
   const frame = () =>
@@ -75,7 +76,7 @@ test("broker, catalog and subscription failures are notified off-page, once unti
         frame: {
           case: "full",
           value: {
-            feed: { state: feed, ctpError: feed === FeedState.FAILED ? 8 : 0 },
+            feed: { state: feed, ctpError: feed === FeedState.RECONNECTING ? 8 : 0 },
             catalog: {
               status: {
                 state: catalog,
@@ -107,13 +108,15 @@ test("broker, catalog and subscription failures are notified off-page, once unti
   openPopover(screen.getByRole("button", { expanded: false }));
   const panel = screen.getByRole("region", { name: "通知" });
   expect(panel.querySelectorAll("li")).toHaveLength(3);
+  expect(panel.querySelectorAll("li.warning")).toHaveLength(2);
+  expect(panel.querySelectorAll("li.error")).toHaveLength(1);
   expect(panel.textContent).toContain("CTP 8");
   expect(panel.textContent).toContain("1 个合约订阅失败");
   await act(() => vi.advanceTimersByTimeAsync(1500));
   feed = FeedState.CONNECTING;
   catalog = CatalogState.LOADING;
   await act(() => vi.advanceTimersByTimeAsync(500));
-  feed = FeedState.FAILED;
+  feed = FeedState.RECONNECTING;
   catalog = CatalogState.FAILED;
   await act(() => vi.advanceTimersByTimeAsync(500));
   expect(panel.querySelectorAll("li")).toHaveLength(3);
@@ -123,10 +126,59 @@ test("broker, catalog and subscription failures are notified off-page, once unti
   refused = false;
   await act(() => vi.advanceTimersByTimeAsync(500));
   fireEvent.click(screen.getByRole("button", { name: "清空" }));
-  feed = FeedState.FAILED;
+  feed = FeedState.RECONNECTING;
   await act(() => vi.advanceTimersByTimeAsync(500));
   expect(panel.querySelectorAll("li")).toHaveLength(1);
+  expect(panel.querySelectorAll("li.warning")).toHaveLength(1);
   expect(panel.textContent).toContain("CTP 8");
+  fireEvent.click(screen.getByRole("button", { name: "清空" }));
+});
+
+test("off-hours recoverable broker timeouts stay quiet while fatal rejections still report errors", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-13T17:00:00+08:00"));
+  let feedState = FeedState.RECONNECTING;
+  let feedError = "CTP market front connection timed out";
+  let feedCtp = 0;
+  const frame = () =>
+    toJson(
+      QuoteFrameSchema,
+      create(QuoteFrameSchema, {
+        frame: {
+          case: "full",
+          value: {
+            feed: { state: feedState, error: feedError, ctpError: feedCtp },
+            catalog: {
+              status: {
+                state: CatalogState.FAILED,
+                error: "CTP catalog front connection timed out",
+              },
+            },
+            rows: [],
+          },
+        },
+      }),
+    );
+  vi.mocked(call).mockImplementation(async () => ({
+    market_watch: { frames: [frame()], online: true },
+  }));
+  render(
+    <MarketProvider endpoint="market:7440/fingerprint">
+      <NotificationCenter />
+    </MarketProvider>,
+  );
+  await act(async () => {});
+  openPopover(screen.getByRole("button", { expanded: false }));
+  const panel = screen.getByRole("region", { name: "通知" });
+  expect(panel.textContent).toContain("没有消息");
+
+  feedState = FeedState.FAILED;
+  feedError = "";
+  feedCtp = 3;
+  await act(() => vi.advanceTimersByTimeAsync(500));
+  expect(panel.querySelectorAll("li.error")).toHaveLength(1);
+  expect(panel.textContent).toContain("CTP 3");
+  fireEvent.click(screen.getByRole("button", { name: "清空" }));
 });
 
 test("a newly saved offline Market endpoint resumes opening after its failed first attempt", async () => {
