@@ -22,13 +22,14 @@ vi.mock("../bridge/client", () => ({ call: vi.fn() }));
 registerTerminalFeatures([feature]);
 beforeEach(() => vi.mocked(call).mockReset());
 
-test("an initial protocol mismatch is notified without occupying the workspace or repeating on retries", async () => {
+test("an initial protocol mismatch shows a status card with settings entry and notifies once across retries", async () => {
   vi.useFakeTimers();
   vi.mocked(call).mockImplementation(async method => {
     if (method === "market.open")
       throw new BackendError("conflict", "market protocol differs from this Terminal");
     return { market_watch: null };
   });
+  const openSettings = vi.fn();
   const opens = () => vi.mocked(call).mock.calls.filter(([method]) => method === "market.open");
   render(
     <MarketProvider endpoint="market:7440/fingerprint">
@@ -39,7 +40,7 @@ test("an initial protocol mismatch is notified without occupying the workspace o
             busy: false,
             error: "",
             navigate: vi.fn(),
-            openSettings: vi.fn(),
+            openSettings,
             trade: vi.fn(),
           }}
         />
@@ -49,7 +50,13 @@ test("an initial protocol mismatch is notified without occupying the workspace o
   );
   await act(async () => {});
   expect(opens()).toHaveLength(1);
-  expect(screen.getByRole("main").textContent).toBe("");
+  const alert = within(screen.getByRole("main")).getByRole("alert");
+  expect(within(alert).getByText("行情服务")).toBeTruthy();
+  expect(within(alert).getByText("服务未连接")).toBeTruthy();
+  expect(within(alert).getByText("research:7451")).toBeTruthy();
+  expect(alert.textContent).toContain("行情服务与 Terminal 的通信协议不一致");
+  fireEvent.click(within(alert).getByRole("button", { name: "行情服务设置" }));
+  expect(openSettings).toHaveBeenCalledWith("market");
   openPopover(screen.getByRole("button", { expanded: false }));
   const panel = screen.getByRole("region", { name: "通知" });
   expect(panel.textContent).toContain("行情服务与 Terminal 的通信协议不一致");

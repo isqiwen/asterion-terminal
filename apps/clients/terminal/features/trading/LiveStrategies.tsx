@@ -4,12 +4,13 @@ import { BrokerState, Environment } from "../../src/generated/asterion/trading_p
 import { activeStrategy } from "./strategy-instance";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useStrategyHost, useTradingAccounts } from "../../src/host/trading-accounts";
+import { ServiceStatusCard } from "../../src/host/components/ServiceStatusCard";
 import { ServiceUnset } from "../../src/host/components/ServiceUnset";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { ActionError, useActionError } from "../../src/host/action-error";
 import { AccountIdentityBar } from "./AccountIdentityBar";
 import { EmergencyControls } from "./EmergencyControls";
-import { AccountList, TradingStatusCard } from "./LivePanel";
+import { AccountList } from "./LivePanel";
 import { t, type Run } from "./live-shared";
 import { StrategyInstance } from "./StrategyInstance";
 import { StrategyMonitor } from "./StrategyMonitor";
@@ -57,7 +58,7 @@ export function LiveStrategies(context: TerminalContext) {
             openWorkbench={() =>
               context.navigate("workspace.trading", { params: { account: account.id } })
             }
-            openSettings={() => context.openSettings("trading")}
+            openSettings={context.openSettings}
             openRun={id => context.navigate("workspace.lab-runs", { params: { run: id } })}
             reconcileInstance={(accountId, instanceId, runId) =>
               context.navigate("workspace.lab-runs", {
@@ -92,7 +93,7 @@ function AccountStrategies({
   initialStrategy?: string;
   initialRun?: string;
   openWorkbench: () => void;
-  openSettings: () => void;
+  openSettings: TerminalContext["openSettings"];
   openRun: (id: string) => void;
   reconcileInstance: (accountId: string, instanceId: string, runId?: string) => void;
 }) {
@@ -123,8 +124,10 @@ function AccountStrategies({
     return (
       <div className="ctp-account-column">
         <div className="ctp-account-panel">
-          <TradingStatusCard
-            account={account}
+          <ServiceStatusCard
+            service="trading"
+            title={account.instance}
+            address={`${account.host}:${account.port}`}
             failed={view?.failed || host.readError}
             openSettings={openSettings}
           />
@@ -186,8 +189,8 @@ function AccountStrategies({
         )}
         {!instance?.instance && !host.state.packages.length ? (
           <div className="workspace-empty">
-            <div className="trading-empty-card">
-              <div className="trading-empty-head">
+            <div className="service-status-card">
+              <div className="service-status-head">
                 <strong>
                   {t(view?.initialized === false ? "尚未开通交易" : "尚未部署策略版本")}
                 </strong>

@@ -7,9 +7,13 @@ import { BackendError, asDisplayError, type DisplayError } from "./i18n/errors";
 import { translate, useLocale, type MessageValues } from "./i18n";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 import { SetupGate } from "./startup/SetupGate";
-import { OpenLiveTrading, TradingAccountsProvider } from "./host/trading-accounts";
+import {
+  OpenLiveTrading,
+  TradingAccountsProvider,
+  useTradingAccounts,
+} from "./host/trading-accounts";
 import { MarketProvider } from "./host/market";
-import { WarehouseProvider } from "./host/warehouse";
+import { WarehouseProvider, useWarehouse } from "./host/warehouse";
 import {
   Component,
   Suspense,
@@ -65,8 +69,59 @@ class TerminalErrorBoundary extends Component<{ children: ReactNode }, { error: 
   }
 }
 
-// One line for every CTP account: how many may send orders, how many are
-// connected read-only, and how many need attention.
+// Subtabs only appear when a module's remote service has data to switch between.
+export function ModuleHeader({
+  module,
+  view,
+  warehouseConfigured,
+  tradingConnections,
+  navigate,
+}: {
+  module: (typeof modules)[number];
+  view: string;
+  warehouseConfigured: boolean;
+  tradingConnections: readonly { id: string }[];
+  navigate: TerminalContext["navigate"];
+}) {
+  const viewsRef = useRef<HTMLElement>(null);
+  const { views: tradingViews } = useTradingAccounts();
+  const warehouse = useWarehouse();
+  const visible =
+    module.views.length > 1 &&
+    (module.id === "data"
+      ? warehouseConfigured && warehouse?.error === ""
+      : module.id === "live"
+        ? tradingConnections.some(item => {
+            const state = tradingViews[item.id];
+            return !!(state?.emergency || state?.account || state?.strategies);
+          })
+        : true);
+  useEffect(() => {
+    if (!visible) return;
+    viewsRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({
+      block: "nearest",
+      inline: "nearest",
+    });
+  }, [visible, module.id, view]);
+  if (!visible) return null;
+  return (
+    <div className="module-header">
+      <nav ref={viewsRef} className="module-views" aria-label={t("子模块视图")}>
+        {module.views.map(id => (
+          <button
+            key={id}
+            type="button"
+            aria-current={view === id ? "page" : undefined}
+            onClick={() => navigate(id)}
+          >
+            {workspaces.find(item => item.id === id)!.title}
+          </button>
+        ))}
+      </nav>
+    </div>
+  );
+}
+
 export function Terminal() {
   return (
     <TerminalErrorBoundary>
@@ -100,7 +155,6 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     setVisitedViews(previous => (previous.includes(view) ? previous : [...previous, view]));
   }, [view]);
   const mountedViews = visitedViews.includes(view) ? visitedViews : [...visitedViews, view];
-  const viewsRef = useRef<HTMLElement>(null);
   // Lab leaving the ready state, lost log lines and a failed background
   // refresh are reported when they begin.
   const reported = useRef({ lab: false, logs: 0, refresh: false });
@@ -132,12 +186,6 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     if (refresh && !before.refresh) notify("后台状态刷新失败，当前显示为最近成功读取的状态。");
     reported.current = { lab, logs, refresh: !!refresh };
   }, [snapshot, settingsWindow]);
-  useEffect(() => {
-    viewsRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({
-      block: "nearest",
-      inline: "nearest",
-    });
-  }, [navigation.module, view]);
   useEffect(() => {
     if (settingsWindow) return;
     try {
@@ -383,22 +431,13 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                 }
                 body={
                   <div className="module-workspace">
-                    {route.module.views.length > 1 && (
-                      <div className="module-header">
-                        <nav ref={viewsRef} className="module-views" aria-label={t("子模块视图")}>
-                          {route.module.views.map(id => (
-                            <button
-                              key={id}
-                              type="button"
-                              aria-current={view === id ? "page" : undefined}
-                              onClick={() => context.navigate(id)}
-                            >
-                              {workspaces.find(item => item.id === id)!.title}
-                            </button>
-                          ))}
-                        </nav>
-                      </div>
-                    )}
+                    <ModuleHeader
+                      module={route.module}
+                      view={view}
+                      warehouseConfigured={!!(warehouseEndpoint && "host" in warehouseEndpoint)}
+                      tradingConnections={tradingConnections}
+                      navigate={context.navigate}
+                    />
                     <main className="terminal-business">
                       <h1 className="sr-only">{t(route.module.title)}</h1>
                       {mountedViews.map(id => {

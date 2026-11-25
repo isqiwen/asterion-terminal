@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { ActionError, useActionError } from "../../src/host/action-error";
+import { ServiceStatusCard } from "../../src/host/components/ServiceStatusCard";
 import { ServiceUnset } from "../../src/host/components/ServiceUnset";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import type { TradingConnection } from "../../src/bridge/client";
 import { BrokerState, Environment } from "../../src/generated/asterion/trading_pb";
 import { useTradingAccounts, type TradingView } from "../../src/host/trading-accounts";
-import { ErrorNotice, type DisplayError } from "../../src/i18n/errors";
-import { StatusBadge } from "../../src/ui/StatusBadge";
 import { t, phases, type Run } from "./live-shared";
 import { CreateLive } from "./CreateLive";
 import { EmergencyControls } from "./EmergencyControls";
@@ -54,44 +53,6 @@ export function AccountList({
         );
       })}
     </nav>
-  );
-}
-
-export function TradingStatusCard({
-  account,
-  failed,
-  openSettings,
-}: {
-  account: TradingConnection;
-  failed?: DisplayError;
-  openSettings: () => void;
-}) {
-  return (
-    <div className="workspace-empty" role={failed ? "alert" : undefined}>
-      <div className="trading-empty-card">
-        <div className="trading-empty-head">
-          <strong>{account.instance}</strong>
-          {failed && <StatusBadge tone="danger">{t("服务未连接")}</StatusBadge>}
-        </div>
-        <code className="trading-empty-address">
-          {account.host}:{account.port}
-        </code>
-        {failed ? (
-          <p>
-            <ErrorNotice error={failed} namespace="asterion.terminal.trading" />
-          </p>
-        ) : (
-          <p>{t("正在读取交易服务…")}</p>
-        )}
-        {failed && (
-          <div className="workspace-empty-actions">
-            <button type="button" className="primary" onClick={openSettings}>
-              {t("交易服务设置")}
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
   );
 }
 
@@ -250,10 +211,12 @@ function AccountColumn({
             />
           </div>
         ) : (
-          <TradingStatusCard
-            account={account}
+          <ServiceStatusCard
+            service="trading"
+            title={account.instance}
+            address={`${account.host}:${account.port}`}
             failed={view?.failed}
-            openSettings={() => context.openSettings("trading")}
+            openSettings={context.openSettings}
           />
         )}
       </div>

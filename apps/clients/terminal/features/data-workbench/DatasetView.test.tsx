@@ -595,16 +595,18 @@ test("a warehouse without a contract table offers no product to act on", async (
   expect(screen.queryByRole("table", { name: "品种采集进度" })).toBeNull();
 });
 
-test("an unreachable warehouse shows an inline error with retry and settings actions", async () => {
+test("an unreachable warehouse shows a status card with address and settings entry", async () => {
   request.mockRejectedValue(new Error("warehouse offline"));
   const openSettings = vi.fn();
   view({ ...context(), openSettings });
   const alert = await screen.findByRole("alert");
+  expect(within(alert).getByText("数据服务")).toBeTruthy();
+  expect(within(alert).getByText("服务未连接")).toBeTruthy();
+  expect(within(alert).getByText("market:7450")).toBeTruthy();
   expect(alert.textContent).toContain("warehouse offline");
-  fireEvent.click(screen.getByRole("button", { name: "数据服务设置" }));
+  expect(within(alert).queryByRole("button", { name: "刷新" })).toBeNull();
+  fireEvent.click(within(alert).getByRole("button", { name: "数据服务设置" }));
   expect(openSettings).toHaveBeenCalledWith("warehouse");
-  fireEvent.click(screen.getByRole("button", { name: "刷新" }));
-  await waitFor(() => expect(request.mock.calls.length).toBeGreaterThan(2));
 });
 
 test("a kind link opens that kind", async () => {

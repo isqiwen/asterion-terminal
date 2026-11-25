@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { warehouseData } from "../../src/bridge/warehouse-data";
 import { Table } from "../../src/generated/asterion/warehouse_pb";
+import { ServiceStatusCard } from "../../src/host/components/ServiceStatusCard";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useErrorNotification } from "../../src/host/notifications";
 import { useWarehousePoll } from "../../src/host/warehouse";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
-import { VersionBanner, WarehousePage, WarehouseUnavailable } from "./Page";
+import { VersionBanner, WarehousePage } from "./Page";
 import { ReferenceTable } from "./ReferenceTable";
 import { StoredContracts } from "./StoredContracts";
 import { exchanges, t, tableName } from "./dataset";
@@ -25,12 +26,12 @@ const groups: readonly { name: string; tabs: readonly BrowseTab[] }[] = [
 export function Browse(context: TerminalContext) {
   return (
     <WarehousePage context={context} label={t("数据浏览")}>
-      {() => <BrowseBody context={context} />}
+      {address => <BrowseBody context={context} address={address} />}
     </WarehousePage>
   );
 }
 
-function BrowseBody({ context }: { context: TerminalContext }) {
+function BrowseBody({ context, address }: { context: TerminalContext; address: string }) {
   const paramVersion = context.workspaceParams?.version ?? "";
   const paramTable = context.workspaceParams?.table ?? "";
   const [viewed, setViewed] = useState(paramVersion);
@@ -85,7 +86,16 @@ function BrowseBody({ context }: { context: TerminalContext }) {
     };
   }, [needsExchanges, activeVersion, ordered.version]);
   useErrorNotification(state.error, "asterion.terminal.data-workbench");
-  const latest = state.value?.latest ?? "";
+  if (!state.value)
+    return (
+      <ServiceStatusCard
+        service="warehouse"
+        address={address}
+        failed={state.error || undefined}
+        openSettings={context.openSettings}
+      />
+    );
+  const latest = state.value.latest;
   const group = groups.find(item => item.tabs.includes(tab)) ?? groups[0]!;
   return (
     <>
@@ -128,19 +138,7 @@ function BrowseBody({ context }: { context: TerminalContext }) {
             )}
           </div>
         </div>
-        {!state.value ? (
-          state.error ? (
-            <WarehouseUnavailable
-              error={state.error}
-              retry={() => void state.refresh()}
-              openSettings={context.openSettings}
-            />
-          ) : (
-            <p className="subtle" role="status">
-              {t("读取中")}
-            </p>
-          )
-        ) : !state.value.version ? (
+        {!state.value.version ? (
           <p className="subtle">{t("还没有数据")}</p>
         ) : tab === "contracts" ? (
           <StoredContracts key={viewed} version={viewed || state.value.version} context={context} />

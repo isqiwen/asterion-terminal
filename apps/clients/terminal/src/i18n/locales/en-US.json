@@ -182,5 +182,12 @@
   "界面发生意外错误": "Unexpected interface error",
   "重新加载": "Reload",
   "收起导航栏": "Collapse navigation",
-  "展开导航栏": "Expand navigation"
+  "展开导航栏": "Expand navigation",
+  "服务未连接": "Service disconnected",
+  "正在读取行情服务…": "Reading the market service…",
+  "正在读取数据服务…": "Reading the data service…",
+  "正在读取交易服务…": "Reading the trading service…",
+  "行情服务设置": "Market service settings",
+  "数据服务设置": "Data service settings",
+  "交易服务设置": "Trading service settings"
 }

@@ -17,6 +17,8 @@ const destinations = {
   browse: ["数据", "浏览"],
 } as const;
 
+const defaultViews = new Set<keyof typeof destinations>(["trading", "dataset"]);
+
 export async function openView(page: Page, view: keyof typeof destinations) {
   const [module, title] = destinations[view] as readonly string[];
   const english = (await page.locator("html").getAttribute("lang")) === "en-US";
@@ -32,9 +34,9 @@ export async function openView(page: Page, view: keyof typeof destinations) {
     .getByRole("navigation", { name: name("业务工作区"), exact: true })
     .getByRole("button", { name: name(module), exact: true })
     .click();
-  if (title)
-    await page
-      .getByRole("navigation", { name: name("子模块视图"), exact: true })
-      .getByRole("button", { name: name(title), exact: true })
-      .click();
+  if (title) {
+    const subnav = page.getByRole("navigation", { name: name("子模块视图"), exact: true });
+    if (!defaultViews.has(view) || (await subnav.isVisible()))
+      await subnav.getByRole("button", { name: name(title), exact: true }).click();
+  }
 }

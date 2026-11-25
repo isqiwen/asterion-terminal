@@ -34,9 +34,7 @@ test("four business modules preserve navigation without starting work", async ({
     page.locator(".workspace-tabs").getByRole("button", { name: "交易", exact: true }),
   ).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("region", { name: "CTP 交易账户", exact: true })).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "子模块视图" }).getByRole("button")).toHaveText(
-    ["工作台", "策略"],
-  );
+  await expect(page.locator(".module-views")).toHaveCount(0);
   await openView(page, "dataset");
   await expect(page.getByRole("navigation", { name: "子模块视图" }).getByRole("button")).toHaveText(
     ["采集", "浏览"],

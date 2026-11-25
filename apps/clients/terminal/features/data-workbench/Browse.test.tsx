@@ -182,3 +182,27 @@ test("opening browse on the contracts tab skips dataset coverage until a referen
   });
   expect(request.mock.calls.filter(([body]) => body.case === "getDatasetCoverage")).toHaveLength(1);
 });
+
+test("an unreachable warehouse hides the browse toolbar and shows a status card", async () => {
+  request.mockRejectedValue(new Error("warehouse offline"));
+  const openSettings = vi.fn();
+  const props = {
+    navigate: vi.fn(),
+    openSettings,
+    snapshot: { warehouse_endpoint: { host: "warehouse", port: 7450, fingerprint: "f" } },
+    workspaceParams: {},
+  } as unknown as TerminalContext;
+  render(
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.data-browse">
+      <Browse {...props} />
+    </WorkspaceDraftScope>,
+  );
+  const alert = await screen.findByRole("alert");
+  expect(within(alert).getByText("数据服务")).toBeTruthy();
+  expect(within(alert).getByText("服务未连接")).toBeTruthy();
+  expect(within(alert).getByText("warehouse:7450")).toBeTruthy();
+  expect(alert.textContent).toContain("warehouse offline");
+  expect(screen.queryByRole("group", { name: "数据分类" })).toBeNull();
+  fireEvent.click(within(alert).getByRole("button", { name: "数据服务设置" }));
+  expect(openSettings).toHaveBeenCalledWith("warehouse");
+});

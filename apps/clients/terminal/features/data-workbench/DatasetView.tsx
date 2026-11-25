@@ -8,6 +8,7 @@ import {
   type DatasetCoverage,
 } from "../../src/generated/asterion/warehouse_pb";
 import { useActionError } from "../../src/host/action-error";
+import { ServiceStatusCard } from "../../src/host/components/ServiceStatusCard";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useErrorNotification } from "../../src/host/notifications";
 import { useWorkspaceActive } from "../../src/host/polling";
@@ -27,7 +28,7 @@ import {
   type ProductRow,
   type Rule,
 } from "./CoverageList";
-import { VersionBanner, WarehousePage, WarehouseUnavailable } from "./Page";
+import { VersionBanner, WarehousePage } from "./Page";
 import { exchanges, startAcquisition, t, tableName } from "./dataset";
 
 // What the research dataset holds for daily and minute bars, where any gaps sit
@@ -35,12 +36,12 @@ import { exchanges, startAcquisition, t, tableName } from "./dataset";
 export function Dataset(context: TerminalContext) {
   return (
     <WarehousePage context={context} label={t("采集")}>
-      {() => <DatasetBody context={context} />}
+      {address => <DatasetBody context={context} address={address} />}
     </WarehousePage>
   );
 }
 
-function DatasetBody({ context }: { context: TerminalContext }) {
+function DatasetBody({ context, address }: { context: TerminalContext; address: string }) {
   const paramVersion = context.workspaceParams?.version ?? "";
   const [viewed, setViewed] = useState(paramVersion);
   const [kind, setKind] = useWorkspaceDraft<Kind>("coverage-kind", "daily");
@@ -262,19 +263,13 @@ function DatasetBody({ context }: { context: TerminalContext }) {
   const error = state.error || options.error || (!viewed ? versionError : "");
   useErrorNotification(error, "asterion.terminal.data-workbench");
   if (!state.value || !options.value)
-    return error ? (
-      <WarehouseUnavailable
-        error={error}
-        retry={() => {
-          void state.refresh();
-          void options.refresh();
-        }}
+    return (
+      <ServiceStatusCard
+        service="warehouse"
+        address={address}
+        failed={error || undefined}
         openSettings={context.openSettings}
       />
-    ) : (
-      <p className="workspace-empty" role="status">
-        {t("读取中")}
-      </p>
     );
 
   const { summary } = state.value;
