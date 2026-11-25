@@ -21,7 +21,7 @@ declare -Ar DEFAULTS=(
     [broker.user_id]=''
     [broker.app_id]='simnow_client_test'
     [broker.front]='tcp://182.254.243.31:40001'
-    [market_front]=''
+    [market_front]='tcp://182.254.243.31:40011'
 )
 
 ACCOUNT_NAME='^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$'
