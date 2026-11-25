@@ -236,6 +236,37 @@ class PrepareCtpTest(unittest.TestCase):
         self.assertEqual(export_cmd[:3], ["conan", "export-pkg", str(self.root / "conan/ctp")])
         self.assertIn(f"user.ctp:sdk_root={self.root / 'build/ctp-sdk/linux-x86_64'}", export_cmd)
 
+    def test_download_bytes_retries_transient_http_errors_only(self):
+        import io
+        import urllib.error
+
+        calls = 0
+
+        def flaky(url, timeout=60):
+            nonlocal calls
+            calls += 1
+            if calls < 3:
+                raise urllib.error.HTTPError(url, 503, "Service Unavailable", {}, None)
+            return io.BytesIO(b"ctp-binary")
+
+        with (
+            patch.object(prepare_ctp.urllib.request, "urlopen", side_effect=flaky),
+            patch.object(prepare_ctp.time, "sleep") as sleep,
+        ):
+            self.assertEqual(prepare_ctp.download_bytes("https://example.invalid/ctp.so"), b"ctp-binary")
+        self.assertEqual(calls, 3)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [2.0, 4.0])
+
+        not_found = urllib.error.HTTPError("https://example.invalid/missing", 404, "Not Found", {}, None)
+        with (
+            patch.object(prepare_ctp.urllib.request, "urlopen", side_effect=not_found) as opener,
+            patch.object(prepare_ctp.time, "sleep") as sleep,
+        ):
+            with self.assertRaises(urllib.error.HTTPError):
+                prepare_ctp.download_bytes("https://example.invalid/missing")
+        self.assertEqual(opener.call_count, 1)
+        sleep.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

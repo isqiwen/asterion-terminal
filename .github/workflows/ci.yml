@@ -133,21 +133,31 @@ jobs:
         name: Restore Conan packages
         if: steps.conan-cache.outputs.cache-hit == 'true'
         run: conan cache restore "${{ runner.temp }}/conan-packages.tgz"
-      - &crash-tools-cache
-        name: Cache crash tools
+      - &ctp-sdk-cache
+        name: Cache CTP SDK
         uses: actions/cache@v5
         with:
-          path: build/crash-tools
-          key: crash-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/desktop/crash_resources.py') }}
+          path: build/ctp-sdk
+          key: ctp-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('conan/ctp/sources.json') }}
+      - &desktop-tools-cache
+        name: Cache crash tools and runtime digest
+        uses: actions/cache@v5
+        with:
+          path: |
+            build/crash-tools
+            build/runtime-cache
+          key: desktop-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/desktop/crash_resources.py', 'scripts/desktop/runtime_manifest.py') }}
       - name: Cache uv and Electron downloads
         uses: actions/cache@v5
         with:
           path: |
             ~/Library/Caches/uv
             ~/Library/Caches/electron
-          key: runtime-caches-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/services/lab/uv.lock', 'scripts/desktop/python_runtime.py', 'pnpm-lock.yaml') }}
+            ~/Library/Caches/electron-builder
+            build/electron-sdk
+          key: runtime-caches-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/services/lab/uv.lock', 'scripts/desktop/python_runtime.py', 'pnpm-lock.yaml') }}
           restore-keys: |
-            runtime-caches-${{ runner.os }}-${{ runner.arch }}-
+            runtime-caches-v2-${{ runner.os }}-${{ runner.arch }}-
       - name: Cache Playwright Chromium
         id: playwright-cache
         uses: actions/cache@v5
@@ -231,7 +241,8 @@ jobs:
       - *ccache
       - *conan-cache
       - *conan-restore
-      - *crash-tools-cache
+      - *ctp-sdk-cache
+      - *desktop-tools-cache
       - name: Cache uv downloads
         uses: actions/cache@v5
         with:
@@ -245,6 +256,13 @@ jobs:
         with:
           path: ~/.cache/electron
           key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Cache Electron build tools
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/electron-builder
+            build/electron-sdk
+          key: electron-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Check Python runtime cache
         id: python-runtime-cache
         uses: actions/cache/restore@v5
@@ -474,6 +492,7 @@ jobs:
       - *ccache
       - *conan-cache
       - *conan-restore
+      - *ctp-sdk-cache
       - run: conan profile detect
       - run: python scripts/prepare_ctp.py
       - name: Install Conan packages

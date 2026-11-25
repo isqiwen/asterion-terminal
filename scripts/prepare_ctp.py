@@ -6,6 +6,7 @@ switching between production (prod) and compliance evaluation (eval) builds.
 """
 import argparse
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
@@ -14,11 +15,14 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
+import urllib.error
 import urllib.request
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = ROOT / "conan/ctp/sources.json"
+TRANSIENT_HTTP = frozenset({429, 500, 502, 503, 504})
 
 REQUIRED_FILES = {
     "linux": {
@@ -52,6 +56,21 @@ REQUIRED_FILES = {
 
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def download_bytes(url: str, *, attempts: int = 4, backoff: float = 2.0) -> bytes:
+    """Fetch url bytes, retrying transient GitHub/CDN failures."""
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(url, timeout=60) as response:
+                return response.read()
+        except urllib.error.HTTPError as error:
+            if error.code not in TRANSIENT_HTTP or attempt + 1 == attempts:
+                raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.IncompleteRead):
+            if attempt + 1 == attempts:
+                raise
+        time.sleep(backoff * (2**attempt))
 
 
 def _safe_extract(archive: Path, destination: Path) -> Path:
@@ -212,7 +231,7 @@ def stage_sdk(
                 "use --local-dir with an official SFIT/broker package before live deployment",
                 file=sys.stderr,
             )
-        downloader = fetch or (lambda url: urllib.request.urlopen(url, timeout=60).read())
+        downloader = fetch or download_bytes
         for name in required_names:
             item = expected_files.get(name)
             if not item or "sha256" not in item:

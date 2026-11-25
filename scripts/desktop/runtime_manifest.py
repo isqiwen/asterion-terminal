@@ -28,6 +28,7 @@ from generated_resources import download_file
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT = ROOT / "apps/services/lab"
 DESTINATION = ROOT / "build/electron-resources/runtime"
+CACHE = ROOT / "build/runtime-cache"
 PYTHON = "3.12.12"
 # Where python-build-standalone publishes; uv's own copy is what it resolves to.
 INTERPRETER_SOURCES = {
@@ -114,10 +115,18 @@ def interpreter(target: dict, staging: Path) -> dict:
     if item is None or not item["url"].startswith(UV_RELEASES):
         raise SystemExit(f"uv publishes no {key}")
     path = item["url"][len(UV_RELEASES):]
+    cached = CACHE / f"{key}.json"
+    if cached.is_file():
+        record = json.loads(cached.read_text())
+        if record.get("path") == path and record.get("sha256") and record.get("size"):
+            return {"path": path, "sha256": record["sha256"], "size": record["size"]}
     archive = staging / "interpreter.tar.gz"
     # The build reads the archive once from the official source and pins it.
     download_file(INTERPRETER_SOURCES["official"] + path, archive)
-    return {"path": path, "sha256": digest(archive), "size": archive.stat().st_size}
+    record = {"path": path, "sha256": digest(archive), "size": archive.stat().st_size}
+    CACHE.mkdir(parents=True, exist_ok=True)
+    cached.write_text(json.dumps(record, indent=2) + "\n")
+    return record
 
 
 def verify(directory=DESTINATION):

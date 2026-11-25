@@ -106,6 +106,42 @@ class Startup(unittest.TestCase):
         self.assertEqual(opener.call_count, 1)
         sleep.assert_not_called()
 
+    def test_runtime_manifest_caches_interpreter_digest_by_release_path(self):
+        import hashlib
+        from types import SimpleNamespace
+
+        cache_dir = self.build / "runtime-cache"
+        staging = self.build / "staging"
+        staging.mkdir(parents=True, exist_ok=True)
+        target = {"interpreter": "linux-x86_64-gnu"}
+        rel1 = "20251031/cpython-3.12.12+20251031-x86_64-unknown-linux-gnu-install_only.tar.gz"
+        rel2 = "20260101/cpython-3.12.12+20260101-x86_64-unknown-linux-gnu-install_only.tar.gz"
+        def listing(rel):
+            return SimpleNamespace(stdout=json.dumps([
+                {"key": f"cpython-{runtime.PYTHON}-{target['interpreter']}",
+                 "url": runtime.runtime_manifest.UV_RELEASES + rel}
+            ]))
+
+        def fake_download(url, destination):
+            payload = url.encode()
+            destination.write_bytes(payload)
+
+        with patch.object(runtime.runtime_manifest, "CACHE", cache_dir), \
+                patch.object(runtime.runtime_manifest, "download_file", side_effect=fake_download) as dl:
+            with patch.object(runtime.runtime_manifest.subprocess, "run", return_value=listing(rel1)):
+                first = runtime.runtime_manifest.interpreter(target, staging)
+                second = runtime.runtime_manifest.interpreter(target, staging)
+            self.assertEqual(first, second)
+            self.assertEqual(dl.call_count, 1)
+            expected = (runtime.runtime_manifest.INTERPRETER_SOURCES["official"] + rel1).encode()
+            self.assertEqual(first["sha256"], hashlib.sha256(expected).hexdigest())
+            self.assertEqual(first["size"], len(expected))
+
+            with patch.object(runtime.runtime_manifest.subprocess, "run", return_value=listing(rel2)):
+                third = runtime.runtime_manifest.interpreter(target, staging)
+            self.assertEqual(dl.call_count, 2)
+            self.assertEqual(third["path"], rel2)
+
 
 if __name__ == "__main__":
     unittest.main()
