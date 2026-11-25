@@ -253,7 +253,7 @@ test("the summary shows freshness, acquisition defaults to canonical exchange or
   view(context());
   const summary = await screen.findByRole("group", { name: "数据" });
   const [daily, minutes] = summary.querySelectorAll<HTMLElement>(".data-summary-item");
-  expect(daily!.textContent).toBe("日线缺 2 个交易日");
+  expect(daily!.textContent).toBe("日线");
   expect(daily!.title).toBe("数据到 2026-11-10 · 应到 2026-11-12 · 另有 3 个交易日来源无数据");
   expect(minutes!.textContent).toBe("分钟线");
 

@@ -17,7 +17,6 @@ import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { getLocale } from "../../src/i18n";
 import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
 import { warehouseName } from "../../src/ui/contract-names";
-import { StatusBadge } from "../../src/ui/StatusBadge";
 import { ContractHistory } from "../futures-market/ContractHistory";
 import { Activity, activeTask } from "./Activity";
 import {
@@ -316,11 +315,6 @@ function DatasetBody({ context, address }: { context: TerminalContext; address: 
                 onClick={() => setKind(item)}
               >
                 <strong>{tableName(itemTable)}</strong>
-                {!!entry?.missing && (
-                  <StatusBadge tone="attention">
-                    {t("缺 {count} 个交易日", { count: Number(entry.missing) })}
-                  </StatusBadge>
-                )}
               </button>
             );
           })}
