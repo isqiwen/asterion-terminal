@@ -713,6 +713,239 @@ export function strategyClassName(name: string) {
   return name.replace(/(^|_)([a-zA-Z0-9])/g, (_, __, letter: string) => letter.toUpperCase());
 }
 
+function pythonLiteral(value: { value: { case?: string; value?: unknown } }): string {
+  switch (value.value.case) {
+    case "flag":
+      return value.value.value ? "True" : "False";
+    case "integer":
+      return String(value.value.value);
+    case "number": {
+      const n = Number(value.value.value);
+      return Number.isInteger(n) ? `${n}.0` : String(n);
+    }
+    case "text":
+      return JSON.stringify(String(value.value.value));
+    default:
+      return "None";
+  }
+}
+
+export function factorStrategyStem(result: FactorResult) {
+  const names = (
+    result.factorNames.length ? result.factorNames : [result.evaluation?.factor ?? "factor"]
+  )
+    .map(id => id.split(".")[1] ?? id)
+    .map(part => part.replace(/[^A-Za-z0-9_]/g, "_"))
+    .filter(Boolean);
+  const raw = `${names.slice(0, 2).join("_") || "factor"}_strategy`
+    .replace(/^[^A-Za-z_]+/, "")
+    .replace(/_+/g, "_");
+  return (raw || "factor_strategy").slice(0, 40).replace(/_+$/, "") || "factor_strategy";
+}
+
+// Generate a runnable, deployable cross-sectional Strategy from an evaluated factor (or composite).
+export function factorStrategyTemplate(result: FactorResult, moduleName: string) {
+  const evaluation = result.evaluation;
+  const primaryId = evaluation?.factor || result.factorNames[0] || "price.momentum";
+  const specs: Array<{
+    id: string;
+    module: string;
+    fn: string;
+    params: Record<string, { value: { case?: string; value?: unknown } }>;
+  }> = [];
+  const pushSpec = (
+    id: string,
+    params: Record<string, { value: { case?: string; value?: unknown } }> = {},
+  ) => {
+    const [module, fn] = id.split(".");
+    if (!module || !fn) return;
+    specs.push({ id, module, fn, params });
+  };
+  pushSpec(primaryId, evaluation?.params ?? {});
+  for (const extra of evaluation?.extraFactors ?? []) {
+    pushSpec(extra.factor, extra.params ?? {});
+  }
+  if (specs.length === 1 && result.factorNames.length >= 2) {
+    for (const id of result.factorNames.slice(1)) pushSpec(id, {});
+  }
+
+  // Resolve unique local aliases for imported factor functions.
+  const usedNames = new Set<string>(["_volatility"]);
+  const aliases = specs.map(spec => {
+    let alias = spec.fn;
+    if (usedNames.has(alias)) alias = `${spec.module}_${spec.fn}`;
+    while (usedNames.has(alias)) alias = `${alias}_f`;
+    usedNames.add(alias);
+    return alias;
+  });
+  const factorImports = new Map<string, string[]>();
+  specs.forEach((spec, idx) => {
+    const alias = aliases[idx]!;
+    const clause = alias === spec.fn ? spec.fn : `${spec.fn} as ${alias}`;
+    const list = factorImports.get(spec.module) ?? [];
+    if (!list.includes(clause)) list.push(clause);
+    factorImports.set(spec.module, list);
+  });
+
+  const composite = specs.length >= 2;
+  const winsorize = Boolean(evaluation?.winsorize);
+  const standardize = evaluation?.standardize || (composite ? "zscore" : "");
+  const sectorNeutral = evaluation?.neutralize === "sector";
+  const strategyImports = ["WEIGHT_STEP", "Strategy", "liquid_symbols"];
+  if (winsorize) strategyImports.push("winsorize_mad");
+  if (standardize === "zscore") strategyImports.push("cross_section_zscore");
+  if (standardize === "rank") strategyImports.push("cross_section_rank");
+  if (sectorNeutral) strategyImports.push("sector_neutralize");
+
+  let maxWindow = 20;
+  for (const spec of specs) {
+    for (const val of Object.values(spec.params)) {
+      if (val.value.case === "integer") {
+        const n = Number(val.value.value);
+        if (Number.isFinite(n) && n > maxWindow && n <= 500) maxWindow = n;
+      }
+    }
+  }
+  const factorNeed = maxWindow + 2;
+  const rebalance = evaluation?.horizons[0] ? Math.max(1, evaluation.horizons[0]) : 5;
+  const groups = Math.max(2, evaluation?.groups || 5);
+  const symbolCount = result.symbols.length || evaluation?.symbols.length || 6;
+  const tailCount = Math.max(1, Math.min(3, Math.floor(symbolCount / groups)));
+  const firstMean = result.horizons[0]?.mean;
+  const direction = firstMean !== undefined && firstMean < 0 ? -1 : 1;
+  const minVolume = evaluation?.minVolume ? evaluation.minVolume : 0.0;
+  const minOpenInterest = evaluation?.minOpenInterest ? evaluation.minOpenInterest : 0.0;
+
+  const cls = strategyClassName(moduleName);
+  const summary = specs.map(spec => spec.id).join(" + ");
+  const importLines = [
+    ...[...factorImports.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([mod, items]) => `from factors.${mod} import ${items.join(", ")}`),
+    "from factors.price import volatility as _volatility",
+  ];
+
+  const scoreLines: string[] = [];
+  if (composite) {
+    scoreLines.push("        components = []");
+    specs.forEach((spec, idx) => {
+      const alias = aliases[idx]!;
+      const kwargs = Object.entries(spec.params)
+        .map(([k, v]) => `, ${k}=${pythonLiteral(v)}`)
+        .join("");
+      scoreLines.push(
+        `        part_${idx} = {s: float(ctx.factor(${alias}, s, self.need${kwargs})) for s in eligible}`,
+      );
+      if (winsorize) scoreLines.push(`        part_${idx} = winsorize_mad(part_${idx})`);
+      scoreLines.push(
+        `        part_${idx} = ${standardize === "rank" ? "cross_section_rank" : "cross_section_zscore"}(part_${idx})`,
+      );
+      scoreLines.push(`        components.append(part_${idx})`);
+    });
+    scoreLines.push("        scores = {}");
+    scoreLines.push("        for s in eligible:");
+    scoreLines.push("            vals = [c[s] for c in components if s in c]");
+    scoreLines.push("            if vals:");
+    scoreLines.push("                scores[s] = sum(vals) / len(vals)");
+    if (sectorNeutral) scoreLines.push("        scores = sector_neutralize(scores)");
+  } else {
+    const spec = specs[0]!;
+    const alias = aliases[0]!;
+    const kwargs = Object.entries(spec.params)
+      .map(([k, v]) => `, ${k}=${pythonLiteral(v)}`)
+      .join("");
+    scoreLines.push(
+      `        scores = {s: float(ctx.factor(${alias}, s, self.need${kwargs})) for s in eligible}`,
+    );
+    scoreLines.push("        scores = {s: v for s, v in scores.items() if np.isfinite(v)}");
+    if (winsorize) scoreLines.push("        scores = winsorize_mad(scores)");
+    if (standardize === "zscore") scoreLines.push("        scores = cross_section_zscore(scores)");
+    if (standardize === "rank") scoreLines.push("        scores = cross_section_rank(scores)");
+    if (sectorNeutral) scoreLines.push("        scores = sector_neutralize(scores)");
+  }
+
+  const content = `from decimal import Decimal
+
+import numpy as np
+
+from asterion_strategy import ${strategyImports.join(", ")}
+${importLines.join("\n")}
+
+
+class ${cls}(Strategy):
+    """Cross-sectional inverse-volatility portfolio generated from ${summary}."""
+
+    params = {
+        "rebalance": ${rebalance},
+        "count": ${tailCount},
+        "gross_weight": 0.6,
+        "volatility": 20,
+        "direction": ${direction},
+        "min_volume": ${Number.isInteger(minVolume) ? `${minVolume}.0` : minVolume},
+        "min_open_interest": ${Number.isInteger(minOpenInterest) ? `${minOpenInterest}.0` : minOpenInterest},
+    }
+
+    def __init__(self, **values):
+        super().__init__(**values)
+        p = self.params
+        if (
+            p["rebalance"] < 1
+            or p["count"] < 1
+            or p["gross_weight"] <= 0
+            or p["volatility"] < 2
+            or p["direction"] not in (-1, 1)
+            or p["min_volume"] < 0
+            or p["min_open_interest"] < 0
+        ):
+            raise ValueError("invalid factor strategy parameters")
+        self.need = max(${factorNeed}, p["volatility"] + 1)
+        self._steps = 0
+
+    def ready(self, ctx):
+        required = min(len(ctx.symbols), 2 * self.params["count"])
+        warm = sum(len(ctx.history(s, "close", self.need)) == self.need for s in ctx.symbols)
+        return warm >= required
+
+    def on_bars(self, ctx, bars):
+        if not self.ready(ctx):
+            return
+        self._steps += 1
+        p = self.params
+        if (self._steps - 1) % p["rebalance"]:
+            return
+        eligible = liquid_symbols(
+            ctx,
+            bars,
+            min_bars=self.need,
+            min_volume=p["min_volume"],
+            min_open_interest=p["min_open_interest"],
+        )
+        risk = {
+            s: float(ctx.factor(_volatility, s, p["volatility"] + 1, window=p["volatility"]))
+            for s in eligible
+        }
+        eligible = [s for s in eligible if np.isfinite(risk[s]) and risk[s] > 0]
+${scoreLines.join("\n")}
+        scores = {s: p["direction"] * v for s, v in scores.items() if np.isfinite(v)}
+        ordered = sorted(scores, key=scores.get, reverse=True)
+        count = p["count"]
+        target = dict.fromkeys(ctx.symbols, 0.0)
+        if len(ordered) < 2 * count or scores[ordered[count - 1]] <= scores[ordered[-count]]:
+            ctx.weights(target)
+            return
+        budget = int(Decimal(str(p["gross_weight"])) / (2 * WEIGHT_STEP))
+        for side_symbols, side in ((ordered[:count], 1), (ordered[-count:], -1)):
+            total = sum(1.0 / risk[s] for s in side_symbols)
+            remaining = budget
+            for i, s in enumerate(side_symbols):
+                units = remaining if i == len(side_symbols) - 1 else int(budget / risk[s] / total)
+                target[s] = side * float(units * WEIGHT_STEP)
+                remaining -= units
+        ctx.weights(target)
+`;
+  return { content, id: `${moduleName}.${cls}` };
+}
+
 export function copyStem(symbol: string | undefined, path: string) {
   if (!symbol) return `${path.replace(/^(strategies|factors)\//, "").replace(/\.py$/, "")}_copy`;
   const snake = symbol

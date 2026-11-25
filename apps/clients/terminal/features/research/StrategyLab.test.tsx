@@ -666,3 +666,48 @@ test("selected strategies run as one batch and compare on the same settings", as
   expect(screen.getByText("失败")).toBeTruthy();
   expect(screen.queryByText("条件不同")).toBeNull();
 });
+
+test("openStrategy workspaceParams opens the generated strategy on code tab with adopted factor scope", async () => {
+  vi.mocked(lab).mockReset();
+  vi.mocked(lab).mockImplementation(async operation => {
+    switch (operation?.case) {
+      case "listStrategies":
+        return create(StrategiesSchema, {
+          strategies: [{ id: "momentum_strategy.MomentumStrategy", portfolio: true }],
+        }) as never;
+      case "listRecentRuns":
+        return create(RunsSchema, {}) as never;
+      case "readSource":
+        return create(SourceSchema, {
+          content: "class MomentumStrategy(Strategy):\n    pass\n",
+        }) as never;
+    }
+    return new Promise(() => {}) as never;
+  });
+  const context = {
+    snapshot: { research_directory: "/research" },
+    workspaceParams: {
+      openStrategy: "momentum_strategy.MomentumStrategy",
+      symbols: "SHFE/rb, SHFE/cu, SHFE/al",
+      begin: "2025-01-02",
+      end: "2026-02-13",
+      holdoutDay: "2026-01-05",
+    },
+    navigate: vi.fn(),
+  } as unknown as TerminalContext;
+  render(
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.lab-strategies">
+      <StrategyLab {...context} />
+    </WorkspaceDraftScope>,
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("region", { name: "strategies/momentum_strategy.py" })).toBeTruthy(),
+  );
+  expect(context.navigate).toHaveBeenCalledWith("workspace.lab-strategies", {});
+  editScope(() => {
+    expect(screen.getByRole("button", { name: "移除 {symbol} SHFE/rb" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "移除 {symbol} SHFE/cu" })).toBeTruthy();
+    expect((screen.getByLabelText("开始日") as HTMLInputElement).value).toBe("2025-01-02");
+    expect((screen.getByLabelText("留出日") as HTMLInputElement).value).toBe("2026-01-05");
+  });
+});

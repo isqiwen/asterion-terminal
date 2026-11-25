@@ -35,6 +35,11 @@ const t = (key: string, values?: MessageValues) =>
 
 export type Folder = "strategies" | "factors";
 export type ModuleCopy = { name: string; content: string; symbol?: string };
+export type ModuleDraft = {
+  title: string;
+  name: string;
+  build: (name: string) => { content: string; id: string };
+};
 
 // The modules of the research directory, read again after each change or focus.
 export function useModules(repository: string) {
@@ -82,6 +87,8 @@ export function NewModule({
   repository,
   copying,
   cancelCopy,
+  generated,
+  cancelGenerated,
   hideTrigger,
   created,
 }: {
@@ -89,14 +96,17 @@ export function NewModule({
   repository: string;
   copying?: ModuleCopy | null;
   cancelCopy?: () => void;
+  generated?: ModuleDraft | null;
+  cancelGenerated?: () => void;
   hideTrigger?: boolean;
   created: (path: string, id?: string) => void;
 }) {
   const [naming, setNaming] = useState(false);
-  const open = naming || Boolean(copying);
+  const open = naming || Boolean(copying) || Boolean(generated);
   const close = () => {
     setNaming(false);
     cancelCopy?.();
+    cancelGenerated?.();
   };
   return (
     <>
@@ -111,6 +121,7 @@ export function NewModule({
           folder={folder}
           repository={repository}
           copying={copying}
+          generated={generated}
           close={close}
           created={created}
         />
@@ -123,19 +134,21 @@ function NewModuleDialog({
   folder,
   repository,
   copying,
+  generated,
   close,
   created,
 }: {
   folder: Folder;
   repository: string;
   copying?: ModuleCopy | null;
+  generated?: ModuleDraft | null;
   close: () => void;
   created: (path: string, id?: string) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const heading = useId();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [name, setName] = useState(copying?.name ?? "");
+  const [name, setName] = useState(generated?.name ?? copying?.name ?? "");
   const { error, attempt } = useActionError();
   useLayoutEffect(() => {
     const element = dialog.current;
@@ -146,13 +159,15 @@ function NewModuleDialog({
     inputRef.current?.focus();
     inputRef.current?.select();
   }, []);
-  const title = copying
-    ? folder === "strategies"
-      ? "复制策略"
-      : "复制因子"
-    : folder === "strategies"
-      ? "新建策略"
-      : "新建因子";
+  const title = generated
+    ? generated.title
+    : copying
+      ? folder === "strategies"
+        ? "复制策略"
+        : "复制因子"
+      : folder === "strategies"
+        ? "新建策略"
+        : "新建因子";
   return (
     <dialog
       ref={dialog}
@@ -174,12 +189,14 @@ function NewModuleDialog({
         onSubmit={event => {
           event.preventDefault();
           const path = `${folder}/${name}.py`;
-          const result = copying
-            ? copiedModule(folder, copying.content, copying.symbol, name)
-            : {
-                content: moduleTemplate(folder, name),
-                id: `${name}.${folder === "strategies" ? strategyClassName(name) : name}`,
-              };
+          const result = generated
+            ? generated.build(name)
+            : copying
+              ? copiedModule(folder, copying.content, copying.symbol, name)
+              : {
+                  content: moduleTemplate(folder, name),
+                  id: `${name}.${folder === "strategies" ? strategyClassName(name) : name}`,
+                };
           void attempt(async () => {
             await lab({
               case: "saveSource",

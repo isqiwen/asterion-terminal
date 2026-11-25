@@ -351,5 +351,7 @@
   "搜索正交基准因子": "Search benchmark factors",
   "正交剥离 {names}": "Orthogonalized vs {names}",
   "扣费多空": "Net long–short",
-  "扣费多空累计": "Net long–short cumulative"
+  "扣费多空累计": "Net long–short cumulative",
+  "生成策略": "Generate strategy",
+  "从因子生成策略": "Generate strategy from factor"
 }

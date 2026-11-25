@@ -17,6 +17,8 @@ import {
   defaultFactorForm,
   defaultForm,
   factorRequest,
+  factorStrategyStem,
+  factorStrategyTemplate,
   factorTurnover,
   formFromRun,
   heatmap,
@@ -322,4 +324,38 @@ test("two sets of settings are the same when their values are", () => {
   expect(sameScope(base, { ...base, symbols: "DCE/i, SHFE/rb", deposit: "1000000.00" })).toBe(true);
   expect(sameScope(base, { ...base, slippage: "2" })).toBe(false);
   expect(sameScope(base, { ...base, begin: "2026-01-05" })).toBe(false);
+});
+
+test("factorStrategyTemplate generates deployable Python strategy code preserving hygiene and params", () => {
+  const result = create(FactorResultSchema, {
+    id: "mix-1",
+    evaluation: {
+      factor: "price.momentum",
+      params: { lookback: { value: { case: "integer", value: 30n } } },
+      extraFactors: [{ factor: "positions.interest_change", params: {} }],
+      horizons: [5, 10],
+      groups: 3,
+      winsorize: true,
+      standardize: "rank",
+      neutralize: "sector",
+      minVolume: 500,
+      minOpenInterest: 2000,
+    },
+    factorNames: ["price.momentum", "positions.interest_change"],
+    symbols: ["SHFE/rb", "DCE/i", "SHFE/cu", "SHFE/al", "SHFE/zn", "SHFE/au"],
+    horizons: [{ horizon: 5, mean: -0.08 }],
+  });
+  const stem = factorStrategyStem(result);
+  expect(stem).toBe("momentum_interest_change_strategy");
+  const built = factorStrategyTemplate(result, stem);
+  expect(built.id).toBe("momentum_interest_change_strategy.MomentumInterestChangeStrategy");
+  expect(built.content).toContain("from factors.price import momentum");
+  expect(built.content).toContain("from factors.positions import interest_change");
+  expect(built.content).toContain("winsorize_mad");
+  expect(built.content).toContain("cross_section_rank");
+  expect(built.content).toContain("sector_neutralize");
+  expect(built.content).toContain('"direction": -1');
+  expect(built.content).toContain('"min_volume": 500.0');
+  expect(built.content).toContain("lookback=30");
+  expect(built.content).toContain("def ready(self, ctx):");
 });

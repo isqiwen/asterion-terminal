@@ -12,6 +12,8 @@ import {
   defaultText,
   factorRequest,
   factorScopeOf,
+  factorStrategyStem,
+  factorStrategyTemplate,
   factorTurnover,
   identity,
   onFactorScope,
@@ -79,6 +81,7 @@ export function FactorLab(context: TerminalContext) {
   const source = useSource(repository, "factors");
   const [saved, setSaved] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
+  const [generating, setGenerating] = useState<FactorResult | null>(null);
 
   const library = view === "library";
   // An evaluation takes a while: its report opens only if the page is still where it began.
@@ -340,6 +343,11 @@ export function FactorLab(context: TerminalContext) {
             <StatusBadge tone="neutral">{t("条件不同")}</StatusBadge>
           )}
           <span className="lab-spacer" />
+          {showsResult && shownResult && (
+            <button type="button" onClick={() => setGenerating(shownResult)}>
+              {t("生成策略")}
+            </button>
+          )}
           {showsResult && <DeleteRecord name={report} remove={() => remove(report)} />}
         </header>
       )}
@@ -358,6 +366,34 @@ export function FactorLab(context: TerminalContext) {
           }}
         />
       )}
+      {generating && (
+        <NewModule
+          key={`gen:${generating.id}`}
+          hideTrigger
+          folder="strategies"
+          repository={repository}
+          generated={{
+            title: "从因子生成策略",
+            name: factorStrategyStem(generating),
+            build: name => factorStrategyTemplate(generating, name),
+          }}
+          cancelGenerated={() => setGenerating(null)}
+          created={(_path, id) => {
+            const target = generating;
+            setGenerating(null);
+            const symbols = (
+              target.symbols.length ? target.symbols : (target.evaluation?.symbols ?? [])
+            ).join(", ");
+            const params: Record<string, string> = {};
+            if (id) params.openStrategy = id;
+            if (symbols) params.symbols = symbols;
+            if (target.evaluation?.firstDay) params.begin = target.evaluation.firstDay;
+            if (target.evaluation?.lastDay) params.end = target.evaluation.lastDay;
+            if (target.evaluation?.holdoutDay) params.holdoutDay = target.evaluation.holdoutDay;
+            context.navigate("workspace.lab-strategies", { params });
+          }}
+        />
+      )}
       {library && report ? (
         <div className="lab-center lab-runs-view">
           <header className="lab-report-header">
@@ -366,6 +402,11 @@ export function FactorLab(context: TerminalContext) {
             </button>
             <h2>{reportName}</h2>
             <span className="lab-spacer" />
+            {shownResult && (
+              <button type="button" onClick={() => setGenerating(shownResult)}>
+                {t("生成策略")}
+              </button>
+            )}
             <DeleteRecord name={report} remove={() => remove(report)} />
           </header>
           <Report key={report} id={report} />

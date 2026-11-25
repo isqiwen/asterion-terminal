@@ -81,12 +81,48 @@ export function StrategyLab(context: TerminalContext) {
   }, [readRecentRuns]);
 
   const loadRunId = context.workspaceParams?.loadRun;
+  const openStrategyId = context.workspaceParams?.openStrategy;
   useEffect(() => {
     if (!chosen || !strategies || strategies.strategies.some(item => item.id === chosen)) return;
     const [stem] = chosen.split(".");
     const renamed = strategies.strategies.find(item => item.id.startsWith(`${stem}.`));
     if (renamed) setChosen(renamed.id);
   }, [chosen, strategies, setChosen]);
+
+  useEffect(() => {
+    if (!openStrategyId) return;
+    const [stem] = openStrategyId.split(".");
+    if (!stem) return;
+    setChosen(openStrategyId);
+    source.open(`strategies/${stem}.py`);
+    setView("detail");
+    setReport(null);
+    setTab("code");
+    const symbols = context.workspaceParams?.symbols ?? "";
+    const begin = context.workspaceParams?.begin ?? "";
+    const end = context.workspaceParams?.end ?? "";
+    const holdoutDay = context.workspaceParams?.holdoutDay ?? "";
+    if (symbols || begin || end || holdoutDay) {
+      const symbolList = symbolsOf(symbols);
+      const next: RunForm = {
+        ...form,
+        ...(symbols ? { symbols } : {}),
+        ...(begin ? { begin } : {}),
+        ...(end ? { end } : {}),
+        holdoutDay,
+        validation: holdoutDay ? "holdout" : "none",
+        multiSymbolMode: symbolList.length > 1 ? "portfolio" : undefined,
+        params: {},
+      };
+      setForm(next);
+      shownScope.current = JSON.stringify(conditions.adopt(scopeOf(next)));
+    } else {
+      setForm(previous => ({ ...previous, params: {} }));
+    }
+    void readStrategies();
+    context.navigate("workspace.lab-strategies", {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openStrategyId]);
 
   useEffect(() => {
     if (!loadRunId) return;

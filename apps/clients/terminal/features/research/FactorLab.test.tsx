@@ -513,3 +513,76 @@ test("cancelling a batch factor evaluation skips remaining factors", async () =>
   await vi.waitFor(() => expect(screen.queryByRole("button", { name: "取消" })).toBeNull());
   expect(evaluated).toEqual(["price.first"]);
 });
+
+test("generating a strategy from a factor report saves it and navigates to StrategyLab with scope", async () => {
+  const saved: Array<{ path?: string; content?: string; create?: boolean }> = [];
+  const navigate = vi.fn();
+  vi.mocked(lab).mockImplementation(async operation => {
+    switch (operation?.case) {
+      case "listStrategies":
+        return create(StrategiesSchema, { factors: [{ id: "price.momentum" }] }) as never;
+      case "listFactorResults":
+        return create(FactorResultsSchema, {
+          results: [
+            {
+              id: "mom-1",
+              evaluation: {
+                factor: "price.momentum",
+                firstDay: "2025-01-02",
+                lastDay: "2026-02-13",
+                holdoutDay: "2026-01-05",
+                horizons: [5],
+                groups: 3,
+              },
+              symbols: ["SHFE/rb", "SHFE/cu", "SHFE/al"],
+              horizons: [{ horizon: 5, mean: 0.12 }],
+            },
+          ],
+        }) as never;
+      case "getFactorResult":
+        return create(FactorResultSchema, {
+          id: "mom-1",
+          evaluation: { factor: "price.momentum", firstDay: "2025-01-02", lastDay: "2026-02-13" },
+          symbols: ["SHFE/rb", "SHFE/cu", "SHFE/al"],
+          horizons: [{ horizon: 5, mean: 0.12 }],
+        }) as never;
+      case "saveSource":
+        saved.push({
+          path: operation.value.source?.path,
+          content: operation.value.content,
+          create: operation.value.create,
+        });
+        return {} as never;
+      case "readSource":
+        return create(SourceSchema, { content: "" }) as never;
+    }
+    return new Promise(() => {}) as never;
+  });
+  const context = {
+    snapshot: { research_directory: "/research" },
+    navigate,
+  } as unknown as TerminalContext;
+  render(
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.lab-factors">
+      <FactorLab {...context} />
+    </WorkspaceDraftScope>,
+  );
+  const library = await screen.findByRole("table", { name: "因子库" });
+  fireEvent.click(await within(library).findByRole("button", { name: "momentum" }));
+  fireEvent.click(await screen.findByRole("button", { name: "生成策略" }));
+  expect(screen.getByRole("dialog", { name: "从因子生成策略" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "创建" }));
+  await vi.waitFor(() => expect(saved).toHaveLength(1));
+  expect(saved[0]!.path).toBe("strategies/momentum_strategy.py");
+  expect(saved[0]!.create).toBe(true);
+  expect(saved[0]!.content).toContain("class MomentumStrategy(Strategy):");
+  expect(navigate).toHaveBeenCalledWith("workspace.lab-strategies", {
+    params: {
+      openStrategy: "momentum_strategy.MomentumStrategy",
+      symbols: "SHFE/rb, SHFE/cu, SHFE/al",
+      begin: "2025-01-02",
+      end: "2026-02-13",
+      holdoutDay: "2026-01-05",
+    },
+  });
+});
