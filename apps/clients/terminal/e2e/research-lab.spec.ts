@@ -38,7 +38,7 @@ test(
     await openView(page, "research");
     await expect(
       page.getByRole("button", { name: "RandomFeatureForecast", exact: true }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 15000 });
     await page.getByRole("button", { name: "设置回测条件", exact: true }).click();
     const scope = page.getByRole("dialog", { name: "回测条件" });
     await scope.getByRole("combobox", { name: "品种" }).fill("SHFE/rb");
@@ -96,7 +96,7 @@ test(
     const library = page.getByRole("table", { name: "因子库" });
     await expect(
       library.getByRole("button", { name: "expected_shortfall", exact: true }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 15000 });
     await page.getByRole("button", { name: "设置评价条件", exact: true }).click();
     const scope = page.getByRole("dialog", { name: "评价条件" });
     await scope

@@ -255,6 +255,8 @@ function localCore(): Plugin {
 }
 export default defineConfig({
   root: resolve(root, "apps/clients/terminal"),
+  // Concurrent dev servers (desktop + parallel E2E shards) must not share Vite's dep cache.
+  cacheDir: process.env.ASTERION_DEV_PORT ? resolve(root, `node_modules/.vite-${port}`) : undefined,
   base: "./",
   plugins: [react(), ...(process.env.ASTERION_DESKTOP_DEV === "1" ? [] : [localCore()])],
   resolve: {
