@@ -521,3 +521,4 @@ jobs:
           # its repeated fields through inlined header code; ignore manual
           # poisoning and container annotations, keep heap checks.
           ASAN_OPTIONS: ${{ contains(matrix.sanitizer, 'address') && 'allow_user_poisoning=0:detect_container_overflow=0' || '' }}
+          TSAN_OPTIONS: ${{ matrix.sanitizer == 'thread' && format('suppressions={0}/tests/support/tsan.supp', github.workspace) || '' }}

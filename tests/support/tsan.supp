@@ -1,0 +1,2 @@
+# GCC's uninstrumented exception_ptr reference count hides synchronization during exception cleanup.
+race:std::__exception_ptr::exception_ptr::_M_release
