@@ -162,3 +162,25 @@ export function warehouseName(id: string, provided = "") {
   const [venue, product, month] = id.split("/");
   return month ? identityName(id, provided) : productName(venue ?? "", product ?? "");
 }
+
+// Resolves a Chinese or English product name on an exchange to its product code.
+export function resolveProductCode(exchange: string, query: string): string {
+  const trimmed = query.trim();
+  if (!trimmed || !exchange) return trimmed;
+  const target = trimmed.toLowerCase();
+  const prefix = `${exchange}.`;
+  let partial = "";
+  let partials = 0;
+  for (const [key, [zh, en]] of Object.entries(products)) {
+    if (!key.startsWith(prefix)) continue;
+    const code = key.slice(prefix.length);
+    const zhLow = zh.toLowerCase();
+    const enLow = en.toLowerCase();
+    if (zhLow === target || enLow === target) return code;
+    if (zhLow.includes(target) || enLow.includes(target)) {
+      partial = code;
+      partials++;
+    }
+  }
+  return partials === 1 ? partial : trimmed;
+}

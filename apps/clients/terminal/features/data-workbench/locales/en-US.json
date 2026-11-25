@@ -214,5 +214,10 @@
   "尚未采集的历史交易日或合约": "Past trading days or contracts not yet acquired",
   "尚未到来的未来存续期（截至摘牌日）": "Future contract life through delisting, not yet due",
   "已退市品种": "Delisted products",
-  "齐全": "Complete"
+  "齐全": "Complete",
+  "品种或合约，如 rb": "Product or contract, e.g. rb",
+  "按日期筛选": "Filter by date",
+  "清空筛选": "Clear filters",
+  "是": "Yes",
+  "否": "No"
 }

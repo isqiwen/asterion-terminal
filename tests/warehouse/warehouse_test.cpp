@@ -493,6 +493,116 @@ TEST_F(Warehouse, ReportPagesCrossDatesAndKeepTotalAtTheEnd)
     }
 }
 
+TEST_F(Warehouse, ReferenceTableFiltersByProductContractAndDay)
+{
+    wh::Store store(wh::source_directory(root, "research"), "research");
+    {
+        auto writer = store.writer();
+        for (const auto& day : {"2026-10-28", "2026-10-29"}) {
+            auto rb = row("warehouse_receipts");
+            rb[0] = std::string("SHFE");
+            rb[1] = std::string("rb");
+            rb[2] = std::string(day);
+            auto ag = row("warehouse_receipts");
+            ag[0] = std::string("SHFE");
+            ag[1] = std::string("ag");
+            ag[2] = std::string(day);
+            writer.put(std::string("warehouse_receipts/SHFE/") + day, std::vector<wh::Row>{rb, ag});
+
+            auto s1 = row("settlement");
+            s1[0] = std::string("SHFE");
+            s1[1] = std::string("rb");
+            s1[2] = std::string("SHFE/rb/2026-10");
+            s1[3] = std::string(day);
+            auto s2 = row("settlement");
+            s2[0] = std::string("SHFE");
+            s2[1] = std::string("rb");
+            s2[2] = std::string("SHFE/rb/2027-01");
+            s2[3] = std::string(day);
+            writer.put(std::string("settlement/SHFE/") + day, std::vector<wh::Row>{s1, s2});
+        }
+        auto tick_old = row("price_ticks");
+        tick_old[0] = std::string("SHFE");
+        tick_old[1] = std::string("rb");
+        tick_old[2] = std::string("SHFE/rb/2026-10");
+        tick_old[3] = std::string("2025-01-01");
+        tick_old[4] = std::string("2025-12-31");
+        auto tick_now = row("price_ticks");
+        tick_now[0] = std::string("SHFE");
+        tick_now[1] = std::string("rb");
+        tick_now[2] = std::string("SHFE/rb/2026-10");
+        tick_now[3] = std::string("2026-01-01");
+        tick_now[4] = std::monostate{};
+        writer.put("price_ticks/SHFE", std::vector<wh::Row>{tick_old, tick_now});
+
+        auto cal1 = row("calendar");
+        cal1[0] = std::string("SHFE");
+        cal1[1] = std::string("2026-10-28");
+        auto cal2 = row("calendar");
+        cal2[0] = std::string("SHFE");
+        cal2[1] = std::string("2026-10-29");
+        writer.put("calendar/SHFE/2026", std::vector<wh::Row>{cal1, cal2});
+        writer.commit();
+    }
+    wh::Reader reader(root);
+    {
+        wire::GetTableRows query;
+        query.set_table(wire::TABLE_WAREHOUSE_RECEIPTS);
+        query.set_exchange("SHFE");
+        query.set_product("AG");
+        const auto by_product = reader.rows(query);
+        ASSERT_EQ(by_product.total(), 2);
+        EXPECT_EQ(by_product.rows(0).values(1), "ag");
+        EXPECT_EQ(by_product.rows(0).values(2), "2026-10-29");
+        EXPECT_EQ(by_product.rows(1).values(2), "2026-10-28");
+
+        query.set_day("2026-10-28");
+        const auto both = reader.rows(query);
+        ASSERT_EQ(both.total(), 1);
+        EXPECT_EQ(both.rows(0).values(1), "ag");
+        EXPECT_EQ(both.rows(0).values(2), "2026-10-28");
+    }
+    {
+        wire::GetTableRows query;
+        query.set_table(wire::TABLE_SETTLEMENT);
+        query.set_exchange("SHFE");
+        query.set_product("rb2610");
+        const auto by_compact = reader.rows(query);
+        ASSERT_EQ(by_compact.total(), 2);
+        EXPECT_EQ(by_compact.rows(0).values(2), "SHFE/rb/2026-10");
+        EXPECT_EQ(by_compact.rows(1).values(2), "SHFE/rb/2026-10");
+
+        query.set_day("2026-10-29");
+        const auto exact = reader.rows(query);
+        ASSERT_EQ(exact.total(), 1);
+        EXPECT_EQ(exact.rows(0).values(3), "2026-10-29");
+    }
+    {
+        wire::GetTableRows query;
+        query.set_table(wire::TABLE_PRICE_TICKS);
+        query.set_exchange("SHFE");
+        query.set_day("2026-06-01");
+        const auto effective = reader.rows(query);
+        ASSERT_EQ(effective.total(), 1);
+        EXPECT_EQ(effective.rows(0).values(3), "2026-01-01");
+    }
+    {
+        wire::GetTableRows query;
+        query.set_table(wire::TABLE_CALENDAR);
+        query.set_exchange("SHFE");
+        query.set_day("2026-10-28");
+        const auto cal = reader.rows(query);
+        ASSERT_EQ(cal.total(), 1);
+        EXPECT_EQ(cal.rows(0).values(1), "2026-10-28");
+
+        query.set_product("rb");
+        EXPECT_THROW(reader.rows(query), std::invalid_argument);
+        query.clear_product();
+        query.set_day("2026-13-40");
+        EXPECT_THROW(reader.rows(query), std::invalid_argument);
+    }
+}
+
 TEST_F(Warehouse, ReadingAPartitionLoadsOnlyTheShardsItNeeds)
 {
     wh::Store store(wh::source_directory(root, "research"), "research");

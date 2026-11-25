@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Table, type TableRows } from "../../src/generated/asterion/warehouse_pb";
 import { warehouseData } from "../../src/bridge/warehouse-data";
 import { useErrorNotification } from "../../src/host/notifications";
 import { type MessageValues, translate } from "../../src/i18n";
 import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
+import { resolveProductCode, warehouseName } from "../../src/ui/contract-names";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.data-workbench", key, values);
@@ -100,10 +101,32 @@ const numericColumns = new Set([
   "capacity_change",
 ]);
 
+const changeColumns = new Set([
+  "volume_change",
+  "long_change",
+  "short_change",
+  "total_change",
+  "receipts_change",
+  "capacity_change",
+]);
+
 const timestamp = (value: string) =>
   value
     ? new Date(Number(value)).toLocaleString("sv-SE", { timeZone: "Asia/Shanghai", hour12: false })
     : "—";
+
+const formatNumber = (value: string) => {
+  if (!/^-?\d+\.\d+$/.test(value)) return value;
+  const trimmed = value.replace(/(\.\d*?[1-9])0+$|\.0+$/, "$1");
+  return trimmed === "-0" ? "0" : trimmed;
+};
+
+const changeTone = (value: string): "up" | "down" | "flat" | undefined => {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return undefined;
+  return parsed > 0 ? "up" : parsed < 0 ? "down" : "flat";
+};
 
 // Browse one table of one exchange in a fixed version, newest first.
 export function ReferenceTable({
@@ -111,22 +134,52 @@ export function ReferenceTable({
   table,
   name,
   exchanges,
+  toolbar,
 }: {
   version: string;
   table: Table;
   name: string;
   exchanges: string[];
+  toolbar?: ReactNode;
 }) {
   const [exchange, setExchange] = useState(exchanges[0] ?? "");
+  const [productInput, setProductInput] = useState("");
+  const [product, setProduct] = useState("");
+  const [day, setDay] = useState("");
   const [offset, setOffset] = useState(0);
+  const hasProduct = table !== Table.CALENDAR;
+  const hasDay = table !== Table.CONTRACTS;
+  useEffect(() => {
+    const next = productInput.trim();
+    if (next === product) return;
+    if (!next) {
+      setProduct("");
+      setOffset(0);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setProduct(next);
+      setOffset(0);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [productInput, product]);
+  const resolvedProduct = hasProduct && product ? resolveProductCode(exchange, product) : "";
+  const activeDay = hasDay ? day : "";
   // A followed version replaces the rows in place.
-  const query = JSON.stringify([table, exchange, offset]);
+  const query = JSON.stringify([table, exchange, resolvedProduct, activeDay, offset]);
   const [result, setResult] = useState<{ query: string; rows?: TableRows; error: DisplayError }>();
   const rows = result?.query === query ? result.rows : undefined;
   const error = result?.query === query ? result.error : "";
   const shown = (rows?.columns ?? [])
     .map((column, index) => ({ column, index }))
-    .filter(({ column }) => column !== "observed_ms");
+    .filter(
+      ({ column, index }) =>
+        column !== "observed_ms" &&
+        column !== "exchange" &&
+        (column === "published_ms" ||
+          !rows?.rows.length ||
+          rows.rows.some(row => row.values[index] !== "")),
+    );
   useEffect(() => {
     let active = true;
     void warehouseData({
@@ -136,6 +189,8 @@ export function ReferenceTable({
         table,
         exchange,
         offset,
+        ...(resolvedProduct ? { product: resolvedProduct } : {}),
+        ...(activeDay ? { day: activeDay } : {}),
       },
     })
       .then(rows => {
@@ -149,14 +204,52 @@ export function ReferenceTable({
     return () => {
       active = false;
     };
-  }, [query, version, table, exchange, offset]);
+  }, [query, version, table, exchange, resolvedProduct, activeDay, offset]);
   useErrorNotification(error, "asterion.terminal.data-workbench");
+  const filtered = Boolean(product || activeDay);
+  const clearFilters = () => {
+    setProductInput("");
+    setProduct("");
+    setDay("");
+    setOffset(0);
+  };
   return (
     <>
-      <div className="reference-toolbar">
-        <label>
-          {t("交易所")}
+      <div className="data-toolbar">
+        {toolbar}
+        <div className="reference-filters">
+          {hasProduct && (
+            <input
+              type="search"
+              className="reference-search"
+              aria-label={t("搜索品种或合约")}
+              placeholder={t("品种或合约，如 rb")}
+              spellCheck={false}
+              autoCorrect="off"
+              autoCapitalize="none"
+              value={productInput}
+              onChange={event => setProductInput(event.target.value)}
+              onKeyDown={event => {
+                if (event.key !== "Enter") return;
+                setProduct(productInput.trim());
+                setOffset(0);
+              }}
+            />
+          )}
+          {hasDay && (
+            <input
+              type="date"
+              className="reference-date"
+              aria-label={t("按日期筛选")}
+              value={day}
+              onChange={event => {
+                setDay(event.target.value);
+                setOffset(0);
+              }}
+            />
+          )}
           <select
+            aria-label={t("交易所")}
             value={exchange}
             onChange={event => {
               setExchange(event.target.value);
@@ -167,7 +260,7 @@ export function ReferenceTable({
               <option key={item}>{item}</option>
             ))}
           </select>
-        </label>
+        </div>
       </div>
       {rows?.rows.length ? (
         <>
@@ -195,14 +288,48 @@ export function ReferenceTable({
               <tbody>
                 {rows.rows.map((row, index) => (
                   <tr key={offset + index}>
-                    {shown.map(({ column, index: at }) => (
-                      <td
-                        key={column}
-                        className={numericColumns.has(column) ? "numeric" : undefined}
-                      >
-                        {column === "published_ms" ? timestamp(row.values[at]!) : row.values[at]}
-                      </td>
-                    ))}
+                    {shown.map(({ column, index: at }) => {
+                      const raw = row.values[at] ?? "";
+                      if (column === "published_ms") return <td key={column}>{timestamp(raw)}</td>;
+                      if (column === "product") {
+                        const label = raw ? warehouseName(`${exchange}/${raw}`) : undefined;
+                        return (
+                          <td key={column}>
+                            {raw ? (
+                              <span className="reference-product">
+                                <code>{raw}</code>
+                                {label && (
+                                  <>
+                                    {" "}
+                                    <span>{label}</span>
+                                  </>
+                                )}
+                              </span>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                        );
+                      }
+                      if (column === "contract")
+                        return <td key={column}>{raw ? <code>{raw}</code> : "—"}</td>;
+                      if (column === "open")
+                        return (
+                          <td key={column}>
+                            {raw === "true" ? t("是") : raw === "false" ? t("否") : raw || "—"}
+                          </td>
+                        );
+                      if (numericColumns.has(column)) {
+                        const formatted = formatNumber(raw);
+                        const tone = changeColumns.has(column) ? changeTone(raw) : undefined;
+                        return (
+                          <td key={column} className="numeric" data-tone={tone}>
+                            {!formatted ? "—" : tone === "up" ? `+${formatted}` : formatted}
+                          </td>
+                        );
+                      }
+                      return <td key={column}>{raw || "—"}</td>;
+                    })}
                   </tr>
                 ))}
               </tbody>
@@ -229,7 +356,17 @@ export function ReferenceTable({
           </div>
         </>
       ) : (
-        !error && <p className="subtle">{t("没有数据")}</p>
+        !error &&
+        rows && (
+          <div className="reference-empty">
+            <span>{t("没有数据")}</span>
+            {filtered && (
+              <button type="button" onClick={clearFilters}>
+                {t("清空筛选")}
+              </button>
+            )}
+          </div>
+        )
       )}
     </>
   );

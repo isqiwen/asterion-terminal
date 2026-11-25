@@ -177,11 +177,14 @@ message DatasetChange {
 }
 
 // A page of a reference table of one exchange, newest first.
+// Optional filters narrow by product/contract text or day (YYYY-MM-DD).
 message GetTableRows {
   DatasetRef dataset = 1;
   Table table = 2;
   string exchange = 3;
   uint32 offset = 4;
+  string product = 5;
+  string day = 6;
 }
 
 message TableRows {

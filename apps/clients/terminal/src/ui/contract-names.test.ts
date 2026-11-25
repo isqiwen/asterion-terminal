@@ -2,7 +2,7 @@ import { create } from "@bufbuild/protobuf";
 import { afterEach, expect, test } from "vitest";
 import { CatalogContractSchema } from "../generated/asterion/market_pb";
 import { setLocale } from "../i18n";
-import { catalogName, identityName, warehouseName } from "./contract-names";
+import { catalogName, identityName, resolveProductCode, warehouseName } from "./contract-names";
 
 afterEach(() => setLocale("zh-CN"));
 
@@ -20,4 +20,12 @@ test("contracts are named in the interface's language", () => {
   expect(catalogName(rebar)).toBe("Rebar 2610");
   expect(identityName("SHFE/cu/2023-10", "沪铜2310")).toBe("Copper 2310");
   expect(warehouseName("CFFEX/ic")).toBe("CSI 500");
+});
+
+test("product search text resolves unambiguous Chinese or English names to product codes", () => {
+  expect(resolveProductCode("SHFE", "沪银")).toBe("ag");
+  expect(resolveProductCode("SHFE", "螺纹")).toBe("rb");
+  expect(resolveProductCode("SHFE", "Silver")).toBe("ag");
+  expect(resolveProductCode("SHFE", "铝")).toBe("铝");
+  expect(resolveProductCode("SHFE", "rb2610")).toBe("rb2610");
 });

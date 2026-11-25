@@ -40,7 +40,7 @@ test(
     for (const [name, value] of [
       ["仓单", "353.123456"],
       ["会员持仓", "测试会员"],
-      ["库存周报", "428.000000"],
+      ["库存周报", "428"],
     ]) {
       await page
         .getByRole("group", { name: "基本面", exact: true })

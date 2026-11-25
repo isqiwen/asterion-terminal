@@ -19,7 +19,7 @@ request.mockImplementation(async (body: { value: { exchange: string } }) => ({
   total: 1,
 }));
 
-test("the contract table shows the chosen exchange's contracts", async () => {
+test("the contract table shows the chosen exchange's contracts without repeating the exchange column", async () => {
   render(
     <ReferenceTable
       version="v"
@@ -29,7 +29,7 @@ test("the contract table shows the chosen exchange's contracts", async () => {
     />,
   );
   await screen.findByRole("cell", { name: "SHFE/x/2027-01" });
-  expect(screen.getByRole("columnheader", { name: "交易所" })).toBeTruthy();
+  expect(screen.queryByRole("columnheader", { name: "交易所" })).toBeNull();
   expect(screen.getByRole("columnheader", { name: "合约" })).toBeTruthy();
   fireEvent.change(screen.getByLabelText("交易所"), { target: { value: "DCE" } });
   await screen.findByRole("cell", { name: "DCE/x/2027-01" });
@@ -111,4 +111,59 @@ test("inventory shows the report date and unknown release time, not when it was 
   expect(screen.getByRole("cell", { name: "—" })).toBeTruthy();
   expect(screen.getAllByRole("columnheader")).toHaveLength(4);
   expect(screen.queryByRole("cell", { name: "2026-11-21 16:00:00" })).toBeNull();
+});
+
+test("tables hide empty columns, trim trailing zeros, and filter by resolved product and date", async () => {
+  request.mockReset();
+  request.mockResolvedValue({
+    columns: [
+      "exchange",
+      "product",
+      "day",
+      "warehouse",
+      "brand",
+      "volume",
+      "volume_change",
+      "published_ms",
+    ],
+    rows: [
+      { values: ["SHFE", "ag", "2026-11-24", "中储大场", "", "237989.000000", "970.000000", ""] },
+      { values: ["SHFE", "ag", "2026-11-24", "国储天威", "", "0.000000", "-121.000000", ""] },
+    ],
+    total: 2,
+  });
+  render(
+    <ReferenceTable
+      version="v"
+      table={Table.WAREHOUSE_RECEIPTS}
+      name="仓单"
+      exchanges={["SHFE"]}
+    />,
+  );
+  await screen.findByRole("table", { name: "仓单" });
+  expect(screen.queryByRole("columnheader", { name: "交易所" })).toBeNull();
+  expect(screen.queryByRole("columnheader", { name: "品牌" })).toBeNull();
+  expect(screen.getByRole("columnheader", { name: "发布时间（北京时间）" })).toBeTruthy();
+  expect(screen.getAllByRole("cell", { name: "ag 沪银" })).toHaveLength(2);
+  expect(screen.getByRole("cell", { name: "237989" })).toBeTruthy();
+  expect(screen.getByRole("cell", { name: "+970" }).getAttribute("data-tone")).toBe("up");
+  expect(screen.getByRole("cell", { name: "-121" }).getAttribute("data-tone")).toBe("down");
+
+  const search = screen.getByRole("searchbox", { name: "搜索品种或合约" });
+  fireEvent.change(search, { target: { value: "沪银" } });
+  fireEvent.keyDown(search, { key: "Enter" });
+  fireEvent.change(screen.getByLabelText("按日期筛选"), { target: { value: "2026-11-24" } });
+  await waitFor(() =>
+    expect(request).toHaveBeenLastCalledWith({
+      case: "getTableRows",
+      value: {
+        dataset: { version: "v" },
+        table: Table.WAREHOUSE_RECEIPTS,
+        exchange: "SHFE",
+        offset: 0,
+        product: "ag",
+        day: "2026-11-24",
+      },
+    }),
+  );
 });

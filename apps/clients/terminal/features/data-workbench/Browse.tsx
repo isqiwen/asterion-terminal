@@ -94,6 +94,34 @@ function BrowseBody({ context, address }: { context: TerminalContext; address: s
   const latest = state.value.latest;
   const group = groups.find(item => item.tabs.includes(tab)) ?? groups[0]!;
   const activeTab = group.tabs.includes(tab) ? tab : group.tabs[0]!;
+  const nav = (
+    <div className="data-browse-nav">
+      <div className="data-browse-groups" role="group" aria-label={t("数据分类")}>
+        {groups.map(item => (
+          <button
+            key={item.name}
+            type="button"
+            aria-pressed={item === group}
+            onClick={() => item !== group && setTab(item.tabs[0]!)}
+          >
+            {t(item.name)}
+          </button>
+        ))}
+      </div>
+      <div className="data-browse-tables" role="group" aria-label={t(group.name)}>
+        {group.tabs.map(item => (
+          <button
+            key={item}
+            type="button"
+            aria-pressed={activeTab === item}
+            onClick={() => setTab(item)}
+          >
+            {tableName(item)}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
   return (
     <>
       <VersionBanner
@@ -105,36 +133,11 @@ function BrowseBody({ context, address }: { context: TerminalContext; address: s
         }}
       />
       <div className="data-browse">
-        <div className="data-toolbar">
-          <div className="data-browse-nav">
-            <div className="data-browse-groups" role="group" aria-label={t("数据分类")}>
-              {groups.map(item => (
-                <button
-                  key={item.name}
-                  type="button"
-                  aria-pressed={item === group}
-                  onClick={() => item !== group && setTab(item.tabs[0]!)}
-                >
-                  {t(item.name)}
-                </button>
-              ))}
-            </div>
-            <div className="data-browse-tables" role="group" aria-label={t(group.name)}>
-              {group.tabs.map(item => (
-                <button
-                  key={item}
-                  type="button"
-                  aria-pressed={activeTab === item}
-                  onClick={() => setTab(item)}
-                >
-                  {tableName(item)}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
         {!state.value.version ? (
-          <p className="subtle">{t("还没有数据")}</p>
+          <>
+            <div className="data-toolbar">{nav}</div>
+            <p className="subtle">{t("还没有数据")}</p>
+          </>
         ) : (
           <ReferenceTable
             key={`${viewed}/${activeTab}`}
@@ -142,6 +145,7 @@ function BrowseBody({ context, address }: { context: TerminalContext; address: s
             table={activeTab}
             name={tableName(activeTab)}
             exchanges={ordered.exchanges}
+            toolbar={nav}
           />
         )}
       </div>

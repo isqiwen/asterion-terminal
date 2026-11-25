@@ -1,9 +1,11 @@
 #include "reader.hpp"
 #include "freshness.hpp"
 #include "parquet_engine.hpp"
+#include <asterion/futures/trading_days.hpp>
 #include <asterion/protocol/warehouse.hpp>
 #include <asterion/base/error.hpp>
 #include <algorithm>
+#include <cctype>
 #include <deque>
 #include <fstream>
 #include <map>
@@ -655,6 +657,135 @@ wire::DatasetChange Reader::change(const wire::CompareDatasetVersions& query) co
         cache_->head(store, query.base()));
 }
 
+namespace {
+
+std::string_view trim_ascii(std::string_view value)
+{
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front())))
+        value.remove_prefix(1);
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back())))
+        value.remove_suffix(1);
+    return value;
+}
+
+std::string lower_ascii(std::string_view value)
+{
+    std::string out;
+    out.reserve(value.size());
+    for (const char c : value)
+        out += c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+    return out;
+}
+
+std::string sql_literal(std::string_view value)
+{
+    if (value.find('\0') != std::string_view::npos)
+        throw std::invalid_argument("invalid filter text");
+    std::string out = "'";
+    for (const char c : value) {
+        out += c;
+        if (c == '\'')
+            out += '\'';
+    }
+    return out + "'";
+}
+
+std::string sql_like(std::string_view value)
+{
+    std::string escaped = "%";
+    for (const char c : lower_ascii(value)) {
+        if (c == '\\' || c == '%' || c == '_')
+            escaped += '\\';
+        escaped += c;
+    }
+    escaped += '%';
+    return sql_literal(escaped);
+}
+
+std::string table_filter_sql(std::string_view table, std::string_view product, std::string_view day)
+{
+    std::string where;
+    const auto append = [&](const std::string& clause) {
+        if (!where.empty())
+            where += " AND ";
+        where += clause;
+    };
+    if (!product.empty()) {
+        if (table == "calendar")
+            throw std::invalid_argument("calendar does not support product filtering");
+        const bool has_contract = table == "contracts" || table == "settlement"
+            || table == "member_positions" || table == "price_ticks";
+        static const std::regex compact(R"(^([A-Za-z]+)([0-9]{4})$)");
+        std::cmatch match;
+        if (std::regex_match(product.begin(), product.end(), match, compact)) {
+            const auto prod = sql_literal(lower_ascii(match[1].str()));
+            if (has_contract) {
+                const auto yymm = match[2].str();
+                const auto month = "%/20" + yymm.substr(0, 2) + "-" + yymm.substr(2, 2);
+                append(
+                    "(lower(product) = " + prod + " AND lower(contract) LIKE " + sql_literal(month)
+                    + ")");
+            } else {
+                append("lower(product) = " + prod);
+            }
+        } else if (const auto first = product.find('/'); first != std::string_view::npos) {
+            const auto second = product.find('/', first + 1);
+            if (has_contract && second != std::string_view::npos) {
+                append("lower(contract) = " + sql_literal(lower_ascii(product)));
+            } else {
+                const auto prod = second == std::string_view::npos
+                    ? product.substr(first + 1)
+                    : product.substr(first + 1, second - first - 1);
+                append("lower(product) = " + sql_literal(lower_ascii(prod)));
+            }
+        } else {
+            const auto exact = sql_literal(lower_ascii(product));
+            if (table == "contracts") {
+                const auto pattern = sql_like(product);
+                append(
+                    "(lower(product) = " + exact + " OR lower(contract) LIKE " + pattern
+                    + " ESCAPE '\\' OR lower(source_instrument) LIKE " + pattern
+                    + " ESCAPE '\\' OR lower(name) LIKE " + pattern + " ESCAPE '\\')");
+            } else if (has_contract) {
+                append(
+                    "(lower(product) = " + exact + " OR lower(contract) LIKE " + sql_like(product)
+                    + " ESCAPE '\\')");
+            } else {
+                append("lower(product) = " + exact);
+            }
+        }
+    }
+    if (!day.empty()) {
+        (void)parse_trading_date(day);
+        const auto date = "DATE '" + std::string(day) + "'";
+        if (table == "price_ticks") {
+            append(
+                "(effective_from <= " + date
+                + " AND (effective_until IS NULL OR effective_until >= " + date + "))");
+        } else if (table == "contracts") {
+            append(
+                "((list_date IS NULL OR list_date <= " + date
+                + ") AND (delist_date IS NULL OR delist_date >= " + date + "))");
+        } else {
+            append("day = " + date);
+        }
+    }
+    return where;
+}
+
+void append_rows(wire::TableRows& result, duckdb::MaterializedQueryResult& rows)
+{
+    for (duckdb::idx_t row = 0; row < rows.RowCount(); ++row) {
+        auto* out = result.add_rows();
+        for (duckdb::idx_t column = 0; column < rows.ColumnCount(); ++column) {
+            const auto value = rows.GetValue(column, row);
+            out->add_values(value.IsNull() ? std::string{} : value.ToString());
+        }
+    }
+}
+
+} // namespace
+
 wire::TableRows Reader::rows(const wire::GetTableRows& query) const
 {
     const auto table = protocol::table_name(query.table());
@@ -662,6 +793,9 @@ wire::TableRows Reader::rows(const wire::GetTableRows& query) const
         && table != "price_ticks" && table != "warehouse_receipts" && table != "member_positions"
         && table != "inventory")
         throw std::invalid_argument("only reference tables can be browsed");
+    const auto product = trim_ascii(query.product());
+    const auto day = trim_ascii(query.day());
+    const auto where = table_filter_sql(table, product, day);
     const auto store = dataset(directory_);
     const auto identity =
         query.dataset().version().empty() ? store.current_identity() : query.dataset().version();
@@ -670,45 +804,86 @@ wire::TableRows Reader::rows(const wire::GetTableRows& query) const
     for (const auto& column : columns(table))
         result.add_columns(column.name);
     const auto prefix = table + '/' + query.exchange();
-    std::string files;
-    std::uint64_t total = 0;
-    std::uint64_t skipped = 0;
     const bool daily_partitions = table == "settlement" || table == "warehouse_receipts"
         || table == "member_positions" || table == "inventory";
-    // Daily reports have disjoint dates, so earlier pages need not be opened or sorted.
-    for (const auto& [key, part] : version->partitions | std::views::reverse) {
-        if (key != prefix && !key.starts_with(prefix + '/'))
-            continue;
-        if (daily_partitions && total + part.rows <= query.offset())
-            skipped += part.rows;
-        else if (total < std::uint64_t{query.offset()} + 100)
-            files += (files.empty() ? "" : ",") + parquet::literal(store.file(*version, key));
-        total += part.rows;
-    }
-    result.set_total(static_cast<std::uint32_t>(total));
-    if (files.empty())
-        return result;
-    parquet::Engine engine;
-    engine.run("CREATE TEMP VIEW t AS SELECT * FROM read_parquet([" + files + "])");
-    const auto rows = engine.run(
-        std::string("SELECT * FROM t ORDER BY ")
-        + (table == "price_ticks"      ? "effective_from DESC, product, "
-                : table != "contracts" ? "day DESC, "
-                                       : "")
+    const auto order_by = std::string(
+                              table == "price_ticks"     ? "effective_from DESC, product, "
+                                  : table != "contracts" ? "day DESC, "
+                                                         : "")
         + (table == "calendar" ? "exchange"
                 : table == "warehouse_receipts"
                 ? "product, warehouse, warehouse_id, warehouse_type, area, crop_year, grade, brand, origin, converted, unit"
                 : table == "member_positions" ? "product, contract, member"
                 : table == "inventory" ? "product, area, warehouse, warehouse_type, grade, unit"
-                                       : "contract")
-        + " LIMIT 100 OFFSET " + std::to_string(query.offset() - skipped));
-    for (duckdb::idx_t row = 0; row < rows->RowCount(); ++row) {
-        auto* out = result.add_rows();
-        for (duckdb::idx_t column = 0; column < rows->ColumnCount(); ++column) {
-            const auto value = rows->GetValue(column, row);
-            out->add_values(value.IsNull() ? std::string{} : value.ToString());
+                                       : "contract");
+    if (where.empty()) {
+        std::string files;
+        std::uint64_t total = 0;
+        std::uint64_t skipped = 0;
+        // Daily reports have disjoint dates, so earlier pages need not be opened or sorted.
+        for (const auto& [key, part] : version->partitions | std::views::reverse) {
+            if (key != prefix && !key.starts_with(prefix + '/'))
+                continue;
+            if (daily_partitions && total + part.rows <= query.offset())
+                skipped += part.rows;
+            else if (total < std::uint64_t{query.offset()} + 100)
+                files += (files.empty() ? "" : ",") + parquet::literal(store.file(*version, key));
+            total += part.rows;
         }
+        result.set_total(static_cast<std::uint32_t>(total));
+        if (files.empty())
+            return result;
+        parquet::Engine engine;
+        engine.run("CREATE TEMP VIEW t AS SELECT * FROM read_parquet([" + files + "])");
+        const auto rows = engine.run(
+            "SELECT * FROM t ORDER BY " + order_by + " LIMIT 100 OFFSET "
+            + std::to_string(query.offset() - skipped));
+        append_rows(result, *rows);
+        return result;
     }
+    std::vector<std::string> matched;
+    const auto day_key = daily_partitions && !day.empty() ? prefix + '/' + std::string(day)
+        : table == "calendar" && !day.empty() ? prefix + '/' + std::string(day.substr(0, 4))
+                                              : std::string{};
+    for (const auto& [key, part] : version->partitions | std::views::reverse) {
+        if (key != prefix && !key.starts_with(prefix + '/'))
+            continue;
+        if (!day_key.empty() && key != day_key)
+            continue;
+        matched.push_back(key);
+    }
+    if (matched.empty())
+        return result;
+    parquet::Engine engine;
+    // Daily partitions are disjoint and descending; scan in bounded batches to stay within the
+    // read-lane memory limit while preserving exact totals and cross-batch pages.
+    const std::size_t batch_size = daily_partitions ? 120 : matched.size();
+    std::uint64_t total = 0;
+    const std::uint64_t target_begin = query.offset();
+    const std::uint64_t target_end = target_begin + 100;
+    for (std::size_t at = 0; at < matched.size(); at += batch_size) {
+        std::string batch_files;
+        for (std::size_t i = at; i < std::min(matched.size(), at + batch_size); ++i)
+            batch_files += (batch_files.empty() ? "" : ",")
+                + parquet::literal(store.file(*version, matched[i]));
+        engine.run(
+            "CREATE OR REPLACE TEMP VIEW t AS SELECT * FROM read_parquet([" + batch_files + "])");
+        const auto count =
+            static_cast<std::uint64_t>(engine.run("SELECT COUNT(*) FROM t WHERE " + where)
+                    ->GetValue(0, 0)
+                    .GetValue<std::int64_t>());
+        if (count > 0 && total + count > target_begin && total < target_end) {
+            const auto local_offset = target_begin > total ? target_begin - total : 0;
+            const auto need =
+                std::min(target_end - std::max(target_begin, total), count - local_offset);
+            const auto rows = engine.run(
+                "SELECT * FROM t WHERE " + where + " ORDER BY " + order_by + " LIMIT "
+                + std::to_string(need) + " OFFSET " + std::to_string(local_offset));
+            append_rows(result, *rows);
+        }
+        total += count;
+    }
+    result.set_total(static_cast<std::uint32_t>(total));
     return result;
 }
 
