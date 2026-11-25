@@ -8,13 +8,10 @@ import { useWarehousePoll } from "../../src/host/warehouse";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { VersionBanner, WarehousePage } from "./Page";
 import { ReferenceTable } from "./ReferenceTable";
-import { StoredContracts } from "./StoredContracts";
 import { exchanges, t, tableName } from "./dataset";
 
-type BrowseTab = "contracts" | Table;
-// What a user comes for: prices, the fundamentals behind them, or what governs trading.
-const groups: readonly { name: string; tabs: readonly BrowseTab[] }[] = [
-  { name: "行情", tabs: ["contracts"] },
+// Reference tables maintained by Warehouse: fundamentals and trading parameters.
+const groups: readonly { name: string; tabs: readonly Table[] }[] = [
   { name: "基本面", tabs: [Table.WAREHOUSE_RECEIPTS, Table.MEMBER_POSITIONS, Table.INVENTORY] },
   {
     name: "交易参数",
@@ -35,7 +32,7 @@ function BrowseBody({ context, address }: { context: TerminalContext; address: s
   const paramVersion = context.workspaceParams?.version ?? "";
   const paramTable = context.workspaceParams?.table ?? "";
   const [viewed, setViewed] = useState(paramVersion);
-  const [tab, setTab] = useWorkspaceDraft<BrowseTab>("browse-tab", "contracts");
+  const [tab, setTab] = useWorkspaceDraft<Table>("browse-tab", Table.WAREHOUSE_RECEIPTS);
   useEffect(() => {
     if (!paramVersion && !paramTable) return;
     if (paramVersion) setViewed(paramVersion);
@@ -59,11 +56,10 @@ function BrowseBody({ context, address }: { context: TerminalContext; address: s
     !!viewed,
   );
   const activeVersion = state.value?.version ?? "";
-  const needsExchanges = tab !== "contracts";
   useEffect(() => {
-    if (!needsExchanges || !activeVersion || ordered.version === activeVersion) return;
+    if (!activeVersion || ordered.version === activeVersion) return;
     let active = true;
-    // Parameter and listing tables open on an exchange that has data.
+    // Open on an exchange that already holds data.
     void warehouseData({ case: "getDatasetCoverage", value: { version: activeVersion } })
       .then(coverage => {
         if (!active) return;
@@ -84,7 +80,7 @@ function BrowseBody({ context, address }: { context: TerminalContext; address: s
     return () => {
       active = false;
     };
-  }, [needsExchanges, activeVersion, ordered.version]);
+  }, [activeVersion, ordered.version]);
   useErrorNotification(state.error, "asterion.terminal.data-workbench");
   if (!state.value)
     return (
@@ -97,6 +93,7 @@ function BrowseBody({ context, address }: { context: TerminalContext; address: s
     );
   const latest = state.value.latest;
   const group = groups.find(item => item.tabs.includes(tab)) ?? groups[0]!;
+  const activeTab = group.tabs.includes(tab) ? tab : group.tabs[0]!;
   return (
     <>
       <VersionBanner
@@ -122,32 +119,28 @@ function BrowseBody({ context, address }: { context: TerminalContext; address: s
                 </button>
               ))}
             </div>
-            {group.tabs.length > 1 && (
-              <div className="data-browse-tables" role="group" aria-label={t(group.name)}>
-                {group.tabs.map(item => (
-                  <button
-                    key={item}
-                    type="button"
-                    aria-pressed={tab === item}
-                    onClick={() => setTab(item)}
-                  >
-                    {tableName(item as Table)}
-                  </button>
-                ))}
-              </div>
-            )}
+            <div className="data-browse-tables" role="group" aria-label={t(group.name)}>
+              {group.tabs.map(item => (
+                <button
+                  key={item}
+                  type="button"
+                  aria-pressed={activeTab === item}
+                  onClick={() => setTab(item)}
+                >
+                  {tableName(item)}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
         {!state.value.version ? (
           <p className="subtle">{t("还没有数据")}</p>
-        ) : tab === "contracts" ? (
-          <StoredContracts key={viewed} version={viewed || state.value.version} context={context} />
         ) : (
           <ReferenceTable
-            key={`${viewed}/${tab}`}
+            key={`${viewed}/${activeTab}`}
             version={viewed || state.value.version}
-            table={tab}
-            name={tableName(tab)}
+            table={activeTab}
+            name={tableName(activeTab)}
             exchanges={ordered.exchanges}
           />
         )}

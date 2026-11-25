@@ -9,11 +9,16 @@
 .price-chart-pane-label {
   position: absolute;
   z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-2);
+  max-width: calc(100% - 76px);
   margin: var(--space-1) var(--space-2);
   padding: 1px var(--space-1);
   border-radius: 2px;
   background: color-mix(in oklab, var(--canvas) 82%, transparent);
   color: var(--muted);
+  font-family: var(--font-terminal);
   font-size: var(--font-size-aux);
   font-variant-numeric: tabular-nums;
   pointer-events: none;

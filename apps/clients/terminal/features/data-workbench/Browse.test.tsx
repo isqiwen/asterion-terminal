@@ -137,7 +137,6 @@ test("tables are grouped by what they are for, and a table opened by link shows 
   await screen.findByRole("table", { name: "库存周报" });
   const categories = within(screen.getByRole("group", { name: "数据分类" }));
   expect(categories.getAllByRole("button").map(button => button.textContent)).toEqual([
-    "行情",
     "基本面",
     "交易参数",
   ]);
@@ -155,11 +154,26 @@ test("tables are grouped by what they are for, and a table opened by link shows 
   expect(screen.getByRole("table", { name: "库存周报" })).toBeTruthy();
   fireEvent.click(categories.getByRole("button", { name: "交易参数" }));
   expect(await screen.findByRole("table", { name: "结算参数" })).toBeTruthy();
-  fireEvent.click(categories.getByRole("button", { name: "行情" }));
-  expect(screen.queryByRole("group", { name: "行情" })).toBeNull();
+  expect(
+    within(screen.getByRole("group", { name: "交易参数" }))
+      .getAllByRole("button")
+      .map(button => button.textContent),
+  ).toEqual(["结算参数", "历史报价单位", "合约表", "交易日历"]);
 });
 
-test("opening browse on the contracts tab skips dataset coverage until a reference table is opened", async () => {
+test("opening browse without parameters opens on warehouse receipts and orders held exchanges first", async () => {
+  request.mockImplementation(async (body: { case: string }) => {
+    switch (body.case) {
+      case "getDatasetSummary":
+        return { dataset: { version: "current" } };
+      case "getDatasetCoverage":
+        return { products: [{ product: "DCE/m", daily: { held: 1 } }] };
+      case "getTableRows":
+        return { columns: ["warehouse"], rows: [{ values: ["总计"] }], total: 1 };
+      default:
+        return {};
+    }
+  });
   const props = {
     navigate: vi.fn(),
     snapshot: { warehouse_endpoint: { host: "warehouse", port: 7450, fingerprint: "f" } },
@@ -172,15 +186,12 @@ test("opening browse on the contracts tab skips dataset coverage until a referen
       </WorkspaceDraftScope>,
     );
   });
-  expect(request.mock.calls.filter(([body]) => body.case === "getDatasetCoverage")).toHaveLength(0);
-  await act(async () => {
-    fireEvent.click(
-      within(screen.getByRole("group", { name: "数据分类" })).getByRole("button", {
-        name: "基本面",
-      }),
-    );
-  });
-  expect(request.mock.calls.filter(([body]) => body.case === "getDatasetCoverage")).toHaveLength(1);
+  expect(await screen.findByRole("table", { name: "仓单" })).toBeTruthy();
+  expect(
+    within(screen.getByRole("combobox", { name: "交易所" }))
+      .getAllByRole("option")
+      .map(option => option.textContent)[0],
+  ).toBe("DCE");
 });
 
 test("an unreachable warehouse hides the browse toolbar and shows a status card", async () => {

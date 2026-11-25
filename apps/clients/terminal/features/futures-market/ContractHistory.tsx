@@ -341,7 +341,6 @@ export function ContractHistory({
                 {t("最新数据")}
               </button>
             </div>
-            <span className="market-chart-source">{t("研究数据 · 历史数据 · 非实时")}</span>
           </footer>
         </>
       ) : (

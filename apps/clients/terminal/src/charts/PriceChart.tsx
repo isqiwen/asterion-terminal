@@ -312,32 +312,51 @@ export function PriceChart(props: Props) {
     setFocus(next);
     onFocusChange?.(next);
   };
-  // Where the volume pane starts inside the chart, for its label.
-  const [volumeAt, setVolumeAt] = useState<{ top: number; left: number } | null>(null);
+  // Where each lower pane starts inside the chart, for its top-left label.
+  const [paneLabels, setPaneLabels] = useState<{
+    volume?: { top: number; left: number };
+    oscillator?: { top: number; left: number };
+  }>({});
   const hasReference = referencePrice !== undefined;
-  const placeVolumeLabel = useCallback(() => {
+  const hasOscillator = oscillator !== undefined;
+  const placePaneLabels = useCallback(() => {
     const element = container.current;
     const api = chart.current;
     if (!element || !api) return;
-    const paneHeight = api.panes()[0]?.getHeight();
-    if (paneHeight === undefined) return;
-    const top = element.offsetTop + paneHeight + 1;
-    const left = api.options().leftPriceScale.visible ? api.priceScale("left").width() : 0;
-    setVolumeAt(prev => (prev && prev.top === top && prev.left === left ? prev : { top, left }));
-  }, []);
+    const panes = api.panes();
+    const first = panes[0]?.getHeight();
+    if (first === undefined) return;
+    const left =
+      element.offsetLeft +
+      (api.options().leftPriceScale.visible ? api.priceScale("left").width() : 0);
+    const volume = showVolume ? { top: element.offsetTop + first + 1, left } : undefined;
+    const second = showVolume ? panes[1]?.getHeight() : 0;
+    const osc =
+      hasOscillator && (!showVolume || second !== undefined)
+        ? { top: element.offsetTop + first + (showVolume ? (second ?? 0) + 2 : 1), left }
+        : undefined;
+    setPaneLabels(prev =>
+      prev.volume?.top === volume?.top &&
+      prev.volume?.left === volume?.left &&
+      prev.oscillator?.top === osc?.top &&
+      prev.oscillator?.left === osc?.left
+        ? prev
+        : { volume, oscillator: osc },
+    );
+  }, [showVolume, hasOscillator]);
   useEffect(() => {
-    if (!showVolume) return;
+    if (!showVolume && !hasOscillator) return;
     const element = container.current!;
     // The engine resizes itself on the next frame.
-    const observer = new ResizeObserver(() => requestAnimationFrame(placeVolumeLabel));
+    const observer = new ResizeObserver(() => requestAnimationFrame(placePaneLabels));
     observer.observe(element);
     return () => observer.disconnect();
-  }, [showVolume, placeVolumeLabel]);
+  }, [showVolume, hasOscillator, placePaneLabels]);
   useEffect(() => {
-    if (!showVolume) return;
-    const frame = requestAnimationFrame(placeVolumeLabel);
+    if (!showVolume && !hasOscillator) return;
+    const frame = requestAnimationFrame(placePaneLabels);
     return () => cancelAnimationFrame(frame);
-  }, [showVolume, oscillator, hasReference, placeVolumeLabel]);
+  }, [showVolume, hasOscillator, hasReference, series, placePaneLabels]);
   const [view, setView] = useState({ start: 0, end: series.points.length });
   const points = series.points,
     count = points.length;
@@ -372,7 +391,8 @@ export function PriceChart(props: Props) {
     const css = getComputedStyle(element);
     const text = css.getPropertyValue("--muted").trim() || "#999faa";
     const grid = css.getPropertyValue("--grid").trim() || "#23262c";
-    const line = css.getPropertyValue("--line").trim() || "#343842";
+    const separator = css.getPropertyValue("--line-strong").trim() || "#314054";
+    const accent = css.getPropertyValue("--accent").trim() || "#38d6f2";
     const when = (at: Time, axis: boolean) => {
       const p = latest.current;
       const point = p.series.points[Number(at) - 1];
@@ -387,7 +407,7 @@ export function PriceChart(props: Props) {
         textColor: text,
         fontSize: Number.parseFloat(css.getPropertyValue("--font-size-xs")) || 11,
         attributionLogo: false,
-        panes: { separatorColor: line, separatorHoverColor: line },
+        panes: { separatorColor: separator, separatorHoverColor: withAlpha(accent, "44") },
       },
       grid: { vertLines: { color: grid }, horzLines: { color: grid } },
       crosshair: { mode: CrosshairMode.Normal },
@@ -769,6 +789,9 @@ export function PriceChart(props: Props) {
     if (oscillator) {
       const pane = showVolume ? 2 : 1;
       const histogram = layer("oscillator", "histogram", pane);
+      histogram.applyOptions({ priceScaleId: "right" });
+      // Room above the pane's highest value for its top-left label.
+      histogram.priceScale().applyOptions({ scaleMargins: { top: 0.25, bottom: 0.06 } });
       histogram.setData(
         oscillator.histogram.map((value, i) =>
           value === null
@@ -1047,6 +1070,10 @@ export function PriceChart(props: Props) {
         tabIndex={0}
         data-visible-count={size}
         data-window-start={start}
+        onPointerMove={event => {
+          if (event.buttons && (showVolume || hasOscillator))
+            requestAnimationFrame(placePaneLabels);
+        }}
         onPointerLeave={() => updateFocus(null)}
         onKeyDown={event => {
           if (!count || event.metaKey || event.ctrlKey || event.altKey) return;
@@ -1070,11 +1097,11 @@ export function PriceChart(props: Props) {
           {referencePrice.label}: {referencePrice.value}
         </div>
       )}
-      {showVolume && volumeAt && (
+      {showVolume && paneLabels.volume && (
         <div
           className="price-chart-pane-label"
           data-chart-volume-axis
-          style={{ top: volumeAt.top, left: volumeAt.left }}
+          style={{ top: paneLabels.volume.top, left: paneLabels.volume.left }}
         >
           {volumeLabel} {points[index]?.volume ?? "—"}
           {openInterestLabel && points[index]?.openInterest !== undefined && (
@@ -1087,8 +1114,12 @@ export function PriceChart(props: Props) {
           )}
         </div>
       )}
-      {oscillator && (
-        <div className="price-chart-legend" data-oscillator={oscillator.label}>
+      {oscillator && paneLabels.oscillator && (
+        <div
+          className="price-chart-pane-label"
+          data-oscillator={oscillator.label}
+          style={{ top: paneLabels.oscillator.top, left: paneLabels.oscillator.left }}
+        >
           <span data-oscillator-legend>
             {oscillator.label}{" "}
             {oscillator.lines.map(line => (

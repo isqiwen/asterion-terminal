@@ -19,25 +19,24 @@ test(
       "--fundamentals",
     ]);
     await page.goto("/");
-    await openView(page, "browse");
-    const contracts = page.getByRole("group", { name: "已采集合约" });
+    await openView(page, "dataset");
     // Includes Lab startup and the first remote cache download.
-    await expect(contracts.getByRole("button")).toHaveCount(2, { timeout: 30000 });
-    await expect(contracts.getByRole("button").first()).toContainText("日线 30 天");
+    const search = page.getByRole("searchbox", { name: "搜索品种或合约" });
+    await expect(search).toBeVisible({ timeout: 30000 });
+    await search.fill("rb2605");
+    await page.getByRole("button", { name: "查看 rb2605" }).click();
     const chart = page.getByRole("region", { name: "合约历史 K 线" });
     // Without minutes the chart opens on days; minute periods are not offered.
     await expect(chart.getByRole("button", { name: "日K" })).toHaveAttribute(
       "aria-pressed",
       "true",
+      { timeout: 30000 },
     );
     await expect(chart.getByRole("button", { name: "1分", exact: true })).toBeDisabled();
     await expect(chart.getByText("1–30 / 30")).toBeVisible();
     await chart.getByRole("button", { name: "周线" }).click();
     await expect(chart.getByText("1–6 / 6")).toBeVisible();
-    await page
-      .getByRole("group", { name: "数据分类", exact: true })
-      .getByRole("button", { name: "基本面", exact: true })
-      .click();
+    await openView(page, "browse");
     for (const [name, value] of [
       ["仓单", "353.123456"],
       ["会员持仓", "测试会员"],
