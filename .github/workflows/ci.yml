@@ -120,15 +120,15 @@ jobs:
           max-size: 1G
           key: ${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.id }}-${{ github.job }}${{ matrix.cache_key && format('-{0}', matrix.cache_key) || '' }}
       # Bump v2 when Conan version or install flags in this workflow change.
-      # Linux jobs share one Release dependency cache (with source-built cpptrace);
-      # macOS uses a deployment-target profile scoped to its job.
+      # TSan keeps instrumented Protobuf dependencies in its own cache;
+      # other Linux jobs share Release dependencies, macOS scopes them to its job.
       - &conan-cache
         name: Restore Conan cache
         id: conan-cache
         uses: actions/cache/restore@v5
         with:
           path: ${{ runner.temp }}/conan-packages.tgz
-          key: conan-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.id }}${{ runner.os == 'macOS' && format('-{0}', github.job) || '' }}-${{ hashFiles('VERSION', 'conan.lock', 'conanfile.py', 'conan/**', 'scripts/prepare_ctp.py', 'scripts/desktop/desktop.py') }}
+          key: conan-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.id }}${{ runner.os == 'macOS' && format('-{0}', github.job) || env.CONAN_CACHE_SUFFIX || '' }}-${{ hashFiles('VERSION', 'conan.lock', 'conanfile.py', 'conan/**', 'scripts/prepare_ctp.py', 'scripts/desktop/desktop.py') }}
       - &conan-restore
         name: Restore Conan packages
         if: steps.conan-cache.outputs.cache-hit == 'true'
@@ -468,6 +468,7 @@ jobs:
             cache_key: thread
     runs-on: ubuntu-24.04
     env:
+      CONAN_CACHE_SUFFIX: ${{ matrix.sanitizer == 'thread' && '-tsan' || '' }}
       CMAKE_C_COMPILER_LAUNCHER: ccache
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
       CCACHE_COMPILERCHECK: content
@@ -485,6 +486,10 @@ jobs:
       - *ctp-sdk-cache
       - run: conan profile detect
       - run: python scripts/prepare_ctp.py
+      - name: Configure kernel for ThreadSanitizer
+        if: matrix.sanitizer == 'thread'
+        # Instrumented protoc runs while building; TSan needs a compatible shadow memory layout.
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
       - name: Install Conan packages
         run: |
           extra=()
@@ -492,16 +497,15 @@ jobs:
           if [ "${{ steps.conan-cache.outputs.cache-hit }}" != "true" ]; then
             extra+=(--build=cpptrace/*)
           fi
+          if [ "${{ matrix.sanitizer }}" = "thread" ]; then
+            extra+=(-pr:h default -pr:h conan/profiles/thread-sanitizer)
+          fi
           env -u CMAKE_C_COMPILER_LAUNCHER -u CMAKE_CXX_COMPILER_LAUNCHER \
             conan install . -s "&:build_type=Debug" -s build_type=Release -s compiler.cppstd=20 -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing "${extra[@]}"
       - *conan-save
       - *conan-upload
       - run: cmake --preset conan-debug -DASTERION_SANITIZERS=${{ matrix.sanitizer }}
       - run: cmake --build --preset conan-debug
-      - name: Configure kernel for ThreadSanitizer
-        if: matrix.sanitizer == 'thread'
-        # Ubuntu 24.04 defaults vm.mmap_rnd_bits=32, which exceeds TSan's shadow memory layout.
-        run: sudo sysctl -w vm.mmap_rnd_bits=28
       # Python loads an uninstrumented interpreter; Lab is covered by the desktop jobs.
       - run: ctest --preset conan-debug --output-on-failure -E '^lab_(strategy|catalog|dominant|service)$'
         env:

@@ -1,0 +1,7 @@
+[conf]
+abseil/*:tools.build:cxxflags=["-fsanitize=thread", "-fno-omit-frame-pointer", "-g1"]
+abseil/*:tools.build:exelinkflags=["-fsanitize=thread"]
+abseil/*:tools.info.package_id:confs=["tools.build:cxxflags", "tools.build:exelinkflags"]
+protobuf/*:tools.build:cxxflags=["-fsanitize=thread", "-fno-omit-frame-pointer", "-g1"]
+protobuf/*:tools.build:exelinkflags=["-fsanitize=thread"]
+protobuf/*:tools.info.package_id:confs=["tools.build:cxxflags", "tools.build:exelinkflags"]
