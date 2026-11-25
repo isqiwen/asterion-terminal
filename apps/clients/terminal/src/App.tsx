@@ -199,7 +199,8 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   }, []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<DisplayError>("");
-  useErrorNotification(error);
+  // The main window polls the same snapshot and reports core connection errors.
+  useErrorNotification(settingsWindow ? undefined : error);
   const generation = useRef(0);
   // Commands in flight. A cancel, a strategy stop or a revoke may run beside
   // another command.

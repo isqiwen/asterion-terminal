@@ -118,7 +118,7 @@ jobs:
         with:
           install: binary
           max-size: 1G
-          key: ${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.id }}-${{ github.job }}${{ matrix.sanitizer && format('-{0}', matrix.sanitizer) || '' }}
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.id }}-${{ github.job }}${{ matrix.cache_key && format('-{0}', matrix.cache_key) || '' }}
       # Bump v2 when Conan version or install flags in this workflow change.
       # Linux jobs share one Release dependency cache (with source-built cpptrace);
       # macOS uses a deployment-target profile scoped to its job.
@@ -462,8 +462,10 @@ jobs:
         include:
           - name: ASan + UBSan / Linux
             sanitizer: address,undefined
+            cache_key: address-undefined
           - name: TSan / Linux
             sanitizer: thread
+            cache_key: thread
     runs-on: ubuntu-24.04
     env:
       CMAKE_C_COMPILER_LAUNCHER: ccache

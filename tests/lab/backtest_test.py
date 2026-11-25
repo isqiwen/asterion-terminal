@@ -2407,11 +2407,12 @@ class BacktestSweeps(BacktestCase):
 
                 reply = await service.reply(request)
                 self.assertEqual(reply.WhichOneof("result"), "start_sweep", reply.error.message)
-                for _ in range(120):
+                deadline = time.monotonic() + 60
+                while time.monotonic() < deadline:
                     poll = await service.reply(Request(id=2, get_sweep={"id": "stress-1"}))
                     if not poll.get_sweep.active:
                         break
-                    await asyncio.sleep(0.05)
+                    await asyncio.sleep(0.1)
                 self.assertFalse(poll.get_sweep.active)
                 self.assertEqual(len(poll.get_sweep.runs), 3)
                 self.assertEqual(

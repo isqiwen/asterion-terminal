@@ -34,6 +34,7 @@ int main(int argc, char** argv)
                 environment_path("CREDENTIALS_DIRECTORY"));
             const auto flow = std::filesystem::temp_directory_path()
                 / ("asterion-login-check-" + unique_process_id());
+
             struct Cleanup
             {
                 ~Cleanup()
@@ -44,11 +45,10 @@ int main(int argc, char** argv)
 
                 std::filesystem::path path;
             } cleanup{flow};
+
             try {
-                const auto trading_day = ctp::verify_ctp_login(
-                    settings.ctp_catalog_library,
-                    flow,
-                    settings.catalog);
+                const auto trading_day =
+                    ctp::verify_ctp_login(settings.ctp_catalog_library, flow, settings.catalog);
                 std::cout << "CTP login verified (trading_day=" << trading_day << ")\n";
                 return 0;
             } catch (const Error& error) {

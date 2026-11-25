@@ -11,6 +11,10 @@ if(ASTERION_SANITIZERS)
   endif()
   # -g1 keeps line tables for sanitizer stacks without full debug information.
   target_compile_options(asterion_base PUBLIC -fsanitize=${ASTERION_SANITIZERS} -fno-omit-frame-pointer -g1)
+  if(ASTERION_SANITIZERS STREQUAL "thread")
+    # GCC warns on std::atomic_thread_fence inlined from third-party headers (e.g. Asio) under TSan.
+    target_compile_options(asterion_base PUBLIC $<$<CXX_COMPILER_ID:GNU>:-Wno-tsan>)
+  endif()
   target_link_options(asterion_base PUBLIC -fsanitize=${ASTERION_SANITIZERS})
   # Instrumented builds run several times slower; timing assertions scale.
   target_compile_definitions(asterion_base PUBLIC ASTERION_SANITIZED=1)

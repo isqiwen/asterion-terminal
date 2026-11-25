@@ -55,6 +55,7 @@ int main(int argc, char** argv)
             const auto& broker = settings.identity.at("broker");
             const auto flow = std::filesystem::temp_directory_path()
                 / ("asterion-login-check-" + asterion::unique_process_id());
+
             struct Cleanup
             {
                 ~Cleanup()
@@ -65,6 +66,7 @@ int main(int argc, char** argv)
 
                 std::filesystem::path path;
             } cleanup{flow};
+
             try {
                 const auto trading_day = asterion::ctp::verify_ctp_login(
                     settings.ctp_library,
