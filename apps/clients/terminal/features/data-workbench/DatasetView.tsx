@@ -69,7 +69,6 @@ function DatasetBody({ context, address }: { context: TerminalContext; address: 
     return () => document.removeEventListener("keydown", close);
   }, [chart, workspaceActive]);
   const [shown, setShown] = useState(20);
-  const [issuesOnly, setIssuesOnly] = useState(false);
   const warehouse = useWarehouse();
   const warehouseRef = useRef(warehouse);
   warehouseRef.current = warehouse;
@@ -212,22 +211,17 @@ function DatasetBody({ context, address }: { context: TerminalContext; address: 
   const query = search.trim().toUpperCase();
   // A contract code such as RB2705 finds its product.
   const searchedProduct = /^([A-Z]{1,3})\d{3,4}$/.exec(query)?.[1];
-  const { issueCount, shownRows } = useMemo(() => {
-    const needsWork = ({ coverage: item }: ProductRow) =>
-      !!(item?.[kind]?.withGaps || item?.[kind]?.pending);
-    const filtered = rows.filter(
-      row =>
-        (!exchange || row.exchange === exchange) &&
-        (!query ||
-          `${row.id} ${row.name}`.toUpperCase().includes(query) ||
-          row.id.split("/")[1]!.toUpperCase() === searchedProduct),
-    );
-    const issues = filtered.filter(needsWork);
-    return {
-      issueCount: issues.length,
-      shownRows: issuesOnly ? issues : filtered,
-    };
-  }, [rows, exchange, query, searchedProduct, kind, issuesOnly]);
+  const shownRows = useMemo(
+    () =>
+      rows.filter(
+        row =>
+          (!exchange || row.exchange === exchange) &&
+          (!query ||
+            `${row.id} ${row.name}`.toUpperCase().includes(query) ||
+            row.id.split("/")[1]!.toUpperCase() === searchedProduct),
+      ),
+    [rows, exchange, query, searchedProduct],
+  );
   const expanded =
     (searchedProduct &&
       shownRows.find(row => row.id.split("/")[1]!.toUpperCase() === searchedProduct)?.id) ||
@@ -371,13 +365,6 @@ function DatasetBody({ context, address }: { context: TerminalContext; address: 
                   <option key={item}>{item}</option>
                 ))}
               </select>
-              <button
-                type="button"
-                aria-pressed={issuesOnly}
-                onClick={() => setIssuesOnly(!issuesOnly)}
-              >
-                {t("需处理 {count}", { count: issueCount })}
-              </button>
             </search>
             {!viewed && (
               <div className="data-toolbar-actions">

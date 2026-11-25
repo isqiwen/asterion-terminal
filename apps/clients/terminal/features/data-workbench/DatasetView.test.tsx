@@ -264,7 +264,7 @@ test("the summary shows freshness, acquisition defaults to canonical exchange or
   expect(request).toHaveBeenCalledWith({ case: "startUpdate", value: {} });
 });
 
-test("products with problems come first and only they count as needing attention", async () => {
+test("products with problems come first", async () => {
   serve();
   view(context());
   const table = await list();
@@ -274,9 +274,6 @@ test("products with problems come first and only they count as needing attention
   expect(names).toEqual(["rb螺纹钢SHFE", "au沪金SHFE", "ag沪银SHFE", "zn沪锌SHFE", "已退市品种"]);
   const row = (name: RegExp) => within(table).getByRole("rowheader", { name }).closest("tr")!;
   expect(row(/^rb/).textContent).toContain("2 / 5");
-  fireEvent.click(screen.getByRole("button", { name: "需处理 2" }));
-  expect(within(table).queryByRole("rowheader", { name: /^ag/ })).toBeNull();
-  expect(within(table).queryByRole("rowheader", { name: "已退市品种" })).toBeNull();
 });
 
 test("a product opens on its listed contracts with history folded by delivery year", async () => {
