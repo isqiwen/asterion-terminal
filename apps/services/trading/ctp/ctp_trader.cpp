@@ -877,6 +877,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi
         front_id = login->FrontID;
         session_id = login->SessionID;
         logged_in = true;
+        log::info("CTP login succeeded: trading_day={}", field(login->TradingDay));
         funds_query_received = false;
         int max_ref = 0;
         const auto ref = trimmed(login->MaxOrderRef);

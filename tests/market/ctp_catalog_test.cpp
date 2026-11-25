@@ -106,6 +106,60 @@ TEST_F(CtpCatalog, AnInactiveFrontIsUnavailableAndKeepsTheBrokerMessage)
     }
 }
 
+TEST_F(CtpCatalog, VerifyLoginChecksCredentialsWithoutCatalogOrSideEffects)
+{
+    ctp::SharedLibrary control(ASTERION_TEST_CTP_TRADER, "asterion_fake_catalog_side_effects");
+    const auto count = control.symbol<int (*)()>();
+    const int before = count();
+    EXPECT_EQ(ctp::verify_ctp_login(ASTERION_TEST_CTP_TRADER, flow, config, 2s), "20260928");
+    config.app_id = "app";
+    config.auth_code = "auth";
+    EXPECT_EQ(ctp::verify_ctp_login(ASTERION_TEST_CTP_TRADER, flow, config, 2s), "20260928");
+    EXPECT_EQ(count(), before);
+
+    config.auth_code = "bad-auth";
+    try {
+        (void)ctp::verify_ctp_login(ASTERION_TEST_CTP_TRADER, flow, config, 2s);
+        FAIL() << "expected auth refusal";
+    } catch (const Error& error) {
+        EXPECT_EQ(error.code(), ErrorCode::permission_denied);
+        EXPECT_NE(
+            std::string(error.what()).find("CTP authentication rejected: 63"),
+            std::string::npos);
+    }
+
+    config.auth_code = "auth";
+    config.password = "bad";
+    try {
+        (void)ctp::verify_ctp_login(ASTERION_TEST_CTP_TRADER, flow, config, 2s);
+        FAIL() << "expected login refusal";
+    } catch (const Error& error) {
+        EXPECT_EQ(error.code(), ErrorCode::permission_denied);
+        EXPECT_NE(std::string(error.what()).find("CTP login rejected: 3"), std::string::npos);
+    }
+
+    config.password = "secret";
+    std::filesystem::create_directories(flow);
+    std::ofstream(flow / "not-initialized").put('1');
+    try {
+        (void)ctp::verify_ctp_login(ASTERION_TEST_CTP_TRADER, flow, config, 2s);
+        FAIL() << "expected unavailable broker";
+    } catch (const Error& error) {
+        EXPECT_EQ(error.code(), ErrorCode::unavailable);
+        EXPECT_NE(std::string(error.what()).find("CTP not initialized"), std::string::npos);
+    }
+    std::filesystem::remove(flow / "not-initialized");
+    std::ofstream(flow / "front-inactive").put('1');
+    try {
+        (void)ctp::verify_ctp_login(ASTERION_TEST_CTP_TRADER, flow, config, 2s);
+        FAIL() << "expected inactive front";
+    } catch (const Error& error) {
+        EXPECT_EQ(error.code(), ErrorCode::unavailable);
+        EXPECT_NE(std::string(error.what()).find("CTP front inactive"), std::string::npos);
+    }
+    EXPECT_EQ(count(), before);
+}
+
 TEST_F(CtpCatalog, RejectsPartialAndDuplicateResults)
 {
     for (const auto* mode : {"catalog-error", "catalog-dup"}) {

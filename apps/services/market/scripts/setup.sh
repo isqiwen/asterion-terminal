@@ -12,6 +12,7 @@ ROOT=/opt/asterion/market
 UNIT=asterion-market.service
 SETTINGS=config/market.json
 TIMER=asterion-market-restart
+EXPECT_CTP=1
 PROGRAMS=(bin/asterion_market bin/asterion_crash_reporter bin/setup.sh bin/cold_backup.py lib/ctp-md.so lib/ctp-trader.so)
 
 declare -Ar DEFAULTS=(
@@ -76,6 +77,37 @@ commit_market_settings() {
     write_unit
 }
 
+check_service_login() {
+    local app_id output='' rc=0
+    local -a cred_args=()
+    app_id=$(current counter.app_id)
+    if [[ ! -f $CREDENTIALS/asterion.ctp.password ]]; then
+        echo "${C_RED}✗ 未找到加密保存的 CTP 密码，请先在配置中录入${C_RESET}"
+        return 1
+    fi
+    cred_args+=(-p "LoadCredentialEncrypted=asterion.ctp.password:$CREDENTIALS/asterion.ctp.password")
+    if [[ -n $app_id ]]; then
+        if [[ ! -f $CREDENTIALS/asterion.ctp.auth_code ]]; then
+            echo "${C_RED}✗ 已配置 AppID（${app_id}）但未找到加密保存的 CTP 授权码，请先录入${C_RESET}"
+            return 1
+        fi
+        cred_args+=(-p "LoadCredentialEncrypted=asterion.ctp.auth_code:$CREDENTIALS/asterion.ctp.auth_code")
+    fi
+    echo "正在向柜台单次验证 Market 的 CTP 凭据（不重试）..."
+    output=$(systemd-run --wait --pipe --collect --quiet \
+        -p "User=$ACCOUNT" \
+        -p "UMask=0077" \
+        "${cred_args[@]}" \
+        -p "NoNewPrivileges=yes" \
+        -p "ProtectSystem=strict" \
+        -p "ProtectHome=yes" \
+        -p "PrivateTmp=yes" \
+        -p "CapabilityBoundingSet=" \
+        -p "RestrictSUIDSGID=yes" \
+        -- "$ROOT/bin/asterion_market" --check-login 2>&1) || rc=$?
+    report_ctp_check_result "$rc" "$output"
+}
+
 configure() {
     local front='^tcp://[A-Za-z0-9.-]+:[0-9]{1,5}$' bind port data previous clients
     local market_front trade_front broker user app_id password='' auth_code=''
@@ -104,9 +136,17 @@ configure() {
     fi
     if [[ -f $ROOT/$SETTINGS ]] && ! review; then return; fi
     commit_market_settings "$previous" "$password" "$auth_code"
+    if confirm "是否立即单次验证 CTP 凭据连通性？" y; then
+        local rc=0
+        check_service_login || rc=$?
+        if ((rc == 1)) && [[ ${IN_SETTINGS_MENU:-} != 1 ]] && confirm "是否进入配置菜单修正凭据或前置设置？" y; then
+            settings_menu
+        fi
+    fi
 }
 
 settings_menu() {
+    local IN_SETTINGS_MENU=1
     local front='^tcp://[A-Za-z0-9.-]+:[0-9]{1,5}$' choice
     local bind port data previous clients market_front trade_front broker user app_id password auth_code
     local encrypted_password encrypted_auth_code
@@ -141,7 +181,10 @@ settings_menu() {
             3)
                 field market_front "CTP 行情前置" counter.market_front "$front"
                 field trade_front "CTP 交易前置" counter.trade_front "$front"
-                review && commit_market_settings "$previous" "" "" ;;
+                if review; then
+                    commit_market_settings "$previous" "" ""
+                    if confirm "是否立即单次验证 CTP 凭据连通性？" y; then check_service_login || true; fi
+                fi ;;
             4)
                 echo "请使用独立的行情账号，切勿配置实盘交易账户。"
                 field broker "CTP 经纪商代码" counter.broker '^[A-Za-z0-9]+$'
@@ -156,7 +199,10 @@ settings_menu() {
                     [[ -z $app_id ]] || auth_code=$(secret "CTP 授权码（输入不回显）")
                     CHANGES+=("CTP 密码与授权码: 已更新")
                 fi
-                review && commit_market_settings "$previous" "$password" "$auth_code" ;;
+                if review; then
+                    commit_market_settings "$previous" "$password" "$auth_code"
+                    if confirm "是否立即单次验证 CTP 凭据连通性？" y; then check_service_login || true; fi
+                fi ;;
             5)
                 password=$(secret "CTP 密码（输入不回显）")
                 [[ -z $app_id ]] || auth_code=$(secret "CTP 授权码（输入不回显）")
@@ -174,6 +220,7 @@ settings_menu() {
                     fi
                     CHANGED=1
                     echo "已加密保存 CTP 密码与授权码"
+                    if confirm "是否立即单次验证 CTP 凭据连通性？" y; then check_service_login || true; fi
                 fi ;;
             6) configure ;;
             0) break ;;

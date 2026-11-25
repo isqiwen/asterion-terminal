@@ -199,6 +199,33 @@ configure_account() {
     commit_account_settings "$file" "$credentials" "$password" "$auth_code" "$webhook_file" "$webhook" "$clear_webhook"
 }
 
+trading_expect_ctp() {
+    [[ -f $ROOT/data/$INSTANCE/journal.sqlite ]] && echo 1 || echo 0
+}
+
+check_account_login() {
+    local credentials=$CREDENTIALS/asterion-trading-$INSTANCE output='' rc=0
+    if [[ ! -f $credentials/password || ! -f $credentials/auth_code ]]; then
+        echo "${C_RED}✗ 未找到账户 $INSTANCE 的加密 CTP 凭据，请先在配置中录入密码与授权码${C_RESET}"
+        return 1
+    fi
+    echo "正在向柜台单次验证账户 $INSTANCE 的 CTP 凭据（不重试、不发送委托）..."
+    output=$(systemd-run --wait --pipe --collect --quiet \
+        -p "User=$ACCOUNT" \
+        -p "UMask=0077" \
+        -p "ReadWritePaths=$ROOT/data/$INSTANCE $ROOT/data/owners" \
+        -p "LoadCredentialEncrypted=password:$credentials/password" \
+        -p "LoadCredentialEncrypted=auth_code:$credentials/auth_code" \
+        -p "NoNewPrivileges=yes" \
+        -p "ProtectSystem=strict" \
+        -p "ProtectHome=yes" \
+        -p "PrivateTmp=yes" \
+        -p "CapabilityBoundingSet=" \
+        -p "RestrictSUIDSGID=yes" \
+        -- "$ROOT/bin/asterion_trading" --account "$INSTANCE" --check-login 2>&1) || rc=$?
+    report_ctp_check_result "$rc" "$output"
+}
+
 account_settings_menu() {
     local file credentials webhook_file choice
     local bind port terminals environment broker user app front market_front
@@ -233,7 +260,10 @@ account_settings_menu() {
                 field app "CTP AppID" broker.app_id '^[A-Za-z0-9_.-]{1,32}$'
                 field front "CTP 交易前置" broker.front '^tcp://[^[:space:]]+:[0-9]+$'
                 field market_front "CTP 行情前置" market_front '^tcp://[A-Za-z0-9.-]+:[0-9]+$'
-                review && commit_account_settings "$file" "$credentials" "" "" "$webhook_file" "" "" ;;
+                if review; then
+                    commit_account_settings "$file" "$credentials" "" "" "$webhook_file" "" ""
+                    if confirm "是否立即单次验证 CTP 凭据连通性？" y; then check_account_login || true; fi
+                fi ;;
             3)
                 password=$(secret "CTP 交易密码（输入不回显）")
                 auth_code=$(secret "CTP 授权码（输入不回显）")
@@ -248,6 +278,7 @@ account_settings_menu() {
                     mv -f "$encrypted_auth_code" "$credentials/auth_code"
                     CHANGED=1
                     echo "已加密保存 CTP 密码与授权码"
+                    if confirm "是否立即单次验证 CTP 凭据连通性？" y; then check_account_login || true; fi
                 fi
                 password='' auth_code='' ;;
             4)
@@ -272,7 +303,15 @@ account_settings_menu() {
                     fi
                 fi
                 raw_hook='' ;;
-            5) configure_account ;;
+            5)
+                local before_changed=$CHANGED
+                CHANGED=''
+                configure_account
+                if [[ -n $CHANGED ]]; then
+                    if confirm "是否立即单次验证 CTP 凭据连通性？" y; then check_account_login || true; fi
+                else
+                    CHANGED=$before_changed
+                fi ;;
             0) break ;;
             *) echo "  无效选项，请重新输入" >&2 ;;
         esac
@@ -281,8 +320,14 @@ account_settings_menu() {
 
 apply_account() {
     systemctl enable "asterion-trading@$INSTANCE.service" >/dev/null 2>&1
-    restart_after_trading "asterion-trading@$INSTANCE.service" "$RESTART-$INSTANCE"
-    echo "重启后交易授权已重置，请在 Terminal 中重新授权账户 $INSTANCE。"
+    if restart_after_trading "asterion-trading@$INSTANCE.service" "$RESTART-$INSTANCE" \
+        "asterion_trading-$INSTANCE" "$(current port)" "$(trading_expect_ctp)"; then
+        if [[ -f $ROOT/data/$INSTANCE/journal.sqlite ]]; then
+            echo "重启后交易授权已重置，请在 Terminal 中重新授权账户 $INSTANCE。"
+        else
+            echo "账户 $INSTANCE 服务已就绪，请在 Terminal 中完成开通与授权。"
+        fi
+    fi
 }
 
 add_account() {
@@ -294,6 +339,13 @@ add_account() {
     CHANGED=
     configure_account
     [[ -n $CHANGED ]] || return 0
+    if confirm "是否立即单次验证 CTP 凭据连通性？" y; then
+        local rc=0
+        check_account_login || rc=$?
+        if ((rc == 1)) && confirm "是否进入配置菜单修正凭据或前置设置？" y; then
+            account_settings_menu
+        fi
+    fi
     echo "请在 Terminal 中填写此主机地址、端口 $(current port)、账户名 $INSTANCE 与本机证书指纹。"
     firewall "$(current port)"
     apply_account
@@ -301,9 +353,11 @@ add_account() {
 
 start_account() {
     cancel_restart "$RESTART-$INSTANCE"
-    systemctl enable --now "asterion-trading@$INSTANCE.service" >/dev/null 2>&1
     CHANGED=''
-    echo "已启动账户 $INSTANCE；请在 Terminal 中完成授权。"
+    if start_and_verify enable-now "asterion-trading@$INSTANCE.service" \
+        "asterion_trading-$INSTANCE" "$(current port)" "$(trading_expect_ctp)"; then
+        echo "请在 Terminal 中完成授权。"
+    fi
 }
 
 DISABLED=
@@ -356,6 +410,7 @@ account_menu() {
         echo " 4) ${C_YELLOW}开机自启开关${C_RESET}"
         echo " 5) ${C_CYAN}终端指纹管理${C_RESET}"
         echo " 6) 查看运行日志"
+        echo " 7) ${C_CYAN}测试 CTP 凭据连通性${C_RESET}"
         echo
         echo " 0) 返回上级菜单"
         hr_double
@@ -364,8 +419,10 @@ account_menu() {
             1)
                 if unit_running "$unit"; then
                     if confirm "确认立即重启账户 $INSTANCE？交易授权将结束，柜台挂单保留且不会重发。" n; then
-                        restart_now "$unit" "$RESTART-$INSTANCE"
-                        echo "请在 Terminal 中重新授权账户 $INSTANCE。"
+                        if restart_now "$unit" "$RESTART-$INSTANCE" \
+                            "asterion_trading-$INSTANCE" "$(current port)" "$(trading_expect_ctp)"; then
+                            echo "请在 Terminal 中重新授权账户 $INSTANCE。"
+                        fi
                     fi
                 else
                     start_account
@@ -384,6 +441,7 @@ account_menu() {
                 fi ;;
             5) pins_menu "$(account_file)" terminals ;;
             6) show_logs "asterion_trading-$INSTANCE" "$unit" ;;
+            7) check_account_login || true ;;
             0) break ;;
             *) echo "  无效选项，请重新输入" >&2 ;;
         esac

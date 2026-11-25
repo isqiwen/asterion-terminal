@@ -2,12 +2,14 @@
 #include <asterion/system/log.hpp>
 #include <asterion/system/crash.hpp>
 #include "alert_webhook.hpp"
+#include "ctp_catalog.hpp"
 #include "live_session.hpp"
 #include "settings.hpp"
 #include "strategy_host.hpp"
 #include "systemd_watchdog.hpp"
 #include "account_journal.hpp"
 #include <CLI/CLI.hpp>
+#include <asterion/base/error.hpp>
 #include <asterion/system/process/child.hpp>
 #include <asterion/system/process/file_lock.hpp>
 #include <asterion/system/rpc_host.hpp>
@@ -31,6 +33,11 @@ int main(int argc, char** argv)
         std::string("Asterion Trading ") + asterion::build::description);
     std::string account_name;
     app.add_option("--account", account_name, "The account instance to run")->required();
+    bool check_login = false;
+    app.add_flag(
+        "--check-login",
+        check_login,
+        "Verify CTP credentials with a single login attempt and exit");
     argv = app.ensure_utf8(argv);
     CLI11_PARSE(app, argc, argv);
     try {
@@ -43,6 +50,38 @@ int main(int argc, char** argv)
             throw std::runtime_error(
                 "Trading installation is incomplete; rerun its setup release: "
                 + installation.string());
+        if (check_login) {
+            const auto settings = asterion::trading::load_settings(installation, account_name);
+            const auto& broker = settings.identity.at("broker");
+            const auto flow = std::filesystem::temp_directory_path()
+                / ("asterion-login-check-" + asterion::unique_process_id());
+            struct Cleanup
+            {
+                ~Cleanup()
+                {
+                    std::error_code ignored;
+                    std::filesystem::remove_all(path, ignored);
+                }
+
+                std::filesystem::path path;
+            } cleanup{flow};
+            try {
+                const auto trading_day = asterion::ctp::verify_ctp_login(
+                    settings.ctp_library,
+                    flow,
+                    {settings.login.front,
+                        broker.at("broker_id").get<std::string>(),
+                        broker.at("user_id").get<std::string>(),
+                        settings.login.password,
+                        settings.login.app_id,
+                        settings.login.auth_code});
+                std::cout << "CTP login verified (trading_day=" << trading_day << ")\n";
+                return 0;
+            } catch (const asterion::Error& error) {
+                std::cerr << error.what() << '\n';
+                return error.code() == asterion::ErrorCode::unavailable ? 2 : 1;
+            }
+        }
         asterion::log::init(installation, "asterion_trading-" + account_name);
         const auto settings = asterion::trading::load_settings(installation, account_name);
 #if defined(__linux__) && !defined(ASTERION_SANITIZED)
@@ -550,7 +589,8 @@ int main(int argc, char** argv)
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "Trading process failed: " << error.what() << '\n';
-        asterion::log::error("trading service failed: {}", error.what());
+        if (!check_login)
+            asterion::log::error("trading service failed: {}", error.what());
         return 1;
     }
 }

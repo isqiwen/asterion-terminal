@@ -11,6 +11,7 @@
 #include <exception>
 #include <map>
 #include <regex>
+#include <thread>
 #include <iconv.h>
 
 namespace asterion::ctp {
@@ -54,15 +55,17 @@ enum class Step
     done
 };
 
-const char* timeout_diagnostic(Step step)
+const char* timeout_diagnostic(Step step, bool login_only = false)
 {
     switch (step) {
         case Step::connecting:
-            return "CTP catalog front connection timed out";
+            return login_only ? "CTP front connection timed out"
+                              : "CTP catalog front connection timed out";
         case Step::authenticate:
-            return "CTP catalog authentication timed out";
+            return login_only ? "CTP authentication timed out"
+                              : "CTP catalog authentication timed out";
         case Step::login:
-            return "CTP catalog login timed out";
+            return login_only ? "CTP login timed out" : "CTP catalog login timed out";
         case Step::products:
             return "CTP catalog product query timed out";
         case Step::query:
@@ -144,15 +147,16 @@ struct Reader final : CThostFtdcTraderSpi
         };
         if (!error.ErrorID)
             return;
-        auto diagnostic = std::string("CTP catalog ") + names[static_cast<int>(step)]
-            + " rejected: " + std::to_string(error.ErrorID);
+        const std::string prefix = login_only ? "CTP " : "CTP catalog ";
+        auto diagnostic =
+            prefix + names[static_cast<int>(step)] + " rejected: " + std::to_string(error.ErrorID);
         const auto message = text_utf8(field(error.ErrorMsg));
         if (!message.empty())
             diagnostic += ": " + message;
         if (error.ErrorID == 7)
-            throw Error(ErrorCode::unavailable, "CTP catalog not initialized: " + diagnostic);
+            throw Error(ErrorCode::unavailable, prefix + "not initialized: " + diagnostic);
         if (error.ErrorID == 8)
-            throw Error(ErrorCode::unavailable, "CTP catalog front inactive: " + diagnostic);
+            throw Error(ErrorCode::unavailable, prefix + "front inactive: " + diagnostic);
         if (step == Step::authenticate || step == Step::login)
             throw Error(ErrorCode::permission_denied, std::move(diagnostic));
         throw Error(ErrorCode::operation_failed, std::move(diagnostic));
@@ -292,7 +296,9 @@ struct Reader final : CThostFtdcTraderSpi
                     } else if constexpr (std::is_same_v<T, Disconnected>) {
                         throw Error(
                             ErrorCode::unavailable,
-                            "CTP catalog disconnected: " + std::to_string(value.reason));
+                            std::string(
+                                login_only ? "CTP disconnected: " : "CTP catalog disconnected: ")
+                                + std::to_string(value.reason));
                     } else if constexpr (std::is_same_v<T, Failure>) {
                         check(value.error);
                     } else if constexpr (std::is_same_v<T, Auth>) {
@@ -310,7 +316,8 @@ struct Reader final : CThostFtdcTraderSpi
                             && !std::regex_match(result.trading_day, std::regex("[0-9]{8}")))
                             throw Error(
                                 ErrorCode::operation_failed,
-                                "CTP catalog login has no trading day");
+                                login_only ? "CTP login has no trading day"
+                                           : "CTP catalog login has no trading day");
                         completed = value.last;
                     } else if constexpr (std::is_same_v<T, Product>) {
                         if (step != Step::products || value.id != 4)
@@ -346,6 +353,7 @@ struct Reader final : CThostFtdcTraderSpi
     std::map<std::string, CatalogContract> contracts;
     // Futures products, each queried for its contracts in turn.
     std::vector<std::pair<std::string, std::string>> products;
+    bool login_only = false;
 };
 
 } // namespace
@@ -362,16 +370,21 @@ struct CatalogQuery::Impl
     CThostFtdcTraderApi* api = nullptr;
     CThostFtdcReqUserLoginField login{};
     CThostFtdcReqAuthenticateField auth{};
+    const bool login_only = false;
 
     Impl(
         const std::filesystem::path& path,
         CatalogConfiguration configuration,
-        std::chrono::milliseconds timeout)
+        std::chrono::milliseconds timeout,
+        bool login_only = false)
         : timeout(timeout),
           deadline(std::chrono::steady_clock::now() + timeout),
           config(std::move(configuration)),
-          library(path, "_ZN19CThostFtdcTraderApi19CreateFtdcTraderApiEPKc")
-    {}
+          library(path, "_ZN19CThostFtdcTraderApi19CreateFtdcTraderApiEPKc"),
+          login_only(login_only)
+    {
+        reader.login_only = login_only;
+    }
 
     ~Impl()
     {
@@ -436,15 +449,17 @@ struct CatalogQuery::Impl
             deadline = std::chrono::steady_clock::now() + 4 * timeout;
         }
         if (std::chrono::steady_clock::now() >= deadline) {
-            log::warn(
-                "ctp catalog timed out: {} instrument_responses={} active_futures={}",
-                timeout_diagnostic(reader.step),
-                reader.instrument_responses.load(),
-                reader.contracts.size());
-            std::string diagnostic = timeout_diagnostic(reader.step);
-            if (reader.step == Step::query)
-                diagnostic +=
-                    " after " + std::to_string(reader.instrument_responses.load()) + " responses";
+            std::string diagnostic = timeout_diagnostic(reader.step, login_only);
+            if (!login_only) {
+                log::warn(
+                    "ctp catalog timed out: {} instrument_responses={} active_futures={}",
+                    diagnostic,
+                    reader.instrument_responses.load(),
+                    reader.contracts.size());
+                if (reader.step == Step::query)
+                    diagnostic += " after " + std::to_string(reader.instrument_responses.load())
+                        + " responses";
+            }
             throw Error(ErrorCode::unavailable, diagnostic);
         }
         reader.poll();
@@ -464,6 +479,11 @@ struct CatalogQuery::Impl
 #endif
             erase(login.Password);
         } else if (reader.step == Step::login) {
+            if (login_only) {
+                reader.step = Step::done;
+                return std::move(reader.result);
+            }
+            log::info("CTP catalog login succeeded: trading_day={}", reader.result.trading_day);
             // Only futures products: the whole instrument list is mostly options,
             // which SimNow streamed for minutes and then stopped sending.
             reader.begin(Step::products);
@@ -520,6 +540,21 @@ CatalogQuery::~CatalogQuery() = default;
 std::optional<Catalog> CatalogQuery::poll(std::stop_token stop)
 {
     return impl_->poll(stop);
+}
+
+std::string verify_ctp_login(
+    const std::filesystem::path& library,
+    const std::filesystem::path& flow,
+    CatalogConfiguration configuration,
+    std::chrono::milliseconds timeout)
+{
+    CatalogQuery::Impl query(library, std::move(configuration), timeout, true);
+    query.start(flow, timeout);
+    for (;;) {
+        if (auto result = query.poll({}))
+            return std::move(result->trading_day);
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
 }
 
 } // namespace asterion::ctp

@@ -47,6 +47,20 @@ public:
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
+
+    friend std::string verify_ctp_login(
+        const std::filesystem::path& library,
+        const std::filesystem::path& flow,
+        CatalogConfiguration configuration,
+        std::chrono::milliseconds timeout);
 };
+
+// Single-shot read-only authenticate and login check; returns trading_day (YYYYMMDD).
+// Never retries and performs no settlement confirmation or order actions.
+std::string verify_ctp_login(
+    const std::filesystem::path& library,
+    const std::filesystem::path& flow,
+    CatalogConfiguration configuration,
+    std::chrono::milliseconds timeout = std::chrono::seconds(15));
 
 } // namespace asterion::ctp

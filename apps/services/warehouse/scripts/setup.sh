@@ -248,8 +248,7 @@ staged.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 
 apply() {
     place_exchange_rules
-    systemctl restart "$UNIT"
-    echo "已重启 $UNIT（日志目录：$ROOT/logs）"
+    start_and_verify restart "$UNIT" "asterion_${NAME,,}" "$(current port)" 0
 }
 
 setup() {

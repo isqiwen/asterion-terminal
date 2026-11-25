@@ -250,6 +250,24 @@ with tempfile.TemporaryDirectory(prefix="ast-market-") as folder:
         _, rejection = duplicate.communicate(timeout=15)
         assert duplicate.returncode != 0 and "market.lock" in rejection, rejection
         assert "held by another process" in rejection, rejection
+        # --check-login runs without contending for market.lock and surfaces CTP credential errors.
+        checked = subprocess.run([str(root / "bin" / executable), "--check-login"],
+                                 env=env, capture_output=True, text=True, timeout=15)
+        assert checked.returncode == 0 and "trading_day=20260928" in checked.stdout, checked
+        bad_creds = root / "bad-credentials"
+        bad_creds.mkdir(mode=0o700)
+        (bad_creds / "asterion.ctp.password").write_text("bad")
+        (bad_creds / "asterion.ctp.auth_code").write_text("fixture-auth")
+        bad_env = dict(os.environ, CREDENTIALS_DIRECTORY=str(bad_creds))
+        bad_password = subprocess.run([str(root / "bin" / executable), "--check-login"],
+                                      env=bad_env, capture_output=True, text=True, timeout=15)
+        assert bad_password.returncode == 1 and "CTP login rejected: 3" in bad_password.stderr, bad_password
+        (bad_creds / "asterion.ctp.password").write_text("fixture-only-secret")
+        (bad_creds / "asterion.ctp.auth_code").write_text("bad-auth")
+        bad_auth = subprocess.run([str(root / "bin" / executable), "--check-login"],
+                                  env=bad_env, capture_output=True, text=True, timeout=15)
+        assert bad_auth.returncode == 1 and "CTP authentication rejected: 63" in bad_auth.stderr, bad_auth
+        assert "bad-auth" not in bad_auth.stderr and "fixture-only-secret" not in bad_auth.stderr
         assert number(ask(first_endpoint, GET_STATUS), 2) == started
         with watch_stream(first_endpoint, []) as viewer:  # one frame, then the viewer closes
             board = watch_frame(viewer, 1)

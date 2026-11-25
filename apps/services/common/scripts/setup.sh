@@ -344,37 +344,175 @@ cancel_restart() {
     systemctl stop "$1.timer" "$1.service" 2>/dev/null || true
 }
 
-restart_after_trading() {
-    local at=now
-    if unit_running "$1"; then
-        # shellcheck disable=SC2046
-        at=$(restart_time_at $(TZ=Asia/Shanghai date +'%u %H%M'))
-    fi
-    cancel_restart "$2"
-    case $at in
-        now)
-            systemctl restart "$1"
-            echo "已重启 $1（日志目录：$ROOT/logs）"
-            return ;;
-        "+1 "*) at="$(TZ=Asia/Shanghai date -d tomorrow +%F) ${at#+1 }" ;;
-        *) at="$(TZ=Asia/Shanghai date +%F) $at" ;;
-    esac
-    systemd-run --quiet --collect --unit="$2" --on-calendar="$at:00 Asia/Shanghai" systemctl restart "$1"
-    echo "$1 当前处于交易时段：变更已安排在北京时间 $at 收盘后自动重启生效（取消定时：systemctl stop $2.timer）"
-}
-
-restart_now() {
-    [[ -z ${2:-} ]] || cancel_restart "$2"
-    systemctl restart "$1"
-    CHANGED=''
-    echo "已重启 $1（日志目录：$ROOT/logs）"
-}
-
-show_logs() {
+latest_log_file() {
     local prefix=$1 latest='' file
     for file in "$ROOT"/logs/"$prefix"*.log; do
         [[ -f $file ]] && latest=$file
     done
+    printf '%s' "$latest"
+}
+
+log_size() {
+    if [[ -n $1 && -f $1 ]]; then
+        stat -c %s "$1" 2>/dev/null || echo 0
+    else
+        echo 0
+    fi
+}
+
+fresh_log_lines() {
+    local prefix=$1 old_file=$2 old_size=$3 current
+    current=$(latest_log_file "$prefix")
+    [[ -n $current ]] || return 0
+    if [[ $current == "$old_file" ]]; then
+        tail -c "+$((old_size + 1))" "$current" 2>/dev/null || true
+    else
+        cat "$current" 2>/dev/null || true
+    fi
+}
+
+port_listening() {
+    local port=$1
+    if command -v ss >/dev/null 2>&1; then
+        [[ -n $(ss -Htl "sport = :$port" 2>/dev/null || true) ]]
+        return
+    fi
+    return 0
+}
+
+show_start_failure_logs() {
+    local unit=$1 log_prefix=$2 old_file=$3 old_size=$4 started_since=$5 fresh=''
+    fresh=$(fresh_log_lines "$log_prefix" "$old_file" "$old_size")
+    if [[ -n $fresh ]]; then
+        echo "  最近日志输出："
+        printf '%s\n' "$fresh" | tail -n 20 | sed 's/^/    /'
+    elif command -v journalctl >/dev/null 2>&1; then
+        echo "  systemd 日志输出："
+        journalctl -u "$unit" --since "$started_since" -n 20 --no-pager 2>/dev/null | sed 's/^/    /' || true
+    fi
+}
+
+verify_service_start() {
+    local unit=$1 log_prefix=$2 port=$3 expect_ctp=$4 old_file=$5 old_size=$6 started_since=$7 cmd_rc=$8
+    local i active='' sub='' listening=0 fresh='' reject_line='' transient_line='' ok_line=''
+    local max_checks=10
+    ((expect_ctp == 1)) && max_checks=17
+    for ((i = 0; i < max_checks; i++)); do
+        sleep 0.3
+        active=$(systemctl show "$unit" --property=ActiveState --value 2>/dev/null || true)
+        sub=$(systemctl show "$unit" --property=SubState --value 2>/dev/null || true)
+        if ((cmd_rc != 0)) || [[ $active == failed || $active == inactive || $sub == auto-restart || $sub == dead ]]; then
+            echo "${C_RED}✗ $unit 启动失败或已退出（状态：${active:-unknown}/${sub:-unknown}）${C_RESET}"
+            show_start_failure_logs "$unit" "$log_prefix" "$old_file" "$old_size" "$started_since"
+            return 1
+        fi
+        [[ $active == active && $sub == running ]] || continue
+        if ((listening == 0)) && port_listening "$port"; then
+            listening=1
+        fi
+        if ((expect_ctp == 0)); then
+            # Wait ~0.9s after start to catch immediate post-bind exits.
+            if ((listening == 1 && i >= 2)); then
+                echo "${C_GREEN}✓ $unit 已运行并监听端口 ${port}（日志目录：$ROOT/logs）${C_RESET}"
+                return 0
+            fi
+            continue
+        fi
+        fresh=$(fresh_log_lines "$log_prefix" "$old_file" "$old_size")
+        reject_line=$(printf '%s\n' "$fresh" | grep -E 'CTP (authentication|login) rejected:|CTP session error during login:|trading account login refused:|market feed error: CTP |contract catalog refresh failed:' | grep -Ev 'error_id=(7|8)([^0-9]|$)|market feed error: CTP (7|8)([^0-9]|$)|CTP catalog (not initialized|front inactive|disconnected)|timed out' | tail -n 1 || true)
+        if [[ -n $reject_line ]]; then
+            echo "${C_RED}✗ $unit 已启动，但 CTP 认证或登录被拒：${C_RESET}"
+            echo "  $reject_line"
+            echo "  请核对 CTP 账号、密码、授权码、AppID 与前置地址（日志目录：$ROOT/logs）"
+            return 1
+        fi
+        ok_line=$(printf '%s\n' "$fresh" | grep -E 'CTP (catalog )?login succeeded:' | tail -n 1 || true)
+        if [[ -n $ok_line && $listening -eq 1 ]]; then
+            echo "${C_GREEN}✓ $unit 已运行并监听端口 ${port}，CTP 登录已通过（日志目录：$ROOT/logs）${C_RESET}"
+            return 0
+        fi
+        transient_line=$(printf '%s\n' "$fresh" | grep -E 'error_id=(7|8)([^0-9]|$)|market feed error: CTP (7|8)([^0-9]|$)|CTP catalog (not initialized|front inactive|disconnected)|CTP (market|catalog).*timed out' | tail -n 1 || true)
+        if [[ -n $transient_line && $listening -eq 1 ]]; then
+            echo "${C_YELLOW}! $unit 已运行并监听端口 ${port}，但柜台当前未就绪或处于非交易时段：${C_RESET}"
+            echo "  $transient_line"
+            return 0
+        fi
+    done
+    if [[ $active != active || $sub != running ]]; then
+        echo "${C_RED}✗ $unit 未进入运行态（状态：${active:-unknown}/${sub:-unknown}）${C_RESET}"
+        show_start_failure_logs "$unit" "$log_prefix" "$old_file" "$old_size" "$started_since"
+        return 1
+    fi
+    if ((listening == 0)); then
+        echo "${C_RED}✗ $unit 正在运行，但端口 $port 尚未监听（日志目录：$ROOT/logs）${C_RESET}"
+        show_start_failure_logs "$unit" "$log_prefix" "$old_file" "$old_size" "$started_since"
+        return 1
+    fi
+    if ((expect_ctp == 1)); then
+        echo "${C_YELLOW}! $unit 已运行并监听端口 ${port}，柜台登录尚未返回结果（可能处于非交易时段或前置响应较慢，可稍后查看日志或执行凭据连通性测试）${C_RESET}"
+        return 0
+    fi
+    echo "${C_GREEN}✓ $unit 已运行并监听端口 ${port}（日志目录：$ROOT/logs）${C_RESET}"
+}
+
+start_and_verify() {
+    local action=$1 unit=$2 log_prefix=$3 port=$4 expect_ctp=${5:-0}
+    local old_file old_size started_since rc=0
+    old_file=$(latest_log_file "$log_prefix")
+    old_size=$(log_size "$old_file")
+    started_since=$(date '+%Y-%m-%d %H:%M:%S')
+    if [[ $action == enable-now ]]; then
+        systemctl enable --now "$unit" >/dev/null 2>&1 || rc=$?
+    else
+        systemctl restart "$unit" >/dev/null 2>&1 || rc=$?
+    fi
+    verify_service_start "$unit" "$log_prefix" "$port" "$expect_ctp" "$old_file" "$old_size" "$started_since" "$rc"
+}
+
+report_ctp_check_result() {
+    local rc=$1 output=$2
+    case $rc in
+        0)
+            echo "${C_GREEN}✓ CTP 凭据连通性验证通过${output:+：$output}${C_RESET}" ;;
+        2)
+            echo "${C_YELLOW}! 柜台当前不可用或处于非交易时段，暂无法完成登录校验${C_RESET}"
+            [[ -z $output ]] || echo "  原因：$output" ;;
+        *)
+            echo "${C_RED}✗ CTP 凭据或配置校验失败${C_RESET}"
+            [[ -z $output ]] || echo "  原因：$output" ;;
+    esac
+    return "$rc"
+}
+
+restart_after_trading() {
+    local unit=$1 timer=$2 log_prefix=${3:-asterion_${NAME,,}} port=${4:-$(current port)} expect_ctp=${5:-${EXPECT_CTP:-0}}
+    local at=now
+    if unit_running "$unit"; then
+        # shellcheck disable=SC2046
+        at=$(restart_time_at $(TZ=Asia/Shanghai date +'%u %H%M'))
+    fi
+    cancel_restart "$timer"
+    case $at in
+        now)
+            start_and_verify restart "$unit" "$log_prefix" "$port" "$expect_ctp"
+            return ;;
+        "+1 "*) at="$(TZ=Asia/Shanghai date -d tomorrow +%F) ${at#+1 }" ;;
+        *) at="$(TZ=Asia/Shanghai date +%F) $at" ;;
+    esac
+    systemd-run --quiet --collect --unit="$timer" --on-calendar="$at:00 Asia/Shanghai" systemctl restart "$unit"
+    echo "$unit 当前处于交易时段：变更已安排在北京时间 $at 收盘后自动重启生效（取消定时：systemctl stop $timer.timer）"
+}
+
+restart_now() {
+    local unit=$1 timer=${2:-} log_prefix=${3:-asterion_${NAME,,}} port=${4:-$(current port)} expect_ctp=${5:-${EXPECT_CTP:-0}}
+    [[ -z $timer ]] || cancel_restart "$timer"
+    CHANGED=''
+    start_and_verify restart "$unit" "$log_prefix" "$port" "$expect_ctp"
+}
+
+show_logs() {
+    local prefix=$1 latest
+    latest=$(latest_log_file "$prefix")
     echo
     hr_single
     if [[ -n $latest ]]; then
@@ -498,6 +636,9 @@ service_menu() {
         echo " 4) ${C_YELLOW}开机自启开关${C_RESET}"
         echo " 5) ${C_CYAN}终端指纹管理${C_RESET}"
         echo " 6) 查看运行日志"
+        if declare -F check_service_login >/dev/null; then
+            echo " 7) ${C_CYAN}测试 CTP 凭据连通性${C_RESET}"
+        fi
         echo
         echo " 0) 退出脚本"
         hr_double
@@ -511,9 +652,9 @@ service_menu() {
                     if [[ $window_at != now || -n $timer_at ]]; then
                         confirm "确认立即重启 $NAME（不等交易时段结束）？" n || continue
                     fi
-                    restart_now "$UNIT" "$TIMER"
+                    restart_now "$UNIT" "$TIMER" || true
                 else
-                    apply
+                    apply || true
                     CHANGED=''
                 fi ;;
             2) settings_menu ;;
@@ -534,6 +675,12 @@ service_menu() {
                 fi ;;
             5) pins_menu "$ROOT/${SETTINGS:?}" clients ;;
             6) show_logs "asterion_${NAME,,}" "$UNIT" ;;
+            7)
+                if declare -F check_service_login >/dev/null; then
+                    check_service_login || true
+                else
+                    echo "  无效选项，请重新输入" >&2
+                fi ;;
             0) break ;;
             *) echo "  无效选项，请重新输入" >&2 ;;
         esac
@@ -580,7 +727,7 @@ install_or_configure() {
             hr_double
         fi
     fi
-    if [[ -n $CHANGED ]]; then apply; fi
+    if [[ -n $CHANGED ]]; then apply || true; fi
 }
 
 main() {

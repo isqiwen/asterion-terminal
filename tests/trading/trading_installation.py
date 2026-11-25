@@ -156,6 +156,29 @@ with tempfile.TemporaryDirectory(prefix="ast-trading-admission-", ignore_cleanup
             assert rejected.returncode != 0 and str(file) in rejected.stderr
             assert "secret-must-not-leak" not in rejected.stderr
         file.write_bytes(saved)
+    def check_login(creds_dir):
+        return subprocess.run(
+            [str(installation.root / "bin/asterion_trading"), "--account", "adm", "--check-login"],
+            env=dict(os.environ, CREDENTIALS_DIRECTORY=str(creds_dir)),
+            capture_output=True, text=True, timeout=15)
+    logs_before = {p.name: p.stat().st_size for p in (installation.root / "logs").glob("*.log")}
+    verified = check_login(credentials)
+    assert verified.returncode == 0 and "trading_day=20260928" in verified.stdout, verified
+    assert not (installation.root / "data/adm/journal.sqlite").exists()
+    logs_after = {p.name: p.stat().st_size for p in (installation.root / "logs").glob("*.log")}
+    assert logs_after == logs_before, (logs_before, logs_after)
+    bad_creds = installation.root / "test-credentials/adm-bad"
+    bad_creds.mkdir(parents=True, exist_ok=True)
+    (bad_creds / "password").write_text("bad")
+    (bad_creds / "auth_code").write_text("test-only-auth")
+    bad_password = check_login(bad_creds)
+    assert bad_password.returncode == 1 and "CTP login rejected: 3" in bad_password.stderr, bad_password
+    (bad_creds / "password").write_text("test-only-password")
+    (bad_creds / "auth_code").write_text("bad-auth")
+    bad_auth = check_login(bad_creds)
+    assert bad_auth.returncode == 1 and "CTP authentication rejected: 63" in bad_auth.stderr, bad_auth
+    assert "bad-auth" not in bad_auth.stderr and "test-only-password" not in bad_auth.stderr
+    print("PASS: --check-login verifies CTP credentials without creating a journal or logs", flush=True)
     notify = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
     notify.bind(str(Path(folder) / "notify"))
     notify.settimeout(5 * SCALE)
@@ -173,6 +196,8 @@ with tempfile.TemporaryDirectory(prefix="ast-trading-admission-", ignore_cleanup
                 raise AssertionError('running account did not exclude runtime upgrade')
         with installation.client("adm") as channel:
             heartbeat(channel, b"hb0")
+        live_check = check_login(credentials)
+        assert live_check.returncode == 0 and "trading_day=20260928" in live_check.stdout, live_check
         # Another certificate, none at all, and plain TCP with the magic.
         refused(installation, lambda raw: installation.context("stranger").wrap_socket(raw))
         anonymous = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
