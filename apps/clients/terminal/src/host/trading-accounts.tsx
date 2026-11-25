@@ -193,6 +193,9 @@ export function TradingAccountsProvider({
   const [views, setViews] = useState<Record<string, TradingView>>({});
   const alerted = useRef<Record<string, Alerted | undefined>>({});
   const revisions = useRef<Record<string, number>>({});
+  const brokerFailed = useRef(new Map<string, number>());
+  const instancesRef = useRef(new Map<string, string>());
+  instancesRef.current = new Map(connections.map(item => [item.id, item.instance ?? item.id]));
   const accept = useCallback(
     (identity: string, responses: Response[], startedAt: number, readAt: Date) => {
       const currentRevision = revisions.current[identity] ?? 0;
@@ -210,6 +213,7 @@ export function TradingAccountsProvider({
   );
   const send = useCallback(
     async (id: string, operation: TradingCall) => {
+      if (operation.case === "connectBroker") brokerFailed.current.delete(id);
       const identity = identities.get(id)!;
       const startedAt = revisions.current[identity] ?? 0;
       const response = await tradingRequest(id, operation);
@@ -227,6 +231,7 @@ export function TradingAccountsProvider({
   );
   useEffect(() => {
     if (!identities.size) return;
+    brokerFailed.current.clear();
     const reading = new Set<string>();
     // Accounts whose last read failed or whose work stalled: each is reported
     // once, when it begins.
@@ -251,8 +256,24 @@ export function TradingAccountsProvider({
         const accountReadAt = new Date();
         responses.push(accountReply);
         if (!stopped && accountReply.result.case === "getAccount") {
+          const session = accountReply.result.value.session;
+          if (session?.brokerState === BrokerState.FAILED) {
+            if (brokerFailed.current.get(id) !== session.ctpError) {
+              brokerFailed.current.set(id, session.ctpError);
+              const label = instancesRef.current.get(id) ?? id;
+              notify(
+                new BackendError(
+                  "unavailable",
+                  `CTP trading rejected: ${label}: ${session.ctpError}`,
+                ),
+                { namespace: "asterion.terminal.trading" },
+              );
+            }
+          } else {
+            brokerFailed.current.delete(id);
+          }
           const previous = breached.get(id);
-          const next = new Set(accountReply.result.value.session?.riskBreaches ?? []);
+          const next = new Set(session?.riskBreaches ?? []);
           for (const code of next)
             if (!previous?.has(code))
               notify(new BackendError("risk_breached", `${id}: ${code}`), {

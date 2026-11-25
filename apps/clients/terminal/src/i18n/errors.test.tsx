@@ -188,3 +188,17 @@ test("prefixed evidence and risk breaches stay visible without raw punctuation j
   );
   setLocale("zh-CN");
 });
+
+test("trading broker login rejections format the account name and CTP reason in both languages", () => {
+  setLocale("zh-CN");
+  expect(diagnosticSummary("CTP trading rejected: simnow: 3")).toContain("simnow:");
+  expect(diagnosticSummary("CTP trading rejected: simnow: 3")).toContain("CTP 3");
+  expect(diagnosticSummary("CTP trading rejected: simnow: 75")).toContain("临时锁定");
+  expect(diagnosticSummary("CTP trading rejected: simnow: 131")).toContain("AppID");
+  setLocale("en-US");
+  expect(diagnosticSummary("CTP trading rejected: simnow: 3")).toContain(
+    "simnow: The broker rejected login",
+  );
+  expect(diagnosticSummary("CTP trading rejected: simnow: 75")).toContain("temporarily locked");
+  setLocale("zh-CN");
+});

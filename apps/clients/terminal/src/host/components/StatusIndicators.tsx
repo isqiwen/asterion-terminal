@@ -221,11 +221,13 @@ export function StatusIndicators({
               ? ["danger", "停滞"]
               : view.live?.recoveryRequired
                 ? ["attention", "需恢复"]
-                : view.live?.brokerState === BrokerState.READY
-                  ? ["ok", view.live.authorizedMs !== undefined ? "已允许下单" : ""]
-                  : view.live?.authorizedMs !== undefined
-                    ? ["attention", "未就绪"]
-                    : ["", "未就绪"];
+                : view.live?.brokerState === BrokerState.FAILED
+                  ? ["danger", "连接失败"]
+                  : view.live?.brokerState === BrokerState.READY
+                    ? ["ok", view.live.authorizedMs !== undefined ? "已允许下单" : ""]
+                    : view.live?.authorizedMs !== undefined
+                      ? ["attention", "未就绪"]
+                      : ["", "未就绪"];
         const title = !view
           ? undefined
           : view.failed

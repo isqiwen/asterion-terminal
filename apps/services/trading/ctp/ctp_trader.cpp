@@ -451,6 +451,13 @@ struct Trader::Impl final : CThostFtdcTraderSpi
         changed();
     }
 
+    // Release the SDK on auth/login refusal so automatic reconnects cannot retry or hide the error.
+    void fail_session(int code)
+    {
+        close_locked();
+        fail(code);
+    }
+
     // A fixed ring owns callback bytes. Producers never take the state mutex.
     // The ingress lock linearizes invalidation with publication and acknowledgement.
     static constexpr std::size_t callback_capacity = 1024;
@@ -840,9 +847,8 @@ struct Trader::Impl final : CThostFtdcTraderSpi
     {
         const auto& info = event.info;
         if (info && info->ErrorID) {
-            erase(config.password);
-            erase(config.auth_code);
-            return fail(info->ErrorID);
+            log::error("CTP authentication rejected: error_id={}", info->ErrorID);
+            return fail_session(info->ErrorID);
         }
         state.phase = BrokerPhase::logging_in;
         changed();
@@ -863,12 +869,11 @@ struct Trader::Impl final : CThostFtdcTraderSpi
         const auto& login = event.login;
         const auto& info = event.info;
         if (info && info->ErrorID) {
-            erase(config.password);
-            erase(config.auth_code);
-            return fail(info->ErrorID);
+            log::error("CTP login rejected: error_id={}", info->ErrorID);
+            return fail_session(info->ErrorID);
         }
         if (!login)
-            return fail(broker_code::login_incomplete);
+            return fail_session(broker_code::login_incomplete);
         front_id = login->FrontID;
         session_id = login->SessionID;
         logged_in = true;
@@ -1387,7 +1392,10 @@ struct Trader::Impl final : CThostFtdcTraderSpi
                 return;
             }
         }
-        if (state.phase != BrokerPhase::ready)
+        if (state.phase == BrokerPhase::authenticating || state.phase == BrokerPhase::logging_in) {
+            log::error("CTP session error during login: error_id={}", info->ErrorID);
+            fail_session(info->ErrorID);
+        } else if (state.phase != BrokerPhase::ready)
             fail(info->ErrorID);
         else
             log::warn(
@@ -1815,10 +1823,13 @@ struct Trader::Impl final : CThostFtdcTraderSpi
                 erase(connecting->config.password);
                 erase(connecting->config.auth_code);
                 connecting.reset();
-                state.phase = BrokerPhase::disconnected;
-                changed();
             }
             close_locked();
+            if (state.phase != BrokerPhase::disconnected) {
+                state.phase = BrokerPhase::disconnected;
+                state.error_code = 0;
+                changed();
+            }
         }
         wake.notify_all();
     }

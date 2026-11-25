@@ -391,12 +391,13 @@ struct Feed::Impl final
     {
         std::lock_guard lock(mutex);
         erase(config.password);
-        if (closing)
+        if (closing && state.phase == MarketPhase::disconnected)
             return;
         closing = true;
         logged_in = login_pending = subscription_pending = false;
         sdk_dirty = true;
         state.phase = MarketPhase::disconnected;
+        state.error_code = 0;
         ++state.sequence;
         record_status();
     }
@@ -621,10 +622,13 @@ struct Feed::Impl final
                         ++state.sequence;
                     } else if constexpr (std::is_same_v<T, Login>) {
                         if (value.code) {
+                            // Release the SDK so a front disconnect cannot overwrite or retry login.
+                            closing = true;
+                            logged_in = login_pending = subscription_pending = false;
+                            erase(config.password);
+                            sdk_dirty = true;
                             state.phase = MarketPhase::error;
                             state.error_code = value.code;
-                            logged_in = false;
-                            erase(config.password);
                             ++state.sequence;
                         } else if (value.last) {
                             logged_in = true;

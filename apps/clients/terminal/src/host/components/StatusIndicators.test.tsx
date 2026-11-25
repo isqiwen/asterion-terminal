@@ -426,3 +426,42 @@ test("trading status indicator shows attention tone and tooltip when orders are 
   expect(light.dataset.tone).toBe("attention");
   expect(light.title).toContain("已允许下单");
 });
+
+test("trading status indicator highlights broker login failure in danger tone with the CTP reason", async () => {
+  const snapshot = readySnapshot();
+  snapshot.trading_connections = [
+    { id: "sim", host: "h", port: 7460, instance: "simnow", fingerprint: "f", revision: "r" },
+  ];
+  vi.mocked(tradingRequest).mockImplementation(async (_id, operation) =>
+    operation.case === "getAccount"
+      ? create(ResponseSchema, {
+          result: {
+            case: "getAccount",
+            value: {
+              id: "rec",
+              session: { brokerState: BrokerState.FAILED, ctpError: 3 },
+            },
+          },
+        })
+      : create(ResponseSchema, { result: { case: "getStrategies", value: {} } }),
+  );
+  render(
+    <TradingAccountsProvider
+      connections={snapshot.trading_connections.flatMap(item => ("error" in item ? [] : [item]))}
+    >
+      <WarehouseProvider endpoint="">
+        <StatusIndicators
+          snapshot={snapshot}
+          openMarketSettings={vi.fn()}
+          openMarket={vi.fn()}
+          openWarehouseSettings={vi.fn()}
+          openTradingSettings={vi.fn()}
+          openTrading={vi.fn()}
+        />
+      </WarehouseProvider>
+    </TradingAccountsProvider>,
+  );
+  const light = await screen.findByRole("button", { name: "● 交易·simnow 连接失败" });
+  expect(light.dataset.tone).toBe("danger");
+  expect(light.title).toContain("CTP 3");
+});

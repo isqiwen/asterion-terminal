@@ -105,6 +105,9 @@ TEST_F(MarketRecovery, AStalledLoginReportsItsOwnStageAndReconnects)
 
 TEST_F(MarketRecovery, ARejectedPasswordIsNotRetried)
 {
+    std::filesystem::create_directories(settings.directory / "ctp-flow");
+    std::ofstream(settings.directory / "ctp-flow/count-logins").put('1');
+    std::ofstream(settings.directory / "ctp-flow/disconnect-after-reject").put('1');
     settings.market.password = "reject-test-only";
     live = std::make_unique<Live>(settings);
     ASSERT_TRUE(wait([](const auto& status) {
@@ -112,6 +115,8 @@ TEST_F(MarketRecovery, ARejectedPasswordIsNotRetried)
     }));
     EXPECT_EQ(advance(Live::Clock::now() + 1h).feed().ctp_error(), 3);
     EXPECT_EQ(advance(Live::Clock::now() + 2h).feed().state(), wire::FEED_STATE_FAILED);
+    EXPECT_EQ(advance().feed().ctp_error(), 3);
+    EXPECT_EQ(std::filesystem::file_size(settings.directory / "ctp-flow/login-attempts"), 1U);
 }
 
 TEST_F(MarketRecovery, AnInactiveMarketFrontRecovers)

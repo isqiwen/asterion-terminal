@@ -317,6 +317,8 @@ public:
         strategy_stream = user == "strategy" || next_day || !night.empty();
         reconnect = user != "steady" && user != "catalog-large" && !publication && !flood
             && !strategy_stream && !scripted;
+        if (std::filesystem::exists(flow / "count-logins"))
+            std::ofstream(flow / "login-attempts", std::ios::app).put('1');
         CThostFtdcRspInfoField info{};
         if (std::string(login->Password) == "reject-test-only")
             info.ErrorID = 3;
@@ -324,8 +326,13 @@ public:
             info.ErrorID = 8;
         CThostFtdcRspUserLoginField session{};
         std::strcpy(session.TradingDay, beijing_date(1).c_str());
-        if (spi)
+        if (spi) {
             spi->OnRspUserLogin(night.empty() ? nullptr : &session, &info, id, true);
+            if (info.ErrorID == 3 && std::filesystem::exists(flow / "disconnect-after-reject")) {
+                spi->OnFrontDisconnected(4097);
+                spi->OnFrontConnected();
+            }
+        }
         return 0;
     }
 

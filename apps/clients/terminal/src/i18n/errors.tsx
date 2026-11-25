@@ -116,14 +116,21 @@ export const prefixedDiagnostics: readonly (readonly [string, string, boolean?])
 ];
 
 const ctpReasons: Record<number, string> = {
+  [-1008]: "CTP callback queue overflow",
   [-1000]: "CTP market SDK failed",
   [-1]: "CTP network disconnected",
   [-2]: "CTP requests pending",
   [-3]: "CTP request rate exceeded",
   3: "CTP login rejected",
+  4: "CTP user inactive",
+  5: "CTP password invalid",
   7: "CTP not initialized",
   8: "CTP front inactive",
   63: "CTP authentication rejected",
+  75: "CTP login attempts exceeded",
+  131: "CTP client unauthenticated",
+  140: "CTP first login password change required",
+  141: "CTP weak password",
   4097: "CTP network read failed",
   4098: "CTP network write failed",
   8193: "CTP receive heartbeat timed out",
@@ -141,6 +148,8 @@ export function diagnosticSummary(message: string) {
   if (known) return known;
   const feed = body.match(/^CTP market rejected: (-?\d+)$/);
   if (feed) return ctpErrorSummary(Number(feed[1]));
+  const trading = body.match(/^CTP trading rejected: (.+): (-?\d+)$/);
+  if (trading) return `${trading[1]}: ${ctpErrorSummary(Number(trading[2]))}`;
   const subscriptions = body.match(/^CTP subscriptions failed: (\d+)$/);
   if (subscriptions)
     return translate("diagnostics", "CTP subscriptions failed", {

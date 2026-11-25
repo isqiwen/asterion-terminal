@@ -1539,6 +1539,24 @@ TEST_F(CtpTrader, CredentialFailuresStopBeforeTrading)
         },
         5s);
     EXPECT_EQ(state.error_code, 63);
+    auto wait_releases = [&](int expected) {
+        const auto deadline = std::chrono::steady_clock::now() + 5s;
+        while (fake.call<int (*)()>("asterion_fake_trader_sdk_releases") < expected
+            && std::chrono::steady_clock::now() < deadline) {
+            trader.poll();
+            std::this_thread::sleep_for(5ms);
+        }
+        return fake.call<int (*)()>("asterion_fake_trader_sdk_releases");
+    };
+    EXPECT_EQ(wait_releases(1), 1);
+    const int auths_after_auth_reject = fake.call<int (*)()>("asterion_fake_trader_auth_requests");
+    fake.reconnect();
+    std::this_thread::sleep_for(30ms);
+    trader.poll();
+    EXPECT_EQ(trader.snapshot().phase, BrokerPhase::error);
+    EXPECT_EQ(trader.snapshot().error_code, 63);
+    EXPECT_EQ(fake.call<int (*)()>("asterion_fake_trader_auth_requests"), auths_after_auth_reject);
+
     trader.connect(configuration("bad"));
     state = wait_for(
         trader,
@@ -1547,6 +1565,19 @@ TEST_F(CtpTrader, CredentialFailuresStopBeforeTrading)
         },
         5s);
     EXPECT_EQ(state.error_code, 3);
+    EXPECT_EQ(wait_releases(2), 2);
+    const int auths_after_login_reject = fake.call<int (*)()>("asterion_fake_trader_auth_requests");
+    const int logins_after_login_reject =
+        fake.call<int (*)()>("asterion_fake_trader_login_requests");
+    fake.reconnect();
+    std::this_thread::sleep_for(30ms);
+    trader.poll();
+    EXPECT_EQ(trader.snapshot().phase, BrokerPhase::error);
+    EXPECT_EQ(trader.snapshot().error_code, 3);
+    EXPECT_EQ(fake.call<int (*)()>("asterion_fake_trader_auth_requests"), auths_after_login_reject);
+    EXPECT_EQ(
+        fake.call<int (*)()>("asterion_fake_trader_login_requests"),
+        logins_after_login_reject);
     EXPECT_THROW(
         send(
             trader,
@@ -1557,6 +1588,9 @@ TEST_F(CtpTrader, CredentialFailuresStopBeforeTrading)
             trader.snapshot().exposure_revision,
             dispatch_deadline()),
         Error);
+    trader.disconnect();
+    EXPECT_EQ(trader.snapshot().phase, BrokerPhase::disconnected);
+    EXPECT_EQ(trader.snapshot().error_code, 0);
     EXPECT_THROW((ctp::Trader(fs::path("missing-library"), flow, gate, [] {})), Error);
 }
 

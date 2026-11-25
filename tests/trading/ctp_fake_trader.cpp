@@ -44,6 +44,7 @@ std::atomic<bool> hold_quote_return = false, quote_return_waiting = false;
 std::atomic<int> insert_return_code{0}, order_gap_ms{0};
 std::atomic<bool> hold_insert_errors{false};
 std::atomic<int> sdk_creations{0}, sdk_releases{0}, sdk_thread_mismatches{0};
+std::atomic<int> auth_requests{0}, login_requests{0};
 std::atomic<double> account_balance{1000000.005};
 std::atomic<double> account_pre_balance{1000000.005};
 std::atomic<double> account_deposit{0.0};
@@ -622,6 +623,7 @@ public:
     int ReqAuthenticate(CThostFtdcReqAuthenticateField* request, int id) override
     {
         check_sdk_thread();
+        ++auth_requests;
         const int code = std::filesystem::exists(flow / "not-initialized") ? 7
             : std::filesystem::exists(flow / "front-inactive")
             ? 8
@@ -648,6 +650,7 @@ public:
         ) override
     {
         check_sdk_thread();
+        ++login_requests;
         catalog_mode = request->UserID;
         const int code = std::string(request->Password) == "bad" ? 3 : 0;
         CThostFtdcRspUserLoginField login{};
@@ -1718,9 +1721,20 @@ FAKE_EXPORT int asterion_fake_trader_sdk_thread_mismatches()
     return sdk_thread_mismatches;
 }
 
+FAKE_EXPORT int asterion_fake_trader_auth_requests()
+{
+    return auth_requests;
+}
+
+FAKE_EXPORT int asterion_fake_trader_login_requests()
+{
+    return login_requests;
+}
+
 FAKE_EXPORT void asterion_fake_trader_reset()
 {
     sdk_creations = sdk_releases = sdk_thread_mismatches = 0;
+    auth_requests = login_requests = 0;
     hold_positions = hold_trades = hold_funds = empty_funds = false;
     pending_positions = pending_funds = 0;
     quote_rejection_code = 0;

@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 import { tradingRequest } from "../bridge/trading";
 import {
+  BrokerState,
   HealthSchema,
   InstanceEventKind,
   InstanceState,
@@ -10,6 +11,7 @@ import {
   StrategiesSchema,
   type Response,
 } from "../generated/asterion/trading_pb";
+import { BackendError } from "../i18n/errors";
 import { notify } from "./notifications";
 import { OpenLiveTrading, TradingAccountsProvider, useTradingAccounts } from "./trading-accounts";
 
@@ -345,5 +347,57 @@ test("OpenLiveTrading opens immediately on a live account, ignores slow offline 
   );
   await act(() => vi.advanceTimersByTimeAsync(0));
   expect(openedCancelled).not.toHaveBeenCalled();
+  vi.useRealTimers();
+});
+
+test("broker login failures notify once per failure and re-notify after explicit reconnect", async () => {
+  vi.useFakeTimers();
+  vi.mocked(notify).mockReset();
+  let session = { brokerState: BrokerState.FAILED, ctpError: 3 };
+  vi.mocked(tradingRequest).mockImplementation(async (_id, operation) => {
+    if (operation.case === "getAccount" || operation.case === "connectBroker")
+      return create(ResponseSchema, {
+        result: { case: operation.case, value: { id: "rec", session } },
+      });
+    if (operation.case === "getHealth")
+      return create(ResponseSchema, { result: { case: "getHealth", value: {} } });
+    return create(ResponseSchema, { result: { case: "getStrategies", value: {} } });
+  });
+  function ReconnectButton() {
+    const { send } = useTradingAccounts();
+    return (
+      <button onClick={() => void send("sim", { case: "connectBroker", value: {} })}>
+        reconnect
+      </button>
+    );
+  }
+  render(
+    <TradingAccountsProvider connections={[{ id: "sim", revision: "1", instance: "simnow" }]}>
+      <ReconnectButton />
+    </TradingAccountsProvider>,
+  );
+  await act(() => vi.advanceTimersByTimeAsync(0));
+  await act(() => vi.advanceTimersByTimeAsync(2000));
+  expect(vi.mocked(notify)).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(notify).mock.calls[0]?.[0]).toEqual(
+    new BackendError("unavailable", "CTP trading rejected: simnow: 3"),
+  );
+
+  // Explicit reconnect clears dedupe so another immediate refusal notifies again.
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "reconnect" }));
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+  expect(vi.mocked(notify)).toHaveBeenCalledTimes(2);
+
+  // Recovering clears failure tracking so a later failure notifies again.
+  session = { brokerState: BrokerState.READY, ctpError: 0 };
+  await act(() => vi.advanceTimersByTimeAsync(1000));
+  session = { brokerState: BrokerState.FAILED, ctpError: 63 };
+  await act(() => vi.advanceTimersByTimeAsync(1000));
+  expect(vi.mocked(notify)).toHaveBeenCalledTimes(3);
+  expect(vi.mocked(notify).mock.calls[2]?.[0]).toEqual(
+    new BackendError("unavailable", "CTP trading rejected: simnow: 63"),
+  );
   vi.useRealTimers();
 });
