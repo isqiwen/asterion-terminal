@@ -425,8 +425,16 @@ export type FactorForm = {
   groups: string;
   standardize?: "" | "zscore" | "rank";
   extraFactors?: string[];
+  orthogonalizeAgainst?: string[];
   combination?: "equal" | "ic_weighted";
   holdoutDay?: string;
+  returnMode?: "open" | "close";
+  winsorize?: boolean;
+  neutralize?: "" | "sector";
+  minVolume?: string;
+  minOpenInterest?: string;
+  volAdjust?: boolean;
+  costBps?: string;
 };
 
 export function defaultFactorForm(): FactorForm {
@@ -439,25 +447,56 @@ export function defaultFactorForm(): FactorForm {
     groups: "5",
     standardize: "",
     extraFactors: [],
+    orthogonalizeAgainst: [],
     combination: "equal",
     holdoutDay: "",
+    returnMode: "open",
+    winsorize: false,
+    neutralize: "",
+    minVolume: "",
+    minOpenInterest: "",
+    volAdjust: false,
+    costBps: "",
   };
 }
 
 const factorConditionsKey = "asterion.research.factor-scope";
-const factorScopeFields = [
-  "symbols",
-  "begin",
-  "end",
-  "horizons",
-  "groups",
-  "standardize",
-  "holdoutDay",
-] as const;
-export type FactorScope = Required<Pick<FactorForm, (typeof factorScopeFields)[number]>>;
+type FactorScopeField =
+  | "symbols"
+  | "begin"
+  | "end"
+  | "horizons"
+  | "groups"
+  | "standardize"
+  | "holdoutDay"
+  | "returnMode"
+  | "winsorize"
+  | "neutralize"
+  | "minVolume"
+  | "minOpenInterest"
+  | "volAdjust"
+  | "costBps";
+export type FactorScope = Required<Pick<FactorForm, FactorScopeField>>;
 
-export const factorScopeOf = (form: FactorForm) =>
-  Object.fromEntries(factorScopeFields.map(field => [field, form[field] ?? ""])) as FactorScope;
+export const factorScopeOf = (form: FactorForm): FactorScope => {
+  const defaults = defaultFactorForm();
+  return {
+    symbols: form.symbols ?? defaults.symbols,
+    begin: form.begin ?? defaults.begin,
+    end: form.end ?? defaults.end,
+    horizons: form.horizons ?? defaults.horizons,
+    groups: form.groups ?? defaults.groups,
+    standardize: form.standardize ?? defaults.standardize!,
+    holdoutDay: form.holdoutDay ?? defaults.holdoutDay!,
+    returnMode: form.returnMode ?? defaults.returnMode!,
+    winsorize: form.winsorize ?? defaults.winsorize!,
+    neutralize: form.neutralize ?? defaults.neutralize!,
+    minVolume: form.minVolume ?? defaults.minVolume!,
+    minOpenInterest: form.minOpenInterest ?? defaults.minOpenInterest!,
+    volAdjust: form.volAdjust ?? defaults.volAdjust!,
+    costBps: form.costBps ?? defaults.costBps!,
+  };
+};
 
 export const readFactorConditions = () =>
   readConditionSet(factorConditionsKey, () => factorScopeOf(defaultFactorForm()));
@@ -478,6 +517,8 @@ export function onFactorScope(form: FactorForm, result: FactorResult, begin: str
   if (!evaluation) return false;
   const symbols = symbolsOf(form.symbols);
   const horizons = symbolsOf(form.horizons).map(Number);
+  const sameNumber = (text: string | undefined, value: number) =>
+    Number((text ?? "").trim() || 0) === (value || 0);
   return (
     symbols.length === evaluation.symbols.length &&
     symbols.every(symbol => evaluation.symbols.includes(symbol)) &&
@@ -487,7 +528,14 @@ export function onFactorScope(form: FactorForm, result: FactorResult, begin: str
     horizons.every((horizon, index) => horizon === evaluation.horizons[index]) &&
     Number(form.groups) === evaluation.groups &&
     (form.standardize ?? "") === evaluation.standardize &&
-    (form.holdoutDay ?? "").trim() === evaluation.holdoutDay
+    (form.holdoutDay ?? "").trim() === evaluation.holdoutDay &&
+    (form.returnMode ?? "open") === (evaluation.returnMode || "close") &&
+    Boolean(form.winsorize) === evaluation.winsorize &&
+    (form.neutralize ?? "") === evaluation.neutralize &&
+    sameNumber(form.minVolume, evaluation.minVolume) &&
+    sameNumber(form.minOpenInterest, evaluation.minOpenInterest) &&
+    Boolean(form.volAdjust) === evaluation.volAdjust &&
+    sameNumber(form.costBps, evaluation.costBps)
   );
 }
 
@@ -563,7 +611,21 @@ export function factorRequest(
     throw new Error(t("持有期是互不相同的正整数"));
   const groups = Number(form.groups);
   if (!Number.isInteger(groups) || groups < 2) throw new Error(t("分组数至少为 2"));
+  const nonNegative = (label: string, text: string | undefined) => {
+    const trimmed = (text ?? "").trim();
+    if (!trimmed) return 0;
+    const value = Number(trimmed);
+    if (!Number.isFinite(value) || value < 0)
+      throw new Error(t("{label} 必须为非负数", { label: t(label) }));
+    return value;
+  };
+  const minVolume = nonNegative("最低日均成交量", form.minVolume);
+  const minOpenInterest = nonNegative("最低日均持仓量", form.minOpenInterest);
+  const costBps = nonNegative("单边成本（bps）", form.costBps);
   const extras = (options?.extraFactors ?? form.extraFactors ?? []).filter(id => id !== factor.id);
+  const controls = (form.orthogonalizeAgainst ?? []).filter(
+    id => id !== factor.id && !extras.includes(id),
+  );
   const request: FactorInit = {
     repository,
     factor: factor.id,
@@ -577,6 +639,14 @@ export function factorRequest(
     extraFactors: extras.map(id => ({ factor: id, params: {} })),
     combination: extras.length ? (form.combination ?? "equal") : "",
     holdoutDay: form.holdoutDay?.trim() ?? "",
+    returnMode: form.returnMode ?? "open",
+    winsorize: Boolean(form.winsorize),
+    neutralize: form.neutralize ?? "",
+    minVolume,
+    minOpenInterest,
+    volAdjust: Boolean(form.volAdjust),
+    costBps,
+    orthogonalizeAgainst: controls.map(id => ({ factor: id, params: {} })),
   };
   return request;
 }

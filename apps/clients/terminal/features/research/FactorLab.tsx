@@ -477,13 +477,26 @@ export function FactorLab(context: TerminalContext) {
                 </div>
               )}
               {items.length > 1 && (
-                <ExtraFactors
-                  items={items.filter(item => item.id !== factor.id)}
-                  value={form.extraFactors ?? []}
-                  onChange={extraFactors => change({ extraFactors })}
-                >
-                  {combinationField("wide")}
-                </ExtraFactors>
+                <>
+                  <FactorPickerSection
+                    title={count => t("合成因子（{count}）", { count })}
+                    searchLabel={t("搜索合成因子")}
+                    items={items.filter(item => item.id !== factor.id)}
+                    value={form.extraFactors ?? []}
+                    onChange={extraFactors => change({ extraFactors })}
+                  >
+                    {combinationField("wide")}
+                  </FactorPickerSection>
+                  <FactorPickerSection
+                    title={count => t("正交剥离基准（{count}）", { count })}
+                    searchLabel={t("搜索正交基准因子")}
+                    items={items.filter(
+                      item => item.id !== factor.id && !(form.extraFactors ?? []).includes(item.id),
+                    )}
+                    value={form.orthogonalizeAgainst ?? []}
+                    onChange={orthogonalizeAgainst => change({ orthogonalizeAgainst })}
+                  />
+                </>
               )}
               {evaluations.length > 0 && (
                 <Section title={t("评价记录")} open>
@@ -558,27 +571,31 @@ export function FactorLab(context: TerminalContext) {
   );
 }
 
-// The factors combined with the chosen one, found by search.
-function ExtraFactors({
+// Factors picked by search for combination or orthogonalization.
+function FactorPickerSection({
+  title,
+  searchLabel,
   items,
   value,
   onChange,
   children,
 }: {
+  title: (count: number) => string;
+  searchLabel: string;
   items: readonly ModuleItem[];
   value: readonly string[];
   onChange: (next: string[]) => void;
-  children: ReactNode;
+  children?: ReactNode;
 }) {
   const [search, setSearch] = useState("");
   const count = items.filter(item => value.includes(item.id)).length;
   return (
-    <Section title={t("合成因子（{count}）", { count })}>
+    <Section title={title(count)}>
       {children}
       <input
         type="search"
         className="wide"
-        aria-label={t("搜索合成因子")}
+        aria-label={searchLabel}
         placeholder={t("搜索因子")}
         spellCheck={false}
         value={search}

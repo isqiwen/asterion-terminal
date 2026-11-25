@@ -74,21 +74,55 @@ export function FactorResultView({ result }: { result: FactorResult }) {
     }),
     [grouped],
   );
+  const hasNetLongShort = useMemo(
+    () => grouped.some(day => day.netLongShort !== undefined),
+    [grouped],
+  );
   const groupOverlays = useMemo(
-    () =>
-      result.groups.map((group, index) => ({
+    () => [
+      ...result.groups.map((group, index) => ({
         label: t("第 {group} 组", { group: group.group }),
         color: groupColor(index, result.groups.length),
         values: grouped.map(day => day.groups[index] ?? null),
       })),
-    [result.groups, grouped],
+      ...(hasNetLongShort
+        ? [
+            {
+              label: t("扣费多空"),
+              color: "#e2e8f0",
+              values: grouped.map(day => day.netLongShort ?? null),
+            },
+          ]
+        : []),
+    ],
+    [result.groups, grouped, hasNetLongShort],
   );
   const largestYearly = Math.max(...yearly.map(item => Math.abs(item.mean)), 1e-12);
   const positiveYears = yearly.filter(item => item.mean > 0).length;
   const longShort = grouped.at(-1)?.longShort;
+  const netLongShort = grouped.at(-1)?.netLongShort;
   const composite = result.factorNames.length >= 2;
   const combinationLabel =
     result.evaluation?.combination === "ic_weighted" ? t("IC 加权合成") : t("等权合成");
+  const evaluation = result.evaluation;
+  const hygieneTags = [
+    ...(evaluation?.returnMode === "open" ? [t("次根开盘")] : []),
+    ...(evaluation?.winsorize ? [t("MAD 去极值")] : []),
+    ...(evaluation?.neutralize === "sector" ? [t("板块中性")] : []),
+    ...(evaluation?.volAdjust ? [t("波动归一")] : []),
+    ...(evaluation?.minVolume ? [t("量≥{value}", { value: evaluation.minVolume })] : []),
+    ...(evaluation?.minOpenInterest
+      ? [t("仓≥{value}", { value: evaluation.minOpenInterest })]
+      : []),
+    ...(evaluation?.costBps ? [t("成本 {value} bps", { value: evaluation.costBps })] : []),
+    ...(evaluation?.orthogonalizeAgainst.length
+      ? [
+          t("正交剥离 {names}", {
+            names: evaluation.orthogonalizeAgainst.map(item => shortFactor(item.factor)).join(", "),
+          }),
+        ]
+      : []),
+  ];
   const tabs = [
     ["overview", t("概览")],
     ["code", t("评价时的源码")],
@@ -107,7 +141,8 @@ export function FactorResultView({ result }: { result: FactorResult }) {
             ([name, value]) => ` · ${name}=${String(value.value.value)}`,
           )}{" "}
         · {t("{count} 个品种", { count: result.symbols.length })} · {result.evaluation?.firstDay} –{" "}
-        {result.evaluation?.lastDay} · {t("研究数据")}{" "}
+        {result.evaluation?.lastDay}
+        {hygieneTags.length > 0 && ` · ${hygieneTags.join(" · ")}`} · {t("研究数据")}{" "}
         <code>{result.pinned?.datasetVersion.slice(0, 8)}</code>
         {result.pinned?.commit && (
           <>
@@ -134,6 +169,9 @@ export function FactorResultView({ result }: { result: FactorResult }) {
                 longShort === undefined ? "—" : metric(longShort - 1, true),
                 longShort === undefined ? undefined : longShort - 1,
               ],
+              ...(netLongShort !== undefined
+                ? [[t("扣费多空累计"), metric(netLongShort - 1, true), netLongShort - 1] as const]
+                : []),
             ] as const
           ).map(([label, text, value]) => (
             <div key={label}>

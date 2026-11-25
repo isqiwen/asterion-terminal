@@ -41,7 +41,10 @@ from asterion_strategy import (
     KINDS,
     Context,
     observe,
+    orthogonalize,
+    sector_neutralize,
     verify_factor_causality,
+    winsorize_mad,
 )
 
 MINIMUM = 3  # symbols a day's IC needs
@@ -137,11 +140,104 @@ def values(function, inputs, settings, symbols: dict) -> pl.DataFrame:
                     f"the factor gave {part.shape} values for the {end} bars of {symbol}")
             parts.append(part[start:end])
         result = np.concatenate(parts) if parts else np.empty(0, dtype=float)
+        opening = columns["open"] if "open" in columns else columns["close"]
+        vol = columns["volume"] if "volume" in columns else np.full(count, np.nan)
+        oi = columns["open_interest"] if "open_interest" in columns else np.full(count, np.nan)
         frames.append(pl.DataFrame({
             "symbol": [symbol] * count, "day": columns["day"], "bar": np.arange(count),
-            "close": columns["close"], "value": result}))
+            "open": opening, "close": columns["close"], "volume": vol,
+            "open_interest": oi, "value": result}))
     return pl.concat(frames).with_columns(
         pl.when(pl.col("value").is_finite()).then(pl.col("value")).otherwise(None))
+
+
+def filter_liquidity(frame: pl.DataFrame, min_volume: float = 0.0,
+                     min_open_interest: float = 0.0, window: int = 20) -> pl.DataFrame:
+    """Mask factor values on symbol-days below trailing mean volume or open-interest floors."""
+    if not math.isfinite(min_volume) or min_volume < 0:
+        raise ValueError("min_volume must be a non-negative finite number")
+    if not math.isfinite(min_open_interest) or min_open_interest < 0:
+        raise ValueError("min_open_interest must be a non-negative finite number")
+    if (min_volume == 0.0 and min_open_interest == 0.0) or frame.is_empty():
+        return frame
+    ordered = frame.sort("symbol", "day")
+    keep = pl.lit(True)
+    if min_volume > 0.0 and "volume" in ordered.columns:
+        mean_vol = (
+            pl.when(pl.col("volume").is_finite()).then(pl.col("volume")).otherwise(None)
+            .rolling_mean(window_size=window, min_samples=1)
+            .over("symbol")
+        )
+        keep = keep & mean_vol.is_not_null() & (mean_vol >= min_volume)
+    if min_open_interest > 0.0 and "open_interest" in ordered.columns:
+        mean_oi = (
+            pl.when(pl.col("open_interest").is_finite()).then(pl.col("open_interest")).otherwise(None)
+            .rolling_mean(window_size=window, min_samples=1)
+            .over("symbol")
+        )
+        keep = keep & mean_oi.is_not_null() & (mean_oi >= min_open_interest)
+    return ordered.with_columns(
+        pl.when(keep).then(pl.col("value")).otherwise(None).alias("value")
+    )
+
+
+def _apply_daily(frame: pl.DataFrame, transform) -> pl.DataFrame:
+    """Apply a per-day cross-sectional `{symbol: value}` transform to `frame`."""
+    if frame.is_empty():
+        return frame
+    valid = frame.filter(pl.col("value").is_finite())
+    if valid.is_empty():
+        return frame.with_columns(pl.lit(None, dtype=pl.Float64).alias("value"))
+    rows = []
+    for (day,), part in valid.group_by("day", maintain_order=True):
+        scores = dict(zip(part["symbol"].to_list(), part["value"].to_list()))
+        for symbol, value in transform(scores).items():
+            if math.isfinite(value):
+                rows.append((day, symbol, float(value)))
+    if not rows:
+        return frame.with_columns(pl.lit(None, dtype=pl.Float64).alias("value"))
+    updated = pl.DataFrame(rows, schema={"day": pl.String, "symbol": pl.String, "value": pl.Float64}, orient="row")
+    return frame.drop("value").join(updated, on=["day", "symbol"], how="left")
+
+
+def orthogonalize_frame(frame: pl.DataFrame, controls: list) -> pl.DataFrame:
+    """Replace each day's factor values with OLS residuals against `controls`."""
+    if not controls or frame.is_empty():
+        return frame
+    control_days = []
+    for ctrl in controls:
+        by_day = {}
+        valid = ctrl.filter(pl.col("value").is_finite())
+        for (day,), part in valid.group_by("day"):
+            by_day[day] = dict(zip(part["symbol"].to_list(), part["value"].to_list()))
+        control_days.append(by_day)
+    valid = frame.filter(pl.col("value").is_finite())
+    rows = []
+    for (day,), part in valid.group_by("day", maintain_order=True):
+        scores = dict(zip(part["symbol"].to_list(), part["value"].to_list()))
+        day_controls = [by_day.get(day, {}) for by_day in control_days]
+        for symbol, value in orthogonalize(scores, day_controls).items():
+            if math.isfinite(value):
+                rows.append((day, symbol, float(value)))
+    if not rows:
+        return frame.with_columns(pl.lit(None, dtype=pl.Float64).alias("value"))
+    updated = pl.DataFrame(rows, schema={"day": pl.String, "symbol": pl.String, "value": pl.Float64}, orient="row")
+    return frame.drop("value").join(updated, on=["day", "symbol"], how="left")
+
+
+def preprocess_frame(frame: pl.DataFrame, *, winsorize: bool = False, standardize: str = "",
+                     neutralize: str = "", controls: list | None = None) -> pl.DataFrame:
+    """Cross-sectional cleaning pipeline: MAD clip -> standardize -> neutralize -> orthogonalize."""
+    if neutralize not in ("", "none", "sector"):
+        raise ValueError(f"unknown factor neutralization: {neutralize!r}")
+    if winsorize:
+        frame = _apply_daily(frame, winsorize_mad)
+    frame = standardize_frame(frame, standardize)
+    if neutralize == "sector":
+        frame = _apply_daily(frame, sector_neutralize)
+    if controls:
+        frame = orthogonalize_frame(frame, controls)
+    return frame
 
 
 def standardize_frame(frame: pl.DataFrame, method: str) -> pl.DataFrame:
@@ -207,14 +303,19 @@ def factor_correlations(frames: list) -> list:
     return matrix
 
 
-def combine_factors(frames: list, method: str, horizon: int, standardize: str = "") -> pl.DataFrame:
+def combine_factors(frames: list, method: str, horizon: int, standardize: str = "",
+                    return_mode: str = "") -> pl.DataFrame:
     """Combine multiple factor frames by 'equal' or trailing 'ic_weighted' weights."""
     if method not in ("", "equal", "ic_weighted"):
         raise ValueError(f"unknown factor combination: {method!r}")
+    if return_mode not in ("", "close", "open"):
+        raise ValueError(f"unknown factor return mode: {return_mode!r}")
     norm = standardize if standardize in ("zscore", "rank") else "zscore"
     std_frames = [standardize_frame(f, norm) for f in frames]
     k = len(std_frames)
-    base = std_frames[0].select("symbol", "day", "bar", "close", pl.col("value").alias("v0"))
+    meta_cols = [c for c in ("symbol", "day", "bar", "open", "close", "volume", "open_interest")
+                 if c in std_frames[0].columns]
+    base = std_frames[0].select(*meta_cols, pl.col("value").alias("v0"))
     for idx in range(1, k):
         base = base.join(
             std_frames[idx].select("symbol", "day", pl.col("value").alias(f"v{idx}")),
@@ -227,18 +328,37 @@ def combine_factors(frames: list, method: str, horizon: int, standardize: str = 
         cols = [pl.col(f"v{idx}") for idx in range(k)]
         return (
             base.with_columns(pl.mean_horizontal(*cols).alias("value"))
-            .select("symbol", "day", "bar", "close", "value")
+            .select(*meta_cols, "value")
             .with_columns(pl.when(pl.col("value").is_finite()).then(pl.col("value")).otherwise(None))
         )
-    # Trailing IC-weighted combination: day t uses only realized forward returns s + horizon <= t.
+    # Trailing IC-weighted combination: day t uses only forward returns fully realized by bar t.
     indexed = base.with_columns(pl.col("day").replace_strict(day_to_idx).alias("day_index"))
-    future = indexed.select("symbol", (pl.col("day_index") - horizon).alias("day_index"),
-                            pl.col("close").alias("future_close"))
-    indexed = (
-        indexed.join(future, on=["symbol", "day_index"], how="left")
-        .with_columns((pl.col("future_close") / pl.col("close") - 1).alias("ahead"))
-        .drop("future_close")
-    )
+    if return_mode == "open" and "open" in base.columns:
+        entry = indexed.select("symbol", (pl.col("day_index") - 1).alias("day_index"),
+                               pl.col("open").alias("entry_open"))
+        exit_ = indexed.select("symbol", (pl.col("day_index") - horizon - 1).alias("day_index"),
+                               pl.col("open").alias("exit_open"))
+        indexed = (
+            indexed.join(entry, on=["symbol", "day_index"], how="left")
+            .join(exit_, on=["symbol", "day_index"], how="left")
+            .with_columns(
+                pl.when(pl.col("entry_open") > 0)
+                .then(pl.col("exit_open") / pl.col("entry_open") - 1)
+                .otherwise(None)
+                .alias("ahead")
+            )
+            .drop("entry_open", "exit_open")
+        )
+        realized_lag = horizon + 1
+    else:
+        future = indexed.select("symbol", (pl.col("day_index") - horizon).alias("day_index"),
+                                pl.col("close").alias("future_close"))
+        indexed = (
+            indexed.join(future, on=["symbol", "day_index"], how="left")
+            .with_columns((pl.col("future_close") / pl.col("close") - 1).alias("ahead"))
+            .drop("future_close")
+        )
+        realized_lag = horizon
     daily_ics = [{} for _ in range(k)]
     for idx in range(k):
         valid = indexed.filter(pl.col(f"v{idx}").is_not_null() & pl.col("ahead").is_finite())
@@ -250,14 +370,14 @@ def combine_factors(frames: list, method: str, horizon: int, standardize: str = 
         for d_idx, ic_val in zip(agg["day_index"].to_list(), agg["ic"].to_list()):
             daily_ics[idx][int(d_idx)] = float(ic_val)
     if base.is_empty():
-        return base.select("symbol", "day", "bar", "close").with_columns(
+        return base.select(*meta_cols).with_columns(
             pl.lit(None, dtype=pl.Float64).alias("value")
         )
     sum_ic = [0.0] * k
     cnt_ic = [0] * k
     weight_rows = np.empty((len(days), k), dtype=float)
     for t in range(len(days)):
-        realized = t - horizon
+        realized = t - realized_lag
         if realized >= 0:
             for idx in range(k):
                 ic_val = daily_ics[idx].get(realized)
@@ -277,14 +397,19 @@ def combine_factors(frames: list, method: str, horizon: int, standardize: str = 
     den = np.sum(np.where(valid, np.abs(w_mat), 0.0), axis=1)
     combined = np.divide(num, den, out=np.full(len(num), np.nan), where=den > 0)
     combined_series = pl.Series("value", combined, dtype=pl.Float64)
-    return base.select("symbol", "day", "bar", "close").with_columns(
+    return base.select(*meta_cols).with_columns(
         pl.when(combined_series.is_finite()).then(combined_series).otherwise(None).alias("value")
     )
 
 
-def evaluate(frame: pl.DataFrame, horizons: list, groups: int, holdout_day: str = "") -> dict:
+def evaluate(frame: pl.DataFrame, horizons: list, groups: int, holdout_day: str = "", *,
+             return_mode: str = "", vol_adjust: bool = False, cost_bps: float = 0.0) -> dict:
     """IC at each horizon, the days' IC and group returns at the first, and
     each group's mean return and turnover; optionally split at `holdout_day`."""
+    if return_mode not in ("", "close", "open"):
+        raise ValueError(f"unknown factor return mode: {return_mode!r}")
+    if not math.isfinite(cost_bps) or cost_bps < 0:
+        raise ValueError("cost_bps must be a non-negative finite number")
     days = sorted(set(frame["day"]))
     split = None
     if holdout_day:
@@ -294,13 +419,59 @@ def evaluate(frame: pl.DataFrame, horizons: list, groups: int, holdout_day: str 
     index = {day: i for i, day in enumerate(days)}
     frame = frame.sort("symbol", "day").with_columns(
         pl.col("day").replace_strict(index).alias("day_index"))
-    future = frame.select("symbol", "day_index", pl.col("close").alias("future_close"))
-    for h in sorted({1, *horizons}):
-        frame = (frame.join(future.with_columns((pl.col("day_index") - h).alias("day_index")),
-                            on=["symbol", "day_index"], how="left")
-                 .with_columns((pl.col("future_close") / pl.col("close") - 1).alias(f"ahead{h}"))
-                 .drop("future_close"))
+    all_horizons = sorted({1, *horizons})
+    if return_mode == "open":
+        if "open" not in frame.columns:
+            raise ValueError("open-to-open return evaluation requires open prices")
+        opens = frame.select("symbol", "day_index", pl.col("open").alias("ref_open"))
+        frame = frame.join(
+            opens.with_columns((pl.col("day_index") - 1).alias("day_index"))
+            .rename({"ref_open": "entry_open"}),
+            on=["symbol", "day_index"], how="left",
+        )
+        for h in all_horizons:
+            frame = (
+                frame.join(
+                    opens.with_columns((pl.col("day_index") - h - 1).alias("day_index"))
+                    .rename({"ref_open": "exit_open"}),
+                    on=["symbol", "day_index"], how="left",
+                )
+                .with_columns(
+                    pl.when((pl.col("entry_open") > 0) & pl.col("exit_open").is_finite())
+                    .then(pl.col("exit_open") / pl.col("entry_open") - 1)
+                    .otherwise(None)
+                    .alias(f"ahead{h}")
+                )
+                .drop("exit_open")
+            )
+        frame = frame.drop("entry_open")
+    else:
+        future = frame.select("symbol", "day_index", pl.col("close").alias("future_close"))
+        for h in all_horizons:
+            frame = (frame.join(future.with_columns((pl.col("day_index") - h).alias("day_index")),
+                                on=["symbol", "day_index"], how="left")
+                     .with_columns((pl.col("future_close") / pl.col("close") - 1).alias(f"ahead{h}"))
+                     .drop("future_close"))
+    if vol_adjust:
+        ret1 = (pl.col("close") / pl.col("close").shift(1) - 1).over("symbol")
+        vol20 = (
+            pl.when(ret1.is_finite()).then(ret1).otherwise(None)
+            .rolling_std(window_size=20, min_samples=5)
+            .over("symbol")
+        )
+        frame = frame.with_columns(
+            pl.when(vol20.is_finite() & (vol20 > 0)).then(vol20).otherwise(None).alias("_vol20")
+        )
+        frame = frame.with_columns(pl.col("_vol20").median().over("day").alias("_med_vol"))
+        frame = frame.with_columns([
+            pl.when(pl.col("_vol20").is_not_null() & pl.col("_med_vol").is_not_null())
+            .then(pl.col(f"ahead{h}") * (pl.col("_med_vol") / pl.col("_vol20")))
+            .otherwise(None)
+            .alias(f"ahead{h}")
+            for h in all_horizons
+        ]).drop("_vol20", "_med_vol")
     summary, dev_summary, holdout_summary, first_ic = [], [], [], {}
+    holdout_lag = 1 if return_mode == "open" else 0
     for n, h in enumerate(horizons):
         ranked = frame.filter(pl.col("value").is_not_null() & pl.col(f"ahead{h}").is_finite())
         daily = (ranked.group_by("day", "day_index")
@@ -313,7 +484,7 @@ def evaluate(frame: pl.DataFrame, horizons: list, groups: int, holdout_day: str 
             first_ic = dict(zip(daily["day"], ic))
         summary.append(statistics(h, ic))
         if split is not None:
-            dev_ic = daily.filter(pl.col("day_index") + h < split)["ic"].to_numpy()
+            dev_ic = daily.filter(pl.col("day_index") + h + holdout_lag < split)["ic"].to_numpy()
             out_ic = daily.filter(pl.col("day_index") >= split)["ic"].to_numpy()
             dev_summary.append(statistics(h, dev_ic))
             holdout_summary.append(statistics(h, out_ic))
@@ -321,12 +492,27 @@ def evaluate(frame: pl.DataFrame, horizons: list, groups: int, holdout_day: str 
     # its overlapping returns again and again.
     returns, members = group_returns(frame, 1, groups)
     # Cumulative from the first day with groups; a day without them keeps the last.
-    total, long_short, state, history = [1.0] * groups, 1.0, None, []
+    total, long_short, net_long_short, state, history = [1.0] * groups, 1.0, 1.0, None, []
+    prev_top, prev_bot = None, None
+    cost_rate = cost_bps / 10000.0
     for day in days:
         if day in returns:
             total = [value * (1 + r) for value, r in zip(total, returns[day])]
-            long_short *= 1 + returns[day][-1] - returns[day][0]
-            state = (total, long_short)
+            gross_r = returns[day][-1] - returns[day][0]
+            long_short *= 1 + gross_r
+            net_val = None
+            if cost_bps > 0:
+                top_set, bot_set = members[day][-1], members[day][0]
+                if prev_top is None:
+                    one_way = 2.0
+                else:
+                    t_top = len(top_set - prev_top) / len(top_set) if top_set else 0.0
+                    t_bot = len(bot_set - prev_bot) / len(bot_set) if bot_set else 0.0
+                    one_way = 2.0 * (t_top + t_bot)
+                prev_top, prev_bot = top_set, bot_set
+                net_long_short *= max(0.0, 1.0 + gross_r - one_way * cost_rate)
+                net_val = net_long_short
+            state = (total, long_short, net_val)
         history.append(state)
     counts = dict(frame.filter(pl.col("value").is_not_null()).group_by("day").len().iter_rows())
     return {
@@ -334,7 +520,8 @@ def evaluate(frame: pl.DataFrame, horizons: list, groups: int, holdout_day: str 
         "development_horizons": dev_summary,
         "holdout_horizons": holdout_summary,
         "days": [{"day": day, "symbols": counts.get(day, 0), "ic": first_ic.get(day),
-                  "groups": state[0] if state else [], "long_short": state[1] if state else None}
+                  "groups": state[0] if state else [], "long_short": state[1] if state else None,
+                  "net_long_short": state[2] if state else None}
                  for day, state in zip(days, history)],
         "groups": [{"group": g + 1,
                     "mean_return": mean([day[g] for day in returns.values()]),
@@ -421,6 +608,12 @@ def run(directory: Path, admitted, reply):
         ex_settings = settings_of(item, ex_defaults)
         verify_factor_causality(ex_fn, ex_inputs, ex_settings, item.factor)
         extras.append((item.factor, ex_fn, ex_inputs, ex_settings))
+    controls = []
+    for item in request.orthogonalize_against:
+        c_fn, c_inputs, c_defaults = repository.factor(Path(admitted.source), item.factor)
+        c_settings = settings_of(item, c_defaults)
+        verify_factor_causality(c_fn, c_inputs, c_settings, item.factor)
+        controls.append((item.factor, c_fn, c_inputs, c_settings))
     data = Data(Dataset(directory), request.first_day, request.last_day,
                 version=admitted.pinned.dataset_version)
     prepared = {}
@@ -428,26 +621,57 @@ def run(directory: Path, admitted, reply):
     if not symbols:
         raise ValueError("no symbol has daily bars in the range")
     symbol_bars = {symbol: bars(data, symbol, prepared[symbol]) for symbol in symbols}
-    primary = values(function, inputs, settings, symbol_bars)
+    primary = filter_liquidity(
+        values(function, inputs, settings, symbol_bars),
+        request.min_volume,
+        request.min_open_interest,
+    )
+    control_frames = [
+        filter_liquidity(values(fn, inp, cfg, symbol_bars),
+                         request.min_volume, request.min_open_interest)
+        for _, fn, inp, cfg in controls
+    ]
     if extras:
-        all_frames = [primary, *(values(fn, inp, cfg, symbol_bars) for _, fn, inp, cfg in extras)]
+        all_frames = [
+            primary,
+            *(filter_liquidity(values(fn, inp, cfg, symbol_bars),
+                               request.min_volume, request.min_open_interest)
+              for _, fn, inp, cfg in extras),
+        ]
+        if request.winsorize:
+            all_frames = [_apply_daily(f, winsorize_mad) for f in all_frames]
         corr_matrix = factor_correlations(all_frames)
-        evaluated_frame = combine_factors(
+        combined = combine_factors(
             all_frames,
             request.combination,
             request.horizons[0],
             request.standardize,
+            request.return_mode,
+        )
+        evaluated_frame = preprocess_frame(
+            combined,
+            neutralize=request.neutralize,
+            controls=control_frames,
         )
         factor_names = [request.factor, *(name for name, _, _, _ in extras)]
     else:
         corr_matrix = []
         factor_names = []
-        evaluated_frame = standardize_frame(primary, request.standardize)
+        evaluated_frame = preprocess_frame(
+            primary,
+            winsorize=request.winsorize,
+            standardize=request.standardize,
+            neutralize=request.neutralize,
+            controls=control_frames,
+        )
     result = evaluate(
         evaluated_frame,
         list(request.horizons),
         request.groups,
         request.holdout_day,
+        return_mode=request.return_mode,
+        vol_adjust=request.vol_adjust,
+        cost_bps=request.cost_bps,
     )
     reply.pinned.CopyFrom(admitted.pinned)
     reply.symbols.extend(symbols)
@@ -473,6 +697,8 @@ def run(directory: Path, admitted, reply):
             entry.ic = item["ic"]
         if item["long_short"] is not None:
             entry.long_short = item["long_short"]
+        if item["net_long_short"] is not None:
+            entry.net_long_short = item["net_long_short"]
     for item in result["groups"]:
         entry = reply.groups.add(group=item["group"])
         for name in ("mean_return", "turnover"):

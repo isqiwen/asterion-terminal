@@ -35,8 +35,17 @@ function summary(form: FactorForm, begin: string, end: string) {
     dayRange(form.begin, form.end, begin, end),
     t("持有 {horizons} 根", { horizons: symbolsOf(form.horizons).join(", ") }),
     t("{count} 组", { count: form.groups }),
+    t(form.returnMode === "close" ? "收盘对收盘" : "次根开盘"),
+    ...(form.winsorize ? [t("MAD 去极值")] : []),
     ...(form.standardize === "zscore" ? ["Z-Score"] : []),
     ...(form.standardize === "rank" ? [t("截面排名")] : []),
+    ...(form.neutralize === "sector" ? [t("板块中性")] : []),
+    ...(form.volAdjust ? [t("波动归一")] : []),
+    ...(Number(form.minVolume) > 0 ? [t("量≥{value}", { value: form.minVolume!.trim() })] : []),
+    ...(Number(form.minOpenInterest) > 0
+      ? [t("仓≥{value}", { value: form.minOpenInterest!.trim() })]
+      : []),
+    ...(Number(form.costBps) > 0 ? [t("成本 {value} bps", { value: form.costBps!.trim() })] : []),
     ...(form.holdoutDay ? [t("留出 {day}", { day: form.holdoutDay })] : []),
   ].join(" · ");
 }
@@ -138,6 +147,27 @@ function FactorFields({
             <input value={form.groups} onChange={event => change({ groups: event.target.value })} />
           </label>
           <label>
+            <span>{t("收益口径")}</span>
+            <select
+              value={form.returnMode}
+              onChange={event =>
+                change({ returnMode: event.target.value as FactorScope["returnMode"] })
+              }
+            >
+              <option value="open">{t("次根开盘（可执行）")}</option>
+              <option value="close">{t("收盘对收盘")}</option>
+            </select>
+          </label>
+          <label>
+            <span>{t("留出日")}</span>
+            <DateInput value={form.holdoutDay} onChange={holdoutDay => change({ holdoutDay })} />
+          </label>
+        </div>
+      </section>
+      <section>
+        <h3>{t("清洗与过滤")}</h3>
+        <div className="lab-form">
+          <label>
             <span>{t("截面处理")}</span>
             <select
               value={form.standardize}
@@ -151,8 +181,56 @@ function FactorFields({
             </select>
           </label>
           <label>
-            <span>{t("留出日")}</span>
-            <DateInput value={form.holdoutDay} onChange={holdoutDay => change({ holdoutDay })} />
+            <span>{t("中性化")}</span>
+            <select
+              value={form.neutralize}
+              onChange={event =>
+                change({ neutralize: event.target.value as FactorScope["neutralize"] })
+              }
+            >
+              <option value="">{t("不中性化")}</option>
+              <option value="sector">{t("板块中性化")}</option>
+            </select>
+          </label>
+          <label>
+            <span>{t("最低日均成交量")}</span>
+            <input
+              placeholder={t("不限")}
+              value={form.minVolume}
+              onChange={event => change({ minVolume: event.target.value })}
+            />
+          </label>
+          <label>
+            <span>{t("最低日均持仓量")}</span>
+            <input
+              placeholder={t("不限")}
+              value={form.minOpenInterest}
+              onChange={event => change({ minOpenInterest: event.target.value })}
+            />
+          </label>
+          <label className="wide">
+            <span>{t("单边成本（bps）")}</span>
+            <input
+              placeholder="0"
+              value={form.costBps}
+              onChange={event => change({ costBps: event.target.value })}
+            />
+          </label>
+          <label className="lab-check">
+            <input
+              type="checkbox"
+              checked={form.winsorize}
+              onChange={event => change({ winsorize: event.target.checked })}
+            />
+            {t("MAD 去极值")}
+          </label>
+          <label className="lab-check">
+            <input
+              type="checkbox"
+              checked={form.volAdjust}
+              onChange={event => change({ volAdjust: event.target.checked })}
+            />
+            {t("波动率归一化收益")}
           </label>
         </div>
       </section>

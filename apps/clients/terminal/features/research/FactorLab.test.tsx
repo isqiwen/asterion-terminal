@@ -159,6 +159,7 @@ test("only evaluations on the current settings rank", async () => {
     lastDay: "2026-02-13",
     horizons: [1],
     groups: 5,
+    returnMode: "open",
   });
   vi.mocked(lab).mockImplementation(async operation => {
     switch (operation?.case) {
@@ -433,6 +434,41 @@ test("factor result view shows in-sample vs holdout horizons, yearly IC stabilit
   const corr = screen.getByRole("table", { name: "因子相关性" });
   const offDiag = within(corr).getAllByText("-0.250")[0]!;
   expect(offDiag.style.background).toContain("--quote-down");
+});
+
+test("factor result view shows realism tags and net long-short KPI when cost_bps is set", () => {
+  render(
+    <FactorResultView
+      result={create(FactorResultSchema, {
+        id: "net-eval",
+        evaluation: {
+          factor: "price.momentum",
+          firstDay: "2025-01-05",
+          lastDay: "2026-02-13",
+          returnMode: "open",
+          winsorize: true,
+          neutralize: "sector",
+          volAdjust: true,
+          costBps: 3,
+          orthogonalizeAgainst: [{ factor: "positions.interest_change", params: {} }],
+        },
+        symbols: ["SHFE/rb", "SHFE/cu", "SHFE/al"],
+        horizons: [{ horizon: 1, days: 20, mean: 0.08, ir: 0.6 }],
+        days: [
+          { tradingDay: "2026-01-05", groups: [1.0, 1.02], longShort: 1.02, netLongShort: 1.015 },
+        ],
+        groups: [
+          { group: 1, meanReturn: 0.0, turnover: 0.2 },
+          { group: 2, meanReturn: 0.02, turnover: 0.2 },
+        ],
+      })}
+    />,
+  );
+  expect(screen.getByText(/次根开盘/)).toBeTruthy();
+  expect(screen.getByText(/板块中性/)).toBeTruthy();
+  expect(screen.getByText(/正交剥离 interest_change/)).toBeTruthy();
+  expect(screen.getByText("扣费多空累计")).toBeTruthy();
+  expect(screen.getByText("1.50%")).toBeTruthy();
 });
 
 test("cancelling a batch factor evaluation skips remaining factors", async () => {

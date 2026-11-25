@@ -10,8 +10,8 @@ import {
   ParameterSchema,
   RunSummarySchema,
 } from "../../src/generated/asterion/lab_pb";
-import { setLocale } from "../../src/i18n";
-import "./feature";
+import { registerLanguageResources, setLocale } from "../../src/i18n";
+import { feature } from "./feature";
 import {
   cumulativeIc,
   defaultFactorForm,
@@ -32,6 +32,7 @@ import {
   yearlyIc,
 } from "./research-lab";
 
+registerLanguageResources(feature.id, feature.languageResources!);
 setLocale("zh-CN");
 const integer = (name: string, value: bigint) =>
   create(ParameterSchema, {
@@ -106,11 +107,36 @@ test("a factor's evaluation takes one value of each setting, horizons and groups
   expect(request.params).toEqual({ lookback: { value: { case: "integer", value: 20n } } });
   expect(request.horizons).toEqual([1, 2, 3, 5, 10, 20]);
   expect(request.groups).toBe(5);
+  expect(request.returnMode).toBe("open");
   expect(() =>
     factorRequest({ ...form, params: { lookback: "10, 20" } }, "/repo", momentum),
   ).toThrow("只能取一个值");
   expect(() => factorRequest({ ...form, horizons: "1, 1" }, "/repo", momentum)).toThrow("互不相同");
   expect(() => factorRequest({ ...form, groups: "1" }, "/repo", momentum)).toThrow("至少为 2");
+  expect(() => factorRequest({ ...form, costBps: "-1" }, "/repo", momentum)).toThrow("非负数");
+  const realistic = factorRequest(
+    {
+      ...form,
+      winsorize: true,
+      neutralize: "sector",
+      minVolume: "1000",
+      minOpenInterest: "5000",
+      volAdjust: true,
+      costBps: "2.5",
+      orthogonalizeAgainst: ["price.momentum", "positions.interest_change"],
+    },
+    "/repo",
+    momentum,
+  );
+  expect(realistic.winsorize).toBe(true);
+  expect(realistic.neutralize).toBe("sector");
+  expect(realistic.minVolume).toBe(1000);
+  expect(realistic.minOpenInterest).toBe(5000);
+  expect(realistic.volAdjust).toBe(true);
+  expect(realistic.costBps).toBe(2.5);
+  expect(realistic.orthogonalizeAgainst).toEqual([
+    { factor: "positions.interest_change", params: {} },
+  ]);
 });
 
 test("the cumulative IC adds nothing on a day without one", () => {

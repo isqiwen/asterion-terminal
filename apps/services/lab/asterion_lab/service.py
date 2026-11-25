@@ -536,7 +536,7 @@ class Service:
         admitted.source, revision = self.copy_source(
             request.repository, f"factor-{request.id}",
             f"factors/{request.factor.partition('.')[0]}.py")
-        for extra in request.extra_factors:
+        for extra in (*request.extra_factors, *request.orthogonalize_against):
             repository.snapshot(
                 Path(request.repository),
                 Path(admitted.source),

@@ -145,6 +145,71 @@ class Evaluation(unittest.TestCase):
         self.assertEqual(result["horizons"][1]["days"], 1)
         self.assertAlmostEqual(result["horizons"][1]["mean"], 1.0)
 
+    def test_open_to_open_returns_liquidity_neutralize_vol_adjust_orthogonalize_and_costs(self):
+        # Build 4 symbols across 2 sectors (black: SHFE/rb, DCE/i; nonferrous: SHFE/cu, SHFE/al)
+        # over 8 days with distinct open vs close trajectories.
+        rows = []
+        specs = [
+            ("SHFE/rb", 1.5, 0.015, 5000.0, 20000.0),
+            ("DCE/i", 4.0, 0.03, 5000.0, 20000.0),
+            ("SHFE/cu", 10.0, 0.01, 5000.0, 20000.0),
+            ("SHFE/al", 14.0, 0.04, 5000.0, 20000.0),
+        ]
+        for sym, val, rate, vol, oi in specs:
+            for bar in range(8):
+                day = f"2026-01-{bar + 1:02d}"
+                close = 100.0 * ((1.0 + rate) ** bar)
+                # Open prices grow at `rate`, so open[t+1] -> open[t+2] is exactly `rate`.
+                opening = 99.0 * ((1.0 + rate) ** bar)
+                rows.append(dict(symbol=sym, day=day, bar=bar, open=opening, close=close,
+                                 volume=vol, open_interest=oi, value=val))
+        df = pl.DataFrame(rows)
+
+        # Open-to-open return uses open[t+1] -> open[t+h+1] and excludes exits on/after holdout.
+        open_res = factor.evaluate(df, [1], 2, holdout_day="2026-01-06", return_mode="open")
+        self.assertEqual(open_res["horizons"][0]["days"], 6)
+        self.assertEqual(open_res["development_horizons"][0]["days"], 3)
+        self.assertEqual(open_res["holdout_horizons"][0]["days"], 1)
+        # Cost-adjusted net long-short strictly trails gross when cost_bps > 0.
+        cost_res = factor.evaluate(df, [1], 2, return_mode="open", cost_bps=10.0)
+        self.assertLess(cost_res["days"][-1]["net_long_short"], cost_res["days"][-1]["long_short"])
+
+        # Sector neutralization removes the +9 level shift of nonferrous, recovering perfect intra-sector IC = 1.
+        raw_res = factor.evaluate(df, [1], 2, return_mode="open")
+        sec_df = factor.preprocess_frame(df, neutralize="sector")
+        sec_res = factor.evaluate(sec_df, [1], 2, return_mode="open")
+        self.assertLess(raw_res["horizons"][0]["mean"], 0.9)
+        self.assertAlmostEqual(sec_res["horizons"][0]["mean"], 1.0, places=5)
+
+        # Liquidity filter masks an illiquid symbol's factor values without dropping exit prices.
+        illiquid = df.with_columns(
+            pl.when(pl.col("symbol") == "SHFE/rb").then(10.0).otherwise(pl.col("volume")).alias("volume")
+        )
+        filtered = factor.filter_liquidity(illiquid, min_volume=100.0)
+        rb_vals = filtered.filter(pl.col("symbol") == "SHFE/rb")["value"].to_list()
+        self.assertTrue(all(v is None for v in rb_vals))
+        self.assertEqual(filtered.filter(pl.col("symbol") == "SHFE/rb").height, 8)
+
+        # Orthogonalization removes a collinear control factor completely, leaving pure incremental alpha.
+        ctrl = df.with_columns(
+            pl.when(pl.col("symbol").is_in(["SHFE/cu", "SHFE/al"])).then(10.0).otherwise(0.0).alias("value")
+        )
+        orth = factor.preprocess_frame(df, controls=[ctrl])
+        orth_res = factor.evaluate(orth, [1], 2, return_mode="open")
+        self.assertAlmostEqual(orth_res["horizons"][0]["mean"], 1.0, places=5)
+
+        # Volatility adjustment normalizes high-vol vs low-vol forward returns causally.
+        vol_rows = []
+        for sym, val, scale in (("s1", 1.0, 0.01), ("s2", 2.0, 0.02), ("s3", 3.0, 0.03), ("s4", 4.0, 0.04)):
+            price = 100.0
+            for bar in range(15):
+                day = f"2026-01-{bar + 1:02d}"
+                price *= 1.0 + scale * (1.2 if bar % 2 == 0 else -0.6)
+                vol_rows.append(dict(symbol=sym, day=day, bar=bar, open=price, close=price,
+                                     volume=1000.0, open_interest=5000.0, value=val))
+        vol_res = factor.evaluate(pl.DataFrame(vol_rows), [1], 2, return_mode="close", vol_adjust=True)
+        self.assertGreater(vol_res["horizons"][0]["days"], 5)
+
 
 class Repository(unittest.TestCase):
     def setUp(self):
@@ -521,6 +586,60 @@ class Repository(unittest.TestCase):
             reply = await service.reply(req)
             self.assertEqual(reply.WhichOneof("result"), "error")
             self.assertIn("failed causality check", reply.error.message)
+
+        asyncio.run(scenario())
+
+    def test_service_runs_realistic_factor_hygiene_and_orthogonalization(self):
+        class Log:
+            def write(self, *args, **kwargs):
+                pass
+
+        products = ["rb", "hc", "cu", "al"]
+        writer = Warehouse(self.directory).writer()
+        contracts, jan, feb = [], [], []
+        from warehouse_fixture import closes, contract_row, daily
+        for idx, product in enumerate(products):
+            m1, m2 = f"SHFE/{product}/2026-05", f"SHFE/{product}/2026-10"
+            contracts.extend([contract_row(m1), contract_row(m2)])
+            for day_i, (day, base) in enumerate(zip(DAYS, closes(len(DAYS)))):
+                price = base + idx * (12 + day_i)
+                target = jan if day.isoformat() < "2026-02" else feb
+                target.append(daily(m1, day, price, 1000 + idx * 50 if day_i < 15 else 100))
+                target.append(daily(m2, day, price + 15, 500 if day_i < 15 else 2000 + idx * 50))
+        writer.put_rows("contracts/SHFE", "contracts", contracts)
+        writer.add_days("SHFE", "2026-01", jan,
+                        [day.isoformat() for day in DAYS if day.isoformat() < "2026-02"])
+        writer.add_days("SHFE", "2026-02", feb,
+                        [day.isoformat() for day in DAYS if day.isoformat() >= "2026-02"])
+        writer.commit()
+
+        async def scenario():
+            service = Service("lab", self.directory, Log())
+            req = Request(id=1)
+            ev = req.evaluate_factor
+            ev.id = "hygiene-1"
+            ev.repository = str(self.repository)
+            ev.factor = "price.momentum"
+            ev.params["lookback"].integer = 3
+            ev.return_mode = "open"
+            ev.winsorize = True
+            ev.neutralize = "sector"
+            ev.vol_adjust = True
+            ev.min_volume = 1.0
+            ev.min_open_interest = 100.0
+            ev.cost_bps = 5.0
+            ev.orthogonalize_against.add(factor="positions.interest_change")
+            ev.symbols.extend([f"SHFE/{p}" for p in products])
+            ev.first_day, ev.last_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
+            ev.horizons.extend([1, 3])
+            ev.groups = 2
+            reply = await service.reply(req)
+            self.assertEqual(reply.WhichOneof("result"), "evaluate_factor", reply)
+            res = reply.evaluate_factor
+            self.assertEqual(res.evaluation.return_mode, "open")
+            self.assertTrue(res.evaluation.winsorize)
+            self.assertEqual(res.evaluation.neutralize, "sector")
+            self.assertTrue(any(day.HasField("net_long_short") for day in res.days))
 
         asyncio.run(scenario())
 

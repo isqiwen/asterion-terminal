@@ -247,6 +247,19 @@ message EvaluateFactor {
   repeated ExtraFactor extra_factors = 11;
   string combination = 12;
   string holdout_day = 13;
+  // "" or "close": close[t] -> close[t+h]; "open": open[t+1] -> open[t+h+1].
+  string return_mode = 14;
+  bool winsorize = 15;
+  // "" or "sector".
+  string neutralize = 16;
+  // Trailing 20-bar mean liquidity floors; 0 disables.
+  double min_volume = 17;
+  double min_open_interest = 18;
+  bool vol_adjust = 19;
+  // Estimated one-way transaction cost in basis points for net long-short curve.
+  double cost_bps = 20;
+  // Cross-sectional OLS controls removed before IC and group evaluation.
+  repeated ExtraFactor orthogonalize_against = 21;
 }
 
 // An evaluation as it was asked for and evaluated; kept by Lab.
@@ -303,6 +316,7 @@ message FactorDay {
   // Cumulative returns, lowest group first.
   repeated double groups = 4;
   optional double long_short = 5;
+  optional double net_long_short = 6;
 }
 
 message FactorGroup {
