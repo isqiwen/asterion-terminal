@@ -458,10 +458,10 @@ tbody tr:hover {
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  min-block-size: 32px;
-  padding: var(--space-1) var(--space-3);
+  min-block-size: 28px;
+  padding: 2px var(--space-3);
   border-top: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--pane);
   color: var(--muted);
   font-size: var(--font-size-body);
 }
@@ -485,7 +485,7 @@ tbody tr:hover {
 .notification-center > :where(button) {
   display: inline-flex;
   align-items: center;
-  min-block-size: 24px;
+  min-block-size: 22px;
   padding: 0 var(--space-2);
   border: 0;
   border-radius: var(--control-radius);
@@ -494,7 +494,7 @@ tbody tr:hover {
   font-size: inherit;
 }
 :root[data-density="comfortable"] .status-bar {
-  min-block-size: 36px;
+  min-block-size: 32px;
 }
 :root[data-density="comfortable"]
   :is(
@@ -502,7 +502,7 @@ tbody tr:hover {
     .status-bar > :where(.status-task),
     .notification-center > :where(button)
   ) {
-  min-block-size: 26px;
+  min-block-size: 24px;
 }
 .status-bar [data-tone="ok"] {
   color: var(--text);
