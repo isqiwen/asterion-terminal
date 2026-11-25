@@ -1,8 +1,10 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { warehouseData } from "../../src/bridge/warehouse-data";
 import type { DatasetChange } from "../../src/generated/asterion/warehouse_pb";
+import { ServiceStatusCard } from "../../src/host/components/ServiceStatusCard";
 import { ServiceUnset } from "../../src/host/components/ServiceUnset";
 import { useErrorNotification } from "../../src/host/notifications";
+import { useWarehouse } from "../../src/host/warehouse";
 import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { t } from "./dataset";
@@ -27,14 +29,24 @@ export function WarehousePage({
   const saved = context.snapshot?.warehouse_endpoint;
   const endpoint = saved && "host" in saved ? saved : null;
   const address = endpoint ? `${endpoint.host}:${endpoint.port}` : "";
+  const key = endpoint ? `${address}/${endpoint.fingerprint}` : "";
+  const warehouse = useWarehouse();
+  const gated = Boolean(warehouse && warehouse.key === key && warehouse.error !== "");
   return (
     <section className="data-page" aria-label={label}>
-      {endpoint ? (
-        <div className="data-body" key={`${address}/${endpoint.fingerprint}`}>
+      {!endpoint ? (
+        <ServiceUnset openSettings={context.openSettings} page="warehouse" />
+      ) : gated ? (
+        <ServiceStatusCard
+          service="warehouse"
+          address={address}
+          failed={warehouse?.error || undefined}
+          openSettings={context.openSettings}
+        />
+      ) : (
+        <div className="data-body" key={key}>
           {children(address)}
         </div>
-      ) : (
-        <ServiceUnset openSettings={context.openSettings} page="warehouse" />
       )}
     </section>
   );

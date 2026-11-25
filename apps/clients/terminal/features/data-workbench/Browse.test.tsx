@@ -2,7 +2,9 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { Table } from "../../src/generated/asterion/warehouse_pb";
 import type { TerminalContext } from "../../src/host/feature-registry";
+import { WarehouseProvider } from "../../src/host/warehouse";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "../../src/host/workspace/drafts";
+import { BackendError } from "../../src/i18n/errors";
 import { Browse } from "./Browse";
 
 const request = vi.hoisted(() => vi.fn());
@@ -216,4 +218,33 @@ test("an unreachable warehouse hides the browse toolbar and shows a status card"
   expect(screen.queryByRole("group", { name: "数据分类" })).toBeNull();
   fireEvent.click(within(alert).getByRole("button", { name: "数据服务设置" }));
   expect(openSettings).toHaveBeenCalledWith("warehouse");
+});
+
+test("a Warehouse protocol mismatch blocks Browse with the status card instead of reading tables", async () => {
+  request.mockImplementation(async (body: { case: string }) => {
+    if (body.case === "getStatus")
+      throw new BackendError("conflict", "warehouse protocol differs from this Terminal");
+    return { dataset: { version: "current" } };
+  });
+  const props = {
+    navigate: vi.fn(),
+    openSettings: vi.fn(),
+    snapshot: { warehouse_endpoint: { host: "warehouse", port: 7450, fingerprint: "f" } },
+    workspaceParams: {},
+  } as unknown as TerminalContext;
+  render(
+    <WarehouseProvider endpoint="warehouse:7450/f">
+      <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.data-browse">
+        <Browse {...props} />
+      </WorkspaceDraftScope>
+    </WarehouseProvider>,
+  );
+  const alert = await screen.findByRole("alert");
+  expect(within(alert).getByText("数据服务")).toBeTruthy();
+  expect(within(alert).getByText("服务未连接")).toBeTruthy();
+  expect(alert.textContent).toContain(
+    "数据服务与 Terminal 的通信协议不一致，请将两边更新到同一版本。",
+  );
+  expect(screen.queryByRole("group", { name: "数据分类" })).toBeNull();
+  expect(request.mock.calls.filter(([body]) => body.case === "getDatasetSummary")).toHaveLength(0);
 });
