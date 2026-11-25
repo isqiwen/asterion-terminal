@@ -44,7 +44,7 @@ const line = (container: HTMLElement) => container.querySelector("p")?.textConte
 test("ad-hoc setup persists the working draft without creating a saved preset", () => {
   const { container } = render(<Page />);
   expect(container.textContent).not.toContain("滑点");
-  expect(screen.getByRole("button", { name: "快速选择品种" }).textContent).toBe("选择品种…");
+  expect(screen.getByRole("button", { name: "快速选择品种" }).textContent).toBe("选择品种");
 
   fireEvent.click(screen.getByRole("button", { name: "设置回测条件" }));
   expect((screen.getByRole("button", { name: "完成" }) as HTMLButtonElement).disabled).toBe(true);

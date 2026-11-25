@@ -1387,10 +1387,10 @@ export function SymbolPopover({
         className={`lab-scope-symbols${label ? "" : " is-empty"}`}
         aria-label={t("快速选择品种")}
         aria-expanded={open}
-        title={label || t("选择品种…")}
+        title={label || t("选择品种")}
         onClick={() => setOpen(previous => !previous)}
       >
-        <span>{label || t("选择品种…")}</span>
+        <span>{label || t("选择品种")}</span>
       </button>
       {open && (
         <div className="lab-scope-popover">
