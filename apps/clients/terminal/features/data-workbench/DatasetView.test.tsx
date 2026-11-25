@@ -489,7 +489,8 @@ test("retired products fold at the bottom, acquire directly, and expand straight
   expect(await screen.findByRole("button", { name: "查看 pb2410" })).toBeTruthy();
 });
 
-test("listed-complete products with missing history offer direct history backfill while 100% complete ones stay empty", async () => {
+test("listed-complete products with missing history offer direct history backfill while 100% complete ones stay 齐全", async () => {
+  let activeTasks: ReturnType<typeof create>[] = [];
   request.mockImplementation(async (body: { case: string }) => {
     switch (body.case) {
       case "getAcquisitionOptions":
@@ -535,8 +536,22 @@ test("listed-complete products with missing history offer direct history backfil
             },
           ],
         });
+      case "startAcquisition":
+        activeTasks = [
+          create(AcquisitionTaskSchema, {
+            request: {
+              id: "acq-shfe-daily",
+              table: Table.DAILY,
+              exchanges: ["SHFE"],
+              firstDay: "2023-10-16",
+              lastDay: "2025-10-15",
+            },
+            state: TaskState.RUNNING,
+          }),
+        ];
+        return {};
       case "listAcquisitionTasks":
-        return { tasks: [], nextId: "" };
+        return { tasks: activeTasks, nextId: "" };
       case "listDatasetVersions":
         return { versions: [], nextVersion: "" };
       default:
@@ -558,6 +573,10 @@ test("listed-complete products with missing history offer direct history backfil
     firstDay: "2023-10-16",
     lastDay: "2025-10-15",
   });
+  const cuRow = within(table).getByRole("rowheader", { name: /^cu/ }).closest("tr")!;
+  expect(await within(cuRow).findByText("采集中")).toBeTruthy();
+  expect(within(aoRow).getByText("齐全")).toBeTruthy();
+  expect(within(aoRow).queryByText("采集中")).toBeNull();
 });
 
 test("a contract's chart opens over the list and closes on a second click or Escape", async () => {

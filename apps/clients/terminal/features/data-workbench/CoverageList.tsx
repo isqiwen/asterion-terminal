@@ -531,18 +531,20 @@ export function CoverageList({
             <Progress pieces={tallyPieces(tally)} label={tallySummary(tally)} />
           </td>
           <td>
-            {acquires && busy ? (
-              <span className="coverage-busy">{t("采集中")}</span>
-            ) : acquires && (needsListed || needsHistory) ? (
-              <button
-                type="button"
-                className="coverage-action"
-                disabled={!needsListed && loadingProduct === row.id}
-                aria-label={t("采集 {name}", { name: row.id })}
-                onClick={() => (needsListed ? collect(row) : void collectHistory(row))}
-              >
-                {t("采集")}
-              </button>
+            {acquires && (needsListed || needsHistory) ? (
+              busy ? (
+                <span className="coverage-busy">{t("采集中")}</span>
+              ) : (
+                <button
+                  type="button"
+                  className="coverage-action"
+                  disabled={!needsListed && loadingProduct === row.id}
+                  aria-label={t("采集 {name}", { name: row.id })}
+                  onClick={() => (needsListed ? collect(row) : void collectHistory(row))}
+                >
+                  {t("采集")}
+                </button>
+              )
             ) : productDone ? (
               <span className="coverage-done">{t("齐全")}</span>
             ) : null}
@@ -700,18 +702,20 @@ export function CoverageList({
                 <Progress pieces={tallyPieces(retiredTally)} label={tallySummary(retiredTally)} />
               </td>
               <td>
-                {acquires && retiredBusy ? (
-                  <span className="coverage-busy">{t("采集中")}</span>
-                ) : acquires && retiredIncomplete.length > 0 ? (
-                  <button
-                    type="button"
-                    className="coverage-action"
-                    disabled={loadingProduct === "__retired__"}
-                    aria-label={t("采集 {name}", { name: t("已退市品种") })}
-                    onClick={() => void collectRetiredGroup()}
-                  >
-                    {t("采集")}
-                  </button>
+                {acquires && retiredIncomplete.length > 0 ? (
+                  retiredBusy ? (
+                    <span className="coverage-busy">{t("采集中")}</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="coverage-action"
+                      disabled={loadingProduct === "__retired__"}
+                      aria-label={t("采集 {name}", { name: t("已退市品种") })}
+                      onClick={() => void collectRetiredGroup()}
+                    >
+                      {t("采集")}
+                    </button>
+                  )
                 ) : retiredDone ? (
                   <span className="coverage-done">{t("齐全")}</span>
                 ) : null}
