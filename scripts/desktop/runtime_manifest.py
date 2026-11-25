@@ -21,8 +21,9 @@ import subprocess
 import sys
 import tempfile
 import tomllib
-import urllib.request
 from pathlib import Path
+
+from generated_resources import download_file
 
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT = ROOT / "apps/services/lab"
@@ -115,9 +116,7 @@ def interpreter(target: dict, staging: Path) -> dict:
     path = item["url"][len(UV_RELEASES):]
     archive = staging / "interpreter.tar.gz"
     # The build reads the archive once from the official source and pins it.
-    with urllib.request.urlopen(INTERPRETER_SOURCES["official"] + path, timeout=60) as response, \
-            archive.open("wb") as output:
-        shutil.copyfileobj(response, output)
+    download_file(INTERPRETER_SOURCES["official"] + path, archive)
     return {"path": path, "sha256": digest(archive), "size": archive.stat().st_size}
 
 

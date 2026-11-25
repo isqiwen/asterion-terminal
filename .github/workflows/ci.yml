@@ -133,6 +133,12 @@ jobs:
         name: Restore Conan packages
         if: steps.conan-cache.outputs.cache-hit == 'true'
         run: conan cache restore "${{ runner.temp }}/conan-packages.tgz"
+      - &crash-tools-cache
+        name: Cache crash tools
+        uses: actions/cache@v5
+        with:
+          path: build/crash-tools
+          key: crash-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/desktop/crash_resources.py') }}
       - name: Cache uv and Electron downloads
         uses: actions/cache@v5
         with:
@@ -225,6 +231,7 @@ jobs:
       - *ccache
       - *conan-cache
       - *conan-restore
+      - *crash-tools-cache
       - name: Cache uv downloads
         uses: actions/cache@v5
         with:

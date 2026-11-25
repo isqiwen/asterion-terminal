@@ -8,9 +8,8 @@ import subprocess
 import sys
 import tarfile
 import tempfile
-import urllib.request
 
-from generated_resources import publish_tree
+from generated_resources import download_file, publish_tree
 
 ROOT = Path(__file__).resolve().parents[2]
 DESTINATION = ROOT / "build/electron-resources/crash"
@@ -34,9 +33,7 @@ def tool(name):
     archive = cache / "download.tar.xz"
     if not archive.is_file():
         url = f"https://github.com/{repository}/releases/download/v{version}/{name}-{target}.tar.xz"
-        with urllib.request.urlopen(url, timeout=60) as response, (cache / "download.tmp").open("wb") as output:
-            shutil.copyfileobj(response, output)
-        (cache / "download.tmp").replace(archive)
+        download_file(url, archive)
     if hashlib.sha256(archive.read_bytes()).hexdigest() != checksum:
         raise ValueError(f"Crash tool checksum mismatch: {archive}")
     with tarfile.open(archive) as bundle:

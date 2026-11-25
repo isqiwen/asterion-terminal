@@ -1,4 +1,5 @@
 """Desktop startup prepares outdated Python resources and reuses current ones."""
+import io
 import json
 from pathlib import Path
 import platform
@@ -6,8 +7,10 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+import urllib.error
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts/desktop"))
+import generated_resources
 import python_runtime as runtime
 
 
@@ -75,6 +78,33 @@ class Startup(unittest.TestCase):
                 self.assertEqual(values["WAREHOUSE_PROTOCOL"], protocol)
             prepare.assert_not_called()
             manifest.assert_called_once_with()
+
+    def test_download_file_retries_transient_http_errors_only(self):
+        destination = self.build / "tool.tar.xz"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        calls = 0
+
+        def flaky(url, timeout=60):
+            nonlocal calls
+            calls += 1
+            if calls < 3:
+                raise urllib.error.HTTPError(url, 503, "Service Unavailable", {}, None)
+            return io.BytesIO(b"archive-bytes")
+
+        with patch.object(generated_resources.urllib.request, "urlopen", side_effect=flaky), \
+                patch.object(generated_resources.time, "sleep") as sleep:
+            generated_resources.download_file("https://example.invalid/tool.tar.xz", destination)
+        self.assertEqual(destination.read_bytes(), b"archive-bytes")
+        self.assertEqual(calls, 3)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [2.0, 4.0])
+
+        not_found = urllib.error.HTTPError("https://example.invalid/missing", 404, "Not Found", {}, None)
+        with patch.object(generated_resources.urllib.request, "urlopen", side_effect=not_found) as opener, \
+                patch.object(generated_resources.time, "sleep") as sleep:
+            with self.assertRaises(urllib.error.HTTPError):
+                generated_resources.download_file("https://example.invalid/missing", destination)
+        self.assertEqual(opener.call_count, 1)
+        sleep.assert_not_called()
 
 
 if __name__ == "__main__":
