@@ -153,7 +153,8 @@ function merge(view: TradingView, response: Response, readAt: Date): TradingView
     return { ...view, emergency: result.value };
   const next = { ...view, failed: undefined, emergency: undefined };
   if (result.case === "getHealth") return { ...next, health: result.value };
-  if (result.case === "getStrategies") return { ...next, strategies: result.value };
+  if (result.value?.$typeName === "trading.Strategies")
+    return { ...next, strategies: result.value };
   if (result.value?.$typeName !== "trading.Account") return next;
   const account = result.value;
   const live = account.session;
@@ -214,6 +215,7 @@ export function TradingAccountsProvider({
       const response = await tradingRequest(id, operation);
       if (
         response.result.value?.$typeName === "trading.Account" ||
+        response.result.value?.$typeName === "trading.Strategies" ||
         response.result.case === "emergencyControl" ||
         response.result.case === "getEmergency"
       ) {

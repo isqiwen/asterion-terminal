@@ -124,68 +124,76 @@ const detailFields = [
 export function AccountSummary({ live }: { live: Session }) {
   const funds = live.funds;
   const equity = number(funds?.dynamicEquity);
-  const daily =
-    equity - number(funds?.preBalance) - number(funds?.deposit) + number(funds?.withdraw);
+  const baseEquity = number(funds?.preBalance) + number(funds?.deposit) - number(funds?.withdraw);
+  const daily = equity - baseEquity;
+  const dailyTone = daily > 0 ? "ctp-up" : daily < 0 ? "ctp-down" : undefined;
+  const dailyPct =
+    baseEquity > 0 ? `${daily >= 0 ? "+" : ""}${((daily / baseEquity) * 100).toFixed(2)}%` : "";
   return (
     <section className="account-summary" aria-label={t("账户概览")}>
-      {funds && (
-        <dl className="account-headline">
-          <div>
-            <dt>{t("盯市净值")}</dt>
-            <dd>{groupedText(funds.dynamicEquity)}</dd>
-          </div>
-          <div>
-            <dt>{t("当日盈亏")}</dt>
-            <dd className={daily > 0 ? "ctp-up" : daily < 0 ? "ctp-down" : undefined}>
-              {money(daily)}
-            </dd>
-          </div>
-          <div>
-            <dt>{t("可用资金")}</dt>
-            <dd>{groupedText(funds.available)}</dd>
-          </div>
-          <div>
-            <dt>{t("保证金占用率")}</dt>
-            <dd>{equity > 0 ? percent(number(funds.margin) / equity) : "—"}</dd>
-          </div>
-        </dl>
-      )}
-      <ul className="risk-usage" aria-label={t("风控占用")}>
-        {riskMeters(live).map(meter => {
-          const share = meter.limit > 0 ? meter.used / meter.limit : 0;
-          const breached = !!meter.breach && live.riskBreaches.includes(meter.breach);
-          const tone = breached || share >= 1 ? "danger" : share >= 0.8 ? "attention" : "ok";
-          return (
-            <li key={meter.label} data-tone={tone} title={meter.title}>
-              <span>{t(meter.label)}</span>
-              <span className="risk-value">{meter.text}</span>
-              <span
-                className="risk-bar"
-                role="meter"
-                aria-label={t(meter.label)}
-                aria-valuemin={0}
-                aria-valuemax={meter.limit}
-                aria-valuenow={meter.used}
-              >
-                <span style={{ width: `${Math.min(share, 1) * 100}%` }} />
-              </span>
-            </li>
-          );
-        })}
-      </ul>
-      {funds && (
-        <details className="account-details">
-          <summary>{t("资金明细")}</summary>
-          <dl>
-            {detailFields.map(([field, label]) => (
-              <div key={field}>
-                <dt>{t(label)}</dt>
-                <dd>{groupedText(funds[field])}</dd>
-              </div>
-            ))}
+      <div className="account-summary-primary">
+        {funds && (
+          <dl className="account-headline">
+            <div>
+              <dt>{t("盯市净值")}</dt>
+              <dd>{groupedText(funds.dynamicEquity)}</dd>
+            </div>
+            <div>
+              <dt>{t("当日盈亏")}</dt>
+              <dd className="account-pnl-value">
+                <span className={dailyTone}>{money(daily)}</span>
+                {dailyPct && <small className={dailyTone}>{dailyPct}</small>}
+              </dd>
+            </div>
+            <div>
+              <dt>{t("可用资金")}</dt>
+              <dd>{groupedText(funds.available)}</dd>
+            </div>
+            <div>
+              <dt>{t("保证金占用率")}</dt>
+              <dd>{equity > 0 ? percent(number(funds.margin) / equity) : "—"}</dd>
+            </div>
           </dl>
-        </details>
-      )}
+        )}
+        <div className="account-risk-panel">
+          <ul className="risk-usage" aria-label={t("风控占用")}>
+            {riskMeters(live).map(meter => {
+              const share = meter.limit > 0 ? meter.used / meter.limit : 0;
+              const breached = !!meter.breach && live.riskBreaches.includes(meter.breach);
+              const tone = breached || share >= 1 ? "danger" : share >= 0.8 ? "attention" : "ok";
+              return (
+                <li key={meter.label} data-tone={tone} title={meter.title}>
+                  <span>{t(meter.label)}</span>
+                  <span className="risk-value">{meter.text}</span>
+                  <span
+                    className="risk-bar"
+                    role="meter"
+                    aria-label={t(meter.label)}
+                    aria-valuemin={0}
+                    aria-valuemax={meter.limit}
+                    aria-valuenow={meter.used}
+                  >
+                    <span style={{ width: `${Math.min(share, 1) * 100}%` }} />
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          {funds && (
+            <details className="account-details">
+              <summary>{t("资金明细")}</summary>
+              <dl>
+                {detailFields.map(([field, label]) => (
+                  <div key={field}>
+                    <dt>{t(label)}</dt>
+                    <dd>{groupedText(funds[field])}</dd>
+                  </div>
+                ))}
+              </dl>
+            </details>
+          )}
+        </div>
+      </div>
     </section>
   );
 }

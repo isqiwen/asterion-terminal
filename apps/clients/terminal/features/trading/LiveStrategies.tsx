@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import type { TradingConnection } from "../../src/bridge/client";
-import { Environment } from "../../src/generated/asterion/trading_pb";
+import { BrokerState, Environment } from "../../src/generated/asterion/trading_pb";
 import { activeStrategy } from "./strategy-instance";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useStrategyHost, useTradingAccounts } from "../../src/host/trading-accounts";
 import { ServiceUnset } from "../../src/host/components/ServiceUnset";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
-import { Tag } from "../../src/ui/Tag";
 import { ActionError, useActionError } from "../../src/host/action-error";
+import { AccountIdentityBar } from "./AccountIdentityBar";
 import { EmergencyControls } from "./EmergencyControls";
 import { AccountList } from "./LivePanel";
 import { t, type Run } from "./live-shared";
@@ -54,6 +54,9 @@ export function LiveStrategies(context: TerminalContext) {
             repository={context.snapshot?.research_directory ?? ""}
             initialStrategy={pending.strategy}
             initialRun={pending.run}
+            openWorkbench={() =>
+              context.navigate("workspace.trading", { params: { account: account.id } })
+            }
             openRun={id => context.navigate("workspace.lab-runs", { params: { run: id } })}
             reconcileInstance={(accountId, instanceId, runId) =>
               context.navigate("workspace.lab-runs", {
@@ -78,6 +81,7 @@ function AccountStrategies({
   repository,
   initialStrategy,
   initialRun,
+  openWorkbench,
   openRun,
   reconcileInstance,
 }: {
@@ -85,6 +89,7 @@ function AccountStrategies({
   repository: string;
   initialStrategy?: string;
   initialRun?: string;
+  openWorkbench: () => void;
   openRun: (id: string) => void;
   reconcileInstance: (accountId: string, instanceId: string, runId?: string) => void;
 }) {
@@ -93,36 +98,56 @@ function AccountStrategies({
   const [deployFirst, setDeployFirst] = useState(false);
   const { views, send } = useTradingAccounts();
   const view = views[account.id];
-  const { error: emergencyError, attempt } = useActionError();
-  const emergencyRun: Run = operation =>
+  const { error: controlError, attempt } = useActionError();
+  const controlRun: Run = operation =>
     attempt(() => send(account.id, typeof operation === "function" ? operation() : operation));
   if (view?.emergency) {
     return (
       <div className="ctp-strategy-body">
         <div className="ctp-account-panel">
-          <ActionError error={emergencyError} namespace="asterion.terminal.trading" />
+          <ActionError error={controlError} namespace="asterion.terminal.trading" />
           <EmergencyControls
             account={account}
             state={view.emergency}
             real={view.account?.environment === Environment.REAL}
-            control={emergencyRun}
+            control={controlRun}
           />
         </div>
       </div>
     );
   }
   const instance = host.state?.instance;
-  const broker = view?.account?.broker;
-  const real = view?.account?.environment === Environment.REAL;
+  const live = view?.live;
+  const stale = !!view?.failed || !!live?.recoveryRequired;
+  const runningUnauthorized =
+    activeStrategy(instance?.state) && !!live && live.authorizedMs === undefined;
+  const needsAuthorize =
+    live?.brokerState === BrokerState.READY && !stale && live.authorizedMs === undefined;
   return (
     <div className="ctp-strategy-body" data-running={activeStrategy(instance?.state) || undefined}>
       <div className="ctp-account-panel">
-        <div className="ctp-identity" data-real={real || undefined}>
-          <strong>
-            {[account.instance, broker?.brokerId, broker?.userId].filter(Boolean).join(" · ")}
-          </strong>
-          {view?.account && <Tag danger={real}>{t(real ? "真实资金" : "CTP 仿真")}</Tag>}
-        </div>
+        <AccountIdentityBar
+          account={account}
+          record={view?.account}
+          stale={stale}
+          control={controlRun}
+          extraActions={
+            needsAuthorize ? (
+              <button type="button" onClick={openWorkbench}>
+                {t("前往允许下单")}
+              </button>
+            ) : undefined
+          }
+        />
+        <ActionError error={controlError} namespace="asterion.terminal.trading" />
+        {runningUnauthorized && (
+          <div className="alert ctp-strategy-unauthorized" role="alert">
+            <span>{t("策略已运行，但账户尚未允许下单：目标仅记录不发送。")}</span>
+            <button type="button" className="primary" onClick={openWorkbench}>
+              {t("前往允许下单")}
+            </button>
+          </div>
+        )}
         {instance?.instance && (
           <StrategyMonitor
             instance={instance}

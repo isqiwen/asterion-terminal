@@ -7,10 +7,8 @@ import type { TradingConnection } from "../../src/bridge/client";
 import { BrokerState, Environment } from "../../src/generated/asterion/trading_pb";
 import { useTradingAccounts, type TradingView } from "../../src/host/trading-accounts";
 import { t, phases, type Run } from "./live-shared";
-import { activeStrategy } from "./strategy-instance";
 import { CreateLive } from "./CreateLive";
 import { EmergencyControls } from "./EmergencyControls";
-import { StrategyCard } from "./StrategyCard";
 // Both trading views share one stylesheet; each loads it itself.
 import "./trading.css";
 import { LiveAccount } from "./LiveAccount";
@@ -132,7 +130,9 @@ function AccountColumn({
   openStrategies: () => void;
 }) {
   const inFlight = useRef(false);
+  const stoppingRef = useRef(false);
   const [busy, setBusy] = useState(false);
+  const [stoppingStrategy, setStoppingStrategy] = useState(false);
   const { error, attempt } = useActionError();
   // Requests always carry the account they were issued for. A cancel and a
   // revoke take something back, so they do not wait for another request.
@@ -155,12 +155,22 @@ function AccountColumn({
         }
       }
     };
+  const run = runFor(true);
+  const control = runFor(false);
+  const stopStrategy = async (id: string) => {
+    if (stoppingRef.current) return false;
+    stoppingRef.current = true;
+    setStoppingStrategy(true);
+    try {
+      return await control({ case: "stopStrategy", value: { id } });
+    } finally {
+      stoppingRef.current = false;
+      setStoppingStrategy(false);
+    }
+  };
   const instance = view?.strategies?.instance;
   return (
     <div className="ctp-account-column">
-      {instance?.instance && activeStrategy(instance.state) && view?.live && (
-        <StrategyCard instance={instance} live={view.live} open={openStrategies} />
-      )}
       <div className="ctp-account-panel">
         <ActionError error={error} namespace="asterion.terminal.trading" />
         {view?.emergency ? (
@@ -168,7 +178,7 @@ function AccountColumn({
             account={account}
             state={view.emergency}
             real={view.account?.environment === Environment.REAL}
-            control={runFor(false)}
+            control={control}
           />
         ) : view?.live && view.account ? (
           <LiveAccount
@@ -177,9 +187,15 @@ function AccountColumn({
             stale={!!view.failed || view.live.recoveryRequired}
             context={context}
             busy={busy}
-            run={runFor(true)}
-            control={runFor(false)}
+            run={run}
+            control={control}
             initialContract={initialContract}
+            strategy={instance}
+            stoppingStrategy={stoppingStrategy}
+            openStrategies={openStrategies}
+            pauseStrategy={(id, paused) => run({ case: "pauseStrategy", value: { id, paused } })}
+            flattenStrategy={id => run({ case: "flattenStrategy", value: { id } })}
+            stopStrategy={stopStrategy}
           />
         ) : view?.account && view.initialized === false ? (
           <div className="account-setup">

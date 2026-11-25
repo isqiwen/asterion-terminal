@@ -8,6 +8,7 @@ import {
   AccountSchema,
   BrokerState,
   Environment,
+  InstanceState,
   ResponseSchema,
   SessionSchema,
   TradeSchema,
@@ -796,4 +797,78 @@ test("policy editor explains when broker is disconnected and strategy view consu
     ),
   );
   expect(navigate).toHaveBeenCalledWith("workspace.trading-strategies", {});
+});
+
+test("a running strategy replaces the manual ticket in the workbench rail and supports direct pause", async () => {
+  vi.mocked(tradingRequest).mockImplementation(async (_account, operation) => {
+    if (operation?.case === "getStrategies")
+      return create(ResponseSchema, {
+        result: {
+          case: "getStrategies",
+          value: {
+            instance: {
+              instance: {
+                id: "soak-1",
+                packageName: "ma_cross.MaCross",
+                instruments: [{ exchange: "SHFE", symbol: "rb2610" }],
+              },
+              state: InstanceState.READY,
+              completedSteps: 3n,
+            },
+          },
+        },
+      });
+    if (operation?.case === "pauseStrategy")
+      return create(ResponseSchema, {
+        result: {
+          case: "pauseStrategy",
+          value: {
+            instance: {
+              instance: {
+                id: "soak-1",
+                packageName: "ma_cross.MaCross",
+                instruments: [{ exchange: "SHFE", symbol: "rb2610" }],
+              },
+              state: InstanceState.READY,
+              paused: true,
+              completedSteps: 3n,
+            },
+          },
+        },
+      });
+    if (
+      operation?.case === "getDay" ||
+      operation?.case === "getOrders" ||
+      operation?.case === "getCatalog"
+    )
+      return create(ResponseSchema, { result: { case: operation.case, value: {} } });
+    return read();
+  });
+  show("strategy-rail");
+  expect(await screen.findByText("策略已就绪")).toBeTruthy();
+  expect(screen.queryByRole("form", { name: "CTP 委托" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "暂停新增" }));
+  expect(await screen.findByRole("button", { name: "恢复新增" })).toBeTruthy();
+});
+
+test("the strategy view exposes authorization state and emergency stop button", async () => {
+  read = () => live({ ...session, authorizedMs: undefined });
+  const navigate = vi.fn();
+  render(
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="strategy-auth-bar">
+      <TradingAccountsProvider connections={[{ id: "account", revision: "1" }]}>
+        <LiveStrategies
+          snapshot={snapshot}
+          busy={false}
+          error=""
+          navigate={navigate}
+          openSettings={() => {}}
+          trade={async () => {}}
+        />
+      </TradingAccountsProvider>
+    </WorkspaceDraftScope>,
+  );
+  expect(await screen.findByRole("status", { name: "下单状态" })).toBeTruthy();
+  fireEvent.click(await screen.findByRole("button", { name: "前往允许下单" }));
+  expect(navigate).toHaveBeenCalledWith("workspace.trading", { params: { account: "account" } });
 });

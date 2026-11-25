@@ -2,18 +2,24 @@ import { listSeparator } from "../../src/i18n";
 import { ctpErrorSummary } from "../../src/i18n/errors";
 import { useEffect, useRef, useState } from "react";
 import type { TradingConnection } from "../../src/bridge/client";
-import { BrokerState, Environment, type Account } from "../../src/generated/asterion/trading_pb";
+import {
+  BrokerState,
+  Environment,
+  type Account,
+  type InstanceStatus,
+} from "../../src/generated/asterion/trading_pb";
 import { FlowSteps } from "../../src/ui/FlowSteps";
-import { StatusBadge, type Tone } from "../../src/ui/StatusBadge";
-import { Tag } from "../../src/ui/Tag";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useMarket, useMarketAvailable } from "../../src/host/market";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
+import { AccountIdentityBar } from "./AccountIdentityBar";
 import { AccountRecords } from "./AccountRecords";
 import { AccountSummary } from "./AccountSummary";
 import { type Activity } from "./ActivityTabs";
 import { OrderTicket, type Preset } from "./OrderTicket";
+import { StrategyCard } from "./StrategyCard";
 import { TradeMarket } from "./TradeMarket";
+import { activeStrategy } from "./strategy-instance";
 import { explicitCloseBuckets } from "../../src/ui/closePolicy";
 import {
   t,
@@ -24,12 +30,6 @@ import {
   type CommandAction,
   type Run,
 } from "./live-shared";
-
-// The counter link: ready, on its way, or down.
-function phaseTone(stale: boolean, state: BrokerState): Tone {
-  if (stale || state === BrokerState.FAILED || state === BrokerState.DISCONNECTED) return "danger";
-  return state === BrokerState.READY ? "ok" : "attention";
-}
 
 function LiveTradeMarket({
   context,
@@ -64,6 +64,12 @@ export function LiveAccount({
   run,
   control,
   initialContract,
+  strategy,
+  stoppingStrategy = false,
+  openStrategies,
+  pauseStrategy,
+  flattenStrategy,
+  stopStrategy,
 }: {
   account: TradingConnection;
   // The account as Trading reports it, with its open session.
@@ -75,6 +81,12 @@ export function LiveAccount({
   run: Run;
   control: Run;
   initialContract?: string;
+  strategy?: InstanceStatus;
+  stoppingStrategy?: boolean;
+  openStrategies?: () => void;
+  pauseStrategy?: (id: string, paused: boolean) => Promise<boolean>;
+  flattenStrategy?: (id: string) => Promise<boolean>;
+  stopStrategy?: (id: string) => Promise<boolean>;
 }) {
   const [activity, setActivity] = useState<Activity>("positions");
   const [preset, setPreset] = useState<Preset>();
@@ -111,6 +123,7 @@ export function LiveAccount({
   const confirmed = confirmedPolicy === live.policyRevision;
   const ready = live.brokerState === BrokerState.READY;
   const authorized = live.authorizedMs !== undefined;
+  const strategyRunning = !!(strategy?.instance && activeStrategy(strategy.state));
   const act = (action: () => CommandAction) => command(run, record, action);
   // One step is offered at a time: the counter connection, then permission to
   // send, then the order ticket. A window that has not confirmed the
@@ -144,12 +157,9 @@ export function LiveAccount({
     </div>
   );
   // What takes something back is never held back by another command, of this
-  // account or of the window: a cancel and a revoke are each disabled only
-  // while the same one is on its way.
+  // account or of the window: a cancel is disabled only while the same one is on its way.
   const inFlightCancels = useRef(new Set<string>());
-  const revokingRef = useRef(false);
   const [cancelling, setCancelling] = useState<readonly string[]>([]);
-  const [revoking, setRevoking] = useState(false);
   const cancel = async (id: string) => {
     if (inFlightCancels.current.has(id)) return;
     inFlightCancels.current.add(id);
@@ -163,67 +173,15 @@ export function LiveAccount({
   };
   return (
     <>
-      <div className="ctp-identity" data-real={real || undefined}>
-        <strong>
-          {account.instance} · {broker.brokerId} · {broker.userId}
-        </strong>
-        <Tag danger={real}>{t(real ? "真实资金" : "CTP 仿真")}</Tag>
-        {!environmentReady && <StatusBadge tone="attention">{t("CTP 环境待确认")}</StatusBadge>}
-        <StatusBadge tone={phaseTone(stale, live.brokerState)}>
-          <span data-testid="live-phase">
-            {t(stale ? "服务失联" : (phases[live.brokerState] ?? "未连接"))}
-          </span>
-        </StatusBadge>
-        <span
-          title={t(
-            "资金、持仓、订单和成交可能来自不同时间；同步完成时间不代表原子账本或完整历史。",
-          )}
-        >
-          <StatusBadge tone={live.positionsReconciled ? "neutral" : "attention"}>
-            {t(live.positionsReconciled ? "持仓已核对" : "持仓待核对")}
-          </StatusBadge>
-        </span>
-        <span>{broker.front}</span>
-        {/* The account's actions stay together when the line wraps. */}
-        <div className="ctp-identity-actions">
-          <strong
-            className="trading-switch"
-            role="status"
-            aria-label={t("下单状态")}
-            data-state={authorized ? (ready && !stale ? "on" : "waiting") : "off"}
-          >
-            {t(authorized ? "已允许下单" : "未允许下单")}
-          </strong>
-          {authorized && (
-            <button
-              type="button"
-              className="danger"
-              disabled={revoking}
-              onClick={() => {
-                if (revokingRef.current) return;
-                revokingRef.current = true;
-                setRevoking(true);
-                void command(control, record, () => ({ case: "revoke", value: {} })).finally(() => {
-                  revokingRef.current = false;
-                  setRevoking(false);
-                });
-              }}
-            >
-              {t("停止下单")}
-            </button>
-          )}
-          {live.brokerState !== BrokerState.DISCONNECTED && (
-            <button
-              type="button"
-              disabled={busy}
-              title={t("断开账户会退出柜台连接，已有委托不会自动撤销。")}
-              onClick={() => void run({ case: "disconnectBroker", value: {} })}
-            >
-              {t("断开账户")}
-            </button>
-          )}
-        </div>
-      </div>
+      <AccountIdentityBar
+        account={account}
+        record={record}
+        stale={stale}
+        environmentReady={environmentReady}
+        busy={busy}
+        run={run}
+        control={control}
+      />
       {stale && (
         <p className="alert" role="alert">
           {t("交易服务失联，显示的是最后读到的状态")}
@@ -288,7 +246,7 @@ export function LiveAccount({
             cancelling={cancelling}
             cancel={cancel}
             close={
-              stage === "trade"
+              stage === "trade" && !strategyRunning
                 ? next => {
                     setPreset(next);
                   }
@@ -297,10 +255,14 @@ export function LiveAccount({
             separate={exchange => !!explicitCloseBuckets(snapshot, exchange)}
           />
         </div>
-        <aside className="ctp-trade-side" aria-label={t("下单")}>
+        <aside className="ctp-trade-side" aria-label={t(strategyRunning ? "运行中的策略" : "下单")}>
           {stage !== "stale" && stage !== "trade" && (
             <FlowSteps
-              labels={[t(real ? "核对并连接" : "连接账户"), t("允许下单"), t("下单")]}
+              labels={[
+                t(real ? "核对并连接" : "连接账户"),
+                t("允许下单"),
+                t(strategyRunning ? "策略执行" : "下单"),
+              ]}
               current={stage === "authorize" ? 1 : 0}
             />
           )}
@@ -359,7 +321,19 @@ export function LiveAccount({
               </div>
             </section>
           )}
-          {stage === "trade" && (
+          {strategyRunning && openStrategies && (
+            <StrategyCard
+              instance={strategy!}
+              live={live}
+              open={openStrategies}
+              busy={busy}
+              stopping={stoppingStrategy}
+              pause={pauseStrategy}
+              flatten={flattenStrategy}
+              stop={stopStrategy}
+            />
+          )}
+          {stage === "trade" && !strategyRunning && (
             <OrderTicket
               connection={account.id}
               record={record}

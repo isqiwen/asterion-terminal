@@ -1,10 +1,12 @@
 import { create } from "@bufbuild/protobuf";
 import { Period, Side } from "../../src/generated/asterion/common_pb";
 import {
+  InstanceEventKind,
   InstanceState,
   type InstanceStatus,
   type Position,
 } from "../../src/generated/asterion/trading_pb";
+import type { Tone } from "../../src/ui/StatusBadge";
 import {
   ParameterValueSchema,
   type ParameterValue,
@@ -81,6 +83,24 @@ function held(positions: readonly Position[], contract: string) {
   return lots;
 }
 
+export function eventTone(kind: InstanceEventKind): Tone {
+  if (kind === InstanceEventKind.BATCH_ABANDONED || kind === InstanceEventKind.MARKET_DISCONNECTED)
+    return "danger";
+  if (
+    kind === InstanceEventKind.PAUSED ||
+    kind === InstanceEventKind.FLATTENING ||
+    kind === InstanceEventKind.FLATTEN_REQUESTED
+  )
+    return "attention";
+  if (
+    kind === InstanceEventKind.ORDER_SENT ||
+    kind === InstanceEventKind.RESUMED ||
+    kind === InstanceEventKind.MARKET_RECONNECTED
+  )
+    return "ok";
+  return "neutral";
+}
+
 // Each contract an instance trades with its latest target and the account's net
 // lots. A dominant series lists the months it targets or holds, else its first.
 export function targetRows(instance: InstanceStatus, positions?: readonly Position[]) {
@@ -93,12 +113,21 @@ export function targetRows(instance: InstanceStatus, positions?: readonly Positi
         ? `${decimalText(size.value)} ${t("权重")}`
         : "—";
   };
-  const row = (label: string, name: string) => ({
-    name,
-    label,
-    target: targetOf(name),
-    net: positions ? String(held(positions, name)) : "—",
-  });
+  const row = (label: string, name: string) => {
+    const target = targetOf(name);
+    const netLots = positions ? held(positions, name) : undefined;
+    const net = netLots !== undefined ? String(netLots) : "—";
+    const diff =
+      netLots !== undefined && /^-?\d+$/.test(target) ? Number(target) - netLots : undefined;
+    return {
+      name,
+      label,
+      target,
+      net,
+      delta: diff === undefined ? "—" : diff > 0 ? `+${diff}` : String(diff),
+      off: diff !== undefined && diff !== 0,
+    };
+  };
   return [
     ...(configuration?.instruments ?? []).map(instrument => row(key(instrument), key(instrument))),
     ...(configuration?.series ?? []).flatMap(series => {

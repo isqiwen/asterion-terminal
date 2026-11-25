@@ -322,5 +322,12 @@
   "筛选合约": "Filter contracts",
   "全选": "Select all",
   "清空": "Clear",
-  "实盘对账": "Live reconcile"
+  "实盘对账": "Live reconcile",
+  "实例": "Instance",
+  "批次": "Batch",
+  "偏差": "Drift",
+  "策略执行": "Strategy execution",
+  "策略运行期间暂停手动开仓；撤单、平仓与停止下单始终可用。": "Manual opening orders are paused while a strategy runs; cancelling, closing, and stopping orders remain available.",
+  "前往允许下单": "Go to allow orders",
+  "策略已运行，但账户尚未允许下单：目标仅记录不发送。": "Strategy is running, but the account has not allowed orders yet: targets are recorded only and not sent."
 }
