@@ -297,6 +297,14 @@
 }
 .paper-table table {
   min-width: 560px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.paper-table thead th {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  background: var(--canvas);
 }
 .paper-table > p {
   margin: var(--space-2) var(--space-3);

@@ -1,12 +1,17 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useMarket } from "../../src/host/market";
-import { decimal, decimalText, priceTone } from "../../src/bridge/decimal";
+import { decimal, decimalText, groupedText, priceTone } from "../../src/bridge/decimal";
 import { Offset, Side } from "../../src/generated/asterion/common_pb";
-import type { Account, ContractTerms } from "../../src/generated/asterion/trading_pb";
+import {
+  CostsState,
+  type Account,
+  type ContractTerms,
+} from "../../src/generated/asterion/trading_pb";
 import { FeedState, Subscription, type QuoteRow } from "../../src/generated/asterion/market_pb";
 import type { MarketView } from "../../src/host/market";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { explicitCloseBuckets } from "../../src/ui/closePolicy";
+import { contractName } from "../../src/ui/contract-names";
 import { closableLots, openableLots } from "./exposure";
 import {
   command,
@@ -63,6 +68,9 @@ function usableQuote(market: MarketView | null, row: QuoteRow | undefined, now: 
     now - Number(quote.receivedMs) <= 30000
   );
 }
+
+const formatMoney = (value: number) =>
+  groupedText(decimal((Math.abs(value) < 0.005 ? 0 : value).toFixed(2)));
 
 // What a position's close puts in the ticket; it is never sent by itself.
 export type Preset = {
@@ -208,6 +216,7 @@ export function OrderTicket({
         : "close";
   const market = useMarket();
   const rows = market?.board.rows;
+  const catalog = market?.board.catalog;
   const quoteRow = rows?.find(row => key(row.instrument) === key(traded?.instrument));
   const quote = quoteRow?.quote;
   const quoteUsable = usableQuote(market, quoteRow, now);
@@ -230,6 +239,9 @@ export function OrderTicket({
     close_yesterday: "平昨",
     close: "平仓",
   };
+  const offsetOptions: readonly (keyof typeof offsetValues)[] = explicitBuckets
+    ? ["open", "close_today", "close_yesterday"]
+    : ["open", "close"];
   const maxLots = Number(decimalText(record.session?.policy?.limits?.maxOrderLots));
   const totalLots = /^[1-9][0-9]*$/.test(order.quantity) ? BigInt(order.quantity) : 0n;
   const step =
@@ -305,11 +317,65 @@ export function OrderTicket({
   );
   const depth = (lots: bigint | undefined) =>
     ({ "--depth": `${(Number(lots ?? 0) / most) * 100}%` }) as CSSProperties;
+
+  const ask1 = quote?.asks[0]?.price?.text;
+  const bid1 = quote?.bids[0]?.price?.text;
+  const spread = useMemo(() => {
+    if (!ask1 || !bid1) return undefined;
+    const diff = Number(ask1) - Number(bid1);
+    if (!Number.isFinite(diff) || diff < 0) return undefined;
+    const tick = Number(tickText ?? 0);
+    if (tick > 0) {
+      const ticks = Math.round(diff / tick);
+      return t("价差 {ticks} 跳", { ticks: String(ticks) });
+    }
+    return t("价差 {value}", { value: String(Number(diff.toFixed(6))) });
+  }, [ask1, bid1, tickText]);
+
+  const estimate = useMemo(() => {
+    if (!traded || totalLots <= 0n || totalLots > 1_000_000n) return undefined;
+    const priceNum = Number(order.price.trim() || (quoteUsable ? (quote?.last?.text ?? "") : ""));
+    const multiplier = Number(traded.multiplier?.text ?? 0);
+    if (
+      !Number.isFinite(priceNum) ||
+      priceNum <= 0 ||
+      !Number.isFinite(multiplier) ||
+      multiplier <= 0
+    )
+      return undefined;
+    const lotsNum = Number(totalLots);
+    const notional = lotsNum * priceNum * multiplier;
+    if (!Number.isFinite(notional) || notional <= 0) return undefined;
+    const costRow = session?.costs.find(
+      item => item.state === CostsState.READY && key(item.instrument) === tradedKey,
+    );
+    const marginPerLot = Number(costRow?.costs?.marginPerLot?.text ?? 0);
+    const marginRate = Number(costRow?.costs?.marginRate?.text ?? 0);
+    const margin =
+      costRow?.costs && (marginPerLot > 0 || marginRate > 0)
+        ? lotsNum * marginPerLot + notional * marginRate
+        : undefined;
+    return { notional, margin };
+  }, [traded, totalLots, order.price, quoteUsable, quote?.last?.text, session?.costs, tradedKey]);
+
+  const quickPrices = [
+    { label: "买一", price: bid1, tone: "bid" as const },
+    { label: "卖一", price: ask1, tone: "ask" as const },
+    { label: "涨停", price: quote?.upperLimit?.text, tone: "up" as const },
+    { label: "跌停", price: quote?.lowerLimit?.text, tone: "down" as const },
+  ];
+
   return (
-    <form ref={formRef} aria-label={t("CTP 委托")} onSubmit={event => event.preventDefault()}>
+    <form
+      ref={formRef}
+      className="order-ticket-form"
+      data-suggested={suggested !== undefined || undefined}
+      aria-label={t("CTP 委托")}
+      onSubmit={event => event.preventDefault()}
+    >
       <fieldset disabled={locked || pending !== undefined}>
         <div className="futures-fields">
-          <label>
+          <label className="ticket-field-wide">
             {t("合约")}
             <select
               aria-label={t("委托合约")}
@@ -331,33 +397,32 @@ export function OrderTicket({
                   {order.contract ? order.contract.replace(".", " · ") : t("请选择合约")}
                 </option>
               )}
-              {contracts.map(item => (
-                <option key={key(item.instrument)} value={key(item.instrument)}>
-                  {item.instrument?.exchange} · {item.instrument?.symbol}
-                </option>
-              ))}
+              {contracts.map(item => {
+                const name = item.instrument ? contractName(item.instrument, catalog) : undefined;
+                return (
+                  <option key={key(item.instrument)} value={key(item.instrument)}>
+                    {item.instrument?.exchange} · {item.instrument?.symbol}
+                    {name ? ` · ${name}` : ""}
+                  </option>
+                );
+              })}
             </select>
           </label>
-          <label>
-            {t("开平仓")}
-            <select
-              aria-label={t("开平仓")}
-              value={offset}
-              onChange={event =>
-                setOrder({ ...order, offset: event.target.value as typeof order.offset })
-              }
-            >
-              <option value="open">{t("开仓")}</option>
-              {explicitBuckets ? (
-                <>
-                  <option value="close_today">{t("平今")}</option>
-                  <option value="close_yesterday">{t("平昨")}</option>
-                </>
-              ) : (
-                <option value="close">{t("平仓")}</option>
-              )}
-            </select>
-          </label>
+          <div className="ticket-offset-group" role="group" aria-label={t("开平仓")}>
+            {offsetOptions.map(option => (
+              <button
+                key={option}
+                type="button"
+                aria-pressed={offset === option}
+                onClick={() => {
+                  setSuggested(undefined);
+                  setOrder(current => ({ ...current, offset: option }));
+                }}
+              >
+                {t(offsetLabels[option])}
+              </button>
+            ))}
+          </div>
           <label>
             {t("委托手数")}
             <input
@@ -430,6 +495,22 @@ export function OrderTicket({
               </button>
             )}
           </div>
+          {quote && (
+            <div className="ticket-quick-prices" role="group" aria-label={t("快捷填价")}>
+              {quickPrices.map(item => (
+                <button
+                  key={item.label}
+                  type="button"
+                  data-tone={item.tone}
+                  title={item.price ? `${t(item.label)} ${item.price}` : undefined}
+                  disabled={!quoteUsable || !item.price}
+                  onClick={() => fill(item.price)}
+                >
+                  {t(item.label)}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         {!traded && order.contract && (
           <p className="alert" role="alert">
@@ -445,8 +526,16 @@ export function OrderTicket({
             ].join(" · ")}
           </p>
         )}
+        {estimate && (
+          <p className="ticket-estimate" aria-label={t("预估敞口")}>
+            <span>{t("名义 {value}", { value: formatMoney(estimate.notional) })}</span>
+            {estimate.margin !== undefined && (
+              <span>{t("预估保证金 {value}", { value: formatMoney(estimate.margin) })}</span>
+            )}
+          </p>
+        )}
         {quote && (
-          <p role="status" className={quoteUsable ? "subtle" : "alert"}>
+          <p role="status" className={quoteUsable ? "subtle ticket-quote-time" : "alert"}>
             {quote.exchangeMs === undefined
               ? t("报价时间未知")
               : t("报价时间 {time}", {
@@ -461,14 +550,6 @@ export function OrderTicket({
         <div className="order-book" role="group" aria-label={t("五档行情")}>
           {quote ? (
             <>
-              <button
-                type="button"
-                className="order-last"
-                disabled={!quoteUsable || !quote.last}
-                onClick={() => fill(quote.last?.text)}
-              >
-                {t("最新 {price}", { price: quote.last?.text ?? "—" })}
-              </button>
               {[4, 3, 2, 1, 0].map(level => {
                 const ask = quote.asks[level];
                 return (
@@ -487,6 +568,18 @@ export function OrderTicket({
                   </button>
                 );
               })}
+              <div className="order-mid">
+                <button
+                  type="button"
+                  className="order-last"
+                  data-tone={priceTone(quote.last, quote.previousSettlement)}
+                  disabled={!quoteUsable || !quote.last}
+                  onClick={() => fill(quote.last?.text)}
+                >
+                  {t("最新 {price}", { price: quote.last?.text ?? "—" })}
+                </button>
+                {spread && <span className="order-spread">{spread}</span>}
+              </div>
               {[0, 1, 2, 3, 4].map(level => {
                 const bid = quote.bids[level];
                 return (
@@ -511,6 +604,16 @@ export function OrderTicket({
             <p className="subtle">{t("无行情")}</p>
           )}
         </div>
+        {suggested !== undefined && symbol && (
+          <p className="ticket-preset-hint">
+            {t("已预填平仓：{side} {symbol} {lots} 手（{offset}）", {
+              side: t(suggested === Side.BUY ? "买入" : "卖出"),
+              symbol,
+              lots: order.quantity,
+              offset: t(offsetLabels[offset]),
+            })}
+          </p>
+        )}
         <div className="source-actions">
           {[Side.BUY, Side.SELL].map(side => (
             <button

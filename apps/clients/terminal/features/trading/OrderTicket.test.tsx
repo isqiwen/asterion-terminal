@@ -1,10 +1,10 @@
 import { create } from "@bufbuild/protobuf";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import { OrderTicket } from "./OrderTicket";
 import { feature } from "./feature";
 import { registerTerminalFeatures } from "../../src/host/feature-registry";
-import { AccountSchema, OrderState } from "../../src/generated/asterion/trading_pb";
+import { AccountSchema, CostsState, OrderState } from "../../src/generated/asterion/trading_pb";
 import type { TradingCall } from "../../src/bridge/trading";
 import { useMarket } from "../../src/host/market";
 import { BoardSchema, FeedState, Subscription } from "../../src/generated/asterion/market_pb";
@@ -186,9 +186,9 @@ test("a large close previews its exact quantity without expanding all legs", () 
       onSent={() => {}}
     />,
   );
-  fireEvent.change(screen.getByRole("combobox", { name: "开平仓" }), {
-    target: { value: "close_today" },
-  });
+  fireEvent.click(
+    within(screen.getByRole("group", { name: "开平仓" })).getByRole("button", { name: "平今" }),
+  );
   fireEvent.change(screen.getByRole("textbox", { name: "委托手数" }), {
     target: { value: "999999999999999999" },
   });
@@ -367,4 +367,75 @@ test("tick steppers adjust limit price by exact priceTick and quick lots update 
   fireEvent.click(screen.getByRole("button", { name: "5" }));
   expect(qty.value).toBe("5");
   expect(run).not.toHaveBeenCalled();
+});
+
+test("quick price chips fill limit prices and the ticket estimates notional and margin", () => {
+  const now = Date.now();
+  vi.mocked(useMarket).mockReturnValue({
+    board: create(BoardSchema, {
+      feed: { state: FeedState.CONNECTED },
+      rows: [
+        {
+          instrument: { exchange: "SHFE", symbol: "rb2701" },
+          subscription: Subscription.ACTIVE,
+          quote: {
+            last: { text: "3500" },
+            upperLimit: { text: "3710" },
+            lowerLimit: { text: "3290" },
+            exchangeMs: BigInt(now),
+            receivedMs: BigInt(now),
+            bids: [{ price: { text: "3499" } }],
+            asks: [{ price: { text: "3501" } }],
+          },
+        },
+      ],
+    }),
+    online: true,
+    ticks: new Map(),
+    generation: 1,
+    interrupted: false,
+    lastReceivedMs: now,
+  });
+  const record = create(AccountSchema, {
+    id: "sim",
+    session: {
+      policyRevision: "p1",
+      policy: {
+        contracts: [
+          {
+            instrument: { exchange: "SHFE", symbol: "rb2701" },
+            priceTick: { text: "1" },
+            multiplier: { text: "10" },
+          },
+        ],
+        limits: { maxOrderLots: { text: "5" } },
+      },
+      costs: [
+        {
+          instrument: { exchange: "SHFE", symbol: "rb2701" },
+          state: CostsState.READY,
+          costs: { marginPerLot: { text: "0" }, marginRate: { text: "0.1" } },
+        },
+      ],
+    },
+  });
+  render(
+    <OrderTicket
+      record={record}
+      snapshot={null}
+      busy={false}
+      accountName="sim"
+      confirm={false}
+      run={vi.fn()}
+      onSent={() => {}}
+    />,
+  );
+  expect(screen.getByText("价差 2 跳")).toBeTruthy();
+  const price = screen.getByRole("textbox", { name: "限价" }) as HTMLInputElement;
+  fireEvent.click(screen.getByRole("button", { name: "涨停" }));
+  expect(price.value).toBe("3710");
+  expect(screen.getByLabelText("预估敞口").textContent).toContain("名义 37,100.00");
+  expect(screen.getByLabelText("预估敞口").textContent).toContain("预估保证金 3,710.00");
+  fireEvent.click(screen.getByRole("button", { name: "跌停" }));
+  expect(price.value).toBe("3290");
 });

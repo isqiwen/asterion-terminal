@@ -253,6 +253,8 @@ export function LiveAccount({
                 : undefined
             }
             separate={exchange => !!explicitCloseBuckets(snapshot, exchange)}
+            selectedContract={contract}
+            onSelectContract={setContract}
           />
         </div>
         <aside className="ctp-trade-side" aria-label={t(strategyRunning ? "运行中的策略" : "下单")}>

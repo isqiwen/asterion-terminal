@@ -334,6 +334,35 @@
     border-bottom: 1px solid var(--line);
   }
 }
+.ticket-field-wide {
+  grid-column: 1 / -1;
+}
+.ticket-offset-group {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: color-mix(in oklab, var(--canvas) 75%, var(--panel));
+}
+.ticket-offset-group button {
+  min-height: 24px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: calc(var(--control-radius) - 1px);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--font-size-body);
+}
+.ticket-offset-group button[aria-pressed="true"] {
+  background: var(--panel);
+  color: var(--text-strong);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 22%);
+  font-weight: 500;
+}
 .ticket-stepper {
   display: flex;
   align-items: stretch;
@@ -350,13 +379,16 @@
   padding: 0 var(--space-1);
   font-family: var(--font-terminal);
 }
-.ticket-quick-lots {
+.ticket-quick-lots,
+.ticket-quick-prices {
   grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1);
 }
-.ticket-quick-lots button {
+.ticket-quick-lots button,
+.ticket-quick-prices button {
+  flex: 1 1 0;
   min-height: 22px;
   padding: 0 var(--space-2);
   font-family: var(--font-terminal);
@@ -366,6 +398,41 @@
   border-color: var(--accent-line);
   background: var(--accent-surface);
   color: var(--accent);
+}
+.ticket-quick-prices button[data-tone="up"]:enabled {
+  color: var(--quote-up);
+}
+.ticket-quick-prices button[data-tone="down"]:enabled {
+  color: var(--quote-down);
+}
+.ticket-estimate {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+  margin: var(--space-1) 0 0;
+  padding: 3px var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: color-mix(in oklab, var(--canvas) 55%, var(--panel));
+  color: var(--text);
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-aux);
+  font-variant-numeric: tabular-nums;
+}
+.ticket-quote-time {
+  margin: var(--space-1) 0 0;
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-aux);
+}
+.ticket-preset-hint {
+  margin: 0 0 var(--space-1);
+  padding: 4px var(--space-2);
+  border-left: 2px solid var(--accent);
+  border-radius: 2px;
+  background: var(--accent-surface);
+  color: var(--text-strong);
+  font-size: var(--font-size-aux);
 }
 .ctp-account-list button[data-real] {
   box-shadow: inset 2px 0 0 var(--danger);
@@ -434,15 +501,37 @@
 .order-book button span:last-child {
   color: var(--text);
 }
-.order-book .order-last {
+.order-book .order-mid {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  margin-bottom: var(--space-1);
+  gap: var(--space-2);
+  margin: 2px 0;
   padding: 2px var(--space-2);
   background: var(--panel);
-  color: var(--text-strong);
   border: 1px solid var(--line);
   border-radius: 2px;
+}
+.order-book .order-last {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 0;
+  background: transparent;
+  color: var(--text-strong);
+  font-weight: 600;
+  text-align: left;
+}
+.order-book .order-last[data-tone="up"] {
+  color: var(--quote-up);
+}
+.order-book .order-last[data-tone="down"] {
+  color: var(--quote-down);
+}
+.order-book .order-spread {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+  white-space: nowrap;
 }
 .order-book button:hover:enabled {
   background-color: var(--hover);
@@ -450,6 +539,76 @@
 .source-actions button[data-suggested] {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+/* Enhanced trading tables: contract sub-labels, selection, totals, fill progress. */
+.paper-table tbody tr[data-selected] {
+  background: var(--accent-surface);
+}
+.paper-table tbody tr:hover {
+  background: var(--hover);
+}
+.record-contract {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+.record-contract small {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+.position-pnl {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+.position-pnl small {
+  opacity: 0.82;
+  font-size: var(--font-size-aux);
+}
+.records-summary-row td {
+  border-top: 1px solid var(--line-strong);
+  background: color-mix(in oklab, var(--pane) 75%, var(--canvas));
+  font-weight: 600;
+}
+.records-toolbar {
+  align-items: center;
+  justify-content: space-between;
+}
+.fills-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin-left: auto;
+  color: var(--muted);
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-aux);
+  font-variant-numeric: tabular-nums;
+}
+.order-fill-bar {
+  display: block;
+  height: 2px;
+  margin-top: 2px;
+  overflow: hidden;
+  border-radius: 1px;
+  background: var(--grid);
+}
+.order-fill-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.order-status-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.order-error-code {
+  color: var(--danger);
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-aux);
 }
 
 /* An account's strategies: its running instance and setup beside the deployed versions. */

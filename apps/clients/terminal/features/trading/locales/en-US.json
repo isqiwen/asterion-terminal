@@ -329,5 +329,21 @@
   "策略执行": "Strategy execution",
   "策略运行期间暂停手动开仓；撤单、平仓与停止下单始终可用。": "Manual opening orders are paused while a strategy runs; cancelling, closing, and stopping orders remain available.",
   "前往允许下单": "Go to allow orders",
-  "策略已运行，但账户尚未允许下单：目标仅记录不发送。": "Strategy is running, but the account has not allowed orders yet: targets are recorded only and not sent."
+  "策略已运行，但账户尚未允许下单：目标仅记录不发送。": "Strategy is running, but the account has not allowed orders yet: targets are recorded only and not sent.",
+  "买一": "Best Bid",
+  "卖一": "Best Ask",
+  "涨停": "Limit Up",
+  "跌停": "Limit Down",
+  "快捷填价": "Quick price",
+  "价差 {ticks} 跳": "Spread {ticks}t",
+  "价差 {value}": "Spread {value}",
+  "预估敞口": "Estimated exposure",
+  "名义 {value}": "Notional {value}",
+  "预估保证金 {value}": "Est. margin {value}",
+  "已预填平仓：{side} {symbol} {lots} 手（{offset}）": "Close preset: {side} {symbol} {lots} lots ({offset})",
+  "最新价": "Last",
+  "按占用保证金计算收益率": "Return on margin used",
+  "合计 ({n})": "Total ({n})",
+  "共 {n} 笔": "{n} fills",
+  "本页 {n} 手": "{n} lots on page"
 }

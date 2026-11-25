@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 import { beforeEach, expect, test, vi } from "vitest";
 import type { Snapshot } from "../../src/bridge/client";
@@ -353,9 +353,11 @@ test("a position shows the broker's amounts and its close fills the ticket witho
   await waitFor(() =>
     expect((screen.getByRole("textbox", { name: "委托手数" }) as HTMLInputElement).value).toBe("2"),
   );
-  expect((screen.getByRole("combobox", { name: "开平仓" }) as HTMLSelectElement).value).toBe(
-    "close_today",
-  );
+  expect(
+    within(screen.getByRole("group", { name: "开平仓" }))
+      .getByRole("button", { name: "平今" })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
   expect(button("卖出 rb2610 · account-b").hasAttribute("data-suggested")).toBe(true);
   expect(commands()).toHaveLength(sent);
 });
@@ -395,9 +397,11 @@ test("an explicit-bucket position closes yesterday's remaining lots when today's
   await waitFor(() =>
     expect((screen.getByRole("textbox", { name: "委托手数" }) as HTMLInputElement).value).toBe("1"),
   );
-  expect((screen.getByRole("combobox", { name: "开平仓" }) as HTMLSelectElement).value).toBe(
-    "close_yesterday",
-  );
+  expect(
+    within(screen.getByRole("group", { name: "开平仓" }))
+      .getByRole("button", { name: "平昨" })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
 });
 
 test("the strategy view shares the selected account and marks real-money accounts", async () => {
@@ -460,9 +464,11 @@ test("every working order is cancelled only after a second press", async () => {
 
 test("a close order above maxOrderLots splits into maxOrderLots legs", async () => {
   show("split-close");
-  fireEvent.change(await screen.findByRole("combobox", { name: "开平仓" }), {
-    target: { value: "close_today" },
-  });
+  fireEvent.click(
+    within(await screen.findByRole("group", { name: "开平仓" })).getByRole("button", {
+      name: "平今",
+    }),
+  );
   fireEvent.change(screen.getByRole("textbox", { name: "委托手数" }), {
     target: { value: "12" },
   });
@@ -547,9 +553,11 @@ test("a split close keeps only remaining lots when a middle leg fails, and switc
     return read();
   });
   show("split-partial");
-  fireEvent.change(await screen.findByRole("combobox", { name: "开平仓" }), {
-    target: { value: "close_today" },
-  });
+  fireEvent.click(
+    within(await screen.findByRole("group", { name: "开平仓" })).getByRole("button", {
+      name: "平今",
+    }),
+  );
   fireEvent.change(screen.getByRole("textbox", { name: "委托手数" }), {
     target: { value: "12" },
   });

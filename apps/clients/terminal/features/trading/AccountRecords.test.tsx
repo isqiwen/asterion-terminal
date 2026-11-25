@@ -393,3 +393,57 @@ test("product-whitelisted positions compute average price and unclosable rows ig
   fireEvent.doubleClick(row);
   expect(close).not.toHaveBeenCalled();
 });
+
+test("clicking a position row selects its contract and renders a totals footer", () => {
+  const onSelectContract = vi.fn();
+  render(
+    <AccountRecords
+      connection="sim"
+      record={create(AccountSchema, {
+        session: {
+          policy: {
+            contracts: [
+              {
+                instrument: { exchange: "SHFE", symbol: "rb2701" },
+                product: "rb",
+                deliveryMonth: "2027-01",
+                multiplier: { text: "10" },
+                priceTick: { text: "1" },
+                lotSize: { text: "1" },
+              },
+            ],
+          },
+          positions: [
+            {
+              instrument: { exchange: "SHFE", symbol: "rb2701" },
+              side: Side.BUY,
+              todayLots: { text: "2" },
+              yesterdayLots: { text: "1" },
+              cost: { text: "105000" },
+              profit: { text: "600" },
+              margin: { text: "10000" },
+            },
+          ],
+        },
+      })}
+      busy={false}
+      run={vi.fn()}
+      activity="positions"
+      setActivity={vi.fn()}
+      ready
+      stale={false}
+      cancelling={[]}
+      cancel={vi.fn()}
+      close={vi.fn()}
+      separate={() => true}
+      selectedContract="SHFE.rb2701"
+      onSelectContract={onSelectContract}
+    />,
+  );
+  const row = screen.getByRole("cell", { name: "3500.00" }).closest("tr")!;
+  expect(row.dataset.selected).toBe("true");
+  fireEvent.click(row);
+  expect(onSelectContract).toHaveBeenCalledWith("SHFE.rb2701");
+  expect(screen.getByText("合计 (1)")).toBeTruthy();
+  expect(screen.getAllByText("+6.0%").length).toBeGreaterThanOrEqual(1);
+});
