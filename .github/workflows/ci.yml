@@ -98,25 +98,37 @@ jobs:
           node-version: "22"
           cache: pnpm
       - run: python -m pip install conan==2.32.0 ninja uv==0.12.9
-      - &runner-image
-        name: Read runner image version
-        id: runner-image
-        run: echo "version=${ImageVersion:?}" >> "$GITHUB_OUTPUT"
+      - &toolchain-id
+        name: Read toolchain fingerprint
+        id: toolchain
+        run: |
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            id="macos$(sw_vers -productVersion | cut -d. -f1)-clang$(/usr/bin/clang++ --version | awk 'NR==1 {print $4}')-sdk$(xcrun --show-sdk-version)"
+          else
+            ID=""
+            VERSION_ID=""
+            # shellcheck source=/dev/null
+            . /etc/os-release
+            id="${ID}-${VERSION_ID}-gcc$(g++ -dumpfullversion -dumpversion)-glibc$(getconf GNU_LIBC_VERSION | awk '{print $2}')"
+          fi
+          echo "id=${id:?}" >> "$GITHUB_OUTPUT"
       - &ccache
         name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2.26
         with:
           install: binary
           max-size: 1G
-          key: ${{ runner.os }}-${{ runner.arch }}-${{ steps.runner-image.outputs.version }}-${{ github.job }}
-      # Bump v1 when Conan version or install flags in this workflow change.
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.id }}-${{ github.job }}
+      # Bump v2 when Conan version or install flags in this workflow change.
+      # Linux jobs share one Release dependency cache (with source-built cpptrace);
+      # macOS jobs use distinct deployment-target profiles and stay scoped by job.
       - &conan-cache
         name: Cache Conan packages
         id: conan-cache
         uses: actions/cache@v5
         with:
           path: ${{ runner.temp }}/conan-packages.tgz
-          key: conan-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.runner-image.outputs.version }}-${{ github.job }}-${{ hashFiles('VERSION', 'conan.lock', 'conanfile.py', 'conan/**', 'scripts/prepare_ctp.py', 'scripts/desktop/desktop.py') }}
+          key: conan-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.id }}${{ runner.os == 'macOS' && format('-{0}', github.job) || '' }}-${{ hashFiles('VERSION', 'conan.lock', 'conanfile.py', 'conan/**', 'scripts/prepare_ctp.py', 'scripts/desktop/desktop.py') }}
       - &conan-restore
         name: Restore Conan packages
         if: steps.conan-cache.outputs.cache-hit == 'true'
@@ -202,7 +214,7 @@ jobs:
           node-version: "22"
           cache: pnpm
       - run: python -m pip install conan==2.32.0 ninja uv==0.12.9
-      - *runner-image
+      - *toolchain-id
       - *ccache
       - *conan-cache
       - *conan-restore
@@ -443,13 +455,20 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install conan==2.32.0 ninja uv==0.12.9
-      - *runner-image
+      - *toolchain-id
       - *ccache
       - *conan-cache
       - *conan-restore
       - run: conan profile detect
       - run: python scripts/prepare_ctp.py
-      - run: conan install . -s "&:build_type=Debug" -s build_type=Release -s compiler.cppstd=20 -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing
+      - name: Install Conan packages
+        run: |
+          extra=()
+          # Match build-linux's source-built cpptrace when populating the shared Linux cache.
+          if [ "${{ runner.os }}" = "Linux" ] && [ "${{ steps.conan-cache.outputs.cache-hit }}" != "true" ]; then
+            extra+=(--build=cpptrace/*)
+          fi
+          conan install . -s "&:build_type=Debug" -s build_type=Release -s compiler.cppstd=20 -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing "${extra[@]}"
       - *conan-save
       - run: cmake --preset conan-debug -DASTERION_SANITIZERS=${{ matrix.sanitizer }}
       - run: cmake --build --preset conan-debug
