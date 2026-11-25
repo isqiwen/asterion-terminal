@@ -42,7 +42,22 @@ import numbers
 
 import numpy as np
 
-FIELDS = ("open", "high", "low", "close", "volume", "open_interest", "roll_yield")
+FIELDS = (
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "open_interest",
+    "roll_yield",
+    "far_close",
+    "near_return",
+    "far_return",
+    "receipt_volume",
+    "member_long",
+    "member_short",
+    "inventory_total",
+)
 FIELDS_SET = frozenset(FIELDS)
 PRICES = ("open", "high", "low", "close")
 KINDS = {bool: "bool", int: "int", float: "float", str: "str"}
@@ -334,6 +349,13 @@ class Bar:
     volume: float
     open_interest: float
     roll_yield: float = math.nan
+    far_close: float = math.nan
+    near_return: float = math.nan
+    far_return: float = math.nan
+    receipt_volume: float = math.nan
+    member_long: float = math.nan
+    member_short: float = math.nan
+    inventory_total: float = math.nan
 
 
 class Strategy:

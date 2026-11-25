@@ -39,3 +39,25 @@ def carry_to_risk(close, roll_yield, window: int = 60, periods: int = 252):
 def carry_zscore(roll_yield, window: int = 60):
     """Roll yield standardized against its trailing window; needs window bars."""
     return _price_zscore(roll_yield, window)
+
+
+# Boons & Prado (2019), "Basis-Momentum", Journal of Finance 74(1), 239-279, Eq. (2):
+# https://doi.org/10.1111/jofi.12738
+# Adaptation: rolling window of exact same-contract dominant vs next-dominant returns (daily or intraday).
+def basis_momentum(near_return, far_return, window: int = 20):
+    """Compounded near-contract minus far-contract return over the last `window` bars."""
+    if window < 1:
+        raise ValueError("window is at least one bar")
+    near = np.asarray(near_return, dtype=float)
+    far = np.asarray(far_return, dtype=float)
+    result = np.full(len(near), np.nan)
+    if len(near) < window:
+        return result
+    w_near = np.lib.stride_tricks.sliding_window_view(near, window)
+    w_far = np.lib.stride_tricks.sliding_window_view(far, window)
+    valid = np.all(np.isfinite(w_near), axis=1) & np.all(np.isfinite(w_far), axis=1)
+    safe_near = np.where(valid[:, None], 1.0 + w_near, 1.0)
+    safe_far = np.where(valid[:, None], 1.0 + w_far, 1.0)
+    diff = np.prod(safe_near, axis=1) - np.prod(safe_far, axis=1)
+    result[window - 1:] = np.where(valid & np.isfinite(diff), diff, np.nan)
+    return result

@@ -121,6 +121,13 @@ std::optional<Decimal> annualized_roll_yield(
     return Decimal::from_raw(std::llround(scaled));
 }
 
+std::optional<Decimal> simple_return(Decimal current, Decimal previous)
+{
+    if (current <= Decimal{} || previous <= Decimal{})
+        return std::nullopt;
+    return divide(current - previous, previous, Rounding::half_up);
+}
+
 std::string warmup_digest(const wire::Warmup& warmup)
 {
     std::string canonical;
@@ -133,7 +140,14 @@ std::string warmup_digest(const wire::Warmup& warmup)
                 + bar.close().text() + "|" + std::to_string(bar.volume()) + "|"
                 + bar.open_interest().text()
                 + (bar.has_roll_ratio() ? "|" + bar.roll_ratio().text() : "")
-                + (bar.has_roll_yield() ? "|ry=" + bar.roll_yield().text() : "") + "\n";
+                + (bar.has_roll_yield() ? "|ry=" + bar.roll_yield().text() : "")
+                + (bar.has_far_close() ? "|fc=" + bar.far_close().text() : "")
+                + (bar.has_near_return() ? "|nr=" + bar.near_return().text() : "")
+                + (bar.has_far_return() ? "|fr=" + bar.far_return().text() : "")
+                + (bar.has_receipt_volume() ? "|rv=" + bar.receipt_volume().text() : "")
+                + (bar.has_member_long() ? "|ml=" + bar.member_long().text() : "")
+                + (bar.has_member_short() ? "|ms=" + bar.member_short().text() : "")
+                + (bar.has_inventory_total() ? "|inv=" + bar.inventory_total().text() : "") + "\n";
         }
     }
     return sha256_bytes(canonical);
@@ -250,6 +264,20 @@ void validate(const wire::Instance& instance)
                     throw std::invalid_argument("strategy warmup roll_ratio must be positive");
                 if (bar.has_roll_yield())
                     (void)Decimal::parse(bar.roll_yield().text());
+                if (bar.has_far_close())
+                    (void)Decimal::parse(bar.far_close().text());
+                if (bar.has_near_return())
+                    (void)Decimal::parse(bar.near_return().text());
+                if (bar.has_far_return())
+                    (void)Decimal::parse(bar.far_return().text());
+                if (bar.has_receipt_volume())
+                    (void)Decimal::parse(bar.receipt_volume().text());
+                if (bar.has_member_long())
+                    (void)Decimal::parse(bar.member_long().text());
+                if (bar.has_member_short())
+                    (void)Decimal::parse(bar.member_short().text());
+                if (bar.has_inventory_total())
+                    (void)Decimal::parse(bar.inventory_total().text());
                 const int index = instance_slot(instance, bar.instrument());
                 if (index <= previous_index)
                     throw std::invalid_argument(
@@ -421,9 +449,11 @@ std::vector<wire::Bars> load_local_bars(
     std::map<std::int64_t, std::map<std::pair<std::size_t, std::size_t>, wire::Bar>> series_bars;
     std::vector<std::vector<std::map<std::string, Decimal>>> series_oi(series_list.size());
     std::vector<std::vector<std::map<std::string, Decimal>>> series_close(series_list.size());
+    std::vector<std::vector<std::optional<Decimal>>> prev_bar_close(series_list.size());
     for (std::size_t i = 0; i < series_list.size(); ++i) {
         series_oi[i].resize(series_list[i].candidates.size());
         series_close[i].resize(series_list[i].candidates.size());
+        prev_bar_close[i].resize(series_list[i].candidates.size());
     }
     if (configuration.has_warmup()) {
         for (const auto& batch : configuration.warmup().bars()) {
@@ -433,9 +463,12 @@ std::vector<wire::Bars> load_local_bars(
                     if (bar.has_open_interest() && !bar.open_interest().text().empty())
                         series_oi[found->second.first][found->second.second][bar.trading_day()] =
                             Decimal::parse(bar.open_interest().text());
-                    if (bar.has_close() && !bar.close().text().empty())
+                    if (bar.has_close() && !bar.close().text().empty()) {
+                        const auto close = Decimal::parse(bar.close().text());
                         series_close[found->second.first][found->second.second][bar.trading_day()] =
-                            Decimal::parse(bar.close().text());
+                            close;
+                        prev_bar_close[found->second.first][found->second.second] = close;
+                    }
                 }
             }
         }
@@ -535,7 +568,14 @@ std::vector<wire::Bars> load_local_bars(
                     *dom.mutable_roll_ratio() = protocol::decimal(*series.pending_roll_ratio);
                     series.pending_roll_ratio.reset();
                 }
-                if (!dom.has_roll_yield()) {
+                if (!dom.has_near_return() && dom.has_close() && !dom.close().text().empty()
+                    && prev_bar_close[s][series.active]) {
+                    if (const auto nr = simple_return(
+                            Decimal::parse(dom.close().text()),
+                            *prev_bar_close[s][series.active]))
+                        *dom.mutable_near_return() = protocol::decimal(*nr);
+                }
+                if (!dom.has_roll_yield() || !dom.has_far_close() || !dom.has_far_return()) {
                     bool any_prev = false;
                     for (std::size_t c = series.active + 1; c < series.candidates.size(); ++c) {
                         if (sat->second.contains({s, c}) && prev_val(series_oi[s][c], day)) {
@@ -564,17 +604,30 @@ std::vector<wire::Bars> load_local_bars(
                         const auto& far_bar = sat->second.at({s, *sub});
                         if (dom.has_close() && !dom.close().text().empty() && far_bar.has_close()
                             && !far_bar.close().text().empty()) {
-                            if (const auto ry = annualized_roll_yield(
-                                    Decimal::parse(dom.close().text()),
-                                    Decimal::parse(far_bar.close().text()),
-                                    series.months[series.active],
-                                    series.months[*sub])) {
-                                *dom.mutable_roll_yield() = protocol::decimal(*ry);
+                            const auto far_px = Decimal::parse(far_bar.close().text());
+                            if (!dom.has_far_close())
+                                *dom.mutable_far_close() = far_bar.close();
+                            if (!dom.has_roll_yield()) {
+                                if (const auto ry = annualized_roll_yield(
+                                        Decimal::parse(dom.close().text()),
+                                        far_px,
+                                        series.months[series.active],
+                                        series.months[*sub])) {
+                                    *dom.mutable_roll_yield() = protocol::decimal(*ry);
+                                }
+                            }
+                            if (!dom.has_far_return() && prev_bar_close[s][*sub]) {
+                                if (const auto fr = simple_return(far_px, *prev_bar_close[s][*sub]))
+                                    *dom.mutable_far_return() = protocol::decimal(*fr);
                             }
                         }
                     }
                 }
                 items.emplace(series.slot, std::move(dom));
+            }
+            for (const auto& [sc, bar] : sat->second) {
+                if (bar.has_close() && !bar.close().text().empty())
+                    prev_bar_close[sc.first][sc.second] = Decimal::parse(bar.close().text());
             }
         }
         if (items.empty())
@@ -613,6 +666,7 @@ struct StrategyHost::State
         std::string decided_day;
         std::optional<Decimal> pending_roll_ratio;
         std::vector<std::map<std::string, DayStats>> history;
+        std::vector<std::optional<Decimal>> prev_bar_close;
     };
 
     State(
@@ -1028,6 +1082,13 @@ struct StrategyHost::State
                             protocol::decimal(*series.pending_roll_ratio);
                         series.pending_roll_ratio.reset();
                     }
+                    if (bar.has_close() && !bar.close().text().empty()
+                        && series.prev_bar_close[series.active_index]) {
+                        if (const auto nr = simple_return(
+                                Decimal::parse(bar.close().text()),
+                                *series.prev_bar_close[series.active_index]))
+                            *added->mutable_near_return() = protocol::decimal(*nr);
+                    }
                     if (const auto sub = choose_sub_dominant(series, bar.trading_day(), &raw)) {
                         const auto& far = series.candidates[*sub];
                         for (const auto& far_bar : raw.bars()) {
@@ -1035,17 +1096,34 @@ struct StrategyHost::State
                                 && far_bar.instrument().symbol() == far.symbol
                                 && far_bar.has_close() && !far_bar.close().text().empty()
                                 && bar.has_close() && !bar.close().text().empty()) {
+                                const auto far_px = Decimal::parse(far_bar.close().text());
+                                *added->mutable_far_close() = far_bar.close();
                                 if (const auto ry = annualized_roll_yield(
                                         Decimal::parse(bar.close().text()),
-                                        Decimal::parse(far_bar.close().text()),
+                                        far_px,
                                         series.delivery_months[series.active_index],
                                         series.delivery_months[*sub])) {
                                     *added->mutable_roll_yield() = protocol::decimal(*ry);
+                                }
+                                if (series.prev_bar_close[*sub]) {
+                                    if (const auto fr =
+                                            simple_return(far_px, *series.prev_bar_close[*sub]))
+                                        *added->mutable_far_return() = protocol::decimal(*fr);
                                 }
                                 break;
                             }
                         }
                     }
+                }
+            }
+            for (const auto& bar : raw.bars()) {
+                if (!bar.has_close() || bar.close().text().empty())
+                    continue;
+                const InstrumentId id{bar.instrument().exchange(), bar.instrument().symbol()};
+                const auto found = std::ranges::find(series.candidates, id);
+                if (found != series.candidates.end()) {
+                    series.prev_bar_close[static_cast<std::size_t>(
+                        found - series.candidates.begin())] = Decimal::parse(bar.close().text());
                 }
             }
         }
@@ -1069,6 +1147,9 @@ struct StrategyHost::State
                     auto& stats = series.history[series.active_index][bar.trading_day()];
                     if (bar.has_open_interest() && !bar.open_interest().text().empty())
                         stats.open_interest = Decimal::parse(bar.open_interest().text());
+                    if (bar.has_close() && !bar.close().text().empty())
+                        series.prev_bar_close[series.active_index] =
+                            Decimal::parse(bar.close().text());
                 }
             }
         }
@@ -1521,6 +1602,7 @@ struct StrategyHost::State
             state.candidates = spec.candidates;
             state.active_index = spec.initial_index;
             state.history.resize(spec.candidates.size());
+            state.prev_bar_close.resize(spec.candidates.size());
             live_series.push_back(std::move(state));
             series_specs.push_back(std::move(spec));
         }

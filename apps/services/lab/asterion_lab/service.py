@@ -21,7 +21,7 @@ from asterion.lab_pb2 import (AdmittedFactor, AdmittedRun, FactorResult, Request
                               RollingRun, RunState)
 from asterion.strategy_pb2 import Bar, Warmup
 
-from asterion_lab import backtest, chart, dominant, repository, package, rolling, worker
+from asterion_lab import backtest, chart, dominant, pit, repository, package, rolling, worker
 from asterion_lab.runs import BATCH_STRATEGY, IDENTITY, Runs
 from asterion_lab.warehouse import write_durably
 from asterion_lab.warehouse_client import Client, Dataset, WarehouseError
@@ -274,7 +274,36 @@ class Service:
             grouped = collections.defaultdict(dict)
             daily_cache = {}
             delist_cache = {}
+            pit_cache = {}
             lookback_days = max(request.max_bars * 2 + 120, 400)
+
+            def exchange_pit(exchange_name):
+                if exchange_name not in pit_cache:
+                    ex_days = sorted(version.days(exchange_name))
+                    if ex_days:
+                        latest = datetime.date.fromisoformat(ex_days[-1])
+                        begin_w = (latest - datetime.timedelta(days=lookback_days)).isoformat()
+                        pit_cache[exchange_name] = pit.load_exchange_pit(
+                            warehouse, version, exchange_name, begin_w, ex_days[-1]
+                        )
+                    else:
+                        pit_cache[exchange_name] = pit.EMPTY_PIT
+                return pit_cache[exchange_name]
+
+            def pit_extra(exchange_name, product_name, bar_day, bar_end_ms):
+                rv, ml, ms, inv = exchange_pit(exchange_name).lookup(
+                    product_name, bar_day, bar_end_ms
+                )
+                out = {}
+                for key, val in (
+                    ("receipt_volume", rv),
+                    ("member_long", ml),
+                    ("member_short", ms),
+                    ("inventory_total", inv),
+                ):
+                    if math.isfinite(val):
+                        out[key] = decimal(dominant.rounded(Decimal(f"{val:.8f}")))
+                return out
             for index, selection in enumerate(request.instruments):
                 inst, contract = selection.instrument, contracts[index]
                 parts = contract.split("/")
@@ -350,6 +379,16 @@ class Service:
                     bars = []
                     emitted_rolls = set()
                     if period == "day":
+                        prev_daily_close = {}
+                        for c_name, days_map in by_contract.items():
+                            prev_map, last_c = {}, None
+                            for d_key, r in sorted(days_map.items()):
+                                if None not in (r[1], r[2], r[3], r[4]):
+                                    c_val = Decimal(r[4])
+                                    if last_c is not None and last_c > 0:
+                                        prev_map[d_key] = last_c
+                                    last_c = c_val
+                            prev_daily_close[c_name] = prev_map
                         for d in sorted(day_segment):
                             seg_idx, m_contract = day_segment[d]
                             row = by_contract[m_contract].get(d)
@@ -360,21 +399,35 @@ class Service:
                                 exchange, cased, m_contract.rsplit("/", 1)[1])
                             end_ms = int(datetime.datetime.combine(
                                 day_obj, datetime.time(15), chart.BEIJING).timestamp()) * 1000
-                            extra = {}
+                            extra = pit_extra(exchange, product, d, end_ms)
                             if oi is not None:
                                 extra["open_interest"] = decimal(oi)
                             if seg_idx > 0 and seg_idx not in emitted_rolls:
                                 extra["roll_ratio"] = decimal(dom_plan.ratios[seg_idx])
                                 emitted_rolls.add(seg_idx)
+                            near_px = Decimal(close)
+                            prev_near = prev_daily_close.get(m_contract, {}).get(d)
+                            if prev_near is not None and near_px > 0:
+                                nr = dominant.simple_return(near_px, prev_near)
+                                if nr is not None:
+                                    extra["near_return"] = decimal(nr)
                             sub_idx = dom_plan.second.get(d)
-                            if sub_idx is not None and Decimal(close) > 0:
-                                sub_row = by_contract[months[sub_idx].contract].get(d)
+                            if sub_idx is not None and near_px > 0:
+                                sub_contract = months[sub_idx].contract
+                                sub_row = by_contract[sub_contract].get(d)
                                 if (sub_row is not None
                                         and None not in (sub_row[1], sub_row[2], sub_row[3], sub_row[4])
                                         and Decimal(sub_row[4]) > 0):
+                                    sub_px = Decimal(sub_row[4])
+                                    extra["far_close"] = decimal(sub_px)
                                     extra["roll_yield"] = decimal(dominant.annualized_roll_yield(
-                                        Decimal(close), Decimal(sub_row[4]),
+                                        near_px, sub_px,
                                         m_contract.rsplit("/", 1)[1], months[sub_idx].delivery_month))
+                                    prev_sub = prev_daily_close.get(sub_contract, {}).get(d)
+                                    if prev_sub is not None:
+                                        fr = dominant.simple_return(sub_px, prev_sub)
+                                        if fr is not None:
+                                            extra["far_return"] = decimal(fr)
                             bars.append(Bar(
                                 instrument=m_inst, trading_day=d, end_ms=end_ms,
                                 open=decimal(open_), high=decimal(high), low=decimal(low),
@@ -393,9 +446,10 @@ class Service:
                             day_bars = chart.minute_bars(rows, period, m_contract)
                             sub_closes = {}
                             sub_idx = dom_plan.second.get(d)
+                            sub_contract = months[sub_idx].contract if sub_idx is not None else ""
                             sub_month = months[sub_idx].delivery_month if sub_idx is not None else ""
                             if sub_idx is not None:
-                                _, s_prod, s_month = months[sub_idx].contract.split("/")
+                                _, s_prod, s_month = sub_contract.split("/")
                                 s_key = f"minutes/{exchange}/{d}/{s_prod}/{s_month}"
                                 if version.has(s_key):
                                     s_rows = warehouse.read(version, s_key).sort("start_ms").select(
@@ -403,32 +457,50 @@ class Service:
                                         "volume", "open_interest").rows()
                                     sub_closes = {
                                         sb["time_ms"]: Decimal(sb["close"])
-                                        for sb in chart.minute_bars(s_rows, period, months[sub_idx].contract)
+                                        for sb in chart.minute_bars(s_rows, period, sub_contract)
                                         if not sb["partial"] and sb["close"] is not None
                                     }
                             recent.extend(
-                                (seg_idx, m_contract, bar, sub_closes.get(bar["time_ms"]), sub_month)
+                                (seg_idx, m_contract, bar, sub_closes.get(bar["time_ms"]),
+                                 sub_contract, sub_month)
                                 for bar in reversed(day_bars) if not bar["partial"]
                             )
                             if len(recent) >= request.max_bars:
                                 break
-                        for seg_idx, m_contract, bar, sub_close, sub_month in reversed(
+                        prev_min_close = {}
+                        for seg_idx, m_contract, bar, sub_close, sub_contract, sub_month in reversed(
                             recent[:request.max_bars]
                         ):
                             m_inst = candidate_map.get(m_contract) or ctp_instrument(
                                 exchange, cased, m_contract.rsplit("/", 1)[1])
-                            extra = {}
+                            t_day = bar["trading_day"].isoformat()
+                            extra = pit_extra(exchange, product, t_day, bar["time_ms"])
                             if bar["open_interest"] is not None:
                                 extra["open_interest"] = decimal(bar["open_interest"])
                             if seg_idx > 0 and seg_idx not in emitted_rolls:
                                 extra["roll_ratio"] = decimal(dom_plan.ratios[seg_idx])
                                 emitted_rolls.add(seg_idx)
-                            if sub_close is not None and sub_close > 0 and Decimal(bar["close"]) > 0:
+                            near_px = Decimal(bar["close"])
+                            prev_near = prev_min_close.get(m_contract)
+                            if prev_near is not None and near_px > 0:
+                                nr = dominant.simple_return(near_px, prev_near)
+                                if nr is not None:
+                                    extra["near_return"] = decimal(nr)
+                            if near_px > 0:
+                                prev_min_close[m_contract] = near_px
+                            if sub_close is not None and sub_close > 0 and near_px > 0:
+                                extra["far_close"] = decimal(sub_close)
                                 extra["roll_yield"] = decimal(dominant.annualized_roll_yield(
-                                    Decimal(bar["close"]), sub_close,
+                                    near_px, sub_close,
                                     m_contract.rsplit("/", 1)[1], sub_month))
+                                prev_sub = prev_min_close.get(sub_contract)
+                                if prev_sub is not None:
+                                    fr = dominant.simple_return(sub_close, prev_sub)
+                                    if fr is not None:
+                                        extra["far_return"] = decimal(fr)
+                                prev_min_close[sub_contract] = sub_close
                             bars.append(Bar(
-                                instrument=m_inst, trading_day=bar["trading_day"].isoformat(),
+                                instrument=m_inst, trading_day=t_day,
                                 end_ms=bar["time_ms"], open=decimal(bar["open"]),
                                 high=decimal(bar["high"]), low=decimal(bar["low"]),
                                 close=decimal(bar["close"]), volume=int(bar["volume"]), **extra))
@@ -436,6 +508,7 @@ class Service:
                         grouped[bar.end_ms][index] = bar
                     continue
                 bars = []
+                fixed_exchange, fixed_product = parts[0], parts[1]
                 table = "daily" if period == "day" else "minutes"
                 keys = list(version.keys(table, exchange=inst.exchange, contract=contract))
                 for key in reversed(keys):
@@ -450,24 +523,27 @@ class Service:
                                 continue
                             end_ms = int(datetime.datetime.combine(
                                 day, datetime.time(15), chart.BEIJING).timestamp()) * 1000
+                            extra = pit_extra(fixed_exchange, fixed_product, day.isoformat(), end_ms)
+                            if interest is not None:
+                                extra["open_interest"] = decimal(interest)
                             recent.append(Bar(
                                 instrument=inst, trading_day=day.isoformat(), end_ms=end_ms,
                                 open=decimal(open_), high=decimal(high), low=decimal(low),
-                                close=decimal(close), volume=int(volume or 0),
-                                **({"open_interest": decimal(interest)}
-                                   if interest is not None else {})))
+                                close=decimal(close), volume=int(volume or 0), **extra))
                     else:
                         rows = data.sort("start_ms").select("day", "start_ms", "partial", *columns).rows()
                         for bar in chart.minute_bars(rows, period, contract):
                             if bar["partial"]:
                                 continue
+                            t_day = bar["trading_day"].isoformat()
+                            extra = pit_extra(fixed_exchange, fixed_product, t_day, bar["time_ms"])
+                            if bar["open_interest"] is not None:
+                                extra["open_interest"] = decimal(bar["open_interest"])
                             recent.append(Bar(
-                                instrument=inst, trading_day=bar["trading_day"].isoformat(),
+                                instrument=inst, trading_day=t_day,
                                 end_ms=bar["time_ms"], open=decimal(bar["open"]),
                                 high=decimal(bar["high"]), low=decimal(bar["low"]),
-                                close=decimal(bar["close"]), volume=int(bar["volume"]),
-                                **({"open_interest": decimal(bar["open_interest"])}
-                                   if bar["open_interest"] is not None else {})))
+                                close=decimal(bar["close"]), volume=int(bar["volume"]), **extra))
                     bars = recent + bars
                     if len(bars) >= request.max_bars:
                         break
@@ -483,12 +559,23 @@ class Service:
             for index in sorted(grouped[end_ms]):
                 bar = batch.bars.add()
                 bar.CopyFrom(grouped[end_ms][index])
-                ratio_suffix = f"|{bar.roll_ratio.text}" if bar.HasField("roll_ratio") else ""
-                ry_suffix = f"|ry={bar.roll_yield.text}" if bar.HasField("roll_yield") else ""
+                suffix = f"|{bar.roll_ratio.text}" if bar.HasField("roll_ratio") else ""
+                for field, tag in (
+                    ("roll_yield", "ry"),
+                    ("far_close", "fc"),
+                    ("near_return", "nr"),
+                    ("far_return", "fr"),
+                    ("receipt_volume", "rv"),
+                    ("member_long", "ml"),
+                    ("member_short", "ms"),
+                    ("inventory_total", "inv"),
+                ):
+                    if bar.HasField(field):
+                        suffix += f"|{tag}={getattr(bar, field).text}"
                 line = (f"{bar.trading_day}|{bar.end_ms}|"
                         f"{bar.instrument.exchange}/{bar.instrument.symbol}|"
                         f"{bar.open.text}|{bar.high.text}|{bar.low.text}|{bar.close.text}|"
-                        f"{bar.volume}|{bar.open_interest.text}{ratio_suffix}{ry_suffix}\n")
+                        f"{bar.volume}|{bar.open_interest.text}{suffix}\n")
                 digest.update(line.encode())
         warmup.sha256 = digest.hexdigest()
         return warmup

@@ -806,6 +806,73 @@ class Backtests(BacktestCase):
         day2_bars = [ry for d, _, ry in m_watch.bars if d == DAYS[2]]
         self.assertTrue(day2_bars and all(math.isnan(ry) for ry in day2_bars))
 
+    def test_near_far_returns_and_pit_fundamentals_exclude_same_day_post_close_reports(self):
+        import asterion_engine
+        from asterion_lab import dominant
+
+        writer = Warehouse(self.directory).writer()
+        # Publish a receipt report on DAYS[1] (without published_ms -> post-close, visible from DAYS[2] on),
+        # and on DAYS[3] with an explicit published_ms at 16:00 Beijing on DAYS[4] (delayed publication ->
+        # NOT visible until DAYS[5] daily 15:00 bar!).
+        day1_iso, day2_iso, day3_iso, day4_iso, day5_iso = [d.isoformat() for d in DAYS[1:6]]
+        delayed_pub_ms = int(datetime.datetime.combine(
+            DAYS[4], datetime.time(16), backtest.BEIJING).timestamp()) * 1000
+        writer.put_rows(f"warehouse_receipts/SHFE/{day1_iso}", "warehouse_receipts", [
+            dict(exchange="SHFE", product="rb", day=day1_iso, warehouse="仓库A",
+                 warehouse_id="A", warehouse_type="仓库", area="上海", crop_year=None,
+                 grade=None, brand=None, origin=None, unit="吨", converted=None,
+                 previous_volume=Decimal(900), volume=Decimal(1000), volume_change=Decimal(100),
+                 forecast_volume=None, premium=None, published_ms=None, observed_ms=1),
+            dict(exchange="SHFE", product="rb", day=day1_iso, warehouse="合计",
+                 warehouse_id=None, warehouse_type=None, area=None, crop_year=None,
+                 grade=None, brand=None, origin=None, unit="吨", converted=None,
+                 previous_volume=Decimal(900), volume=Decimal(1000), volume_change=Decimal(100),
+                 forecast_volume=None, premium=None, published_ms=None, observed_ms=1),
+        ])
+        writer.put_rows(f"warehouse_receipts/SHFE/{day3_iso}", "warehouse_receipts", [
+            dict(exchange="SHFE", product="rb", day=day3_iso, warehouse="仓库A",
+                 warehouse_id="A", warehouse_type="仓库", area="上海", crop_year=None,
+                 grade=None, brand=None, origin=None, unit="吨", converted=None,
+                 previous_volume=Decimal(1000), volume=Decimal(2500), volume_change=Decimal(1500),
+                 forecast_volume=None, premium=None, published_ms=delayed_pub_ms, observed_ms=1),
+        ])
+        writer.commit()
+
+        seen = {}
+
+        class WatchPit(Strategy):
+            def on_bar(self, ctx, bar):
+                seen[bar.time.date().isoformat()] = bar
+
+        config = self.config(("SHFE/rb",))
+        data = backtest.open_data(self.directory, config)
+        stored = data.product("SHFE", "rb")
+        contracts, series, first = backtest.prepare(data, config)
+        engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
+                                        (10 * backtest.R, 10 * backtest.R, 10, 10 * backtest.R))
+        backtest.replay(engine, WatchPit(), {engine.unit(i): s for s, i in first.items()},
+                        contracts, config)
+
+        # Same-contract near_return, far_close, and far_return on DAYS[1] use DAYS[0] -> DAYS[1].
+        bar1 = seen[day1_iso]
+        c_near0 = Decimal(stored["SHFE/rb/2026-05"].days[DAYS[0].isoformat()]["close"])
+        c_near1 = Decimal(stored["SHFE/rb/2026-05"].days[day1_iso]["close"])
+        c_far0 = Decimal(stored["SHFE/rb/2026-10"].days[DAYS[0].isoformat()]["close"])
+        c_far1 = Decimal(stored["SHFE/rb/2026-10"].days[day1_iso]["close"])
+        self.assertAlmostEqual(bar1.far_close, float(c_far1))
+        self.assertAlmostEqual(bar1.near_return, float(dominant.simple_return(c_near1, c_near0)))
+        self.assertAlmostEqual(bar1.far_return, float(dominant.simple_return(c_far1, c_far0)))
+
+        # Strict PIT visibility:
+        # - DAYS[1]'s report is post-close, so DAYS[1] daily bar sees NaN (NO same-day lookahead!).
+        self.assertTrue(math.isnan(seen[day1_iso].receipt_volume))
+        # - DAYS[2] sees 1000 (detail row only, NOT 2000 double-counted with 合计!).
+        self.assertEqual(seen[day2_iso].receipt_volume, 1000.0)
+        # - DAYS[3] report had published_ms = DAYS[4] 16:00 -> DAYS[4] 15:00 bar STILL sees 1000!
+        self.assertEqual(seen[day4_iso].receipt_volume, 1000.0)
+        # - DAYS[5] 15:00 bar (>= delayed_pub_ms) sees 2500!
+        self.assertEqual(seen[day5_iso].receipt_volume, 2500.0)
+
     def test_a_contract_and_a_series_from_start_to_record(self):
         for identity, symbols in (("contract", ("SHFE/rb/2026-05",)), ("series", ("SHFE/rb",))):
             with self.subTest(symbols=symbols):

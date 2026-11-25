@@ -50,6 +50,12 @@
 | `term_structure.roll_yield_momentum` | 年化展期收益率相对 L 根前的变化 | L + 1 |
 | `term_structure.carry_to_risk` | 窗口平均年化 carry /（收益标准差 × `sqrt(periods)`） | w + 1 |
 | `term_structure.carry_zscore` | 当前 carry 相对窗口分布的 Z-Score | w |
+| `term_structure.basis_momentum` | 窗口内同合约近月累计收益减次主力远月累计收益 | w |
+| `fundamentals.receipt_change` | PIT 注册标准仓单量相对 L 根前的变化率 | L + 1 |
+| `fundamentals.receipt_to_oi` | PIT 注册标准仓单量与持仓量之比的窗口均值 | w |
+| `fundamentals.member_net_ratio` | PIT 前排会员净多空失衡 `(多 − 空) / (多 + 空)` 窗口均值 | w |
+| `fundamentals.member_net_change` | PIT 前排会员净多空失衡相对 L 根前的变化 | L + 1 |
+| `fundamentals.inventory_change` | PIT 周度交易所总库存相对 L 根前的变化率 | L + 1 |
 
 实现细节说明：
 
@@ -106,6 +112,7 @@
 | Moskowitz、Ooi、Pedersen，[Time Series Momentum](https://doi.org/10.1016/j.jfineco.2011.11.003)，JFE 2012 | `Momentum`、`VolatilityTargetMomentum` | 采用本项目当时复权收盘收益、有限窗口样本波动与显式权重上限（原文为多资产期货/远期） |
 | Koijen 等，[Carry](https://doi.org/10.1016/j.jfineco.2017.11.002)，JFE 2018 | `CarryRank`、`TrendCarryRank` | 采用主力与后续次主力交割月的年化对数价差；合约选择与缺测规则见[Lab 主力连续](README.md#主力连续) |
 | Fernandez-Perez 等，[The Skewness of Commodity Futures Returns](https://doi.org/10.1016/j.jbankfin.2017.06.015)，JBF 2018 | `realized_skewness`、`SkewnessRank` | 保留多负偏度、空正偏度方向，支持可调窗口、尾部个数与侧内逆波动权重 |
+| Boons、Prado，[Basis-Momentum](https://doi.org/10.1111/jofi.12738)，JF 2019 | `basis_momentum` | 实现式 (2) 近远月累计收益差，输入改为同合约单根收益 `near_return` / `far_return`，窗口可配置 |
 | Goulding、Harvey、Mazzoleni，[Momentum Turning Points](https://doi.org/10.1016/j.jfineco.2023.05.007)，JFE 2023 | `blended_momentum`、`TurningPointMomentum` | 实现式 (11) 静态快慢符号混合；将股票月度超额收益改为期货 K 线简单收益，窗口与混合权重可配置 |
 | Gu、Kelly、Xiu，[Empirical Asset Pricing via Machine Learning](https://doi.org/10.1093/rfs/hhaa009)，RFS 2020 | `PanelRidgeRank` | 采用式 (4)、(7)、(8) 跨资产合并损失与岭惩罚，输入改为期货价量仓及可选 carry，滚动重估共享参数 |
 | Kelly、Malamud、Zhou，[The Virtue of Complexity in Return Prediction](https://doi.org/10.1111/jofi.13298)，JF 2024 | `RandomFeatureForecast`、`PanelRandomFeatureRank`（配线性岭回归基线） | 实现式 (20) 高斯投影 sin/cos 特征与滚动岭回归；改用期货特征、保留未惩罚截距，单品种输出手数、面板输出组合权重 |
@@ -121,4 +128,4 @@
 
 近年文献也涉及当前接口之外的数据与模型，如 [Commodity Futures Characteristics and Asset Pricing Models](https://doi.org/10.1002/fut.22559)（JFM 2025）的 IPCA 面板模型，以及 [Risk premia in commodity markets](https://doi.org/10.1016/j.jbankfin.2026.107760)（JBF 2026）的多类可交易与不可交易风险因子；内置动量、偏度与预期短缺已可作为基础输入，完整面板模型需另行界定样本与估计流程。
 
-严格的 [Basis-Momentum](https://doi.org/10.1111/jofi.12738)（JF 2019）需要分别跟踪同一组近远月合约收益，当前 `roll_yield_momentum` 仅度量展期收益率变化。Warehouse 已入库[仓单、会员持仓与库存周报](../warehouse/README.md#仓单会员持仓与库存周报)供 Lab 固定版本查询，下一步将明确外部数据的可用时点与策略输入接口；现货基差、套保压力、订单流与盘口因子还分别需要现货、商业套保者分类持仓与逐笔盘口数据，凡进入 Trading 的字段均须同步纳入预热契约。
+近远月同合约收益（`basis_momentum`）与[仓单、会员持仓与库存周报](../warehouse/README.md#仓单会员持仓与库存周报)的 PIT 对齐字段已接入标准策略与因子接口，并同步纳入预热摘要契约。现货基差、商业套保者分类持仓与逐笔盘口因子还分别需要现货价格、分类持仓与 Tick 数据，未来接入时须沿用同一 PIT 规则与预热契约。

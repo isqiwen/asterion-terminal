@@ -121,6 +121,13 @@ const BAR_COMPLETIONS: readonly Completion[] = [
   { label: "volume", type: "property", detail: "float" },
   { label: "open_interest", type: "property", detail: "float" },
   { label: "roll_yield", type: "property", detail: "float" },
+  { label: "far_close", type: "property", detail: "float" },
+  { label: "near_return", type: "property", detail: "float" },
+  { label: "far_return", type: "property", detail: "float" },
+  { label: "receipt_volume", type: "property", detail: "float" },
+  { label: "member_long", type: "property", detail: "float" },
+  { label: "member_short", type: "property", detail: "float" },
+  { label: "inventory_total", type: "property", detail: "float" },
 ];
 
 const FIELD_COMPLETIONS: readonly Completion[] = [
@@ -131,6 +138,13 @@ const FIELD_COMPLETIONS: readonly Completion[] = [
   "volume",
   "open_interest",
   "roll_yield",
+  "far_close",
+  "near_return",
+  "far_return",
+  "receipt_volume",
+  "member_long",
+  "member_short",
+  "inventory_total",
 ].map(label => ({ label, type: "constant", detail: "bar field" }));
 
 const API_COMPLETIONS = completeFromList([

@@ -44,6 +44,13 @@ def annualized_roll_yield(
     return rounded(Decimal(f"{value:.12f}"))
 
 
+def simple_return(current: Decimal, previous: Decimal) -> Decimal | None:
+    """Single-bar simple return `(current - previous) / previous` in 8-decimal fixed point."""
+    if previous <= 0 or current <= 0:
+        return None
+    return rounded((current - previous) / previous)
+
+
 @dataclass
 class Month:
     contract: str

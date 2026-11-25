@@ -14,7 +14,7 @@ sys.path[:0] = [str(ROOT / "research"), str(ROOT / "apps/services/common/python"
 import numpy as np
 
 from asterion_strategy import Bar, Context, check_factor, observe, quantize_weight, step
-from factors import liquidity, positions, price, risk, technical, term_structure
+from factors import fundamentals, liquidity, positions, price, risk, technical, term_structure
 from strategies.composite import CompositePortfolio
 from strategies.learning import RandomFeatureForecast, RidgeForecast
 from strategies.momentum_rank import MomentumRank
@@ -34,7 +34,7 @@ EXTRA_BAR = {
     "realized_skewness", "excess_kurtosis", "expected_shortfall", "semivariance_balance",
     "money_flow_index", "return_per_volume", "volume_return_correlation", "volume_weighted_return",
     "information_discreteness", "return_autocorrelation", "variance_ratio", "maximum_return",
-    "yang_zhang_volatility",
+    "yang_zhang_volatility", "receipt_change", "member_net_change", "inventory_change",
 }
 
 
@@ -49,7 +49,14 @@ class Factors(unittest.TestCase):
         close = 100 + rng.normal(size=35).cumsum()
         source = dict(open=close - 0.2, high=close + 1, low=close - 1, close=close,
                       volume=rng.uniform(1, 100, len(close)), open_interest=rng.uniform(500, 1000, len(close)),
-                      roll_yield=rng.normal(0, 0.1, len(close)))
+                      roll_yield=rng.normal(0, 0.1, len(close)),
+                      far_close=close * np.exp(rng.normal(0, 0.01, len(close))),
+                      near_return=rng.normal(0, 0.02, len(close)),
+                      far_return=rng.normal(0, 0.02, len(close)),
+                      receipt_volume=rng.uniform(100, 500, len(close)),
+                      member_long=rng.uniform(1000, 5000, len(close)),
+                      member_short=rng.uniform(1000, 5000, len(close)),
+                      inventory_total=rng.uniform(5000, 20000, len(close)))
         checked = []
         for path in sorted((ROOT / "research/factors").glob("[!_]*.py")):
             module = importlib.import_module(f"factors.{path.stem}")
@@ -80,7 +87,25 @@ class Factors(unittest.TestCase):
                             observe(ctx, [Bar("a", "a", row("a", i, close[i]).time, **fields)])
                             actual.append(ctx.factor(function, "a", count, **settings))
                         np.testing.assert_allclose(actual, expected, equal_nan=True)
-        self.assertEqual(len(checked), 42)
+        self.assertEqual(len(checked), 48)
+
+    def test_basis_momentum_and_fundamental_factors_match_analytic_values(self):
+        near = np.array([0.1, 0.2, -0.1])
+        far = np.array([0.05, 0.1, 0.0])
+        bm = term_structure.basis_momentum(near, far, 2)
+        self.assertTrue(np.isnan(bm[0]))
+        self.assertAlmostEqual(bm[1], 1.1 * 1.2 - 1.05 * 1.1)
+        self.assertAlmostEqual(bm[2], 1.2 * 0.9 - 1.1 * 1.0)
+        receipts = np.array([100.0, 110.0, 121.0])
+        oi = np.array([1000.0, 1000.0, 1000.0])
+        self.assertAlmostEqual(fundamentals.receipt_change(receipts, 2)[-1], 0.21)
+        self.assertAlmostEqual(fundamentals.receipt_to_oi(receipts, oi, 2)[-1], (0.11 + 0.121) / 2)
+        longs = np.array([600.0, 700.0, 800.0])
+        shorts = np.array([400.0, 300.0, 200.0])
+        self.assertAlmostEqual(fundamentals.member_net_ratio(longs, shorts, 2)[-1], (0.4 + 0.6) / 2)
+        self.assertAlmostEqual(fundamentals.member_net_change(longs, shorts, 2)[-1], 0.4)
+        inv = np.array([5000.0, 4500.0, 4000.0])
+        self.assertAlmostEqual(fundamentals.inventory_change(inv, 2)[-1], -0.2)
 
     def test_continuity_and_serial_dependence_distinguish_smooth_and_jumpy_paths(self):
         smooth = np.array([100., 101., 103., 106., 110.])

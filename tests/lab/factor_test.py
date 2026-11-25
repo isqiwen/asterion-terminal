@@ -231,6 +231,9 @@ class Repository(unittest.TestCase):
         listed = repository.list_strategies(str(self.repository))
         entries = {entry.id: entry for entry in listed.factors}
         self.assertEqual(sorted(entries), [
+            "fundamentals.inventory_change", "fundamentals.member_net_change",
+            "fundamentals.member_net_ratio", "fundamentals.receipt_change",
+            "fundamentals.receipt_to_oi",
             "liquidity.chaikin_money_flow", "liquidity.money_flow_index", "liquidity.relative_volume",
             "liquidity.return_per_volume",
             "liquidity.turnover", "liquidity.volume_return_correlation", "liquidity.volume_weighted_return",
@@ -244,7 +247,7 @@ class Repository(unittest.TestCase):
             "technical.average_true_range", "technical.channel_position", "technical.commodity_channel_index",
             "technical.efficiency_ratio", "technical.log_price_slope", "technical.moving_average_gap",
             "technical.price_zscore", "technical.rsi", "technical.stochastic",
-            "term_structure.carry_to_risk", "term_structure.carry_zscore",
+            "term_structure.basis_momentum", "term_structure.carry_to_risk", "term_structure.carry_zscore",
             "term_structure.roll_yield_carry", "term_structure.roll_yield_momentum"])
         momentum = entries["price.momentum"]
         self.assertEqual(list(momentum.inputs), ["close"])
@@ -640,6 +643,121 @@ class Repository(unittest.TestCase):
             self.assertTrue(res.evaluation.winsorize)
             self.assertEqual(res.evaluation.neutralize, "sector")
             self.assertTrue(any(day.HasField("net_long_short") for day in res.days))
+
+        asyncio.run(scenario())
+
+    def test_basis_momentum_and_pit_fundamental_factors_evaluate_without_same_day_lookahead(self):
+        class Log:
+            def write(self, *args, **kwargs):
+                pass
+
+        writer = Warehouse(self.directory).writer()
+        contracts, jan, feb = [], [], []
+        from warehouse_fixture import contract_row, daily
+        # 4 products with distinct near vs far momentum AND distinct PIT member net positioning.
+        specs = [
+            ("b0", 0.012, 0.004, 8000, 2000),  # strong near>far basis-momentum, net long
+            ("b1", 0.008, 0.003, 6000, 4000),
+            ("b2", 0.002, 0.001, 4000, 6000),
+            ("b3", -0.004, -0.002, 2000, 8000),  # negative basis-momentum, net short
+        ]
+        for product, near_drift, far_drift, m_long, m_short in specs:
+            m1, m2, m3 = (
+                f"SHFE/{product}/2026-05",
+                f"SHFE/{product}/2026-10",
+                f"SHFE/{product}/2027-01",
+            )
+            contracts.extend([contract_row(m1), contract_row(m2), contract_row(m3)])
+            for day_i, day in enumerate(DAYS):
+                near = Decimal(f"{3000 * ((1 + near_drift) ** day_i):.2f}")
+                mid = Decimal(f"{2950 * ((1 + far_drift) ** day_i):.2f}")
+                far = Decimal(f"{2900 * ((1 + far_drift) ** day_i):.2f}")
+                target = jan if day.isoformat() < "2026-02" else feb
+                target.append(daily(m1, day, near, 5000 if day_i < 15 else 200))
+                target.append(daily(m2, day, mid, 2000 if day_i < 15 else 6000))
+                target.append(daily(m3, day, far, 500 if day_i < 15 else 1500))
+        writer.put_rows("contracts/SHFE", "contracts", contracts)
+        writer.add_days("SHFE", "2026-01", jan,
+                        [day.isoformat() for day in DAYS if day.isoformat() < "2026-02"])
+        writer.add_days("SHFE", "2026-02", feb,
+                        [day.isoformat() for day in DAYS if day.isoformat() >= "2026-02"])
+        # Write post-close member_positions, warehouse_receipts (with summary row to verify no double-count),
+        # and weekly inventory.
+        for day_i, day in enumerate(DAYS):
+            d_iso = day.isoformat()
+            member_rows = []
+            receipt_rows = []
+            for product, _, _, m_long, m_short in specs:
+                member_rows.append(dict(
+                    exchange="SHFE", product=product, contract=None, day=d_iso, member="中信期货",
+                    volume=Decimal(1000), volume_change=Decimal(0),
+                    long_position=Decimal(m_long), long_change=Decimal(0),
+                    short_position=Decimal(m_short), short_change=Decimal(0),
+                    published_ms=None, observed_ms=1,
+                ))
+                receipt_rows.append(dict(
+                    exchange="SHFE", product=product, day=d_iso, warehouse="一号库",
+                    warehouse_id="W1", warehouse_type="仓库", area="上海", crop_year=None,
+                    grade=None, brand=None, origin=None, unit="吨", converted=None,
+                    previous_volume=Decimal(1000), volume=Decimal(1000 + day_i * 10),
+                    volume_change=Decimal(10), forecast_volume=None, premium=None,
+                    published_ms=None, observed_ms=1,
+                ))
+                receipt_rows.append(dict(
+                    exchange="SHFE", product=product, day=d_iso, warehouse="合计",
+                    warehouse_id=None, warehouse_type=None, area=None, crop_year=None,
+                    grade=None, brand=None, origin=None, unit="吨", converted=None,
+                    previous_volume=Decimal(1000), volume=Decimal(1000 + day_i * 10),
+                    volume_change=Decimal(10), forecast_volume=None, premium=None,
+                    published_ms=None, observed_ms=1,
+                ))
+            writer.put_rows(f"member_positions/SHFE/{d_iso}", "member_positions", member_rows)
+            writer.put_rows(f"warehouse_receipts/SHFE/{d_iso}", "warehouse_receipts", receipt_rows)
+            if day_i % 5 == 0:
+                inv_rows = [dict(
+                    exchange="SHFE", product=product, day=d_iso, area="上海", warehouse="一号库",
+                    warehouse_type="仓库", grade=None, unit="吨",
+                    previous_total=Decimal(5000), previous_receipts=Decimal(1000),
+                    total=Decimal(5000 + day_i * 50), receipts=Decimal(1000),
+                    total_change=Decimal(50), receipts_change=Decimal(0),
+                    previous_capacity=None, capacity=None, capacity_change=None,
+                    published_ms=None, observed_ms=1,
+                ) for product, *_ in specs]
+                writer.put_rows(f"inventory/SHFE/{d_iso}", "inventory", inv_rows)
+        writer.commit()
+
+        async def scenario():
+            service = Service("lab", self.directory, Log())
+            # 1. Basis-Momentum evaluates cleanly over same-contract near/far returns.
+            req = Request(id=1)
+            ev = req.evaluate_factor
+            ev.id = "bm-1"
+            ev.repository = str(self.repository)
+            ev.factor = "term_structure.basis_momentum"
+            ev.params["window"].integer = 3
+            ev.symbols.extend([f"SHFE/{p}" for p, *_ in specs])
+            ev.first_day, ev.last_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
+            ev.horizons.append(1)
+            ev.groups = 2
+            reply = await service.reply(req)
+            self.assertEqual(reply.WhichOneof("result"), "evaluate_factor", reply)
+            self.assertGreater(reply.evaluate_factor.horizons[0].days, 10)
+            self.assertGreater(reply.evaluate_factor.horizons[0].mean, 0.5)
+
+            # 2. Member net ratio evaluates cleanly using PIT post-close member positions.
+            req2 = Request(id=2)
+            ev2 = req2.evaluate_factor
+            ev2.id = "mem-1"
+            ev2.repository = str(self.repository)
+            ev2.factor = "fundamentals.member_net_ratio"
+            ev2.params["window"].integer = 2
+            ev2.symbols.extend([f"SHFE/{p}" for p, *_ in specs])
+            ev2.first_day, ev2.last_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
+            ev2.horizons.append(1)
+            ev2.groups = 2
+            reply2 = await service.reply(req2)
+            self.assertEqual(reply2.WhichOneof("result"), "evaluate_factor", reply2)
+            self.assertAlmostEqual(reply2.evaluate_factor.horizons[0].mean, 1.0, places=5)
 
         asyncio.run(scenario())
 

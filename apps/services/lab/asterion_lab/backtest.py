@@ -44,7 +44,7 @@ from pathlib import Path
 
 import polars as pl
 
-from asterion_lab import chart, dominant, repository
+from asterion_lab import chart, dominant, pit, repository
 from asterion_lab.runs import AMOUNT, TABLES, Plan, Runs
 from asterion_strategy import Bar, Context, quantize_weight, step
 from asterion_lab.warehouse_client import Dataset
@@ -139,7 +139,14 @@ class Data:
         self.daily_end = (last + min(window, datetime.date.max - last)).isoformat()
         self.calendars, self.checked = {}, set()
         self.lives, self.units, self.multipliers, self.ticks, self.settlements = {}, {}, {}, {}, {}
-        self.products, self.loaded_exchanges = {}, set()
+        self.products, self.loaded_exchanges, self.pit_cache = {}, set(), {}
+
+    def pit_fundamentals(self, exchange: str) -> pit.ExchangePit:
+        if exchange not in self.pit_cache:
+            self.pit_cache[exchange] = pit.load_exchange_pit(
+                self.warehouse, self.version, exchange, self.begin, self.end
+            )
+        return self.pit_cache[exchange]
 
     def calendar(self, exchange: str) -> dict:
         if exchange not in self.calendars:
@@ -471,6 +478,13 @@ def contract_input(data: Data, config: Config, contract: str, begin: str, end: s
             raise ValueError(f"incomplete price limits of {contract} on {day}")
         tick = increments[day] if config.costs is None else 1
         price_limits.append((day, limit_units(lower, tick), limit_units(upper, tick)))
+    pit_exchange = data.pit_fundamentals(exchange)
+    pit_map = {}
+    if not pit_exchange.empty():
+        for bar in bars:
+            vals = pit_exchange.lookup(product, bar[0], bar[1] // 10 ** 6)
+            if any(math.isfinite(v) for v in vals):
+                pit_map[bar[1]] = vals
     return dict(
         venue=exchange, symbol=contract, price_increment=initial,
         quantity_increment=R, multiplier=raw(data.multiplier(exchange, contract)),
@@ -481,7 +495,8 @@ def contract_input(data: Data, config: Config, contract: str, begin: str, end: s
         settlements=settlements,
         # Not the engine's: what a strategy reads besides prices, by bar time,
         # and the trading day of each bar left out.
-        open_interest={bar[1]: bar[7] for bar in bars}, excluded=excluded, unpriced=unpriced,
+        open_interest={bar[1]: bar[7] for bar in bars}, pit=pit_map,
+        excluded=excluded, unpriced=unpriced,
         minute_coverage=coverage)
 
 
@@ -517,7 +532,19 @@ def series_input(data: Data, config: Config, exchange: str, product: str):
                     item.open_interest[day] = Decimal(row["open_interest"])
         months.append(item)
     plan = dominant.plan(months, traded=True, end=config.end_day)
+    # Precompute previous auction close per contract so same-contract returns stay exact across rolls.
+    prev_daily_close = {}
+    for c_name, c_daily in product_months.items():
+        prev_map, last_close = {}, None
+        for d, row in sorted(c_daily.days.items()):
+            if row["auction"] and row["close"] is not None:
+                c_val = Decimal(row["close"])
+                if last_close is not None and last_close > 0:
+                    prev_map[d] = last_close
+                last_close = c_val
+        prev_daily_close[c_name] = prev_map
     sub_minute_closes = {}
+    sub_minute_prev = {}
     if config.minutes:
         needed_days = {}
         for day, sub_idx in plan.second.items():
@@ -531,7 +558,7 @@ def series_input(data: Data, config: Config, exchange: str, product: str):
             )
             if not stored:
                 continue
-            closes = {}
+            closes, prevs, last_sub = {}, {}, None
             stored_set = set(stored)
             for day, group in groupby(
                 data.minute_rows(sub_contract, stored[0], stored[-1]), key=itemgetter(0)
@@ -540,8 +567,14 @@ def series_input(data: Data, config: Config, exchange: str, product: str):
                     continue
                 for bar in chart.minute_bars(list(group), config.minutes, sub_contract):
                     if not bar["partial"] and bar["close"] is not None:
-                        closes[bar["time_ms"] * 10 ** 6] = Decimal(bar["close"])
+                        t_ns = bar["time_ms"] * 10 ** 6
+                        c_val = Decimal(bar["close"])
+                        closes[t_ns] = c_val
+                        if last_sub is not None and last_sub > 0:
+                            prevs[t_ns] = last_sub
+                        last_sub = c_val
             sub_minute_closes[sub_contract] = closes
+            sub_minute_prev[sub_contract] = prevs
     contracts, rolls = [], []
     for i, segment in enumerate(plan.segments):
         month = months[segment.month]
@@ -556,16 +589,29 @@ def series_input(data: Data, config: Config, exchange: str, product: str):
             until = bars[min(closed + 1, len(bars) - 1)]
         entry = contract_input(data, config, month.contract, begin, config.end_day, until)
         entry["roll_ratio"] = float(plan.ratios[i])
-        ry_map = {}
+        ry_map, far_close_map, near_ret_map, far_ret_map = {}, {}, {}, {}
+        prev_near_min = None
         for day, time_ns, _, _, _, close_raw, _ in entry["bars"]:
+            near_close = Decimal(close_raw).scaleb(-8) if close_raw > 0 else None
+            if config.minutes:
+                prev_near = prev_near_min
+                if near_close is not None:
+                    prev_near_min = near_close
+            else:
+                prev_near = prev_daily_close.get(month.contract, {}).get(day)
             if day < segment.begin or (next_begin and day >= next_begin):
                 continue
+            if near_close is not None and prev_near is not None:
+                n_ret = dominant.simple_return(near_close, prev_near)
+                if n_ret is not None:
+                    near_ret_map[time_ns] = float(n_ret)
             sub_idx = plan.second.get(day)
-            if sub_idx is None or close_raw <= 0:
+            if sub_idx is None or near_close is None:
                 continue
             sub_month = months[sub_idx]
             if config.minutes:
                 sub_close = sub_minute_closes.get(sub_month.contract, {}).get(time_ns)
+                prev_sub = sub_minute_prev.get(sub_month.contract, {}).get(time_ns)
             else:
                 sub_row = product_months[sub_month.contract].days.get(day)
                 sub_close = (
@@ -573,11 +619,20 @@ def series_input(data: Data, config: Config, exchange: str, product: str):
                     if sub_row and sub_row["auction"] and sub_row["close"] is not None
                     else None
                 )
+                prev_sub = prev_daily_close.get(sub_month.contract, {}).get(day)
             if sub_close is not None and sub_close > 0:
+                far_close_map[time_ns] = float(sub_close)
                 ry_map[time_ns] = float(dominant.annualized_roll_yield(
-                    Decimal(close_raw).scaleb(-8), sub_close,
+                    near_close, sub_close,
                     month.delivery_month, sub_month.delivery_month))
+                if prev_sub is not None:
+                    f_ret = dominant.simple_return(sub_close, prev_sub)
+                    if f_ret is not None:
+                        far_ret_map[time_ns] = float(f_ret)
         entry["roll_yield"] = ry_map
+        entry["far_close"] = far_close_map
+        entry["near_return"] = near_ret_map
+        entry["far_return"] = far_ret_map
         contracts.append(entry)
         rolls.append((segment.begin, i))
     return contracts, rolls
@@ -626,10 +681,15 @@ def visible(replayed, symbols: dict, contracts: list) -> list:
         if leading:
             open_, high, low, close, volume = (value / R for value in prices)
             item = contracts[contract]
+            rv, ml, ms, inv = item.get("pit", {}).get(time_ns, (math.nan, math.nan, math.nan, math.nan))
             bars.append(Bar(symbols[unit], item["symbol"],
                             datetime.datetime.fromtimestamp(time_ns / 10 ** 9, BEIJING),
                             open_, high, low, close, volume, item["open_interest"][time_ns],
-                            item.get("roll_yield", {}).get(time_ns, math.nan)))
+                            item.get("roll_yield", {}).get(time_ns, math.nan),
+                            item.get("far_close", {}).get(time_ns, math.nan),
+                            item.get("near_return", {}).get(time_ns, math.nan),
+                            item.get("far_return", {}).get(time_ns, math.nan),
+                            rv, ml, ms, inv))
     return bars
 
 

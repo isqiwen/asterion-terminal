@@ -136,6 +136,15 @@ message Bar {
   common.Decimal open_interest = 9;
   common.Decimal roll_ratio = 10;
   common.Decimal roll_yield = 11;
+  // Next-dominant close and same-contract single-bar returns (uncontaminated by rolls).
+  common.Decimal far_close = 12;
+  common.Decimal near_return = 13;
+  common.Decimal far_return = 14;
+  // Point-in-time aligned product fundamentals (only after publication / post-close).
+  common.Decimal receipt_volume = 15;
+  common.Decimal member_long = 16;
+  common.Decimal member_short = 17;
+  common.Decimal inventory_total = 18;
 }
 
 // Targets are acted on only once the strategy is ready.

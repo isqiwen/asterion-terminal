@@ -130,6 +130,11 @@ def main():
                         active_instruments[symbol] = inst
                         if row.HasField('roll_ratio') and row.roll_ratio.text:
                             context.rolls[contract] = float(row.roll_ratio.text)
+                        def opt_float(field):
+                            if not row.HasField(field):
+                                return math.nan
+                            text = getattr(row, field).text
+                            return float(text) if text else math.nan
                         bars.append(Bar(
                             symbol, contract,
                             datetime.datetime.fromtimestamp(
@@ -137,10 +142,15 @@ def main():
                             float(row.open.text), float(row.high.text),
                             float(row.low.text), float(row.close.text),
                             row.volume,
-                            float(row.open_interest.text)
-                            if row.HasField('open_interest') and row.open_interest.text else math.nan,
-                            float(row.roll_yield.text)
-                            if row.HasField('roll_yield') and row.roll_yield.text else math.nan))
+                            opt_float('open_interest'),
+                            opt_float('roll_yield'),
+                            opt_float('far_close'),
+                            opt_float('near_return'),
+                            opt_float('far_return'),
+                            opt_float('receipt_volume'),
+                            opt_float('member_long'),
+                            opt_float('member_short'),
+                            opt_float('inventory_total')))
                     wanted = step(strategy, context, bars)
                     sequence = request.bars.sequence
                     decision = Decision(sequence=sequence, ready=context.ready)
