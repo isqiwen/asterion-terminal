@@ -290,34 +290,36 @@ function DatasetBody({ context, address }: { context: TerminalContext; address: 
         }}
       />
       <div className="data-dataset">
-        <div className="data-summary" role="group" aria-label={t("数据")}>
-          {(["daily", "minutes"] as const).map(item => {
-            const itemTable = item === "minutes" ? Table.MINUTES : Table.DAILY;
-            const entry = summary.tables.find(row => row.table === itemTable);
-            const detail = entry?.rows
-              ? [
-                  t("数据到 {day}", { day: entry.lastDay }),
-                  entry.lastDay < entry.expectedLastDay &&
-                    t("应到 {day}", { day: entry.expectedLastDay }),
-                  entry.sourceEmpty > 0n &&
-                    t("另有 {count} 个交易日来源无数据", { count: Number(entry.sourceEmpty) }),
-                ]
-                  .filter(Boolean)
-                  .join(" · ")
-              : undefined;
-            return (
-              <button
-                key={item}
-                type="button"
-                className="data-summary-item"
-                title={detail}
-                aria-pressed={kind === item}
-                onClick={() => setKind(item)}
-              >
-                <strong>{tableName(itemTable)}</strong>
-              </button>
-            );
-          })}
+        <div className="data-summary">
+          <div className="data-kind-switch" role="group" aria-label={t("数据")}>
+            {(["daily", "minutes"] as const).map(item => {
+              const itemTable = item === "minutes" ? Table.MINUTES : Table.DAILY;
+              const entry = summary.tables.find(row => row.table === itemTable);
+              const detail = entry?.rows
+                ? [
+                    t("数据到 {day}", { day: entry.lastDay }),
+                    entry.lastDay < entry.expectedLastDay &&
+                      t("应到 {day}", { day: entry.expectedLastDay }),
+                    entry.sourceEmpty > 0n &&
+                      t("另有 {count} 个交易日来源无数据", { count: Number(entry.sourceEmpty) }),
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                : undefined;
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  className="data-summary-item"
+                  title={detail}
+                  aria-pressed={kind === item}
+                  onClick={() => setKind(item)}
+                >
+                  <strong>{tableName(itemTable)}</strong>
+                </button>
+              );
+            })}
+          </div>
           <span className="data-legend" aria-hidden="true">
             {(
               [
