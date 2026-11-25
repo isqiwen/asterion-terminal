@@ -104,7 +104,8 @@ export function LiveAccount({
     `ctp-environment-confirmed:${identity}`,
     false,
   );
-  const environmentReady = environmentConfirmed;
+  // Real-money accounts confirm the broker environment in each window before connecting or trading.
+  const environmentReady = !real || environmentConfirmed;
 
   const [confirmedPolicy, setConfirmedPolicy] = useState<string | null>(null);
   const confirmed = confirmedPolicy === live.policyRevision;
@@ -299,7 +300,7 @@ export function LiveAccount({
         <aside className="ctp-trade-side" aria-label={t("下单")}>
           {stage !== "stale" && stage !== "trade" && (
             <FlowSteps
-              labels={[t("核对并连接"), t("允许下单"), t("下单")]}
+              labels={[t(real ? "核对并连接" : "连接账户"), t("允许下单"), t("下单")]}
               current={stage === "authorize" ? 1 : 0}
             />
           )}
@@ -313,9 +314,9 @@ export function LiveAccount({
               }}
             >
               <fieldset disabled={busy}>
-                {environmentFields}
+                {real && environmentFields}
                 <div className="source-actions">
-                  <button className="primary" type="submit">
+                  <button className="primary" type="submit" disabled={!environmentReady}>
                     {t("连接账户")}
                   </button>
                 </div>

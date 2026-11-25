@@ -41,8 +41,6 @@ test(
     await page.goto("/");
     await openView(page, "trading");
     const panel = page.getByRole("region", { name: "CTP 交易账户", exact: true });
-    // The confirmation's step goes once it is ticked.
-    await panel.getByRole("checkbox", { name: "我已核对账户与柜台环境" }).click();
     await page.setViewportSize({ width: 1280, height: 720 });
     await expect(panel.getByRole("button", { name: /^买入/ })).toBeInViewport({ ratio: 1 });
     await page.setViewportSize({ width: 1440, height: 900 });

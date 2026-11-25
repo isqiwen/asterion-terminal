@@ -146,10 +146,11 @@ test("a revoke is sent while another request of the account is in flight", async
 
 test("a buy order names the account, the reviewed policy and exact decimals", async () => {
   show("order");
-  fireEvent.click(await screen.findByRole("checkbox", { name: "我已核对账户与柜台环境" }));
   fireEvent.change(await screen.findByRole("textbox", { name: "委托手数" }), {
     target: { value: "2" },
   });
+  expect(screen.queryByRole("checkbox", { name: "我已核对账户与柜台环境" })).toBeNull();
+  expect(screen.queryByText("CTP 环境待确认")).toBeNull();
   fireEvent.change(screen.getByRole("textbox", { name: "限价" }), {
     target: { value: "3561.5" },
   });
@@ -341,7 +342,6 @@ test("a position shows the broker's amounts and its close fills the ticket witho
       } as never),
     );
   show("positions");
-  fireEvent.click(await screen.findByRole("checkbox", { name: "我已核对账户与柜台环境" }));
   const row = (await screen.findByRole("cell", { name: "3500.00" })).closest("tr")!;
   // Three lots, one taken by the working close; 105,000 / (3 × 10).
   expect(row.textContent).toContain("2");
@@ -389,7 +389,6 @@ test("an explicit-bucket position closes yesterday's remaining lots when today's
       } as never),
     );
   show("positions-yesterday");
-  fireEvent.click(await screen.findByRole("checkbox", { name: "我已核对账户与柜台环境" }));
   await screen.findByRole("cell", { name: "3500.00" });
   fireEvent.click(screen.getByRole("button", { name: "平仓" }));
   await waitFor(() =>
@@ -460,8 +459,7 @@ test("every working order is cancelled only after a second press", async () => {
 
 test("a close order above maxOrderLots splits into maxOrderLots legs", async () => {
   show("split-close");
-  fireEvent.click(await screen.findByRole("checkbox", { name: "我已核对账户与柜台环境" }));
-  fireEvent.change(screen.getByRole("combobox", { name: "开平仓" }), {
+  fireEvent.change(await screen.findByRole("combobox", { name: "开平仓" }), {
     target: { value: "close_today" },
   });
   fireEvent.change(screen.getByRole("textbox", { name: "委托手数" }), {
@@ -548,8 +546,7 @@ test("a split close keeps only remaining lots when a middle leg fails, and switc
     return read();
   });
   show("split-partial");
-  fireEvent.click(await screen.findByRole("checkbox", { name: "我已核对账户与柜台环境" }));
-  fireEvent.change(screen.getByRole("combobox", { name: "开平仓" }), {
+  fireEvent.change(await screen.findByRole("combobox", { name: "开平仓" }), {
     target: { value: "close_today" },
   });
   fireEvent.change(screen.getByRole("textbox", { name: "委托手数" }), {

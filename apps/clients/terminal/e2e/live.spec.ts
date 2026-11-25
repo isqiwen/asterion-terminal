@@ -48,7 +48,6 @@ test(
     // connection and the permission to send.
     await expect(order).toHaveCount(0);
     await expect(panel.getByRole("combobox", { name: "柜台环境", exact: true })).toHaveCount(0);
-    await panel.getByLabel("我已核对账户与柜台环境", { exact: true }).click();
     await expect(panel.getByLabel("交易密码", { exact: true })).toHaveCount(0);
     await expect(panel.getByLabel("授权码", { exact: true })).toHaveCount(0);
     await expect(panel.getByTestId("live-phase")).toHaveText("已就绪", { timeout: 20000 });
