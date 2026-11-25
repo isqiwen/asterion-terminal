@@ -250,15 +250,21 @@ function DatasetBody({ context, address }: { context: TerminalContext; address: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detailKey, coverage]);
   const contracts = detail?.key === detailKey ? detail.contracts : undefined;
+  const loadContracts = async (product: string) => {
+    let held: ContractCoverage[] | undefined;
+    await update.attempt(async () => {
+      held = (
+        await warehouseData({
+          case: "getProductCoverage",
+          value: { version, product },
+        })
+      ).contracts;
+    });
+    return held;
+  };
   // A product never acquired starts with its listed contracts' whole lives.
   const collect = (row: ProductRow) =>
-    void update.attempt(async () => {
-      const { contracts: held } = await warehouseData({
-        case: "getProductCoverage",
-        value: { version, product: row.id },
-      });
-      start(productRules(held, kind));
-    });
+    void loadContracts(row.id).then(held => held && start(productRules(held, kind)));
 
   const error = state.error || options.error || (!viewed ? versionError : "");
   useErrorNotification(error, "asterion.terminal.data-workbench");
@@ -419,6 +425,7 @@ function DatasetBody({ context, address }: { context: TerminalContext; address: 
                 acquires={acquires}
                 start={start}
                 collect={collect}
+                loadContracts={loadContracts}
                 viewing={chart}
                 view={item => setChart(item === chart ? "" : item)}
               />

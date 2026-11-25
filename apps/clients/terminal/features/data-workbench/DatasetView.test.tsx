@@ -97,6 +97,19 @@ const rebar = [
   },
 ];
 
+const lead = [
+  {
+    contract: "SHFE/pb/2023-10",
+    listDay: "2022-10-16",
+    delistDay: "2023-10-15",
+  },
+  {
+    contract: "SHFE/pb/2024-10",
+    listDay: "2023-10-16",
+    delistDay: "2024-10-15",
+  },
+];
+
 function serve({
   tables = [Table.DAILY, Table.MINUTES, Table.SETTLEMENT, Table.PRICE_TICKS],
   tasks = () => ({ tasks: [] as unknown[], nextId: "" }),
@@ -168,7 +181,8 @@ function serve({
                       listed: 2,
                       daily: { held: 2, pending: 1, firstDay: "2026-07-01", lastDay: "2026-10-30" },
                     },
-                    { product: "SHFE/pb", contracts: 1 },
+                    { product: "SHFE/pb", contracts: lead.length },
+                    { product: "SHFE/zn", contracts: 1, listed: 1 },
                     {
                       product: "SHFE/rb",
                       contracts: rebar.length,
@@ -189,7 +203,12 @@ function serve({
           );
         case "getProductCoverage":
           return create(ProductContractsSchema, {
-            contracts: body.value.product === "SHFE/rb" ? rebar : [],
+            contracts:
+              body.value.product === "SHFE/rb"
+                ? rebar
+                : body.value.product === "SHFE/pb"
+                  ? lead
+                  : [],
           });
         case "listAcquisitionTasks":
           return tasks(body.value.afterId ?? "");
@@ -252,11 +271,12 @@ test("products with problems come first and only they count as needing attention
   const names = within(table)
     .getAllByRole("rowheader")
     .map(cell => cell.textContent);
-  expect(names).toEqual(["rb螺纹钢SHFE", "au沪金SHFE", "ag沪银SHFE", "pb沪铅SHFE"]);
+  expect(names).toEqual(["rb螺纹钢SHFE", "au沪金SHFE", "ag沪银SHFE", "zn沪锌SHFE", "已退市品种"]);
   const row = (name: RegExp) => within(table).getByRole("rowheader", { name }).closest("tr")!;
   expect(row(/^rb/).textContent).toContain("2 / 5");
   fireEvent.click(screen.getByRole("button", { name: "需处理 2" }));
   expect(within(table).queryByRole("rowheader", { name: /^ag/ })).toBeNull();
+  expect(within(table).queryByRole("rowheader", { name: "已退市品种" })).toBeNull();
 });
 
 test("a product opens on its listed contracts with history folded by delivery year", async () => {
@@ -434,12 +454,33 @@ test("searching a contract code opens its product and shows that contract", asyn
   expect(screen.queryByRole("rowheader", { name: /^ag/ })).toBeNull();
 });
 
-test("the list shows every product Warehouse knows, those never acquired last", async () => {
+test("retired products fold at the bottom, confirm before acquiring all, and expand straight to years", async () => {
   serve();
   view(context());
-  const headers = within(await list()).getAllByRole("rowheader");
-  expect(headers.at(-1)!.textContent).toContain("沪铅");
-  expect(screen.queryByRole("button", { name: "采集 SHFE/pb" })).toBeNull();
+  const table = await list();
+  expect(within(table).queryByRole("rowheader", { name: /^pb/ })).toBeNull();
+  const group = within(table).getByRole("button", { name: "已退市品种" });
+  expect(group.closest("tr")!.textContent).toContain("1 个");
+
+  fireEvent.click(group);
+  expect(within(table).getByRole("rowheader", { name: /^pb/ }).textContent).toContain("沪铅");
+  fireEvent.click(within(table).getByRole("button", { name: "采集全部 SHFE/pb" }));
+  const dialog = await screen.findByRole("dialog", { name: "采集 pb 2023–2024 年交割的 2 个合约" });
+  expect(dialog.textContent).toContain("数据大约从 2022-10 开始");
+  expect(submitted()).toHaveLength(0);
+  fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+
+  fireEvent.click(within(table).getByRole("button", { name: /^pb\s*沪铅/ }));
+  expect(await within(table).findByRole("button", { name: "2024 年交割" })).toBeTruthy();
+  expect(within(table).getByRole("button", { name: "2023 年交割" })).toBeTruthy();
+  expect(within(table).queryByRole("button", { name: "历史合约" })).toBeNull();
+
+  // Searching a retired product or its contract reveals it automatically.
+  fireEvent.click(within(table).getByRole("button", { name: /^pb\s*沪铅/ }));
+  fireEvent.click(group);
+  expect(within(table).queryByRole("rowheader", { name: /^pb/ })).toBeNull();
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "pb2410" } });
+  expect(await screen.findByRole("button", { name: "查看 pb2410" })).toBeTruthy();
 });
 
 test("a contract's chart opens over the list and closes on a second click or Escape", async () => {

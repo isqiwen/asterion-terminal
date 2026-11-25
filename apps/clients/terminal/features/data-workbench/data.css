@@ -458,6 +458,14 @@ html[lang="en-US"] .col-act-metric {
 .coverage-table tr[data-kind="product"] > * {
   height: 40px;
 }
+.coverage-table tr[data-kind="retired-group"] > * {
+  height: 34px;
+  background: color-mix(in oklab, var(--pane) 70%, var(--canvas));
+  color: var(--muted);
+}
+.coverage-table tr[data-kind="retired-group"] .coverage-toggle span {
+  color: var(--muted);
+}
 .coverage-table tr:is([data-kind="contract"], [data-kind="history"], [data-kind="year"]) > * {
   height: 32px;
   background: var(--panel);
@@ -485,11 +493,17 @@ html[lang="en-US"] .col-act-metric {
 .coverage-table tr[data-kind="contract"][data-nested] > th {
   padding-left: calc(var(--space-page) + 62px);
 }
+.coverage-table tr[data-kind="contract"][data-nested="direct"] > th {
+  padding-left: calc(var(--space-page) + 42px);
+}
 .coverage-table tr[data-kind="history"] > th {
   padding-left: calc(var(--space-page) + 22px);
 }
 .coverage-table tr[data-kind="year"] > th {
   padding-left: calc(var(--space-page) + 42px);
+}
+.coverage-table tr[data-kind="year"][data-direct] > th {
+  padding-left: calc(var(--space-page) + 22px);
 }
 .coverage-toggle {
   all: unset;

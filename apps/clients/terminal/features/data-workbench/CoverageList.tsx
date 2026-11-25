@@ -281,7 +281,7 @@ function ContractRow({
 }: {
   contract: ContractCoverage;
   kind: Kind;
-  nested: boolean;
+  nested: boolean | "direct";
   running: readonly AcquisitionTask[];
   acquires: boolean;
   start: (rules: Rule[]) => void;
@@ -296,7 +296,7 @@ function ContractRow({
   return (
     <tr
       data-kind="contract"
-      data-nested={nested || undefined}
+      data-nested={nested === "direct" ? "direct" : nested ? "" : undefined}
       data-viewing={viewing === contract.contract || undefined}
     >
       <th scope="row">
@@ -347,6 +347,7 @@ export function CoverageList({
   acquires,
   start,
   collect,
+  loadContracts,
   viewing,
   view,
 }: {
@@ -361,9 +362,12 @@ export function CoverageList({
   acquires: boolean;
   start: (rules: Rule[]) => void;
   collect: (row: ProductRow) => void;
+  loadContracts: (product: string) => Promise<ContractCoverage[] | undefined>;
   viewing: string;
   view: (contract: string) => void;
 }) {
+  const [retiredOpen, setRetiredOpen] = useState(false);
+  const [loadingProduct, setLoadingProduct] = useState("");
   const [historyOpen, setHistoryOpen] = useState("");
   const [yearOpen, setYearOpen] = useState("");
   const [confirm, setConfirm] = useState<Confirm>();
@@ -381,6 +385,11 @@ export function CoverageList({
         (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
     );
   }, [rows, kind]);
+  const activeRows = ordered.filter(row => !!row.coverage?.listed);
+  const retiredRows = ordered.filter(row => !row.coverage?.listed);
+  const autoExpandRetired =
+    !!query || !activeRows.length || retiredRows.some(row => row.id === open);
+  const showRetired = retiredOpen || autoExpandRetired;
   const searching = /\d/.test(query);
   const matches = (item: ContractCoverage) =>
     !searching || contractCode(item.contract).toUpperCase().includes(query);
@@ -392,7 +401,7 @@ export function CoverageList({
       return year >= from && year <= to && !!ruleOf(item, kind);
     });
     const rules = chosen.flatMap(item => ruleOf(item, kind) ?? []);
-    if (!rules.length) return;
+    if (!rules.length) return false;
     const years = chosen.map(item => deliveryYear(item.contract));
     const [low, high] = [earliest(years), latest(years)];
     const title = t("采集 {code} {years} 年交割的 {count} 个合约", {
@@ -415,7 +424,7 @@ export function CoverageList({
         }),
         rules: merged(rules),
       });
-      return;
+      return true;
     }
     const firstDay = earliest(rules.map(rule => rule.firstDay));
     setConfirm({
@@ -426,6 +435,211 @@ export function CoverageList({
       }),
       rules: merged(rules),
     });
+    return true;
+  };
+
+  const askRetired = async (row: ProductRow) => {
+    setLoadingProduct(row.id);
+    try {
+      const loaded = open === row.id && contracts ? contracts : await loadContracts(row.id);
+      if (!loaded) return;
+      const history = loaded.filter(item => !item.listed);
+      const years = [...new Set(history.map(item => deliveryYear(item.contract)))].sort((a, b) =>
+        b.localeCompare(a),
+      );
+      if (!years.length || !askHistory(row.id, history, years.at(-1)!, years[0]!)) setOpen(row.id);
+    } finally {
+      setLoadingProduct(current => (current === row.id ? "" : current));
+    }
+  };
+
+  const renderProduct = (row: ProductRow) => {
+    const retired = !row.coverage?.listed;
+    const expanded = open === row.id;
+    const series = row.coverage?.[kind];
+    const tally = rowTally(row);
+    const items = expanded ? (contracts ?? []) : [];
+    const listed = items.filter(item => item.listed && matches(item));
+    // A historical contract with a gap stays in view; the rest fold by delivery year.
+    const history = items.filter(item => !item.listed);
+    const flagged = history.filter(item => stateOf(item[kind]) === "gap" && matches(item));
+    const years = [...new Set(history.map(item => deliveryYear(item.contract)))].sort((a, b) =>
+      b.localeCompare(a),
+    );
+    const historyTally = contractsTally(history, kind);
+    const searchedYears = searching
+      ? new Set(history.filter(matches).map(item => deliveryYear(item.contract)))
+      : undefined;
+    const showHistory = !!searchedYears?.size || historyOpen === row.id;
+    const historyRules = history.flatMap(item => ruleOf(item, kind) ?? []);
+    const historyBusy = historyRules.some(rule => running.some(task => covers(task, rule)));
+    const needsWork = retired
+      ? (series?.complete ?? 0) < (row.coverage?.contracts ?? 0) &&
+        (!expanded || !contracts || historyRules.length > 0)
+      : (!!row.coverage?.listed || !!series?.withGaps) &&
+        (!!series?.withGaps ||
+          !!series?.pending ||
+          (series?.listedComplete ?? 0) < (row.coverage?.listed ?? 0));
+    const busy = running.some(({ request }) =>
+      kind === "daily"
+        ? request!.table === Table.DAILY && request!.exchanges.includes(row.exchange)
+        : request!.table === Table.MINUTES &&
+          request!.instruments.some(item => item === row.id || item.startsWith(`${row.id}/`)),
+    );
+    return (
+      <tbody key={row.id}>
+        <tr data-kind="product" data-open={expanded || undefined}>
+          <th scope="row">
+            <button
+              type="button"
+              className="coverage-toggle"
+              aria-expanded={expanded}
+              onClick={() => setOpen(expanded ? "" : row.id)}
+            >
+              <code>{row.id.split("/")[1]}</code>
+              <span>{row.name}</span>
+              <small>{row.exchange}</small>
+            </button>
+          </th>
+          <td className="coverage-count">
+            {row.coverage ? `${row.coverage.listed} / ${row.coverage.contracts}` : "—"}
+          </td>
+          <td>
+            <Progress pieces={tallyPieces(tally)} label={tallySummary(tally)} />
+          </td>
+          <td>
+            {!acquires ? null : busy ? (
+              <span className="coverage-busy">{t("采集中")}</span>
+            ) : needsWork ? (
+              retired ? (
+                <button
+                  type="button"
+                  className="coverage-action"
+                  disabled={loadingProduct === row.id}
+                  aria-label={t("采集全部 {name}", { name: row.id })}
+                  onClick={() => void askRetired(row)}
+                >
+                  {t("采集全部")}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="coverage-action"
+                  aria-label={t(series?.held ? "补全 {name}" : "采集 {name}", {
+                    name: row.id,
+                  })}
+                  onClick={() => collect(row)}
+                >
+                  {series?.held ? t("补全") : t("采集")}
+                </button>
+              )
+            ) : null}
+          </td>
+        </tr>
+        {expanded && !contracts && (
+          <tr data-kind="note">
+            <td colSpan={4}>{t("读取中")}</td>
+          </tr>
+        )}
+        {listed.map(item => (
+          <ContractRow key={item.contract} contract={item} nested={false} {...rowProps} />
+        ))}
+        {flagged.map(item => (
+          <ContractRow key={item.contract} contract={item} nested={false} {...rowProps} />
+        ))}
+        {!retired && history.length > 0 && (
+          <tr data-kind="history">
+            <th scope="row">
+              <button
+                type="button"
+                className="coverage-toggle"
+                aria-expanded={showHistory}
+                onClick={() => setHistoryOpen(historyOpen === row.id ? "" : row.id)}
+              >
+                <span>{t("历史合约")}</span>
+              </button>
+            </th>
+            <td className="coverage-count">{t("{count} 个", { count: history.length })}</td>
+            <td>
+              <Progress pieces={tallyPieces(historyTally)} label={tallySummary(historyTally)} />
+            </td>
+            <td>
+              {!acquires || !historyRules.length ? null : historyBusy ? (
+                <span className="coverage-busy">{t("采集中")}</span>
+              ) : (
+                <button
+                  type="button"
+                  className="coverage-action"
+                  aria-label={t("采集全部 {name}", { name: row.id })}
+                  onClick={() => askHistory(row.id, history, years.at(-1)!, years[0]!)}
+                >
+                  {t("采集全部")}
+                </button>
+              )}
+            </td>
+          </tr>
+        )}
+        {(retired || showHistory) &&
+          years
+            .filter(year => !searchedYears || searchedYears.has(year))
+            .map(year => {
+              const inYear = history.filter(item => deliveryYear(item.contract) === year);
+              const yearTally = contractsTally(inYear, kind);
+              const rules = inYear.flatMap(item => ruleOf(item, kind) ?? []);
+              const yearKey = `${row.id}/${year}`;
+              const shown = yearOpen === yearKey || !!searchedYears;
+              const yearBusy = rules.some(rule => running.some(task => covers(task, rule)));
+              return [
+                <tr key={year} data-kind="year" data-direct={retired || undefined}>
+                  <th scope="row">
+                    <button
+                      type="button"
+                      className="coverage-toggle"
+                      aria-expanded={shown}
+                      onClick={() => setYearOpen(shown ? "" : yearKey)}
+                    >
+                      <span>{t("{year} 年交割", { year })}</span>
+                    </button>
+                  </th>
+                  <td className="coverage-count">
+                    {yearTally.held} / {inYear.length}
+                  </td>
+                  <td>
+                    <Progress pieces={tallyPieces(yearTally)} label={tallySummary(yearTally)} />
+                  </td>
+                  <td>
+                    {!acquires || !rules.length ? null : yearBusy ? (
+                      <span className="coverage-busy">{t("采集中")}</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="coverage-action"
+                        aria-label={t(yearTally.held ? "补全 {name}" : "采集 {name}", {
+                          name: `${row.id} ${year}`,
+                        })}
+                        onClick={() => askHistory(row.id, history, year, year)}
+                      >
+                        {yearTally.held ? t("补全") : t("采集")}
+                      </button>
+                    )}
+                  </td>
+                </tr>,
+                ...(shown
+                  ? inYear
+                      .filter(matches)
+                      .map(item => (
+                        <ContractRow
+                          key={item.contract}
+                          contract={item}
+                          nested={retired ? "direct" : true}
+                          {...rowProps}
+                        />
+                      ))
+                  : []),
+              ];
+            })}
+      </tbody>
+    );
   };
 
   return (
@@ -445,186 +659,30 @@ export function CoverageList({
             <th scope="col" aria-label={t("操作")} />
           </tr>
         </thead>
-        {ordered.map(row => {
-          const expanded = open === row.id;
-          const series = row.coverage?.[kind];
-          const tally = rowTally(row);
-          // A product with nothing listed is collected year by year from its history.
-          const needsWork =
-            (!!row.coverage?.listed || !!series?.withGaps) &&
-            (!!series?.withGaps ||
-              !!series?.pending ||
-              (series?.listedComplete ?? 0) < (row.coverage?.listed ?? 0));
-          const busy = running.some(({ request }) =>
-            kind === "daily"
-              ? request!.table === Table.DAILY && request!.exchanges.includes(row.exchange)
-              : request!.table === Table.MINUTES &&
-                request!.instruments.some(item => item === row.id || item.startsWith(`${row.id}/`)),
-          );
-          const items = expanded ? (contracts ?? []) : [];
-          const listed = items.filter(item => item.listed && matches(item));
-          // A historical contract with a gap stays in view; the rest fold by delivery year.
-          const history = items.filter(item => !item.listed);
-          const flagged = history.filter(item => stateOf(item[kind]) === "gap" && matches(item));
-          const years = [...new Set(history.map(item => deliveryYear(item.contract)))].sort(
-            (a, b) => b.localeCompare(a),
-          );
-          const historyTally = contractsTally(history, kind);
-          const searchedYears = searching
-            ? new Set(history.filter(matches).map(item => deliveryYear(item.contract)))
-            : undefined;
-          const showHistory = !!searchedYears?.size || historyOpen === row.id;
-          const historyRules = history.flatMap(item => ruleOf(item, kind) ?? []);
-          const historyBusy = historyRules.some(rule => running.some(task => covers(task, rule)));
-          return (
-            <tbody key={row.id}>
-              <tr data-kind="product" data-open={expanded || undefined}>
-                <th scope="row">
-                  <button
-                    type="button"
-                    className="coverage-toggle"
-                    aria-expanded={expanded}
-                    onClick={() => setOpen(expanded ? "" : row.id)}
-                  >
-                    <code>{row.id.split("/")[1]}</code>
-                    <span>{row.name}</span>
-                    <small>{row.exchange}</small>
-                  </button>
-                </th>
-                <td className="coverage-count">
-                  {row.coverage ? `${row.coverage.listed} / ${row.coverage.contracts}` : "—"}
-                </td>
-                <td>
-                  <Progress pieces={tallyPieces(tally)} label={tallySummary(tally)} />
-                </td>
-                <td>
-                  {!acquires ? null : busy ? (
-                    <span className="coverage-busy">{t("采集中")}</span>
-                  ) : needsWork ? (
-                    <button
-                      type="button"
-                      className="coverage-action"
-                      aria-label={t(series?.held ? "补全 {name}" : "采集 {name}", {
-                        name: row.id,
-                      })}
-                      onClick={() => collect(row)}
-                    >
-                      {series?.held ? t("补全") : t("采集")}
-                    </button>
-                  ) : null}
-                </td>
-              </tr>
-              {expanded && !contracts && (
-                <tr data-kind="note">
-                  <td colSpan={4}>{t("读取中")}</td>
-                </tr>
-              )}
-              {listed.map(item => (
-                <ContractRow key={item.contract} contract={item} nested={false} {...rowProps} />
-              ))}
-              {flagged.map(item => (
-                <ContractRow key={item.contract} contract={item} nested={false} {...rowProps} />
-              ))}
-              {history.length > 0 && (
-                <tr data-kind="history">
-                  <th scope="row">
-                    <button
-                      type="button"
-                      className="coverage-toggle"
-                      aria-expanded={showHistory}
-                      onClick={() => setHistoryOpen(historyOpen === row.id ? "" : row.id)}
-                    >
-                      <span>{t("历史合约")}</span>
-                    </button>
-                  </th>
-                  <td className="coverage-count">{t("{count} 个", { count: history.length })}</td>
-                  <td>
-                    <Progress
-                      pieces={tallyPieces(historyTally)}
-                      label={tallySummary(historyTally)}
-                    />
-                  </td>
-                  <td>
-                    {!acquires || !historyRules.length ? null : historyBusy ? (
-                      <span className="coverage-busy">{t("采集中")}</span>
-                    ) : (
-                      <button
-                        type="button"
-                        className="coverage-action"
-                        aria-label={t("采集全部 {name}", { name: row.id })}
-                        onClick={() => askHistory(row.id, history, years.at(-1)!, years[0]!)}
-                      >
-                        {t("采集全部")}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              )}
-              {showHistory &&
-                years
-                  .filter(year => !searchedYears || searchedYears.has(year))
-                  .map(year => {
-                    const inYear = history.filter(item => deliveryYear(item.contract) === year);
-                    const yearTally = contractsTally(inYear, kind);
-                    const rules = inYear.flatMap(item => ruleOf(item, kind) ?? []);
-                    const yearKey = `${row.id}/${year}`;
-                    const shown = yearOpen === yearKey || !!searchedYears;
-                    const yearBusy = rules.some(rule => running.some(task => covers(task, rule)));
-                    return [
-                      <tr key={year} data-kind="year">
-                        <th scope="row">
-                          <button
-                            type="button"
-                            className="coverage-toggle"
-                            aria-expanded={shown}
-                            onClick={() => setYearOpen(shown ? "" : yearKey)}
-                          >
-                            <span>{t("{year} 年交割", { year })}</span>
-                          </button>
-                        </th>
-                        <td className="coverage-count">
-                          {yearTally.held} / {inYear.length}
-                        </td>
-                        <td>
-                          <Progress
-                            pieces={tallyPieces(yearTally)}
-                            label={tallySummary(yearTally)}
-                          />
-                        </td>
-                        <td>
-                          {!acquires || !rules.length ? null : yearBusy ? (
-                            <span className="coverage-busy">{t("采集中")}</span>
-                          ) : (
-                            <button
-                              type="button"
-                              className="coverage-action"
-                              aria-label={t(yearTally.held ? "补全 {name}" : "采集 {name}", {
-                                name: `${row.id} ${year}`,
-                              })}
-                              onClick={() => askHistory(row.id, history, year, year)}
-                            >
-                              {yearTally.held ? t("补全") : t("采集")}
-                            </button>
-                          )}
-                        </td>
-                      </tr>,
-                      ...(shown
-                        ? inYear
-                            .filter(matches)
-                            .map(item => (
-                              <ContractRow
-                                key={item.contract}
-                                contract={item}
-                                nested
-                                {...rowProps}
-                              />
-                            ))
-                        : []),
-                    ];
-                  })}
-            </tbody>
-          );
-        })}
+        {activeRows.map(renderProduct)}
+        {retiredRows.length > 0 && (
+          <tbody key="retired-group">
+            <tr data-kind="retired-group">
+              <th scope="row">
+                <button
+                  type="button"
+                  className="coverage-toggle"
+                  aria-expanded={showRetired}
+                  onClick={() => {
+                    if (showRetired && retiredRows.some(row => row.id === open)) setOpen("");
+                    setRetiredOpen(!showRetired);
+                  }}
+                >
+                  <span>{t("已退市品种")}</span>
+                </button>
+              </th>
+              <td className="coverage-count">{t("{count} 个", { count: retiredRows.length })}</td>
+              <td />
+              <td />
+            </tr>
+          </tbody>
+        )}
+        {showRetired && retiredRows.map(renderProduct)}
       </table>
       {confirm && (
         <Dialog title={confirm.title} close={() => setConfirm(undefined)}>
