@@ -35,7 +35,9 @@ export async function serveWatch(
     const request = route.request().postDataJSON();
     if (request.method === "market.watch")
       return route.fulfill({ json: { result: { market_watch: next(request.params.restart) } } });
-    const response = await route.fetch();
+    if (request.method !== "runtime.snapshot") return route.continue();
+    // A reused HTTP connection can reset; only this read may be retried.
+    const response = await route.fetch({ maxRetries: 1 });
     const body = await response.json();
     if (body.result?.market_endpoint?.host) body.result.market_endpoint.instruments = watchlist;
     await route.fulfill({ response, json: body });
