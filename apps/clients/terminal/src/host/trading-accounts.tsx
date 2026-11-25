@@ -384,33 +384,36 @@ export function useStrategyHost(account: string) {
     setReadError("");
     setObservedAt(new Date());
   };
-  const refresh = useCallback(async () => {
-    if (readPending.current || commandPending.current || stopPending.current) return;
-    readPending.current = true;
-    setReading(true);
-    const current = ++sequence.current;
-    try {
-      const next = await strategyRequest(account, { case: "getStrategies", value: {} });
-      if (active.current && current === sequence.current) accept(next);
-    } catch (reason) {
-      if (active.current && current === sequence.current) {
-        setFresh(false);
-        setReadError(asDisplayError(reason));
+  const refresh = useCallback(
+    async (silent = false) => {
+      if (readPending.current || commandPending.current || stopPending.current) return;
+      readPending.current = true;
+      if (!silent) setReading(true);
+      const current = ++sequence.current;
+      try {
+        const next = await strategyRequest(account, { case: "getStrategies", value: {} });
+        if (active.current && current === sequence.current) accept(next);
+      } catch (reason) {
+        if (active.current && current === sequence.current) {
+          setFresh(false);
+          setReadError(asDisplayError(reason));
+        }
+      } finally {
+        readPending.current = false;
+        if (active.current && !silent) setReading(false);
       }
-    } finally {
-      readPending.current = false;
-      if (active.current) setReading(false);
-    }
-  }, [account]);
+    },
+    [account],
+  );
   useEffect(() => {
     active.current = true;
     ++sequence.current;
-    void refresh();
+    void refresh(true);
     return () => {
       active.current = false;
     };
   }, [refresh]);
-  useIntervalPoll(() => void refresh(), 3000, [refresh]);
+  useIntervalPoll(() => void refresh(true), 3000, [refresh]);
 
   const { error, attempt } = useActionError();
   async function mutate(operation: StrategyCall) {

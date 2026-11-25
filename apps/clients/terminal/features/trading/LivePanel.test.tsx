@@ -24,7 +24,12 @@ import { LivePanel } from "./LivePanel";
 import { LiveStrategies } from "./LiveStrategies";
 import { feature } from "./feature";
 
-vi.mock("../../src/bridge/trading", () => ({ tradingRequest: vi.fn() }));
+vi.mock("../../src/bridge/trading", () => {
+  const tradingRequest = vi.fn();
+  const tradingCall = async (account: string, operation: unknown) =>
+    (await tradingRequest(account, operation)).result.value;
+  return { tradingRequest, tradingCall };
+});
 registerTerminalFeatures([feature]);
 
 const broker = { front: "tcp://127.0.0.1:1", brokerId: "9999", userId: "000001", appId: "test" };
@@ -956,4 +961,52 @@ test("the strategy view exposes authorization state and emergency stop button", 
   expect(await screen.findByRole("status", { name: "下单状态" })).toBeTruthy();
   fireEvent.click(await screen.findByRole("button", { name: "前往允许下单" }));
   expect(navigate).toHaveBeenCalledWith("workspace.trading", { params: { account: "account" } });
+});
+
+test("the strategy view shows a centered status card with settings entry when trading is unreachable", async () => {
+  vi.mocked(tradingRequest).mockRejectedValue(
+    new BackendError("unavailable", "connection refused"),
+  );
+  const openSettings = vi.fn();
+  render(
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="strategy-unreachable">
+      <TradingAccountsProvider connections={[{ id: "account", revision: "1" }]}>
+        <LiveStrategies
+          snapshot={snapshot}
+          busy={false}
+          error=""
+          navigate={() => {}}
+          openSettings={openSettings}
+          trade={async () => {}}
+        />
+      </TradingAccountsProvider>
+    </WorkspaceDraftScope>,
+  );
+  const alert = await screen.findByRole("alert");
+  expect(within(alert).getByText("account-b")).toBeTruthy();
+  expect(within(alert).getByText("服务未连接")).toBeTruthy();
+  expect(within(alert).getByText("127.0.0.1:7460")).toBeTruthy();
+  expect(screen.queryByRole("region", { name: "策略版本" })).toBeNull();
+  fireEvent.click(within(alert).getByRole("button", { name: "交易服务设置" }));
+  expect(openSettings).toHaveBeenCalledWith("trading");
+});
+
+test("the strategy view shows deployment guidance in the main pane when no packages exist", async () => {
+  read = () => live(session);
+  render(
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="strategy-empty-packages">
+      <TradingAccountsProvider connections={[{ id: "account", revision: "1" }]}>
+        <LiveStrategies
+          snapshot={snapshot}
+          busy={false}
+          error=""
+          navigate={() => {}}
+          openSettings={() => {}}
+          trade={async () => {}}
+        />
+      </TradingAccountsProvider>
+    </WorkspaceDraftScope>,
+  );
+  expect(await screen.findByText("尚未部署策略版本")).toBeTruthy();
+  expect(screen.getByRole("region", { name: "策略版本" })).toBeTruthy();
 });

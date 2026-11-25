@@ -7,6 +7,8 @@ import { useStrategyHost, useTradingAccounts } from "../../src/host/trading-acco
 import { ServiceUnset } from "../../src/host/components/ServiceUnset";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { ActionError, useActionError } from "../../src/host/action-error";
+import { ErrorNotice } from "../../src/i18n/errors";
+import { StatusBadge } from "../../src/ui/StatusBadge";
 import { AccountIdentityBar } from "./AccountIdentityBar";
 import { EmergencyControls } from "./EmergencyControls";
 import { AccountList } from "./LivePanel";
@@ -57,6 +59,7 @@ export function LiveStrategies(context: TerminalContext) {
             openWorkbench={() =>
               context.navigate("workspace.trading", { params: { account: account.id } })
             }
+            openSettings={() => context.openSettings("trading")}
             openRun={id => context.navigate("workspace.lab-runs", { params: { run: id } })}
             reconcileInstance={(accountId, instanceId, runId) =>
               context.navigate("workspace.lab-runs", {
@@ -82,6 +85,7 @@ function AccountStrategies({
   initialStrategy,
   initialRun,
   openWorkbench,
+  openSettings,
   openRun,
   reconcileInstance,
 }: {
@@ -90,6 +94,7 @@ function AccountStrategies({
   initialStrategy?: string;
   initialRun?: string;
   openWorkbench: () => void;
+  openSettings: () => void;
   openRun: (id: string) => void;
   reconcileInstance: (accountId: string, instanceId: string, runId?: string) => void;
 }) {
@@ -116,7 +121,44 @@ function AccountStrategies({
       </div>
     );
   }
-  const instance = host.state?.instance;
+  if (!host.state) {
+    const failed = host.readError || view?.failed;
+    return (
+      <div className="ctp-account-column">
+        <div className="ctp-account-panel">
+          <div className="workspace-empty" role={failed ? "alert" : undefined}>
+            <div className="trading-empty-card">
+              <div className="trading-empty-head">
+                <strong>{account.instance}</strong>
+                {failed && <StatusBadge tone="danger">{t("服务未连接")}</StatusBadge>}
+              </div>
+              <code className="trading-empty-address">
+                {account.host}:{account.port}
+              </code>
+              {failed ? (
+                <p>
+                  <ErrorNotice error={failed} namespace="asterion.terminal.trading" />
+                </p>
+              ) : (
+                <p>{t("正在读取交易服务…")}</p>
+              )}
+              {failed && (
+                <div className="workspace-empty-actions">
+                  <button type="button" disabled={host.reading} onClick={() => void host.refresh()}>
+                    {t("重试")}
+                  </button>
+                  <button type="button" className="primary" onClick={openSettings}>
+                    {t("交易服务设置")}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  const instance = host.state.instance;
   const live = view?.live;
   const stale = !!view?.failed || !!live?.recoveryRequired;
   const runningUnauthorized =
@@ -168,7 +210,31 @@ function AccountStrategies({
             flatten={id => host.mutate({ case: "flattenStrategy", value: { id } })}
           />
         )}
-        {host.state && (
+        {!instance?.instance && !host.state.packages.length ? (
+          <div className="workspace-empty">
+            <div className="trading-empty-card">
+              <div className="trading-empty-head">
+                <strong>
+                  {t(view?.initialized === false ? "尚未开通交易" : "尚未部署策略版本")}
+                </strong>
+              </div>
+              <p>
+                {t(
+                  view?.initialized === false
+                    ? "可在右侧先部署策略版本；启动运行前需先在工作台完成账户开通与风控设置。"
+                    : "请先在右侧「策略版本」选择策略并部署，部署完成后即可在此配置并启动实例。",
+                )}
+              </p>
+              {view?.initialized === false && (
+                <div className="workspace-empty-actions">
+                  <button type="button" className="primary" onClick={openWorkbench}>
+                    {t("前往开通交易")}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
           <StrategyInstance
             connection={account.id}
             repository={repository}

@@ -558,3 +558,33 @@ test("preparing historical warmup disables the start form until Lab responds", a
   await act(async () => finishWarmup({ datasetVersion: "v1", sha256: "a".repeat(64), bars: [] }));
   expect(await screen.findByRole("button", { name: "确认启动" })).toBeTruthy();
 });
+
+test("background polling does not disable the refresh button, while manual refresh does", async () => {
+  vi.useFakeTimers();
+  vi.mocked(strategyRequest).mockResolvedValueOnce(runtime(InstanceState.READY));
+  render(<Packages account="account-a" repository="" />);
+  await act(async () => {});
+  let resolvePoll!: (value: Strategies) => void;
+  vi.mocked(strategyRequest).mockReturnValueOnce(
+    new Promise(resolve => {
+      resolvePoll = resolve;
+    }),
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(3000);
+  });
+  const refreshButton = screen.getByRole("button", { name: "刷新版本" }) as HTMLButtonElement;
+  expect(refreshButton.disabled).toBe(false);
+  await act(async () => resolvePoll(runtime(InstanceState.READY)));
+
+  let resolveManual!: (value: Strategies) => void;
+  vi.mocked(strategyRequest).mockReturnValueOnce(
+    new Promise(resolve => {
+      resolveManual = resolve;
+    }),
+  );
+  fireEvent.click(refreshButton);
+  expect(refreshButton.disabled).toBe(true);
+  await act(async () => resolveManual(runtime(InstanceState.READY)));
+  expect(refreshButton.disabled).toBe(false);
+});
