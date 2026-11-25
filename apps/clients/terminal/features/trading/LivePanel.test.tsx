@@ -262,6 +262,45 @@ test("account setup surfaces catalog sync failures with a retry button", async (
   expect(await screen.findByRole("combobox", { name: "添加合约" })).toBeTruthy();
 });
 
+test("an unreachable trading service explains the failure and links to trading settings", async () => {
+  vi.mocked(tradingRequest).mockRejectedValue(
+    new BackendError("unavailable", "RPC connection refused"),
+  );
+  const openSettings = vi.fn();
+  const offline = readySnapshot();
+  const connections = [
+    {
+      id: "offline-acct",
+      host: "192.168.50.20",
+      port: 7460,
+      instance: "simnow",
+      fingerprint: "f".repeat(64),
+      revision: "1",
+    },
+  ];
+  offline.trading_connections = connections;
+  render(
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="offline">
+      <TradingAccountsProvider connections={connections}>
+        <LivePanel
+          snapshot={offline}
+          busy={false}
+          error=""
+          trade={vi.fn()}
+          navigate={vi.fn()}
+          openSettings={openSettings}
+        />
+      </TradingAccountsProvider>
+    </WorkspaceDraftScope>,
+  );
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain("服务未连接");
+  expect(alert.textContent).toContain("192.168.50.20:7460");
+  expect(alert.textContent).toContain("服务拒绝连接，请求未发送");
+  fireEvent.click(screen.getByRole("button", { name: "交易服务设置" }));
+  expect(openSettings).toHaveBeenCalledWith("trading");
+});
+
 test("the account's broker facts follow each read", async () => {
   show("facts");
   expect(await screen.findByText("持仓已核对")).toBeTruthy();

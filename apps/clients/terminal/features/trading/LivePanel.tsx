@@ -6,6 +6,8 @@ import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import type { TradingConnection } from "../../src/bridge/client";
 import { BrokerState, Environment } from "../../src/generated/asterion/trading_pb";
 import { useTradingAccounts, type TradingView } from "../../src/host/trading-accounts";
+import { ErrorNotice } from "../../src/i18n/errors";
+import { StatusBadge } from "../../src/ui/StatusBadge";
 import { t, phases, type Run } from "./live-shared";
 import { CreateLive } from "./CreateLive";
 import { EmergencyControls } from "./EmergencyControls";
@@ -210,11 +212,34 @@ function AccountColumn({
             />
           </div>
         ) : (
-          <div className="workflow-empty">
-            <p>
-              {account.instance} · {account.host}:{account.port}
-            </p>
-            {!view?.failed && <p role="status">{t("正在读取交易服务…")}</p>}
+          <div className="workspace-empty" role={view?.failed ? "alert" : undefined}>
+            <div className="trading-empty-card">
+              <div className="trading-empty-head">
+                <strong>{account.instance}</strong>
+                {view?.failed && <StatusBadge tone="danger">{t("服务未连接")}</StatusBadge>}
+              </div>
+              <code className="trading-empty-address">
+                {account.host}:{account.port}
+              </code>
+              {view?.failed ? (
+                <p>
+                  <ErrorNotice error={view.failed} namespace="asterion.terminal.trading" />
+                </p>
+              ) : (
+                <p role="status">{t("正在读取交易服务…")}</p>
+              )}
+              {view?.failed && (
+                <div className="workspace-empty-actions">
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() => context.openSettings("trading")}
+                  >
+                    {t("交易服务设置")}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

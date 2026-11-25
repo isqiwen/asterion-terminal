@@ -207,6 +207,11 @@
 .paper-trading > .workflow-empty {
   padding: 32px var(--space-page);
 }
+.ctp-account-panel > .workspace-empty {
+  flex: 1;
+  padding: var(--space-5);
+  border-bottom: 0;
+}
 .ctp-account-panel .source-actions {
   padding: 0 0 var(--space-4);
 }

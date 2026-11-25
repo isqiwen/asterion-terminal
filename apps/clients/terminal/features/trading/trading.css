@@ -1030,6 +1030,36 @@
   justify-content: space-between;
   gap: var(--space-2) var(--space-3);
 }
+.trading-empty-card {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-3);
+  width: min(460px, 100%);
+  padding: var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+  background: var(--panel);
+  box-shadow: var(--surface-highlight);
+  text-align: center;
+}
+.trading-empty-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: safe center;
+  justify-content: center;
+  gap: var(--space-2);
+}
+.trading-empty-head strong {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.trading-empty-address {
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-body);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
 .ctp-account-facts {
   display: flex;
   flex-wrap: wrap;
