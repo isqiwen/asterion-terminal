@@ -752,6 +752,7 @@ class CombinedStrategy(Strategy):
         self._standing = [{} for _ in self._subs]
         self._was_ready = [False for _ in self._subs]
         self._all_ready = False
+        self.last_components: list[dict] = []
 
     def ready(self, ctx: Context) -> bool:
         return self._all_ready
@@ -779,6 +780,15 @@ class CombinedStrategy(Strategy):
                 self._standing[idx] = view.wanted
                 changed = True
         self._all_ready = all(ready_flags)
+        self.last_components = [
+            {
+                "name": type(sub).__name__,
+                "share": share,
+                "ready": bool(self._was_ready[idx]),
+                "weights": dict(self._standing[idx]),
+            }
+            for idx, (sub, share) in enumerate(self._subs)
+        ]
         if self._all_ready and changed:
             ctx.weights(combine_weights(
                 [(self._standing[i], share) for i, (_, share) in enumerate(self._subs)],

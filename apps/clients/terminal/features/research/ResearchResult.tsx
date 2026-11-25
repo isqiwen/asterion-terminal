@@ -14,7 +14,7 @@ import type {
   RunSummary,
 } from "../../src/generated/asterion/lab_pb";
 import { useErrorNotification } from "../../src/host/notifications";
-import { type MessageValues, translate, listSeparator } from "../../src/i18n";
+import { getLocale, type MessageValues, translate, listSeparator } from "../../src/i18n";
 import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
 import { warehouseName } from "../../src/ui/contract-names";
 import { protocolPeriod } from "../../src/ui/periods";
@@ -342,9 +342,9 @@ export function RunResult({
   const [detail, setDetail] = useState<RunDetail | null>(null);
   const [contract, setContract] = useState("");
   const [error, setError] = useState<DisplayError>("");
-  const [tab, setTab] = useState<"overview" | "bars" | "fills" | "days" | "quantstats" | "record">(
-    "overview",
-  );
+  const [tab, setTab] = useState<
+    "overview" | "diagnostics" | "bars" | "fills" | "days" | "quantstats" | "record"
+  >("overview");
   const [focusedDay, setFocusedDay] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
@@ -466,6 +466,7 @@ export function RunResult({
   const refused = rejections.reduce((sum, row) => sum + row.count, 0);
   const tabs = [
     ["overview", t("概览")],
+    ["diagnostics", t("归因与诊断")],
     ["bars", t("K 线与买卖点")],
     ["fills", t("成交（{count} 笔）", { count: detail.fills.length })],
     ["days", t("每日资金")],
@@ -624,6 +625,7 @@ export function RunResult({
           <MonthlyReturns months={months} />
         </>
       )}
+      {tab === "diagnostics" && <RunDiagnostics detail={detail} record={record} />}
       {tab === "bars" && (
         <RunChart detail={detail} data={record.data} contract={contract} choose={setContract} />
       )}
@@ -698,6 +700,386 @@ export function RunResult({
 }
 
 // Each month's return, a year to a row, with the year's compounded total.
+const sectorLabels: Record<string, string> = {
+  black: "黑色",
+  nonferrous: "有色",
+  precious: "贵金属",
+  energy_chem: "能化",
+  oilseeds: "油脂油料",
+  agriculture: "农副",
+  financial: "金融",
+  other: "其他",
+};
+
+type DiagnosticsData = {
+  trades?: {
+    count?: number;
+    wins?: number;
+    losses?: number;
+    win_rate?: number | null;
+    payoff_ratio?: number | null;
+    profit_factor?: number | null;
+    avg_holding_days?: number | null;
+  };
+  costs?: {
+    gross_pnl?: number;
+    fees?: number;
+    estimated_slippage?: number;
+    net_pnl?: number;
+    traded_notional?: number;
+    annual_turnover?: number | null;
+  };
+  exposure?: {
+    avg_margin_ratio?: number | null;
+    peak_margin_ratio?: number | null;
+    avg_gross_leverage?: number | null;
+    peak_gross_leverage?: number | null;
+    avg_net_exposure?: number | null;
+    max_drawdown_days?: number;
+  };
+  direction?: {
+    long_pnl?: number;
+    short_pnl?: number;
+    long_trades?: number;
+    short_trades?: number;
+    long_win_rate?: number | null;
+    short_win_rate?: number | null;
+  };
+  by_symbol?: Array<{
+    symbol: string;
+    sector: string;
+    gross_pnl: number;
+    fees: number;
+    slippage_cost: number;
+    net_pnl: number;
+    long_pnl: number;
+    short_pnl: number;
+    fills: number;
+  }>;
+  by_sector?: Array<{
+    sector: string;
+    gross_pnl: number;
+    fees: number;
+    slippage_cost: number;
+    net_pnl: number;
+    long_pnl: number;
+    short_pnl: number;
+    fills: number;
+  }>;
+  components?: Array<{
+    name: string;
+    share: number;
+    ready_rate: number;
+    active_bars: number;
+    total_bars: number;
+    avg_gross_weight: number;
+    avg_contribution_weight: number;
+    proxy_return: number;
+  }>;
+};
+
+function money(value: number | null | undefined) {
+  if (value === undefined || value === null || !Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat(getLocale(), {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function RunDiagnostics({
+  detail,
+  record,
+}: {
+  detail: RunDetail;
+  record: { costs?: { deposit?: string }; data?: { diagnostics?: DiagnosticsData } };
+}) {
+  const diag = useMemo<DiagnosticsData>(() => {
+    if (record.data?.diagnostics) return record.data.diagnostics;
+    // Fallback for runs recorded before diagnostics were persisted.
+    const deposit = Number(record.costs?.deposit ?? 0);
+    let peak = Number.isFinite(deposit) && deposit > 0 ? deposit : 0;
+    let curDd = 0;
+    let maxDd = 0;
+    let marginSum = 0;
+    let marginPeak = 0;
+    let marginDays = 0;
+    let fees = 0;
+    for (const item of detail.days) {
+      const eq = Number(item.equity?.text ?? 0);
+      const margin = Number(item.margin?.text ?? 0);
+      fees += Number(item.fees?.text ?? 0);
+      if (eq >= peak) {
+        peak = eq;
+        curDd = 0;
+      } else {
+        curDd += 1;
+        if (curDd > maxDd) maxDd = curDd;
+      }
+      if (eq > 0) {
+        const ratio = margin / eq;
+        marginSum += ratio;
+        marginPeak = Math.max(marginPeak, ratio);
+        marginDays += 1;
+      }
+    }
+    const lastEq = detail.days.length
+      ? Number(detail.days.at(-1)!.equity?.text ?? deposit)
+      : deposit;
+    const netPnl = lastEq - deposit;
+    return {
+      costs: { gross_pnl: netPnl + fees, fees, net_pnl: netPnl },
+      exposure: {
+        avg_margin_ratio: marginDays ? marginSum / marginDays : null,
+        peak_margin_ratio: marginDays ? marginPeak : null,
+        max_drawdown_days: maxDd,
+      },
+    };
+  }, [detail.days, record]);
+
+  const trades = diag.trades ?? {};
+  const costs = diag.costs ?? {};
+  const exposure = diag.exposure ?? {};
+  const direction = diag.direction ?? {};
+  const bySymbol = diag.by_symbol ?? [];
+  const bySector = diag.by_sector ?? [];
+  const components = diag.components ?? [];
+  const sectorName = (id: string) => t(sectorLabels[id] ?? "其他");
+  const symbolLabel = (symbol: string) => {
+    const name = warehouseName(symbol);
+    return name ? `${name} ${symbol}` : symbol;
+  };
+  return (
+    <>
+      <h3>{t("交易质量")}</h3>
+      <dl className="lab-figures">
+        <div>
+          <dt>{t("回合数")}</dt>
+          <dd>{trades.count ?? "—"}</dd>
+        </div>
+        <div>
+          <dt>{t("胜率")}</dt>
+          <dd>{metric(trades.win_rate ?? undefined, true)}</dd>
+        </div>
+        <div>
+          <dt>{t("盈亏比")}</dt>
+          <dd>{metric(trades.payoff_ratio ?? undefined, false)}</dd>
+        </div>
+        <div>
+          <dt>{t("盈利因子")}</dt>
+          <dd>{metric(trades.profit_factor ?? undefined, false)}</dd>
+        </div>
+        <div>
+          <dt>{t("平均持仓")}</dt>
+          <dd>
+            {trades.avg_holding_days != null
+              ? t("{days} 天", { days: trades.avg_holding_days.toFixed(1) })
+              : "—"}
+          </dd>
+        </div>
+        <div>
+          <dt>{t("年化换手")}</dt>
+          <dd>{costs.annual_turnover != null ? `${costs.annual_turnover.toFixed(2)}x` : "—"}</dd>
+        </div>
+        <div>
+          <dt>{t("最长水下")}</dt>
+          <dd>
+            {exposure.max_drawdown_days !== undefined
+              ? t("{days} 天", { days: exposure.max_drawdown_days })
+              : "—"}
+          </dd>
+        </div>
+        <div>
+          <dt>{t("峰值保证金率")}</dt>
+          <dd>{metric(exposure.peak_margin_ratio ?? undefined, true)}</dd>
+        </div>
+        <div>
+          <dt>{t("峰值杠杆")}</dt>
+          <dd>
+            {exposure.peak_gross_leverage != null
+              ? `${exposure.peak_gross_leverage.toFixed(2)}x`
+              : "—"}
+          </dd>
+        </div>
+        <div>
+          <dt>{t("均值净敞口")}</dt>
+          <dd className={signed(exposure.avg_net_exposure)}>
+            {metric(exposure.avg_net_exposure ?? undefined, true)}
+          </dd>
+        </div>
+      </dl>
+
+      <h3>{t("成本与方向")}</h3>
+      <dl className="lab-figures">
+        <div>
+          <dt>{t("毛盈亏")}</dt>
+          <dd className={signed(costs.gross_pnl)}>{money(costs.gross_pnl)}</dd>
+        </div>
+        <div>
+          <dt>{t("手续费")}</dt>
+          <dd>{money(costs.fees)}</dd>
+        </div>
+        <div>
+          <dt>{t("估算滑点")}</dt>
+          <dd>{money(costs.estimated_slippage)}</dd>
+        </div>
+        <div>
+          <dt>{t("净盈亏")}</dt>
+          <dd className={signed(costs.net_pnl)}>{money(costs.net_pnl)}</dd>
+        </div>
+        <div>
+          <dt>{t("多头盈亏")}</dt>
+          <dd className={signed(direction.long_pnl)}>{money(direction.long_pnl)}</dd>
+        </div>
+        <div>
+          <dt>{t("空头盈亏")}</dt>
+          <dd className={signed(direction.short_pnl)}>{money(direction.short_pnl)}</dd>
+        </div>
+      </dl>
+
+      {bySymbol.length > 0 && (
+        <>
+          <h3>{t("分品种归因")}</h3>
+          <div className="lab-scroll">
+            <table className="lab-table" aria-label={t("分品种归因")}>
+              <thead>
+                <tr>
+                  <th scope="col">{t("品种")}</th>
+                  <th scope="col">{t("板块")}</th>
+                  <th scope="col" className="numeric">
+                    {t("净盈亏")}
+                  </th>
+                  <th scope="col" className="numeric">
+                    {t("毛盈亏")}
+                  </th>
+                  <th scope="col" className="numeric">
+                    {t("手续费")}
+                  </th>
+                  <th scope="col" className="numeric">
+                    {t("估算滑点")}
+                  </th>
+                  <th scope="col" className="numeric">
+                    {t("多头")}
+                  </th>
+                  <th scope="col" className="numeric">
+                    {t("空头")}
+                  </th>
+                  <th scope="col" className="numeric">
+                    {t("成交笔数")}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {bySymbol.map(row => (
+                  <tr key={row.symbol}>
+                    <th scope="row">{symbolLabel(row.symbol)}</th>
+                    <td>{sectorName(row.sector)}</td>
+                    <td className={`numeric ${signed(row.net_pnl)}`}>{money(row.net_pnl)}</td>
+                    <td className={`numeric ${signed(row.gross_pnl)}`}>{money(row.gross_pnl)}</td>
+                    <td className="numeric">{money(row.fees)}</td>
+                    <td className="numeric">{money(row.slippage_cost)}</td>
+                    <td className={`numeric ${signed(row.long_pnl)}`}>{money(row.long_pnl)}</td>
+                    <td className={`numeric ${signed(row.short_pnl)}`}>{money(row.short_pnl)}</td>
+                    <td className="numeric">{row.fills}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {bySector.length > 1 && (
+        <>
+          <h3>{t("分板块归因")}</h3>
+          <div className="lab-scroll">
+            <table className="lab-table" aria-label={t("分板块归因")}>
+              <thead>
+                <tr>
+                  <th scope="col">{t("板块")}</th>
+                  <th scope="col" className="numeric">
+                    {t("净盈亏")}
+                  </th>
+                  <th scope="col" className="numeric">
+                    {t("毛盈亏")}
+                  </th>
+                  <th scope="col" className="numeric">
+                    {t("手续费")}
+                  </th>
+                  <th scope="col" className="numeric">
+                    {t("多头")}
+                  </th>
+                  <th scope="col" className="numeric">
+                    {t("空头")}
+                  </th>
+                  <th scope="col" className="numeric">
+                    {t("成交笔数")}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {bySector.map(row => (
+                  <tr key={row.sector}>
+                    <th scope="row">{sectorName(row.sector)}</th>
+                    <td className={`numeric ${signed(row.net_pnl)}`}>{money(row.net_pnl)}</td>
+                    <td className={`numeric ${signed(row.gross_pnl)}`}>{money(row.gross_pnl)}</td>
+                    <td className="numeric">{money(row.fees)}</td>
+                    <td className={`numeric ${signed(row.long_pnl)}`}>{money(row.long_pnl)}</td>
+                    <td className={`numeric ${signed(row.short_pnl)}`}>{money(row.short_pnl)}</td>
+                    <td className="numeric">{row.fills}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {components.length > 0 && (
+        <>
+          <h3>{t("子策略过程与贡献")}</h3>
+          <div className="lab-scroll">
+            <table className="lab-table" aria-label={t("子策略过程与贡献")}>
+              <thead>
+                <tr>
+                  <th scope="col">{t("子策略")}</th>
+                  <th scope="col" className="numeric">
+                    {t("配权")}
+                  </th>
+                  <th scope="col" className="numeric">
+                    {t("就绪率")}
+                  </th>
+                  <th scope="col" className="numeric">
+                    {t("平均毛权重")}
+                  </th>
+                  <th scope="col" className="numeric">
+                    {t("组合权重贡献")}
+                  </th>
+                  <th scope="col" className="numeric">
+                    {t("代理收益贡献")}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {components.map(row => (
+                  <tr key={row.name}>
+                    <th scope="row">{row.name}</th>
+                    <td className="numeric">{metric(row.share, true)}</td>
+                    <td className="numeric">{metric(row.ready_rate, true)}</td>
+                    <td className="numeric">{metric(row.avg_gross_weight, true)}</td>
+                    <td className="numeric">{metric(row.avg_contribution_weight, true)}</td>
+                    <td className={`numeric ${signed(row.proxy_return)}`}>
+                      {metric(row.proxy_return, true)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </>
+  );
+}
 function MonthlyReturns({ months }: { months: { month: string; value: number }[] }) {
   const years = [...new Set(months.map(item => item.month.slice(0, 4)))];
   const of = new Map(months.map(item => [item.month, item.value]));

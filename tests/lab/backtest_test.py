@@ -2291,6 +2291,95 @@ class BacktestSweeps(BacktestCase):
         with self.assertRaisesRegex(ValueError, "incomplete price limits"):
             backtest.contract_input(bad_data, config, contract, DAYS[0].isoformat(), DAYS[0].isoformat())
 
+    def test_diagnostics_attribute_round_trips_sectors_exposure_and_components(self):
+        import asterion_engine
+        from asterion_lab import diagnostics
+        from asterion_strategy import CombinedStrategy
+        from warehouse_fixture import contract_row, price_tick, settlement
+
+        rb = "SHFE/rb/2026-05"
+        cu = "SHFE/cu/2026-05"
+        writer = Warehouse(self.directory).writer()
+        writer.put_rows("contracts/SHFE", "contracts", [contract_row(rb), contract_row(cu)])
+        writer.put_rows("price_ticks/SHFE", "price_ticks", [price_tick(rb), price_tick(cu)])
+        for d in DAYS[:5]:
+            writer.put_rows(
+                f"settlement/SHFE/{d.isoformat()}", "settlement",
+                [settlement(rb, d), settlement(cu, d)],
+            )
+        writer.add_days("SHFE", "2026-01", [
+            daily(rb, DAYS[0], 3000, 500),
+            daily(rb, DAYS[1], 3100, 500),
+            daily(rb, DAYS[2], 3200, 500),
+            daily(rb, DAYS[3], 3300, 500),
+            daily(rb, DAYS[4], 3400, 500),
+            daily(cu, DAYS[0], 7000, 500),
+            daily(cu, DAYS[1], 6900, 500),
+            daily(cu, DAYS[2], 6800, 500),
+            daily(cu, DAYS[3], 6700, 500),
+            daily(cu, DAYS[4], 6600, 500),
+        ], [d.isoformat() for d in DAYS[:5]])
+        version = writer.commit().identity
+
+        class LongRb(Strategy):
+            def ready(self, ctx):
+                return True
+
+            def on_bars(self, ctx, bars):
+                seen = len(ctx.history(rb, "close", 10))
+                ctx.weights({rb: 0.4 if seen in (1, 2) else 0.0, cu: 0.0})
+
+        class ShortCu(Strategy):
+            def ready(self, ctx):
+                return True
+
+            def on_bars(self, ctx, bars):
+                seen = len(ctx.history(cu, "close", 10))
+                ctx.weights({rb: 0.0, cu: -0.3 if seen in (1, 2) else 0.0})
+
+        class TwoLeg(CombinedStrategy):
+            def components(self):
+                return [(LongRb(), 0.6), (ShortCu(), 0.4)]
+
+        config = backtest.Config(
+            repository=str(self.repository), strategy="two_leg.TwoLeg", params={},
+            symbols=(rb, cu), begin_day=DAYS[0].isoformat(), end_day=DAYS[4].isoformat(),
+            deposit=Decimal(1000000), costs=None, slippage_ticks=1,
+            max_order_lots=Decimal(100), max_gross_lots=Decimal(500),
+            max_contract_lots=Decimal(200), max_working_orders=32,
+            max_gross_weight=Decimal(1), max_net_weight=Decimal(1),
+            annual_periods=252, zero_risk_free=True, dataset_version=version,
+        )
+        data = backtest.Data(Dataset(self.directory), config.begin_day, config.end_day, version=version)
+        contracts, series, first = backtest.prepare(data, config)
+        r = backtest.R
+        engine = asterion_engine.Replay(
+            backtest.raw(config.deposit), contracts, series,
+            (100 * r, 500 * r, 32, 200 * r),
+        )
+        symbols = {engine.unit(index): symbol for symbol, index in first.items()}
+        strategy = TwoLeg()
+        tracker = diagnostics.ComponentTracker(strategy, backtest.rolls(contracts))
+        backtest.replay(engine, strategy, symbols, contracts, config, decided=tracker.observe)
+        run_tables = backtest.tables(engine, contracts)
+        diag = diagnostics.compute(config, contracts, run_tables, tracker.summary())
+
+        self.assertGreaterEqual(diag["trades"]["count"], 2)
+        self.assertAlmostEqual(diag["trades"]["win_rate"], 1.0)
+        self.assertGreater(diag["costs"]["fees"], 0.0)
+        self.assertGreater(diag["costs"]["estimated_slippage"], 0.0)
+        self.assertGreater(diag["exposure"]["peak_margin_ratio"], 0.0)
+        self.assertGreater(diag["exposure"]["peak_gross_leverage"], 0.0)
+        # Per-symbol net P&L sums to actual equity change (realized + unrealized - fees).
+        final_equity = float(run_tables["settlements"]["equity"][-1])
+        self.assertAlmostEqual(diag["costs"]["net_pnl"], final_equity - 1000000.0, places=2)
+        sectors = {row["sector"] for row in diag["by_sector"]}
+        self.assertEqual(sectors, {"black", "nonferrous"})
+        self.assertEqual([c["name"] for c in diag["components"]], ["LongRb", "ShortCu"])
+        self.assertAlmostEqual(diag["components"][0]["share"], 0.6)
+        self.assertAlmostEqual(diag["components"][0]["ready_rate"], 1.0)
+        self.assertGreater(diag["components"][0]["proxy_return"], 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -413,3 +413,117 @@ test("run comparison shows series swatches, differing run contexts, and date ali
   expect(screen.getByRole("row", { name: /品种 SHFE\/rb DCE\/i/ })).toBeTruthy();
   expect(screen.getByText("净值曲线按首次运行（r1）的交易日对齐")).toBeTruthy();
 });
+
+test("diagnostics tab renders trade quality, symbol/sector attribution, and combined strategy components", async () => {
+  vi.mocked(lab).mockReset();
+  vi.mocked(lab).mockImplementation(async operation => {
+    if (operation.case !== "getRun") throw new Error("Unexpected operation");
+    return create(RunDetailSchema, {
+      summary: { id: "diag-run", state: RunState.SUCCEEDED },
+      record: JSON.stringify({
+        strategy: { id: "composite.CompositePortfolio", commit: "", changes: "" },
+        costs: { deposit: "1000000" },
+        engine: { version: "test" },
+        data: {
+          dataset_version: "a".repeat(64),
+          symbols: ["SHFE/rb", "SHFE/cu"],
+          begin_day: "2025-01-02",
+          end_day: "2026-02-13",
+          bars: { period: "day" },
+          diagnostics: {
+            trades: {
+              count: 20,
+              wins: 13,
+              losses: 7,
+              win_rate: 0.65,
+              payoff_ratio: 1.5,
+              profit_factor: 2.25,
+              avg_holding_days: 4.5,
+            },
+            costs: {
+              gross_pnl: 50000,
+              fees: 2000,
+              estimated_slippage: 1500,
+              net_pnl: 48000,
+              annual_turnover: 8.5,
+            },
+            exposure: {
+              peak_margin_ratio: 0.28,
+              peak_gross_leverage: 1.4,
+              avg_net_exposure: 0.12,
+              max_drawdown_days: 14,
+            },
+            direction: { long_pnl: 30000, short_pnl: 18000 },
+            by_symbol: [
+              {
+                symbol: "SHFE/rb",
+                sector: "black",
+                gross_pnl: 35000,
+                fees: 1200,
+                slippage_cost: 900,
+                net_pnl: 33800,
+                long_pnl: 20000,
+                short_pnl: 13800,
+                fills: 12,
+              },
+              {
+                symbol: "SHFE/cu",
+                sector: "nonferrous",
+                gross_pnl: 15000,
+                fees: 800,
+                slippage_cost: 600,
+                net_pnl: 14200,
+                long_pnl: 10000,
+                short_pnl: 4200,
+                fills: 8,
+              },
+            ],
+            by_sector: [
+              {
+                sector: "black",
+                gross_pnl: 35000,
+                fees: 1200,
+                slippage_cost: 900,
+                net_pnl: 33800,
+                long_pnl: 20000,
+                short_pnl: 13800,
+                fills: 12,
+              },
+              {
+                sector: "nonferrous",
+                gross_pnl: 15000,
+                fees: 800,
+                slippage_cost: 600,
+                net_pnl: 14200,
+                long_pnl: 10000,
+                short_pnl: 4200,
+                fills: 8,
+              },
+            ],
+            components: [
+              {
+                name: "MultiFactorRank",
+                share: 0.6,
+                ready_rate: 0.9,
+                active_bars: 18,
+                total_bars: 20,
+                avg_gross_weight: 0.5,
+                avg_contribution_weight: 0.3,
+                proxy_return: 0.04,
+              },
+            ],
+          },
+        },
+      }),
+    }) as never;
+  });
+  render(<RunResult id="diag-run" state="succeeded" />);
+  fireEvent.click(await screen.findByRole("button", { name: "归因与诊断" }));
+  expect(screen.getByText("65.00%")).toBeTruthy();
+  expect(screen.getByText("2.250")).toBeTruthy();
+  expect(screen.getByText("14 天")).toBeTruthy();
+  expect(screen.getByRole("table", { name: "分品种归因" })).toBeTruthy();
+  expect(screen.getByRole("table", { name: "分板块归因" })).toBeTruthy();
+  const comp = screen.getByRole("table", { name: "子策略过程与贡献" });
+  expect(within(comp).getByRole("rowheader", { name: "MultiFactorRank" })).toBeTruthy();
+});

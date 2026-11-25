@@ -19,7 +19,7 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
-from asterion_lab import backtest, repository
+from asterion_lab import backtest, diagnostics, repository
 from asterion_lab.backtest import R, raw
 from asterion_lab.runs import Runs
 from asterion_strategy import Context, quantize_weight, step
@@ -219,8 +219,14 @@ def run(directory: Path, identity: str, sweep: str, config, training: int, valid
         # Out of sample: from the first validation day on.
         result.update({f"out_of_sample_{name}": value for name, value in
                        backtest.segment_metrics(config, engine, training).items()})
-        runs.succeed(identity, backtest.tables(engine, contracts), result,
-                     backtest.replay_record(engine, contracts, config.minutes))
+        run_tables = backtest.tables(engine, contracts)
+        run_diag = diagnostics.compute(config, contracts, run_tables)
+        runs.succeed(
+            identity,
+            run_tables,
+            result,
+            backtest.replay_record(engine, contracts, config.minutes, run_diagnostics=run_diag),
+        )
     except BaseException as error:
         runs.end(identity, "failed", str(error) or type(error).__name__)
         raise

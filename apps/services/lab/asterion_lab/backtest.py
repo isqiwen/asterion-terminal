@@ -44,9 +44,9 @@ from pathlib import Path
 
 import polars as pl
 
-from asterion_lab import chart, dominant, pit, repository
+from asterion_lab import chart, diagnostics, dominant, pit, repository
 from asterion_lab.runs import AMOUNT, TABLES, Plan, Runs
-from asterion_strategy import Bar, Context, quantize_weight, step
+from asterion_strategy import Bar, CombinedStrategy, Context, quantize_weight, step
 from asterion_lab.warehouse_client import Dataset
 
 R = 10 ** 8
@@ -893,8 +893,16 @@ def held_without_prices(engine, contracts: list):
                              f"{spans(days, item['unpriced'])}, while it is held")
 
 
-def replay_record(engine, contracts: list, minutes: int) -> dict:
+def replay_record(
+    engine,
+    contracts: list,
+    minutes: int,
+    *,
+    run_diagnostics: dict | None = None,
+) -> dict:
     data = {"rejections": rejections_record(engine, contracts)}
+    if run_diagnostics is not None:
+        data["diagnostics"] = run_diagnostics
     if minutes:
         days = [day for item in contracts for day in item["excluded"]]
         data["excluded"] = {"bars": len(days), "days": sorted(set(days))}
@@ -948,10 +956,29 @@ def run(directory: Path, identity: str, config: Config, started=lambda: None):
             (raw(config.max_order_lots), raw(config.max_gross_lots), config.max_working_orders,
              raw(config.max_contract_lots)))
         symbols = {engine.unit(index): symbol for symbol, index in first.items()}
-        replay(engine, strategy, symbols, contracts, config)
+        tracker = (
+            diagnostics.ComponentTracker(strategy, rolls(contracts))
+            if isinstance(strategy, CombinedStrategy)
+            else None
+        )
+        replay(
+            engine,
+            strategy,
+            symbols,
+            contracts,
+            config,
+            decided=tracker.observe if tracker is not None else (lambda bars, wanted: None),
+        )
         held_without_prices(engine, contracts)
-        runs.succeed(identity, tables(engine, contracts), metrics(config, engine),
-                     replay_record(engine, contracts, config.minutes))
+        run_tables = tables(engine, contracts)
+        run_diag = diagnostics.compute(
+            config,
+            contracts,
+            run_tables,
+            tracker.summary() if tracker is not None else None,
+        )
+        runs.succeed(identity, run_tables, metrics(config, engine),
+                     replay_record(engine, contracts, config.minutes, run_diagnostics=run_diag))
     except BaseException as error:
         runs.end(identity, "failed", str(error) or type(error).__name__)
         raise
