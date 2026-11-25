@@ -41,6 +41,7 @@ from asterion_strategy import (
     KINDS,
     Context,
     observe,
+    verify_factor_causality,
 )
 
 MINIMUM = 3  # symbols a day's IC needs
@@ -413,10 +414,13 @@ def run(directory: Path, admitted, reply):
         raise ValueError("a factor is evaluated over one or more symbols")
     function, inputs, defaults = repository.factor(Path(admitted.source), request.factor)
     settings = settings_of(request, defaults)
+    verify_factor_causality(function, inputs, settings, request.factor)
     extras = []
     for item in request.extra_factors:
         ex_fn, ex_inputs, ex_defaults = repository.factor(Path(admitted.source), item.factor)
-        extras.append((item.factor, ex_fn, ex_inputs, settings_of(item, ex_defaults)))
+        ex_settings = settings_of(item, ex_defaults)
+        verify_factor_causality(ex_fn, ex_inputs, ex_settings, item.factor)
+        extras.append((item.factor, ex_fn, ex_inputs, ex_settings))
     data = Data(Dataset(directory), request.first_day, request.last_day,
                 version=admitted.pinned.dataset_version)
     prepared = {}

@@ -499,6 +499,31 @@ class Repository(unittest.TestCase):
         # Symbol A has both f1 (-expected_d) and f2 (-1.0 over [1, 2, 3]), averaged equally.
         self.assertAlmostEqual(values["A"], 0.5 * (-expected_d - 1.0), places=5)
 
+    def test_evaluation_rejects_lookahead_factor_automatically(self):
+        (self.repository / "factors/leaky.py").write_text(
+            "import numpy as np\n\ndef future_close(close):\n    return np.roll(close, -1)\n"
+        )
+
+        class Log:
+            def write(self, *args, **kwargs):
+                pass
+
+        async def scenario():
+            service = Service("lab", self.directory, Log())
+            req = Request(id=1)
+            ev = req.evaluate_factor
+            ev.id = "leaky-1"
+            ev.repository, ev.factor = str(self.repository), "leaky.future_close"
+            ev.symbols.append("SHFE/rb")
+            ev.first_day, ev.last_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
+            ev.horizons.append(1)
+            ev.groups = 2
+            reply = await service.reply(req)
+            self.assertEqual(reply.WhichOneof("result"), "error")
+            self.assertIn("failed causality check", reply.error.message)
+
+        asyncio.run(scenario())
+
 
 if __name__ == "__main__":
     unittest.main()

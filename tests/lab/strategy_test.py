@@ -609,6 +609,71 @@ class Repository(unittest.TestCase):
                               min_bars=3, min_volume=100.0, min_open_interest=500.0)
         self.assertEqual(elig, ["SHFE/rb"])
 
+    def test_causal_operators_and_cross_sectional_hygiene(self):
+        import numpy as np
+        from asterion_strategy import (
+            check_factor,
+            decay_linear,
+            orthogonalize,
+            product_sector,
+            sector_neutralize,
+            ts_corr,
+            ts_delta,
+            ts_mean,
+            ts_pct_change,
+            ts_rank,
+            ts_std,
+            ts_zscore,
+            winsorize_mad,
+        )
+
+        x = np.array([10.0, 20.0, 30.0, 20.0, 40.0, 50.0])
+        y = np.array([1.0, 2.0, 3.0, 2.0, 4.0, 5.0])
+        np.testing.assert_allclose(ts_mean(x, 3), [np.nan, np.nan, 20.0, 70 / 3, 30.0, 110 / 3], equal_nan=True)
+        np.testing.assert_allclose(ts_std(x, 3)[-1], np.std([20.0, 40.0, 50.0], ddof=1))
+        np.testing.assert_allclose(ts_delta(x, 2), [np.nan, np.nan, 20.0, 0.0, 10.0, 30.0], equal_nan=True)
+        np.testing.assert_allclose(ts_pct_change(x, 1)[1:3], [1.0, 0.5])
+        np.testing.assert_allclose(ts_rank(x, 3), [np.nan, np.nan, 1.0, 0.25, 1.0, 1.0], equal_nan=True)
+        self.assertAlmostEqual(ts_zscore(np.array([5.0, 5.0, 5.0]), 3)[-1], 0.0)
+        self.assertAlmostEqual(ts_corr(x, y, 4)[-1], 1.0)
+        self.assertAlmostEqual(decay_linear(np.array([1.0, 2.0, 3.0]), 3)[-1], (1 + 4 + 9) / 6)
+
+        for fn, args in (
+            (lambda close: ts_mean(close, 3), {"close": x}),
+            (lambda close: ts_std(close, 3), {"close": x}),
+            (lambda close: ts_delta(close, 2), {"close": x}),
+            (lambda close: ts_pct_change(close, 2), {"close": x}),
+            (lambda close: ts_rank(close, 3), {"close": x}),
+            (lambda close: ts_zscore(close, 3), {"close": x}),
+            (lambda close, volume: ts_corr(close, volume, 3), {"close": x, "volume": y}),
+            (lambda close: decay_linear(close, 3), {"close": x}),
+        ):
+            check_factor(fn, args, 3)
+
+        self.assertEqual(product_sector("SHFE/rb"), "black")
+        self.assertEqual(product_sector("SHFE/rb/2026-10"), "black")
+        self.assertEqual(product_sector("CFFEX/IF"), "financial")
+        self.assertEqual(product_sector("SHFE/unknown_prod"), "")
+
+        clipped = winsorize_mad({"a": 1.0, "b": 2.0, "c": 3.0, "d": 4.0, "e": 100.0}, n=3.0)
+        self.assertLess(clipped["e"], 20.0)
+        self.assertEqual(clipped["b"], 2.0)
+
+        neutral = sector_neutralize({"SHFE/rb": 10.0, "DCE/i": 20.0, "SHFE/cu": 100.0, "SHFE/al": 110.0})
+        self.assertAlmostEqual(neutral["SHFE/rb"], -5.0)
+        self.assertAlmostEqual(neutral["DCE/i"], 5.0)
+        self.assertAlmostEqual(neutral["SHFE/cu"], -5.0)
+        self.assertAlmostEqual(neutral["SHFE/al"], 5.0)
+
+        # Target = 2 * ctrl + 3 + alpha; OLS residual removes the ctrl component cleanly.
+        ctrl = {"a": 1.0, "b": 2.0, "c": 3.0, "d": 4.0}
+        alpha = {"a": 1.0, "b": -1.0, "c": -1.0, "d": 1.0}
+        target = {s: 2.0 * ctrl[s] + 3.0 + alpha[s] for s in ctrl}
+        resid = orthogonalize(target, ctrl)
+        for s in ctrl:
+            self.assertAlmostEqual(resid[s], alpha[s], places=10)
+        self.assertEqual(orthogonalize({"a": 1.0, "b": 2.0}, {"a": 1.0, "b": 2.0}), {})
+
 
 def empty_tables():
     return {name: pl.DataFrame(schema=schema) for name, schema in TABLES.items()}

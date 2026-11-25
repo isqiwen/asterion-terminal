@@ -92,6 +92,234 @@ def check_factor(function, inputs: dict, count: int, **settings):
             raise ValueError(f"factor history window {count} differs from the full prefix at bar {end}")
 
 
+def verify_factor_causality(function, inputs, settings: dict, name: str = ""):
+    """Fast automatic lookahead check on a deterministic synthetic sample.
+
+    Evaluates `function` on the full synthetic series and on truncated prefixes
+    to catch future-dependent operations (negative shifts, full-series centering,
+    or lookahead windows) before an evaluation runs.
+    """
+    if not inputs:
+        return
+    windows = [v for v in settings.values() if type(v) is int and 0 < v <= 260]
+    span = max(windows, default=5)
+    size = min(max(span + 8, 20), 280)
+    rng = np.random.default_rng(20260401)
+    returns = rng.normal(0.0005, 0.015, size)
+    close = 100.0 * np.exp(np.cumsum(returns))
+    opening = close * np.exp(rng.normal(0.0, 0.004, size))
+    high = np.maximum(opening, close) * (1.0 + rng.uniform(0.001, 0.012, size))
+    low = np.minimum(opening, close) * (1.0 - rng.uniform(0.001, 0.012, size))
+    far_close = close * np.exp(rng.normal(0.0, 0.01, size))
+    sample = {
+        "open": opening,
+        "high": high,
+        "low": low,
+        "close": close,
+        "volume": rng.uniform(500.0, 5000.0, size),
+        "open_interest": rng.uniform(2000.0, 20000.0, size),
+        "roll_yield": rng.normal(0.0, 0.08, size),
+        "far_close": far_close,
+        "near_return": rng.normal(0.0, 0.015, size),
+        "far_return": rng.normal(0.0, 0.015, size),
+        "receipt_volume": rng.uniform(1000.0, 10000.0, size),
+        "member_long": rng.uniform(10000.0, 50000.0, size),
+        "member_short": rng.uniform(10000.0, 50000.0, size),
+        "inventory_total": rng.uniform(50000.0, 200000.0, size),
+    }
+    arrays = {}
+    for field in inputs:
+        arr = sample[field].copy()
+        arr.flags.writeable = False
+        arrays[field] = arr
+    full = np.asarray(function(**arrays, **settings), dtype=float)
+    label = f"factor {name}" if name else "factor"
+    if full.shape != (size,):
+        raise ValueError(f"{label} must return one value per bar, got {full.shape}")
+    cuts = sorted({
+        c for c in (1, 2, max(1, span - 1), span, span + 1, size // 2, size - 3, size - 2, size - 1)
+        if 1 <= c < size
+    })
+    for end in cuts:
+        prefix = np.asarray(
+            function(**{field: arr[:end] for field, arr in arrays.items()}, **settings),
+            dtype=float,
+        )
+        if prefix.shape != (end,):
+            raise ValueError(f"{label} failed causality check: returned {prefix.shape} for {end} bars")
+        if not np.allclose(prefix, full[:end], rtol=1e-10, atol=1e-12, equal_nan=True):
+            raise ValueError(
+                f"{label} failed causality check: historical values change when truncated to {end} bars"
+            )
+
+
+# China futures product -> sector classification for cross-sectional neutralization.
+PRODUCT_SECTORS: dict[str, str] = {
+    # Black / ferrous & coal
+    **{p: "black" for p in ("rb", "hc", "wr", "ss", "i", "j", "jm", "sf", "sm", "zc", "tc")},
+    # Nonferrous & battery metals
+    **{p: "nonferrous" for p in ("cu", "bc", "al", "ad", "ao", "zn", "pb", "ni", "sn", "si", "ps", "lc")},
+    # Precious metals
+    **{p: "precious" for p in ("au", "ag", "pt", "pd")},
+    # Energy, chemicals, building materials & freight
+    **{p: "energy_chem" for p in (
+        "sc", "fu", "lu", "bu", "ru", "nr", "br", "ta", "px", "pf", "pr", "pl",
+        "ma", "me", "eg", "eb", "bz", "l", "pp", "v", "pg", "fg", "sa", "sh", "ur", "sp", "op", "ec",
+    )},
+    # Oilseeds & vegetable oils
+    **{p: "oilseeds" for p in ("a", "b", "m", "y", "p", "oi", "ro", "rm", "rs", "pk", "so")},
+    # Grains, softs, livestock & timber
+    **{p: "agriculture" for p in (
+        "c", "cs", "sr", "cf", "cy", "ap", "cj", "jd", "lh", "rr", "jr",
+        "ri", "er", "lr", "wh", "ws", "wt", "pm", "bb", "fb", "lg",
+    )},
+    # Equity index & treasury futures
+    **{p: "financial" for p in ("if", "ih", "ic", "im", "ts", "tf", "t", "tl")},
+}
+
+
+def product_sector(symbol: str) -> str:
+    """Sector label for `EXCHANGE/product[/YYYY-MM]` or bare product code, empty if unknown."""
+    parts = symbol.strip().split("/")
+    product = (parts[1] if len(parts) >= 2 else parts[0]).lower()
+    return PRODUCT_SECTORS.get(product, "")
+
+
+def ts_mean(values, window: int) -> np.ndarray:
+    """Strictly causal trailing arithmetic mean over `window` bars."""
+    if type(window) is not int or window < 1:
+        raise ValueError("window must be a positive integer")
+    arr = np.asarray(values, dtype=float)
+    out = np.full(len(arr), np.nan)
+    if len(arr) < window:
+        return out
+    win = np.lib.stride_tricks.sliding_window_view(arr, window)
+    valid = np.all(np.isfinite(win), axis=1)
+    safe = np.where(valid[:, None], win, 0.0)
+    out[window - 1:] = np.where(valid, np.mean(safe, axis=1), np.nan)
+    return out
+
+
+def ts_std(values, window: int, ddof: int = 1) -> np.ndarray:
+    """Strictly causal trailing standard deviation over `window` bars."""
+    if type(window) is not int or type(ddof) is not int or ddof < 0 or window <= ddof:
+        raise ValueError("window must be an integer greater than ddof")
+    arr = np.asarray(values, dtype=float)
+    out = np.full(len(arr), np.nan)
+    if len(arr) < window:
+        return out
+    win = np.lib.stride_tricks.sliding_window_view(arr, window)
+    valid = np.all(np.isfinite(win), axis=1)
+    safe = np.where(valid[:, None], win, 0.0)
+    out[window - 1:] = np.where(valid, np.std(safe, axis=1, ddof=ddof), np.nan)
+    return out
+
+
+def ts_delta(values, periods: int = 1) -> np.ndarray:
+    """Strictly causal difference `values[t] - values[t - periods]`."""
+    if type(periods) is not int or periods < 1:
+        raise ValueError("periods must be a positive integer")
+    arr = np.asarray(values, dtype=float)
+    out = np.full(len(arr), np.nan)
+    if len(arr) > periods:
+        diff = arr[periods:] - arr[:-periods]
+        out[periods:] = np.where(np.isfinite(diff), diff, np.nan)
+    return out
+
+
+def ts_pct_change(values, periods: int = 1) -> np.ndarray:
+    """Strictly causal relative change `values[t] / values[t - periods] - 1`."""
+    if type(periods) is not int or periods < 1:
+        raise ValueError("periods must be a positive integer")
+    arr = np.asarray(values, dtype=float)
+    out = np.full(len(arr), np.nan)
+    if len(arr) > periods:
+        cur, prev = arr[periods:], arr[:-periods]
+        ok = np.isfinite(cur) & np.isfinite(prev) & (prev != 0.0)
+        ratio = np.divide(cur, prev, out=np.full_like(cur, np.nan), where=ok)
+        out[periods:] = np.where(ok, ratio - 1.0, np.nan)
+    return out
+
+
+def ts_rank(values, window: int) -> np.ndarray:
+    """Strictly causal trailing percentile rank of the current bar in `[0, 1]`."""
+    if type(window) is not int or window < 1:
+        raise ValueError("window must be a positive integer")
+    arr = np.asarray(values, dtype=float)
+    out = np.full(len(arr), np.nan)
+    if len(arr) < window:
+        return out
+    win = np.lib.stride_tricks.sliding_window_view(arr, window)
+    valid = np.all(np.isfinite(win), axis=1)
+    if window == 1:
+        out[:] = np.where(valid, 0.5, np.nan)
+        return out
+    cur = win[:, -1:]
+    less = np.sum(win < cur, axis=1)
+    equal = np.sum(win == cur, axis=1)
+    out[window - 1:] = np.where(valid, (less + 0.5 * (equal - 1.0)) / (window - 1.0), np.nan)
+    return out
+
+
+def ts_zscore(values, window: int) -> np.ndarray:
+    """Strictly causal trailing z-score `(x - mean) / std` over `window` bars."""
+    if type(window) is not int or window < 2:
+        raise ValueError("window must be an integer of at least 2")
+    arr = np.asarray(values, dtype=float)
+    out = np.full(len(arr), np.nan)
+    if len(arr) < window:
+        return out
+    win = np.lib.stride_tricks.sliding_window_view(arr, window)
+    valid = np.all(np.isfinite(win), axis=1)
+    safe = np.where(valid[:, None], win, 0.0)
+    mu = np.mean(safe, axis=1)
+    sigma = np.std(safe, axis=1, ddof=1)
+    z = np.divide(safe[:, -1] - mu, sigma, out=np.zeros(len(win), dtype=float), where=sigma > 0)
+    out[window - 1:] = np.where(valid, z, np.nan)
+    return out
+
+
+def ts_corr(x, y, window: int) -> np.ndarray:
+    """Strictly causal trailing Pearson correlation over `window` bars."""
+    if type(window) is not int or window < 2:
+        raise ValueError("window must be an integer of at least 2")
+    a = np.asarray(x, dtype=float)
+    b = np.asarray(y, dtype=float)
+    if a.ndim != 1 or a.shape != b.shape:
+        raise ValueError("ts_corr inputs must be 1D arrays of equal length")
+    out = np.full(len(a), np.nan)
+    if len(a) < window:
+        return out
+    wa = np.lib.stride_tricks.sliding_window_view(a, window)
+    wb = np.lib.stride_tricks.sliding_window_view(b, window)
+    valid = np.all(np.isfinite(wa), axis=1) & np.all(np.isfinite(wb), axis=1)
+    sa = np.where(valid[:, None], wa, 0.0)
+    sb = np.where(valid[:, None], wb, 0.0)
+    da = sa - np.mean(sa, axis=1, keepdims=True)
+    db = sb - np.mean(sb, axis=1, keepdims=True)
+    denom = np.sqrt(np.sum(da * da, axis=1) * np.sum(db * db, axis=1))
+    corr = np.divide(np.sum(da * db, axis=1), denom, out=np.full(len(wa), np.nan), where=denom > 0)
+    out[window - 1:] = np.where(valid, np.clip(corr, -1.0, 1.0), np.nan)
+    return out
+
+
+def decay_linear(values, window: int) -> np.ndarray:
+    """Strictly causal linearly weighted moving average with weights `1..window`."""
+    if type(window) is not int or window < 1:
+        raise ValueError("window must be a positive integer")
+    arr = np.asarray(values, dtype=float)
+    out = np.full(len(arr), np.nan)
+    if len(arr) < window:
+        return out
+    weights = np.arange(1, window + 1, dtype=float)
+    weights /= weights.sum()
+    win = np.lib.stride_tricks.sliding_window_view(arr, window)
+    valid = np.all(np.isfinite(win), axis=1)
+    safe = np.where(valid[:, None], win, 0.0)
+    out[window - 1:] = np.where(valid, safe @ weights, np.nan)
+    return out
+
+
 @dataclass(frozen=True)
 class Bar:
     """One completed bar. Prices are read as floats for research; the ledger
@@ -332,6 +560,69 @@ def cross_section_rank(scores: dict) -> dict:
         i = j
     scaled = 2.0 * ranks / (n - 1) - 1.0
     return {symbol: float(scaled[idx]) for idx, (symbol, _) in enumerate(valid)}
+
+
+def winsorize_mad(scores: dict, n: float = 5.0) -> dict:
+    """Clip cross-sectional outliers outside `median +- n * 1.4826 * MAD`."""
+    if not isinstance(n, numbers.Real) or isinstance(n, bool) or not math.isfinite(n) or n <= 0:
+        raise ValueError("n must be a positive finite number")
+    valid = [(symbol, float(val)) for symbol, val in scores.items()
+             if isinstance(val, numbers.Real) and not isinstance(val, bool) and math.isfinite(val)]
+    if len(valid) < 2:
+        return dict(valid)
+    arr = np.array([val for _, val in valid], dtype=float)
+    med = float(np.median(arr))
+    mad = float(np.median(np.abs(arr - med)))
+    if mad <= 0.0 or not math.isfinite(mad):
+        return dict(valid)
+    bound = float(n) * 1.4826 * mad
+    clipped = np.clip(arr, med - bound, med + bound)
+    return {symbol: float(clipped[i]) for i, (symbol, _) in enumerate(valid)}
+
+
+def sector_neutralize(scores: dict, sectors: dict | None = None) -> dict:
+    """Demean cross-sectional scores within each futures sector."""
+    valid = [(symbol, float(val)) for symbol, val in scores.items()
+             if isinstance(val, numbers.Real) and not isinstance(val, bool) and math.isfinite(val)]
+    groups: dict[str, list[float]] = {}
+    labels: dict[str, str] = {}
+    for symbol, val in valid:
+        sector = sectors[symbol] if sectors and symbol in sectors else product_sector(symbol)
+        labels[symbol] = sector
+        groups.setdefault(sector, []).append(val)
+    means = {sector: float(np.mean(vals)) for sector, vals in groups.items()}
+    return {symbol: val - means[labels[symbol]] for symbol, val in valid}
+
+
+def orthogonalize(target: dict, controls) -> dict:
+    """Cross-sectional OLS residual of `target` regressed on one or more control score dicts."""
+    control_list = [controls] if isinstance(controls, dict) else list(controls)
+    valid_target = {
+        symbol: float(val) for symbol, val in target.items()
+        if isinstance(val, numbers.Real) and not isinstance(val, bool) and math.isfinite(val)
+    }
+    if not control_list:
+        return valid_target
+    common = [
+        symbol for symbol in valid_target
+        if all(
+            symbol in ctrl
+            and isinstance(ctrl[symbol], numbers.Real)
+            and not isinstance(ctrl[symbol], bool)
+            and math.isfinite(ctrl[symbol])
+            for ctrl in control_list
+        )
+    ]
+    if len(common) < len(control_list) + 2:
+        return {}
+    y = np.array([valid_target[symbol] for symbol in common], dtype=float)
+    x = np.column_stack([
+        np.ones(len(common), dtype=float),
+        *([float(ctrl[symbol]) for symbol in common] for ctrl in control_list),
+    ])
+    beta, *_ = np.linalg.lstsq(x, y, rcond=None)
+    resid = y - x @ beta
+    return {symbol: float(resid[i]) for i, symbol in enumerate(common)}
 
 
 def liquid_symbols(ctx: Context, bars: dict, min_bars: int = 1,
