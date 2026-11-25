@@ -445,6 +445,13 @@ jobs:
           cat build/e2e-shard-2.log
           echo "::endgroup::"
           test "$rc1" -eq 0 && test "$rc2" -eq 0
+      - name: Upload failed browser test evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-test-failures
+          path: apps/clients/terminal/test-results-*/
+          if-no-files-found: ignore
       - name: Exercise native Electron host
         run: |
           ulimit -c 0

@@ -90,6 +90,7 @@ test(
   "a factor from the repository is evaluated across symbols",
   { tag: "@journey" },
   async ({ page }) => {
+    test.setTimeout(60000); // Includes the service's 25 s factor budget.
     prepare();
     await page.goto("/");
     await openView(page, "factors");
@@ -115,7 +116,7 @@ test(
     await form.getByLabel("lookback").fill("2");
     await form.getByRole("button", { name: "评价", exact: true }).click();
     const decay = page.getByRole("table", { name: "IC 与衰减" });
-    await expect(decay.locator("tbody tr")).toHaveCount(6);
+    await expect(decay.locator("tbody tr")).toHaveCount(6, { timeout: 30000 });
     await expect(decay.locator("tbody tr").first()).toContainText("1 根");
     await expect(page.getByRole("table", { name: "分组" }).locator("tbody tr")).toHaveCount(3);
     await expect(page.getByText(/3 个品种/)).toBeVisible();
