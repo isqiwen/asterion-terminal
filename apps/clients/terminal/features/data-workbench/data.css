@@ -356,6 +356,7 @@ html[lang="en-US"] .col-act-metric {
   gap: var(--space-1);
 }
 .data-legend i {
+  box-sizing: border-box;
   display: inline-block;
   width: 14px;
   height: 6px;
@@ -381,15 +382,18 @@ html[lang="en-US"] .col-act-metric {
   background: var(--muted);
 }
 .data-legend i[data-part="none"] {
-  background: var(--raised);
+  background: color-mix(in oklab, var(--muted) 18%, var(--canvas));
   box-shadow: inset 0 0 0 1px var(--line-strong);
 }
-:is(.data-legend, .coverage-lane) i[data-part="future"] {
-  background: var(--canvas);
-}
-/* The swatch would vanish into the panel without an edge. */
 .data-legend i[data-part="future"] {
-  box-shadow: inset 0 0 0 1px var(--line-strong);
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+}
+.coverage-lane i[data-part="future"] {
+  box-sizing: border-box;
+  border: 1px dashed var(--line-strong);
+  border-left-style: solid;
+  background: var(--canvas);
 }
 .data-coverage-main {
   position: relative;
@@ -551,8 +555,8 @@ html[lang="en-US"] .col-act-metric {
   height: 10px;
   overflow: hidden;
   border-radius: 2px;
-  background: var(--raised);
-  box-shadow: inset 0 0 0 1px var(--line);
+  background: color-mix(in oklab, var(--muted) 18%, var(--canvas));
+  box-shadow: inset 0 0 0 1px var(--line-strong);
 }
 .coverage-lane i {
   position: absolute;

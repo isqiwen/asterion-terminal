@@ -127,7 +127,7 @@
   "新增 {count} 个分区": "{count} partitions added",
   "分区：新增 {added} · 替换 {replaced} · 删除 {removed}": "Partitions: {added} added · {replaced} replaced · {removed} removed",
   "无分区变更": "No partition changes",
-  "各表末日已到最新；中间缺口请点击对应缺口或“采集”补齐": "Latest trading day reached; click a gap or Acquire to fill earlier missing days",
+  "各表末日已到最新；中间缺口请点击对应品种或合约的“补全”补齐": "Latest trading day reached; use Complete on the affected product or contract to fill earlier gaps",
   "已请求 {count} 次": "{count} requests",
   "交割月": "Delivery month",
   "柜台代码": "Exchange symbol",
@@ -224,5 +224,13 @@
   "已采全 {complete} / {total}": "Complete {complete} / {total}",
   "部分采集 {count}": "{count} partial",
   "缺口 {count}": "{count} with gaps",
-  "待更新 {count}": "{count} pending"
+  "待更新 {count}": "{count} pending",
+  "前段未采 {days} 天": "{days} earlier days not acquired",
+  "合约已有数据，或品种中已采全的合约": "Stored contract days, or complete contracts in a product",
+  "品种中仅采了部分存续期的合约": "Contracts in a product with only part of their life stored",
+  "首尾已采日期之间缺失的交易日（未入库）": "Missing trading days between the first and last stored days",
+  "最新已采日期之后的交易日，尚未更新到最新": "Trading days after the last stored day awaiting update",
+  "数据源无该日数据，或日线分区已入库但无该合约记录": "No data from any source, or no contract bar in a stored daily partition",
+  "尚未采集的历史交易日或合约": "Past trading days or contracts not yet acquired",
+  "尚未到来的未来存续期（截至摘牌日）": "Future contract life through delisting, not yet due"
 }

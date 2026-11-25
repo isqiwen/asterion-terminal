@@ -207,10 +207,18 @@ ProductCoverages contract_coverage(
             if (wanted.empty() || product_of(contract) == wanted)
                 minute_days[contract].insert(day);
         } else if (key.starts_with("daily/")) {
-            const auto exchange = key.substr(6, key.find('/', 6) - 6);
+            const auto slash = key.find('/', 6);
+            const auto exchange = key.substr(6, slash - 6);
             if (included(exchange)) {
                 auto& files = daily[exchange][key.substr(0, key.find('-'))];
                 files += (files.empty() ? "" : ",") + parquet::literal(store.file(version, key));
+                // A stored exchange-day partition already fetched that day; a contract absent
+                // from it had no bar from the source rather than a missing acquisition gap.
+                if (!part.days.empty())
+                    for (const auto& day : part.days)
+                        answered_daily[exchange].insert(day);
+                else if (slash != std::string::npos && key.size() - slash - 1 == 10)
+                    answered_daily[exchange].insert(key.substr(slash + 1));
             }
         } else if (key.starts_with("contracts/") && included(key.substr(10))) {
             listed += (listed.empty() ? "" : ",") + parquet::literal(store.file(version, key));
@@ -354,10 +362,10 @@ void summarize(
                                         : std::min(out.first_day(), item.first_day()));
             out.set_last_day(std::max(out.last_day(), item.last_day()));
         }
-        const bool complete = item.days() && !item.gap_days() && !item.pending_days()
-            && item.open_days() <= item.days() + item.empty_days();
-        out.set_complete(out.complete() + complete);
-        out.set_listed_complete(out.listed_complete() + (complete && contract.listed()));
+        const bool settled = (item.days() || item.empty_days()) && !item.gap_days()
+            && !item.pending_days() && item.open_days() <= item.days() + item.empty_days();
+        out.set_complete(out.complete() + (settled && item.days() > 0));
+        out.set_listed_complete(out.listed_complete() + (settled && contract.listed()));
         out.set_with_gaps(out.with_gaps() + (item.gaps_size() > 0));
         out.set_pending(out.pending() + (item.pending_days() > 0));
         for (const auto& gap : item.gaps())

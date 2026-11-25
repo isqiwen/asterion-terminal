@@ -32,15 +32,16 @@ const throughOf = (contract: ContractCoverage) =>
   contract.delistDay && contract.delistDay < beijingDay(-1) ? contract.delistDay : beijingDay(-1);
 
 function stateOf(series: SeriesCoverage | undefined): State {
-  if (!series?.days) return series?.emptyDays ? "empty" : "none";
+  if (!series?.days)
+    return series?.openDays && series.emptyDays >= series.openDays ? "empty" : "none";
   if (series.gapDays) return "gap";
   if (series.pendingDays) return "pending";
   if (series.openDays > series.days + series.emptyDays) return "early";
   return series.emptyDays ? "empty" : "full";
 }
 
-// What a contract still lacks of its life, as one daily acquisition. Days are
-// stored per exchange, so a gap on a day the exchange holds has to be refetched.
+// What a contract still lacks of its life, as one daily acquisition. Only
+// unstored exchange days count as gaps, so refetching held days is unnecessary.
 function dailyRule(contract: ContractCoverage): Rule | undefined {
   const series = contract.daily;
   const state = stateOf(series);
@@ -61,7 +62,7 @@ function dailyRule(contract: ContractCoverage): Rule | undefined {
   if (firstDay > lastDay) return undefined;
   return {
     table: Table.DAILY,
-    refetch: state === "gap",
+    refetch: false,
     exchanges: [contract.contract.split("/")[0]!],
     instruments: [],
     firstDay,
@@ -87,22 +88,18 @@ function minuteRule(contract: ContractCoverage): Rule | undefined {
 const ruleOf = (contract: ContractCoverage, kind: Kind) =>
   kind === "daily" ? dailyRule(contract) : minuteRule(contract);
 
-// One acquisition for days to refetch and one for days never asked for.
+// One acquisition spanning every requested contract or daily range.
 function merged(rules: Rule[]): Rule[] {
-  if (rules[0]?.table === Table.MINUTES)
-    return [{ ...rules[0], instruments: rules.flatMap(rule => rule.instruments) }];
-  return [true, false].flatMap(refetch => {
-    const group = rules.filter(rule => rule.refetch === refetch);
-    return group.length
-      ? [
-          {
-            ...group[0]!,
-            firstDay: earliest(group.map(rule => rule.firstDay)),
-            lastDay: latest(group.map(rule => rule.lastDay)),
-          },
-        ]
-      : [];
-  });
+  if (!rules.length) return [];
+  if (rules[0]!.table === Table.MINUTES)
+    return [{ ...rules[0]!, instruments: rules.flatMap(rule => rule.instruments) }];
+  return [
+    {
+      ...rules[0]!,
+      firstDay: earliest(rules.map(rule => rule.firstDay)),
+      lastDay: latest(rules.map(rule => rule.lastDay)),
+    },
+  ];
 }
 
 // A product's listed contracts, and any older one with a gap in what it holds.
@@ -184,6 +181,8 @@ function lifePieces(contract: ContractCoverage, series: SeriesCoverage | undefin
     pieces.push(...piece("empty", start, series.firstDay));
   pieces.push(...piece("held", series.firstDay, series.lastDay));
   if (series.pendingDays) pieces.push(...piece("pending", nextDay(series.lastDay), through));
+  else if (series.emptyDays && series.lastDay < through)
+    pieces.push(...piece("empty", nextDay(series.lastDay), through));
   for (const gap of series.gaps) pieces.push(...piece("gap", gap.first, gap.last));
   return pieces;
 }
@@ -210,7 +209,10 @@ function tallyPieces({ total, held, complete, gaps, pending }: Tally): Piece[] {
 
 function contractSummary(series: SeriesCoverage | undefined) {
   if (!series?.days) {
-    return series?.emptyDays ? t("来源无数据 {days} 天", { days: series.emptyDays }) : t("未采集");
+    if (!series?.emptyDays) return t("未采集");
+    if (series.openDays > 0 && series.emptyDays >= series.openDays)
+      return t("来源无数据 {days} 天", { days: series.emptyDays });
+    return [t("未采集"), t("来源无数据 {days} 天", { days: series.emptyDays })].join(" · ");
   }
   const parts = [
     t("已采 {days} 天（{first}–{last}）", {
@@ -219,6 +221,11 @@ function contractSummary(series: SeriesCoverage | undefined) {
       last: series.lastDay,
     }),
   ];
+  const early = Math.max(
+    0,
+    series.openDays - series.days - series.emptyDays - series.pendingDays - series.gapDays,
+  );
+  if (early > 0) parts.push(t("前段未采 {days} 天", { days: early }));
   if (series.gaps.length) {
     const shown = series.gaps
       .slice(0, 3)
@@ -445,10 +452,9 @@ export function CoverageList({
           // A product with nothing listed is collected year by year from its history.
           const needsWork =
             (!!row.coverage?.listed || !!series?.withGaps) &&
-            (!series?.held ||
-              !!series.withGaps ||
-              !!series.pending ||
-              series.listedComplete < (row.coverage?.listed ?? 0));
+            (!!series?.withGaps ||
+              !!series?.pending ||
+              (series?.listedComplete ?? 0) < (row.coverage?.listed ?? 0));
           const busy = running.some(({ request }) =>
             kind === "daily"
               ? request!.table === Table.DAILY && request!.exchanges.includes(row.exchange)

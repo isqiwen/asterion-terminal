@@ -166,7 +166,7 @@ function DatasetBody({ context }: { context: TerminalContext }) {
         submitted
           ? t("已提交 {count} 个更新任务", { count: submitted })
           : hasGaps && !hasActive
-            ? t("各表末日已到最新；中间缺口请点击对应缺口或“采集”补齐")
+            ? t("各表末日已到最新；中间缺口请点击对应品种或合约的“补全”补齐")
             : t("各表已是最新，或已有任务在进行"),
       );
       await refreshAll();
@@ -332,16 +332,16 @@ function DatasetBody({ context }: { context: TerminalContext }) {
           <span className="data-legend" aria-hidden="true">
             {(
               [
-                ["held", "已采"],
-                ["part", "部分采集"],
-                ["gap", "缺口"],
-                ["pending", "待更新"],
-                ["empty", "来源无数据"],
-                ["none", "未采集"],
-                ["future", "未到期"],
+                ["held", "已采", "合约已有数据，或品种中已采全的合约"],
+                ["part", "部分采集", "品种中仅采了部分存续期的合约"],
+                ["gap", "缺口", "首尾已采日期之间缺失的交易日（未入库）"],
+                ["pending", "待更新", "最新已采日期之后的交易日，尚未更新到最新"],
+                ["empty", "来源无数据", "数据源无该日数据，或日线分区已入库但无该合约记录"],
+                ["none", "未采集", "尚未采集的历史交易日或合约"],
+                ["future", "未到期", "尚未到来的未来存续期（截至摘牌日）"],
               ] as const
-            ).map(([part, label]) => (
-              <span key={part}>
+            ).map(([part, label, tip]) => (
+              <span key={part} title={t(tip)}>
                 <i data-part={part} /> {t(label)}
               </span>
             ))}

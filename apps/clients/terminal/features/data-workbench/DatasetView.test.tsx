@@ -295,6 +295,12 @@ test("the page shows one kind of data at a time, each contract's whole life by s
     .querySelector<HTMLElement>(".coverage-lane")!;
   expect(rb2702Lane.title).toContain("2026-09-10–2026-09-11");
   fireEvent.click(screen.getByRole("button", { name: "历史合约" }));
+  fireEvent.click(screen.getByRole("button", { name: "2025 年交割" }));
+  const rb2510Lane = screen
+    .getByRole("button", { name: "查看 rb2510" })
+    .closest("tr")!
+    .querySelector<HTMLElement>(".coverage-lane")!;
+  expect(rb2510Lane.title).toContain("前段未采 4 天");
   fireEvent.click(screen.getByRole("button", { name: "2026 年交割" }));
   // A delisted contract held from listing to delisting fills the bar.
   const whole = screen
@@ -320,7 +326,7 @@ test("a contract is completed at once for the kind on show", async () => {
   expect(submitted()[0]).toMatchObject({
     table: Table.DAILY,
     exchanges: ["SHFE"],
-    refetch: true,
+    refetch: false,
     firstDay: "2026-09-10",
     lastDay: "2026-09-11",
   });
@@ -623,4 +629,76 @@ test("initial dataset mount lists dataset versions only once", async () => {
       1,
     ),
   );
+});
+
+test("partial source-empty contracts stay acquirable while settled empty products offer no dead button", async () => {
+  request.mockImplementation(async (body: { case: string }) => {
+    switch (body.case) {
+      case "getAcquisitionOptions":
+        return { tables: [{ table: Table.DAILY, exchanges: ["SHFE"] }] };
+      case "getDatasetSummary":
+        return {
+          dataset: { version: current, createdMs: 3n },
+          tables: [
+            {
+              table: Table.DAILY,
+              rows: 5n,
+              firstDay: "2026-07-01",
+              lastDay: "2026-11-12",
+              expectedLastDay: "2026-11-12",
+              missing: 1n,
+            },
+          ],
+        };
+      case "getDatasetCoverage":
+        return create(DatasetCoverageSchema, {
+          products: [
+            {
+              product: "SHFE/cu",
+              contracts: 1,
+              listed: 1,
+              daily: { held: 0, listedComplete: 1 },
+            },
+            {
+              product: "SHFE/rb",
+              contracts: 1,
+              listed: 1,
+              daily: { held: 0, listedComplete: 0 },
+            },
+          ],
+        });
+      case "getProductCoverage":
+        return create(ProductContractsSchema, {
+          contracts: [
+            {
+              contract: "SHFE/rb/2027-03",
+              listDay: "2026-10-01",
+              delistDay: "2099-03-15",
+              listed: true,
+              daily: { days: 0, openDays: 10, emptyDays: 2 },
+            },
+          ],
+        });
+      case "listAcquisitionTasks":
+        return { tasks: [], nextId: "" };
+      case "listDatasetVersions":
+        return { versions: [], nextVersion: "" };
+      case "startUpdate":
+        return { tasks: [] };
+      default:
+        return {};
+    }
+  });
+  view(context());
+  const table = await list();
+  expect(within(table).queryByRole("button", { name: "采集 SHFE/cu" })).toBeNull();
+  expect(within(table).getByRole("button", { name: "采集 SHFE/rb" })).toBeTruthy();
+
+  fireEvent.click(within(table).getByRole("button", { name: /^rb\s*螺纹钢/ }));
+  const row = (await screen.findByRole("button", { name: "查看 rb2703" })).closest("tr")!;
+  expect(within(row).getByRole("button", { name: "采集 rb2703" })).toBeTruthy();
+  expect(row.querySelector<HTMLElement>(".coverage-lane")!.title).toBe("未采集 · 来源无数据 2 天");
+
+  fireEvent.click(screen.getByRole("button", { name: "更新到最新" }));
+  await screen.findByText("各表末日已到最新；中间缺口请点击对应品种或合约的“补全”补齐");
 });

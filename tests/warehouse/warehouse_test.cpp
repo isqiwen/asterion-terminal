@@ -720,7 +720,7 @@ TEST_F(Warehouse, CoverageSeparatesDaysAnUpdateBringsFromGaps)
     EXPECT_EQ(minutes.gap_days(), 0);
 }
 
-TEST_F(Warehouse, CoverageFindsTheOneContractMissingADay)
+TEST_F(Warehouse, CoverageCountsContractAbsentFromStoredDailyPartitionAsEmpty)
 {
     wh::Store store(wh::source_directory(root, "research"), "research");
     auto writer = store.writer();
@@ -744,7 +744,11 @@ TEST_F(Warehouse, CoverageFindsTheOneContractMissingADay)
     };
     writer.put(
         "contracts/SHFE",
-        std::vector<wh::Row>{contract("SHFE/rb/2027-01"), contract("SHFE/rb/2027-02")});
+        std::vector<wh::Row>{
+            contract("SHFE/rb/2027-01"),
+            contract("SHFE/rb/2027-02"),
+            contract("SHFE/rb/2027-03")
+        });
     const auto bar = [](const char* id, const char* day) {
         auto value = row("daily");
         value[0] = std::string("SHFE");
@@ -776,20 +780,25 @@ TEST_F(Warehouse, CoverageFindsTheOneContractMissingADay)
     query.set_version(version.identity);
     const auto coverage = wh::Reader(root).coverage(query);
     ASSERT_EQ(coverage.products_size(), 1);
-    EXPECT_EQ(coverage.products(0).listed(), 2);
-    EXPECT_EQ(coverage.products(0).daily().with_gaps(), 1);
-    EXPECT_EQ(coverage.products(0).daily().complete(), 1);
-    EXPECT_EQ(coverage.products(0).daily().listed_complete(), 1);
-    ASSERT_EQ(coverage.products(0).daily().gaps_size(), 1);
-    EXPECT_EQ(coverage.products(0).daily().gaps(0).first(), "2026-10-29");
+    EXPECT_EQ(coverage.products(0).listed(), 3);
+    EXPECT_EQ(coverage.products(0).daily().held(), 2);
+    EXPECT_EQ(coverage.products(0).daily().with_gaps(), 0);
+    EXPECT_EQ(coverage.products(0).daily().complete(), 2);
+    EXPECT_EQ(coverage.products(0).daily().listed_complete(), 3);
+    EXPECT_EQ(coverage.products(0).daily().gaps_size(), 0);
     wire::ProductRef product;
     product.set_version(version.identity);
     product.set_product("SHFE/rb");
     const auto detail = wh::Reader(root).product_coverage(product);
-    ASSERT_EQ(detail.contracts_size(), 2);
+    ASSERT_EQ(detail.contracts_size(), 3);
     EXPECT_EQ(detail.contracts(0).daily().gap_days(), 0);
-    EXPECT_EQ(detail.contracts(1).daily().gap_days(), 1);
+    EXPECT_EQ(detail.contracts(0).daily().empty_days(), 0);
+    EXPECT_EQ(detail.contracts(1).daily().gap_days(), 0);
+    EXPECT_EQ(detail.contracts(1).daily().empty_days(), 1);
     EXPECT_EQ(detail.contracts(1).daily().days(), 2);
+    EXPECT_EQ(detail.contracts(2).daily().gap_days(), 0);
+    EXPECT_EQ(detail.contracts(2).daily().empty_days(), 3);
+    EXPECT_EQ(detail.contracts(2).daily().days(), 0);
 }
 
 TEST_F(Warehouse, ProductCoverageStaysOnOneVersionAndMissingCalendarStaysUnknown)
