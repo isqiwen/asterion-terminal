@@ -99,7 +99,7 @@
 }
 
 /* The one layout every page uses: titled sections, fields with their label
-   above, actions at the right, lists of items separated by hairlines. */
+   above, actions at the right, lists of item cards. */
 .settings-section {
   display: grid;
   gap: var(--space-4);
@@ -113,12 +113,23 @@
 }
 .settings-section-header {
   display: flex;
-  align-items: flex-start;
+  align-items: safe center;
   justify-content: space-between;
   gap: var(--space-4);
 }
+.settings-section-header:has(~ :not(dialog)) {
+  padding-block-end: var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
 .settings-section-header > div {
-  min-width: 0;
+  min-inline-size: 0;
+}
+.settings-section-title {
+  display: flex;
+  align-items: safe center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-inline-size: 0;
 }
 .settings-section h2 {
   margin: 0;
@@ -134,7 +145,7 @@
 .settings-actions {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: safe center;
   justify-content: flex-end;
   gap: var(--space-2);
   flex-shrink: 0;
@@ -158,49 +169,56 @@
 }
 .settings-list {
   display: grid;
+  gap: var(--space-3);
 }
 .settings-item {
+  container: settings-item / inline-size;
   display: grid;
-  gap: var(--space-2);
-  padding: var(--space-3) 0;
-  border-top: 1px solid var(--line);
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+  background: var(--pane);
 }
-.settings-item:first-child {
-  padding-top: 0;
-  border-top: 0;
-}
-.settings-item:last-child {
-  padding-bottom: 0;
-}
-.settings-item-row {
+.settings-item-header {
   display: flex;
-  align-items: center;
+  align-items: safe center;
   justify-content: space-between;
-  gap: var(--space-4);
+  gap: var(--space-3);
 }
-.settings-item-row > div {
-  min-width: 0;
+.settings-item-title {
+  display: flex;
+  align-items: safe center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-inline-size: 0;
 }
 .settings-item h3 {
   margin: 0;
-  font-size: var(--font-size-md);
-  font-weight: 500;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
   color: var(--text-strong);
   overflow-wrap: anywhere;
 }
 .settings-item p {
-  margin: var(--space-1) 0 0;
+  margin: 0;
   color: var(--muted);
   font-size: var(--font-size-aux);
   overflow-wrap: anywhere;
 }
 .settings-section code {
-  font-size: var(--font-size-xs);
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-body);
+  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
+@container settings-item (inline-size < 460px) {
+  .settings-item-header {
+    flex-wrap: wrap;
+  }
+}
 @media (max-width: 680px) {
-  .settings-section-header,
-  .settings-item-row {
+  .settings-section-header {
     flex-wrap: wrap;
   }
 }
@@ -209,6 +227,11 @@
   padding-inline: var(--space-4);
   background: var(--raised);
   color: var(--text-strong);
+}
+.settings-item .settings-actions button {
+  min-height: calc(var(--control-height) - 2px);
+  padding: 2px var(--space-3);
+  font-size: var(--font-size-body);
 }
 .service-action-dialog {
   width: min(480px, calc(100vw - 48px));
@@ -283,28 +306,29 @@
   color: var(--danger);
   font-size: var(--font-size-body);
 }
-/* Facts about this Terminal: a label column and a value column. */
+/* Label-value facts shared by service connections and the About page. */
 .settings-facts {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
-  gap: var(--space-3) var(--space-5);
-  align-items: center;
+  gap: var(--space-2) var(--space-5);
+  align-items: baseline;
   margin: 0;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body);
 }
 .settings-facts dt {
   color: var(--muted);
+  font-size: var(--font-size-aux);
 }
 .settings-facts dd {
   margin: 0;
   color: var(--text);
+  min-inline-size: 0;
+}
+.settings-facts dd code {
+  color: var(--text-strong);
 }
 /* One click selects the whole fingerprint for copying. The settings window is
    wide enough for its 64 digits beside the label; a narrower one wraps them. */
 .client-fingerprint {
-  font-family: var(--font-terminal);
-  font-size: var(--font-size-body);
-  color: var(--text);
-  overflow-wrap: anywhere;
   user-select: all;
 }

@@ -173,8 +173,10 @@ export function Settings({
             <dl className="settings-facts">
               <dt>{t("版本")}</dt>
               <dd>
-                {version.trim()}
-                {snapshot && ` (${snapshot.diagnostics.commit})`}
+                <code>
+                  {version.trim()}
+                  {snapshot && ` (${snapshot.diagnostics.commit})`}
+                </code>
               </dd>
               <dt title={t("在行情服务、数据服务和交易主机登记这个指纹")}>{t("本机证书指纹")}</dt>
               <dd>

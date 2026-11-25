@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 // explanation, its actions at the top right, and its content below.
 export function SettingsSection({
   title,
+  badge,
   description,
   actions,
   label,
@@ -10,6 +11,7 @@ export function SettingsSection({
   children,
 }: {
   title: string;
+  badge?: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
   label?: string;
@@ -23,7 +25,10 @@ export function SettingsSection({
     >
       <header className="settings-section-header">
         <div>
-          <h2>{title}</h2>
+          <div className="settings-section-title">
+            <h2>{title}</h2>
+            {badge}
+          </div>
           {description && <p>{description}</p>}
         </div>
         {actions && <div className="settings-actions">{actions}</div>}

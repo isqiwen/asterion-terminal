@@ -44,8 +44,8 @@ test("saves a direct pinned trading destination", async () => {
   expect(trade.mock.calls.map(call => call[0])).not.toContain("node.deploy");
 });
 
-test("a trading connection shows its service's build", async () => {
-  health.mockResolvedValue({ version: "0.4.0 (abc1234)" });
+test("a trading connection shows its service's build and reachability status", async () => {
+  health.mockResolvedValueOnce({ version: "0.4.0 (abc1234)" });
   const snapshot = readySnapshot();
   snapshot.trading_connections = [
     {
@@ -59,5 +59,24 @@ test("a trading connection shows its service's build", async () => {
   ];
   render(<TradingConnections snapshot={snapshot} busy={false} trade={vi.fn()} />);
   await screen.findByText("0.4.0 (abc1234)");
+  expect(screen.getByText("已连接")).toBeTruthy();
   expect(health).toHaveBeenCalledWith("simnow", { case: "getHealth", value: {} });
+});
+
+test("a trading connection surfaces failure status when health check fails", async () => {
+  health.mockRejectedValueOnce(new Error("connection refused"));
+  const snapshot = readySnapshot();
+  snapshot.trading_connections = [
+    {
+      id: "simnow",
+      host: "10.0.0.2",
+      port: 7461,
+      instance: "simnow",
+      fingerprint: "a".repeat(64),
+      revision: "r",
+    },
+  ];
+  render(<TradingConnections snapshot={snapshot} busy={false} trade={vi.fn()} />);
+  await screen.findByText("连接失败");
+  expect(screen.getByText("connection refused")).toBeTruthy();
 });

@@ -4,7 +4,7 @@ import type { Snapshot } from "../bridge/client";
 import { translate } from "../i18n";
 import { SettingsDialog } from "./SettingsDialog";
 import { SettingsSection } from "./Section";
-import { ServiceFacts } from "./ServiceFacts";
+import { ServiceFacts, ServiceStatusBadge, useServiceBuild } from "./ServiceFacts";
 import { ActionError, useActionError } from "../host/action-error";
 import { asDisplayError, type DisplayError } from "../i18n/errors";
 const t = (key: string) => translate("host", key);
@@ -48,6 +48,11 @@ export function ServiceConnection({
   // What the form's input was refused for, shown above its buttons.
   const [refused, setRefused] = useState<DisplayError>("");
   const { error, attempt } = useActionError();
+  const { build, error: buildError } = useServiceBuild(
+    endpoint
+      ? { service, refreshKey: `${endpoint.host}:${endpoint.port}/${endpoint.fingerprint}` }
+      : null,
+  );
   const run = (...args: CommandCall) => attempt(() => trade(...args));
   const edit = () => {
     setHost(endpoint?.host ?? "");
@@ -60,6 +65,7 @@ export function ServiceConnection({
   return (
     <SettingsSection
       title={t("连接")}
+      badge={endpoint && <ServiceStatusBadge build={build} error={buildError} />}
       actions={
         !editing && (
           <>
@@ -91,9 +97,9 @@ export function ServiceConnection({
       {endpoint && (
         <>
           <ServiceFacts
-            key={`${endpoint.host}:${endpoint.port}/${endpoint.fingerprint}`}
             address={`${endpoint.host}:${endpoint.port}`}
-            service={service}
+            build={build}
+            error={buildError}
           />
           <ActionError error={error} namespace={namespace} />
         </>

@@ -6,9 +6,55 @@ import { asDisplayError, type DisplayError } from "../i18n/errors";
 import { ActionError } from "../host/action-error";
 import { SettingsDialog } from "./SettingsDialog";
 import { SettingsSection } from "./Section";
-import { ServiceFacts } from "./ServiceFacts";
+import { ServiceFacts, ServiceStatusBadge, useServiceBuild } from "./ServiceFacts";
 const t = (key: string) => translate("host", key);
 const blank = { host: "", port: "7460", instance: "", fingerprint: "" };
+
+function TradingConnectionCard({
+  entry,
+  busy,
+  removing,
+  onEdit,
+  onBlurRemove,
+  onRemove,
+}: {
+  entry: TradingConnection;
+  busy: boolean;
+  removing: boolean;
+  onEdit: () => void;
+  onBlurRemove: () => void;
+  onRemove: () => void;
+}) {
+  const { build, error } = useServiceBuild({
+    account: entry.id,
+    refreshKey: `${entry.host}:${entry.port}/${entry.fingerprint}`,
+  });
+  return (
+    <article className="settings-item" aria-label={entry.instance}>
+      <header className="settings-item-header">
+        <div className="settings-item-title">
+          <h3>{entry.instance}</h3>
+          <ServiceStatusBadge build={build} error={error} />
+        </div>
+        <div className="settings-actions">
+          <button type="button" disabled={busy} onClick={onEdit}>
+            {t("编辑连接")}
+          </button>
+          <button
+            type="button"
+            className={removing ? "danger" : "danger-quiet"}
+            disabled={busy}
+            onBlur={onBlurRemove}
+            onClick={onRemove}
+          >
+            {t(removing ? "确认删除连接" : "删除连接")}
+          </button>
+        </div>
+      </header>
+      <ServiceFacts address={`${entry.host}:${entry.port}`} build={build} error={error} />
+    </article>
+  );
+}
 
 export function TradingConnections({
   snapshot,
@@ -41,61 +87,43 @@ export function TradingConnections({
           </button>
         }
       >
-        <div className="settings-list">
-          {entries.map(entry => (
-            <section
-              className="settings-item"
-              key={entry.id}
-              aria-label={"error" in entry ? entry.id : entry.instance}
-            >
-              <div className="settings-item-row">
-                <div>
-                  <h3>{"error" in entry ? entry.id : entry.instance}</h3>
-                  {"error" in entry ? (
-                    <p role="alert">{t("连接文件无法读取，已保留原文件供检查")}</p>
-                  ) : (
-                    <ServiceFacts
-                      key={`${entry.host}:${entry.port}/${entry.fingerprint}`}
-                      address={`${entry.host}:${entry.port}`}
-                      account={entry.id}
-                    />
-                  )}
-                </div>
-                {!("error" in entry) && (
-                  <div className="settings-actions">
-                    <button type="button" disabled={busy} onClick={() => edit(entry)}>
-                      {t("编辑连接")}
-                    </button>
-                    <button
-                      type="button"
-                      className={removing === entry.id ? "danger" : "danger-quiet"}
-                      disabled={busy}
-                      onBlur={() => setRemoving("")}
-                      onClick={async () => {
-                        if (removing !== entry.id) {
-                          setRemoving(entry.id);
-                          return;
-                        }
-                        try {
-                          await trade("trading.connections.remove", {
-                            id: entry.id,
-                            revision: entry.revision,
-                          });
-                          setRemoving("");
-                          setError("");
-                        } catch (failure) {
-                          setError(asDisplayError(failure));
-                        }
-                      }}
-                    >
-                      {t(removing === entry.id ? "确认删除连接" : "删除连接")}
-                    </button>
-                  </div>
-                )}
-              </div>
-            </section>
-          ))}
-        </div>
+        {entries.length > 0 && (
+          <div className="settings-list">
+            {entries.map(entry =>
+              "error" in entry ? (
+                <article className="settings-item" key={entry.id} aria-label={entry.id}>
+                  <h3>{entry.id}</h3>
+                  <p role="alert">{t("连接文件无法读取，已保留原文件供检查")}</p>
+                </article>
+              ) : (
+                <TradingConnectionCard
+                  key={entry.id}
+                  entry={entry}
+                  busy={busy}
+                  removing={removing === entry.id}
+                  onEdit={() => edit(entry)}
+                  onBlurRemove={() => setRemoving("")}
+                  onRemove={async () => {
+                    if (removing !== entry.id) {
+                      setRemoving(entry.id);
+                      return;
+                    }
+                    try {
+                      await trade("trading.connections.remove", {
+                        id: entry.id,
+                        revision: entry.revision,
+                      });
+                      setRemoving("");
+                      setError("");
+                    } catch (failure) {
+                      setError(asDisplayError(failure));
+                    }
+                  }}
+                />
+              ),
+            )}
+          </div>
+        )}
         {!adding && <ActionError error={error} namespace="asterion.terminal.trading" />}
         {adding && (
           <SettingsDialog
