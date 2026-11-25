@@ -55,6 +55,15 @@ export function LiveStrategies(context: TerminalContext) {
             initialStrategy={pending.strategy}
             initialRun={pending.run}
             openRun={id => context.navigate("workspace.lab-runs", { params: { run: id } })}
+            reconcileInstance={(accountId, instanceId, runId) =>
+              context.navigate("workspace.lab-runs", {
+                params: {
+                  reconcileAccount: accountId,
+                  reconcileInstance: instanceId,
+                  ...(runId ? { reconcileRun: runId } : {}),
+                },
+              })
+            }
           />
         </div>
       ) : (
@@ -70,12 +79,14 @@ function AccountStrategies({
   initialStrategy,
   initialRun,
   openRun,
+  reconcileInstance,
 }: {
   account: TradingConnection;
   repository: string;
   initialStrategy?: string;
   initialRun?: string;
   openRun: (id: string) => void;
+  reconcileInstance: (accountId: string, instanceId: string, runId?: string) => void;
 }) {
   const host = useStrategyHost(account.id);
   const [published, setPublished] = useState("");
@@ -120,6 +131,13 @@ function AccountStrategies({
             fresh={host.fresh}
             stopping={host.stopping}
             busy={host.busy}
+            reconcile={() => {
+              const cfg = instance.instance!;
+              const matched = host.state?.packages.find(
+                pkg => pkg.name === cfg.packageName && pkg.version === cfg.packageVersion,
+              );
+              reconcileInstance(account.id, cfg.id, matched?.research?.runId || undefined);
+            }}
             stop={id => host.mutate({ case: "stopStrategy", value: { id } })}
             pause={(id, paused) => host.mutate({ case: "pauseStrategy", value: { id, paused } })}
             flatten={id => host.mutate({ case: "flattenStrategy", value: { id } })}

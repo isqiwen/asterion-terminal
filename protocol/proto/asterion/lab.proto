@@ -39,6 +39,7 @@ message Request {
     RenameRun rename_run = 53;
     RunId get_run_summary = 54;
     common.Empty list_recent_runs = 55;
+    ReconcileLive reconcile_live = 56;
   }
 }
 
@@ -75,6 +76,7 @@ message Response {
     common.Empty rename_run = 53;
     RunSummary get_run_summary = 54;
     Runs list_recent_runs = 55;
+    ReconcileResult reconcile_live = 56;
   }
 }
 
@@ -544,4 +546,39 @@ message AdmittedFactor {
   Pinned pinned = 2;
   // The copy of the repository's Python files the factor is imported from.
   string source = 3;
+}
+
+// ---- Live reconciliation
+
+message ReconcileLive {
+  strategy.Instance instance = 1;
+  repeated ReconcileStep steps = 2;
+  repeated strategy.Bar recorded_bars = 3;
+  repeated ReconcileFill live_fills = 4;
+  string run_id = 5;
+  string repository = 6;
+  string dataset_version = 7;
+  string begin_day = 8;
+  string end_day = 9;
+  common.Decimal deposit = 10;
+}
+
+message ReconcileStep {
+  uint64 sequence = 1;
+  strategy.Bars input = 2;
+  strategy.Decision decision = 3;
+}
+
+message ReconcileFill {
+  string trading_day = 1;
+  common.Instrument instrument = 2;
+  common.Side side = 3;
+  common.Offset offset = 4;
+  common.Decimal lots = 5;
+  common.Decimal price = 6;
+}
+
+message ReconcileResult {
+  bool ok = 1;
+  string report = 2;
 }

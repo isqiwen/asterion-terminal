@@ -17,8 +17,8 @@ from pathlib import Path
 import tempfile
 
 from asterion.common_pb2 import ErrorCode, Period, Side, Offset
-from asterion.lab_pb2 import (AdmittedFactor, AdmittedRun, FactorResult, Request, Response,
-                              RollingRun, RunState)
+from asterion.lab_pb2 import (AdmittedFactor, AdmittedRun, FactorResult, ReconcileLive, Request,
+                              Response, RollingRun, RunState)
 from asterion.strategy_pb2 import Bar, Warmup
 
 from asterion_lab import backtest, chart, dominant, pit, repository, package, rolling, worker
@@ -807,6 +807,34 @@ class Service:
         result = json.loads(output)
         reply.quantstats_version = result["version"]
         reply.figures.update(result["figures"])
+
+    def pin_reconcile(self, request):
+        if not request.HasField("instance") or not request.steps:
+            raise ValueError("reconciliation requires a strategy instance and recorded steps")
+        period = PERIODS.get(request.instance.period)
+        if period != "day" and period not in chart.MINUTES:
+            raise ValueError("unsupported strategy period")
+        tables = ("daily",) if period == "day" else ("daily", "minutes")
+        version_id = request.dataset_version
+        if not version_id and request.run_id:
+            version_id = self.runs.record(request.run_id)["data"]["dataset_version"]
+        if not version_id and request.instance.HasField("warmup"):
+            version_id = request.instance.warmup.dataset_version
+        admitted = ReconcileLive()
+        admitted.CopyFrom(request)
+        admitted.dataset_version = self.data_version(version_id, tables)
+        return admitted
+
+    async def on_reconcile_live(self, request, reply):
+        admitted = await self.read(self.pin_reconcile, request)
+        try:
+            output = await worker.output(
+                "asterion_lab.reconcile", "--rpc", str(self.directory),
+                input=admitted.SerializeToString(), timeout=REPORT_SECONDS,
+            )
+        except TimeoutError:
+            raise ValueError(f"reconciliation took longer than {REPORT_SECONDS} s")
+        reply.ParseFromString(output)
 
     def check_run_id(self, identity):
         if not IDENTITY.fullmatch(identity) or identity in self.backtests \

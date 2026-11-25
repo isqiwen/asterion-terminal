@@ -13,12 +13,13 @@ from itertools import groupby
 import json
 import math
 from operator import itemgetter
+import os
 from pathlib import Path
 import re
 import sqlite3
 import sys
 
-from asterion.common_pb2 import Period
+from asterion.common_pb2 import Offset, Period, Side
 from asterion.strategy_pb2 import Bar as WireBar, Bars as WireBars, Decision, Instance
 from asterion.trading_pb2 import InstanceStatus
 from asterion_lab import backtest, chart, repository
@@ -34,6 +35,17 @@ PERIOD_MINUTES = {
     Period.PERIOD_MINUTES_15: 15,
     Period.PERIOD_MINUTES_30: 30,
     Period.PERIOD_MINUTES_60: 60,
+}
+
+SIDE_NAMES = {
+    Side.SIDE_BUY: "buy",
+    Side.SIDE_SELL: "sell",
+}
+OFFSET_NAMES = {
+    Offset.OFFSET_OPEN: "open",
+    Offset.OFFSET_CLOSE: "close",
+    Offset.OFFSET_CLOSE_TODAY: "close_today",
+    Offset.OFFSET_CLOSE_YESTERDAY: "close_yesterday",
 }
 
 BAR_PRICE_FIELDS = ("open", "high", "low", "close")
@@ -370,10 +382,42 @@ def _replay_backtest(
     fills_table = backtest.tables(engine, contracts)["fills"]
     return {
         "data": data,
+        "contracts": contracts,
         "bars": replayed_bars,
         "decisions": decisions,
         "fills": fills_table,
     }
+
+
+def _percentile(values: list[float], q: float) -> float:
+    if len(values) == 1:
+        return values[0]
+    pos = (len(values) - 1) * q
+    lo = math.floor(pos)
+    hi = math.ceil(pos)
+    return values[lo] if lo == hi else values[lo] + (values[hi] - values[lo]) * (pos - lo)
+
+
+def _tick_lookup(contracts: list):
+    schedules = {}
+    for item in contracts:
+        initial = Decimal(item["price_increment"]).scaleb(-8)
+        changes = [(day, Decimal(val).scaleb(-8)) for day, val in item.get("increments", ())]
+        schedules[item["symbol"]] = (initial, changes)
+
+    def lookup(contract: str, day: str) -> Decimal | None:
+        entry = schedules.get(contract)
+        if entry is None:
+            return None
+        tick, changes = entry
+        for effective_day, next_tick in changes:
+            if day >= effective_day:
+                tick = next_tick
+            else:
+                break
+        return tick if tick > 0 else None
+
+    return lookup
 
 
 def _warehouse_contract_bars(
@@ -639,12 +683,16 @@ def _compare_fills(
     live_fills: list,
     bt_fills: list,
     fill_price_tol: Decimal,
+    *,
+    tick_lookup=None,
 ) -> tuple[dict, list]:
     live_agg = _aggregate_fills(live_fills)
     bt_agg = _aggregate_fills(bt_fills)
     diffs = []
     matched = live_only = backtest_only = mismatched = 0
     max_price_diff = Decimal(0)
+    adverse_prices: list[Decimal] = []
+    adverse_ticks: list[float] = []
 
     for key in sorted(set(live_agg) | set(bt_agg)):
         day, contract, side, offset = key
@@ -676,12 +724,19 @@ def _compare_fills(
             continue
         qty_ok = l_entry["qty"] == b_entry["qty"]
         price_delta = l_entry["vwap"] - b_entry["vwap"]
+        # Positive adverse slippage means live filled worse than backtest (buy higher / sell lower).
+        adverse = price_delta if side == "buy" else -price_delta
+        adverse_prices.append(adverse)
+        tick = tick_lookup(contract, day) if tick_lookup is not None else None
+        slip_ticks = float(adverse / tick) if tick is not None and tick > 0 else None
+        if slip_ticks is not None:
+            adverse_ticks.append(slip_ticks)
         if abs(price_delta) > max_price_diff:
             max_price_diff = abs(price_delta)
         price_ok = abs(price_delta) <= fill_price_tol
         if not qty_ok or not price_ok:
             mismatched += 1
-            diffs.append({
+            diff = {
                 "kind": "fill_mismatch",
                 "trading_day": day,
                 "contract": contract,
@@ -693,10 +748,15 @@ def _compare_fills(
                 "live_vwap": _fmt(l_entry["vwap"]),
                 "backtest_vwap": _fmt(b_entry["vwap"]),
                 "price_delta": _fmt(price_delta),
-            })
+                "adverse_price": _fmt(adverse),
+            }
+            if slip_ticks is not None:
+                diff["adverse_ticks"] = round(slip_ticks, 4)
+            diffs.append(diff)
         else:
             matched += 1
 
+    ordered_ticks = sorted(adverse_ticks)
     summary = {
         "live_fill_count": len(live_fills),
         "backtest_fill_count": len(bt_fills),
@@ -705,19 +765,47 @@ def _compare_fills(
         "backtest_only": backtest_only,
         "mismatched": mismatched,
         "max_price_diff": _fmt(max_price_diff),
+        "mean_adverse_price": (
+            _fmt(sum(adverse_prices, Decimal(0)) / len(adverse_prices)) if adverse_prices else None
+        ),
+        "slippage_samples": len(ordered_ticks),
+        "mean_slippage_ticks": round(sum(ordered_ticks) / len(ordered_ticks), 4) if ordered_ticks else None,
+        "median_slippage_ticks": round(_percentile(ordered_ticks, 0.5), 4) if ordered_ticks else None,
+        "p90_slippage_ticks": round(_percentile(ordered_ticks, 0.9), 4) if ordered_ticks else None,
+        "max_slippage_ticks": round(ordered_ticks[-1], 4) if ordered_ticks else None,
         "ok": live_only == 0 and backtest_only == 0 and mismatched == 0,
     }
     return summary, diffs
 
 
-def reconcile(
-    trading_account: Path,
+def _frozen_source(lab_directory: Path, runs: Runs, run_id: str) -> Path | None:
+    row = runs.get(run_id)
+    prefixes = [f"run-{run_id}"]
+    if row and row.get("sweep"):
+        prefixes.append(f"sweep-{row['sweep']}")
+    for name in prefixes:
+        matches = sorted(
+            path for path in (lab_directory / "sources").glob(f"{name}-*")
+            if path.name.rsplit("-", 1)[0] == name
+        )
+        if matches:
+            return matches[-1]
+    return None
+
+
+def reconcile_records(
     lab_directory: Path,
     *,
-    instance_id: str = "",
+    instance: Instance,
+    steps: list,
+    recorded_raw: list,
+    live_fills_raw: list,
+    events: list | None = None,
+    trading_account: Path | None = None,
     run_id: str = "",
     dataset_version: str = "",
     strategy_source: Path | None = None,
+    fallback_source: Path | None = None,
     dataset=None,
     begin_day: str = "",
     end_day: str = "",
@@ -728,11 +816,8 @@ def reconcile(
     weight_tol: Decimal = Decimal("0.000001"),
     fill_price_tol: Decimal = Decimal(0),
 ) -> dict:
-    """Reconcile a Trading strategy instance against a Lab backtest on the same dataset version."""
-    instance_id = instance_id or default_instance_id(trading_account)
-    live_run = read_live_run(trading_account, instance_id)
-    instance = live_run["instance"]
-    steps = live_run["steps"]
+    """Reconcile in-memory live strategy records against a Lab backtest replay."""
+    instance_id = instance.id
     if not steps:
         raise ValueError(f"strategy instance {instance_id} recorded no steps")
     minutes = PERIOD_MINUTES.get(instance.period)
@@ -806,10 +891,6 @@ def reconcile(
     window_begin_day = begin_day or min(v["trading_day"] for v in live_step_bars.values())
     window_end_day = end_day or max(v["trading_day"] for v in live_step_bars.values())
 
-    # Read Trading's `bars.sqlite` up front so warmup-only steps (execute=false) can be
-    # identified before replaying the backtest engine.
-    tracked_natives = set(native_to_contract)
-    recorded_raw = read_recorded_bars(trading_account, instance.period, tracked_natives)
     live_recorded_bars = {}
     recorded_contracts = set()
     for end_ms, native, bar in recorded_raw:
@@ -883,27 +964,26 @@ def reconcile(
         )
         if same_window and execute_from_ms is None:
             saved_fills_table = runs.table(run_id, "fills")
-        source_dir = strategy_source
-        if source_dir is None:
-            snapshots = sorted((lab_directory / "sources").glob(f"run-{run_id}-*"))
-            if snapshots:
-                source_dir = snapshots[-1]
+        source_dir = strategy_source or _frozen_source(lab_directory, runs, run_id) or fallback_source
         if source_dir is not None:
             strategy = repository.load(source_dir, config.strategy, config.params)
-        else:
+        elif trading_account is not None:
             pkg_dir = (
                 trading_account / "strategies" / "packages"
                 / instance.package_name / instance.package_version
             )
             strategy = _load_package_strategy(pkg_dir, config.params)
+        else:
+            raise ValueError(f"strategy source for run {run_id} is unavailable")
     else:
         version_id = dataset_version or (instance.warmup.dataset_version if instance.HasField("warmup") else "")
         if not version_id:
             raise ValueError("dataset_version is required when --run-id is omitted and instance has no warmup")
         params = _instance_params(instance)
         wl = instance.weight_limits if instance.HasField("weight_limits") else None
+        source_dir = strategy_source or fallback_source
         config = backtest.Config(
-            repository=str(strategy_source or ""),
+            repository=str(source_dir or ""),
             strategy=instance.package_name,
             params=params,
             symbols=tuple(symbols),
@@ -925,14 +1005,16 @@ def reconcile(
             minutes=minutes,
             dataset_version=version_id,
         )
-        if strategy_source is not None:
-            strategy = repository.load(strategy_source, instance.package_name, params)
-        else:
+        if source_dir is not None:
+            strategy = repository.load(source_dir, instance.package_name, params)
+        elif trading_account is not None:
             pkg_dir = (
                 trading_account / "strategies" / "packages"
                 / instance.package_name / instance.package_version
             )
             strategy = _load_package_strategy(pkg_dir, params)
+        else:
+            raise ValueError("strategy repository or run_id is required")
 
     store = dataset if dataset is not None else Dataset(lab_directory)
     replayed = _replay_backtest(store, config, strategy, execute_from_ms=execute_from_ms)
@@ -978,10 +1060,8 @@ def reconcile(
         }
         recorded_diffs = []
 
-    # Compare live strategy fills against Lab backtest fills over the live execution days.
-    journal = read_live_fills(trading_account, instance_id)
     live_fills = []
-    for fill in journal["fills"]:
+    for fill in live_fills_raw:
         day = fill["trading_day"]
         if not (window_begin_day <= day <= window_end_day):
             continue
@@ -1010,7 +1090,9 @@ def reconcile(
             "quantity": Decimal(row["quantity"]),
             "price": Decimal(row["price"]),
         })
-    fill_summary, fill_diffs = _compare_fills(live_fills, bt_fills, fill_price_tol)
+    fill_summary, fill_diffs = _compare_fills(
+        live_fills, bt_fills, fill_price_tol, tick_lookup=_tick_lookup(replayed["contracts"])
+    )
 
     overall_ok = (
         bar_summary["ok"]
@@ -1027,6 +1109,7 @@ def reconcile(
             "dataset_version": config.dataset_version,
             "period": "day" if minutes == 0 else f"{minutes}m",
             "symbols": list(config.symbols),
+            "slippage_ticks": config.slippage_ticks,
             "window_begin_day": window_begin_day,
             "window_end_day": window_end_day,
             "fill_window_begin": fill_window_begin,
@@ -1041,8 +1124,110 @@ def reconcile(
         "recorded_bar_diffs": recorded_diffs,
         "decision_diffs": decision_diffs,
         "fill_diffs": fill_diffs,
-        "events": live_run["events"],
+        "events": list(events or ()),
     }
+
+
+def reconcile(
+    trading_account: Path,
+    lab_directory: Path,
+    *,
+    instance_id: str = "",
+    run_id: str = "",
+    dataset_version: str = "",
+    strategy_source: Path | None = None,
+    dataset=None,
+    begin_day: str = "",
+    end_day: str = "",
+    deposit: Decimal = Decimal("1000000"),
+    price_tol: Decimal = Decimal(0),
+    volume_tol: Decimal = Decimal(0),
+    roll_yield_tol: Decimal = Decimal("0.00000001"),
+    weight_tol: Decimal = Decimal("0.000001"),
+    fill_price_tol: Decimal = Decimal(0),
+) -> dict:
+    """Reconcile a Trading strategy instance against a Lab backtest on the same dataset version."""
+    instance_id = instance_id or default_instance_id(trading_account)
+    live_run = read_live_run(trading_account, instance_id)
+    instance = live_run["instance"]
+    steps = live_run["steps"]
+    if not steps:
+        raise ValueError(f"strategy instance {instance_id} recorded no steps")
+    first_step_day = steps[0][1].bars[0].trading_day
+    _, _, native_to_contract = instance_symbol_maps(instance, first_step_day)
+    recorded_raw = read_recorded_bars(trading_account, instance.period, set(native_to_contract))
+    journal = read_live_fills(trading_account, instance_id)
+    return reconcile_records(
+        lab_directory,
+        instance=instance,
+        steps=steps,
+        recorded_raw=recorded_raw,
+        live_fills_raw=journal["fills"],
+        events=live_run["events"],
+        trading_account=trading_account,
+        run_id=run_id,
+        dataset_version=dataset_version,
+        strategy_source=strategy_source,
+        dataset=dataset,
+        begin_day=begin_day,
+        end_day=end_day,
+        deposit=deposit,
+        price_tol=price_tol,
+        volume_tol=volume_tol,
+        roll_yield_tol=roll_yield_tol,
+        weight_tol=weight_tol,
+        fill_price_tol=fill_price_tol,
+    )
+
+
+def reconcile_rpc(lab_directory: Path, request, *, dataset=None) -> dict:
+    """Reconcile a `lab.ReconcileLive` RPC request into a report dict."""
+    if not request.HasField("instance"):
+        raise ValueError("reconciliation requires a strategy instance")
+    steps = [
+        (
+            step.sequence or step.input.sequence,
+            step.input,
+            step.decision if step.HasField("decision") else None,
+        )
+        for step in request.steps
+    ]
+    recorded_raw = [
+        (bar.end_ms, f"{bar.instrument.exchange}/{bar.instrument.symbol}", bar)
+        for bar in request.recorded_bars
+    ]
+    live_fills_raw = []
+    for fill in request.live_fills:
+        side = SIDE_NAMES.get(fill.side)
+        offset = OFFSET_NAMES.get(fill.offset)
+        qty = _wire_dec(fill.lots)
+        price = _wire_dec(fill.price)
+        if not side or not offset or qty is None or price is None:
+            continue
+        live_fills_raw.append({
+            "trading_day": fill.trading_day,
+            "venue": fill.instrument.exchange,
+            "symbol": fill.instrument.symbol,
+            "side": side,
+            "offset": offset,
+            "quantity": qty,
+            "price": price,
+        })
+    deposit = _wire_dec(request.deposit) if request.HasField("deposit") else None
+    return reconcile_records(
+        lab_directory,
+        instance=request.instance,
+        steps=steps,
+        recorded_raw=recorded_raw,
+        live_fills_raw=live_fills_raw,
+        run_id=request.run_id,
+        dataset_version=request.dataset_version,
+        fallback_source=Path(request.repository) if request.repository else None,
+        dataset=dataset,
+        begin_day=request.begin_day,
+        end_day=request.end_day,
+        deposit=deposit if deposit and deposit > 0 else Decimal("1000000"),
+    )
 
 
 def format_report(report: dict) -> str:
@@ -1073,11 +1258,16 @@ def format_report(report: dict) -> str:
         f"一致={d['matched']} 差异={d['mismatched']} 实盘缺={d['missing_in_live']} 实盘多={d['extra_in_live']}"
     )
     f = summary["fills"]
+    slip_text = (
+        f" 实盘滑点均值={f['mean_slippage_ticks']}跳 P90={f['p90_slippage_ticks']}跳"
+        if f.get("slippage_samples")
+        else ""
+    )
     lines.append(
         f"  [成交明细]       {'OK' if f['ok'] else 'DIFF'} "
         f"实盘={f['live_fill_count']}笔 回测={f['backtest_fill_count']}笔 "
         f"一致={f['matched']} 差异={f['mismatched']} 仅实盘={f['live_only']} "
-        f"仅回测={f['backtest_only']} 最大均价差={f['max_price_diff']}"
+        f"仅回测={f['backtest_only']} 最大均价差={f['max_price_diff']}{slip_text}"
     )
     for title, items in (
         ("策略输入 K 线差异", report["bar_diffs"]),
@@ -1093,6 +1283,23 @@ def format_report(report: dict) -> str:
 
 
 def main(argv=None):
+    if argv is None and len(sys.argv) >= 3 and sys.argv[1] == "--rpc":
+        from asterion.lab_pb2 import ReconcileLive, ReconcileResult
+
+        output = os.fdopen(os.dup(1), "wb")
+        os.dup2(2, 1)
+        request = ReconcileLive()
+        request.ParseFromString(sys.stdin.buffer.read())
+        try:
+            report = reconcile_rpc(Path(sys.argv[2]), request)
+        except Exception as error:
+            print(error, file=sys.stderr)
+            sys.exit(1)
+        reply = ReconcileResult(ok=report["ok"], report=json.dumps(report, ensure_ascii=False))
+        output.write(reply.SerializeToString())
+        output.flush()
+        return
+
     parser = argparse.ArgumentParser(description="Reconcile Trading recorded bars/decisions/fills vs Lab backtest")
     parser.add_argument("--trading-account", required=True, type=Path, help="Trading data/<account> directory")
     parser.add_argument("--lab-dir", required=True, type=Path, help="Lab data directory (runs/ & warehouse-cache/)")

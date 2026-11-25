@@ -4,6 +4,7 @@ Run with the bundled interpreter:
 python3 -I -B reconcile_test.py <source> <generated-python> <engine-directory>
 """
 from dataclasses import replace
+import asyncio
 from decimal import Decimal
 import json
 from pathlib import Path
@@ -16,7 +17,8 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "apps/services/common/python"))
 sys.path[:0] = [sys.argv.pop(1), sys.argv.pop(1), sys.argv.pop(1), str(Path(__file__).parent)]
 
-from asterion.common_pb2 import Decimal as WireDecimal, Instrument, Period  # noqa: E402
+from asterion.common_pb2 import Decimal as WireDecimal, Instrument, Offset, Period, Side  # noqa: E402
+from asterion.lab_pb2 import ReconcileFill, ReconcileLive, ReconcileStep, Request  # noqa: E402
 from asterion.strategy_pb2 import (  # noqa: E402
     Bar as WireBar,
     Bars as WireBars,
@@ -25,8 +27,9 @@ from asterion.strategy_pb2 import (  # noqa: E402
     Instance,
     SeriesContract,
 )
-from asterion_lab import backtest, package, reconcile, repository  # noqa: E402
+from asterion_lab import backtest, log as lab_log, package, reconcile, repository  # noqa: E402
 from asterion_strategy import Strategy  # noqa: E402
+from service_fixture import Service  # noqa: E402
 from warehouse_fixture import DAYS, warehouse  # noqa: E402
 from warehouse_writer import Warehouse  # noqa: E402
 
@@ -433,6 +436,101 @@ class ReconcileTest(unittest.TestCase):
         }]
         fill_sum, fill_diffs = reconcile._compare_fills(live_dce, bt_dce, Decimal(0))
         self.assertTrue(fill_sum["ok"], fill_diffs)
+
+    def test_realized_slippage_ticks_accounts_for_side_and_percentiles(self):
+        # Tick = 2; buy higher (+4 => +2 ticks adverse), sell lower (-2 => +1 tick adverse),
+        # buy lower (-2 => -1 tick favorable), sell higher (+0 => 0 ticks).
+        live = [
+            {"trading_day": "2026-01-05", "contract": "SHFE/rb/2026-05", "side": "buy", "offset": "open",
+             "quantity": Decimal("1"), "price": Decimal("3504")},
+            {"trading_day": "2026-01-06", "contract": "SHFE/rb/2026-05", "side": "sell", "offset": "close",
+             "quantity": Decimal("1"), "price": Decimal("3518")},
+            {"trading_day": "2026-01-07", "contract": "SHFE/rb/2026-05", "side": "buy", "offset": "open",
+             "quantity": Decimal("1"), "price": Decimal("3498")},
+            {"trading_day": "2026-01-08", "contract": "SHFE/rb/2026-05", "side": "sell", "offset": "close",
+             "quantity": Decimal("1"), "price": Decimal("3510")},
+        ]
+        bt = [
+            {"trading_day": "2026-01-05", "contract": "SHFE/rb/2026-05", "side": "buy", "offset": "open",
+             "quantity": Decimal("1"), "price": Decimal("3500")},
+            {"trading_day": "2026-01-06", "contract": "SHFE/rb/2026-05", "side": "sell", "offset": "close",
+             "quantity": Decimal("1"), "price": Decimal("3520")},
+            {"trading_day": "2026-01-07", "contract": "SHFE/rb/2026-05", "side": "buy", "offset": "open",
+             "quantity": Decimal("1"), "price": Decimal("3500")},
+            {"trading_day": "2026-01-08", "contract": "SHFE/rb/2026-05", "side": "sell", "offset": "close",
+             "quantity": Decimal("1"), "price": Decimal("3510")},
+        ]
+        summary, diffs = reconcile._compare_fills(live, bt, Decimal(0), tick_lookup=lambda _c, _d: Decimal("2"))
+        self.assertFalse(summary["ok"])
+        self.assertEqual(summary["slippage_samples"], 4)
+        self.assertAlmostEqual(summary["mean_slippage_ticks"], 0.5)
+        self.assertAlmostEqual(summary["median_slippage_ticks"], 0.5)
+        self.assertAlmostEqual(summary["p90_slippage_ticks"], 1.7)
+        self.assertAlmostEqual(summary["max_slippage_ticks"], 2.0)
+        by_day = {item["trading_day"]: item for item in diffs}
+        self.assertEqual(by_day["2026-01-05"]["adverse_ticks"], 2.0)
+        self.assertEqual(by_day["2026-01-06"]["adverse_ticks"], 1.0)
+        self.assertEqual(by_day["2026-01-07"]["adverse_ticks"], -1.0)
+
+    def test_reconcile_live_rpc_round_trip_and_slippage_reporting(self):
+        cfg, replayed = self._run_reference_backtest("bt-rpc")
+        instance, steps, recorded_bars, _orders, fills = self._build_matching_live(cfg, replayed, "inst-rpc")
+
+        side_enum = {"buy": Side.SIDE_BUY, "sell": Side.SIDE_SELL}
+        offset_enum = {
+            "open": Offset.OFFSET_OPEN,
+            "close": Offset.OFFSET_CLOSE,
+            "close_today": Offset.OFFSET_CLOSE_TODAY,
+            "close_yesterday": Offset.OFFSET_CLOSE_YESTERDAY,
+        }
+
+        def make_request(fill_rows):
+            return Request(
+                id=1,
+                reconcile_live=ReconcileLive(
+                    instance=instance,
+                    steps=[
+                        ReconcileStep(sequence=seq, input=wb, decision=dec)
+                        for seq, wb, dec in steps
+                    ],
+                    recorded_bars=[bar for _, _, bar in recorded_bars],
+                    live_fills=[
+                        ReconcileFill(
+                            trading_day=f["trading_day"],
+                            instrument=Instrument(exchange=f["venue"], symbol=f["symbol"]),
+                            side=side_enum[f["side"]],
+                            offset=offset_enum[f["offset"]],
+                            lots=_wdec(f["quantity"]),
+                            price=_wdec(f["price"]),
+                        )
+                        for f in fill_rows
+                    ],
+                    run_id="bt-rpc",
+                    repository=str(self.repo),
+                ),
+            )
+
+        logger = lab_log.ProcessLog("lab", self.root)
+        service = Service("lab", self.lab_dir, logger)
+        try:
+            reply_ok = asyncio.run(service.reply(make_request(fills)))
+            self.assertEqual(reply_ok.WhichOneof("result"), "reconcile_live", reply_ok)
+            self.assertTrue(reply_ok.reconcile_live.ok, reply_ok.reconcile_live.report)
+            report_ok = json.loads(reply_ok.reconcile_live.report)
+            self.assertGreater(report_ok["summary"]["fills"]["slippage_samples"], 0)
+            self.assertEqual(report_ok["summary"]["fills"]["mean_slippage_ticks"], 0.0)
+
+            slipped = [dict(f) for f in fills]
+            delta = Decimal("2") if slipped[0]["side"] == "buy" else Decimal("-2")
+            slipped[0]["price"] = str(Decimal(slipped[0]["price"]) + delta)
+            reply_diff = asyncio.run(service.reply(make_request(slipped)))
+            self.assertEqual(reply_diff.WhichOneof("result"), "reconcile_live", reply_diff)
+            self.assertFalse(reply_diff.reconcile_live.ok)
+            report_diff = json.loads(reply_diff.reconcile_live.report)
+            self.assertEqual(report_diff["summary"]["fills"]["max_slippage_ticks"], 2.0)
+            self.assertEqual(report_diff["fill_diffs"][0]["adverse_ticks"], 2.0)
+        finally:
+            service.reads.shutdown(wait=True)
 
 
 if __name__ == "__main__":

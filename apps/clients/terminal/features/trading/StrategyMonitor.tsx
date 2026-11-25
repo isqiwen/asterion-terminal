@@ -36,6 +36,7 @@ export function StrategyMonitor({
   fresh,
   stopping,
   busy,
+  reconcile,
   stop,
   pause,
   flatten,
@@ -46,6 +47,7 @@ export function StrategyMonitor({
   fresh: boolean;
   stopping: boolean;
   busy: boolean;
+  reconcile?: () => void;
   stop: (id: string) => Promise<boolean>;
   pause: (id: string, paused: boolean) => Promise<boolean>;
   flatten: (id: string) => Promise<boolean>;
@@ -87,6 +89,11 @@ export function StrategyMonitor({
           </span>
         </StatusBadge>
         {instance.paused && <StatusBadge tone="attention">{t("暂停新增")}</StatusBadge>}
+        {reconcile && instance.completedSteps > 0n && (
+          <button type="button" onClick={reconcile}>
+            {t("实盘对账")}
+          </button>
+        )}
       </div>
       {instance.paused && <p role="status">{t("已暂停新增：目标只减仓。")}</p>}
       {instance.error && (

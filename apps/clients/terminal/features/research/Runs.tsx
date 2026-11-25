@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { TradingConnection } from "../../src/bridge/client";
 import { lab } from "../../src/bridge/lab";
 import { RunState, type RunSummary } from "../../src/generated/asterion/lab_pb";
 import { ActionError, useActionError } from "../../src/host/action-error";
@@ -9,6 +10,7 @@ import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { type MessageValues, translate, listSeparator } from "../../src/i18n";
 import { StatusBadge } from "../../src/ui/StatusBadge";
 import { DeleteRecord } from "./LabParts";
+import { ReconcileView } from "./ReconcileView";
 import {
   RunComparison,
   RunResult,
@@ -47,7 +49,11 @@ const columns = [
   ["calmar", "卡玛比率", false],
 ] as const;
 type SortKey = "started" | "fills" | (typeof columns)[number][0];
-type Shown = { kind: "run" | "sweep"; id: string } | { kind: "compare"; ids: string[] } | null;
+type Shown =
+  | { kind: "run" | "sweep"; id: string }
+  | { kind: "compare"; ids: string[] }
+  | { kind: "reconcile"; account?: string; instance?: string; run?: string; autoStart?: boolean }
+  | null;
 
 const paramsText = (run: RunSummary) =>
   Object.entries(run.params)
@@ -79,9 +85,24 @@ export function Runs(context: TerminalContext) {
     descending: true,
   });
   const acted = useActionError();
+  const tradingAccounts = useMemo(
+    () =>
+      (context.snapshot?.trading_connections ?? []).filter(
+        (item): item is TradingConnection => !("error" in item),
+      ),
+    [context.snapshot?.trading_connections],
+  );
   const opened = context.workspaceParams;
   useEffect(() => {
-    if (!opened?.run && !opened?.sweep && !opened?.compare) return;
+    if (
+      !opened?.run &&
+      !opened?.sweep &&
+      !opened?.compare &&
+      !opened?.reconcileAccount &&
+      !opened?.reconcileInstance &&
+      !opened?.reconcileRun
+    )
+      return;
     if (opened.run) setShown({ kind: "run", id: opened.run });
     else if (opened.sweep) setShown({ kind: "sweep", id: opened.sweep });
     else if (opened.compare) {
@@ -90,10 +111,25 @@ export function Runs(context: TerminalContext) {
         .map(item => item.trim())
         .filter(Boolean);
       if (ids.length >= 2) setShown({ kind: "compare", ids });
+    } else if (opened.reconcileAccount || opened.reconcileInstance || opened.reconcileRun) {
+      setShown({
+        kind: "reconcile",
+        account: opened.reconcileAccount,
+        instance: opened.reconcileInstance,
+        run: opened.reconcileRun,
+        autoStart: Boolean(opened.reconcileAccount),
+      });
     }
     context.navigate("workspace.lab-runs", {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opened?.run, opened?.sweep, opened?.compare]);
+  }, [
+    opened?.run,
+    opened?.sweep,
+    opened?.compare,
+    opened?.reconcileAccount,
+    opened?.reconcileInstance,
+    opened?.reconcileRun,
+  ]);
 
   const openedId = shown?.kind === "run" ? shown.id : undefined;
   const query = useMemo(
@@ -348,6 +384,19 @@ export function Runs(context: TerminalContext) {
         />
       </section>
     );
+  if (shown?.kind === "reconcile")
+    return (
+      <ReconcileView
+        accounts={tradingAccounts}
+        repository={context.snapshot?.research_directory ?? ""}
+        initialAccount={shown.account}
+        initialInstance={shown.instance}
+        initialRun={shown.run}
+        autoStart={shown.autoStart}
+        back={back}
+        openRun={id => setShown({ kind: "run", id })}
+      />
+    );
 
   const sortBy = (key: SortKey) => {
     setOffset(0);
@@ -400,6 +449,11 @@ export function Runs(context: TerminalContext) {
           }}
         />
         <span className="lab-spacer" />
+        {tradingAccounts.length > 0 && (
+          <button type="button" onClick={() => setShown({ kind: "reconcile" })}>
+            {t("实盘对账")}
+          </button>
+        )}
         {compared.length > 0 && (
           <button type="button" className="lab-link" onClick={() => setCompared([])}>
             {t("清空选择")}
