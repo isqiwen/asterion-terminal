@@ -1384,7 +1384,7 @@ TEST_F(Live, TradingDayRolloverRebuildsReportsAndRatesWithoutResending)
     }
 }
 
-TEST_F(Live, ReadingTheNewDayPreservesThePreviousCloseWhileJournalWritesArePending)
+TEST_F(Live, QuotesAndReadsPreserveThePreviousCloseWhileJournalWritesArePending)
 {
     LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
     ASSERT_EQ(ready(session).at("phase"), "ready");
@@ -1400,6 +1400,12 @@ TEST_F(Live, ReadingTheNewDayPreservesThePreviousCloseWhileJournalWritesArePendi
         return next.trading_day() == "2026-09-29" && next.has_funds()
             && next.positions_reconciled();
     });
+    MarketQuote quote;
+    quote.instrument = {"SHFE", "rb2610"};
+    quote.trading_day = "20260929";
+    quote.last = Decimal::parse("3500");
+    quote.source_ms = quote.received_ms = utc_now_ms(*clock);
+    session.advance_quotes({quote});
     ASSERT_EQ(session.day("").close().trading_day(), "2026-09-29");
     held.release();
     EXPECT_THROW(pending.get(), std::exception);

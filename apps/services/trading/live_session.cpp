@@ -1498,12 +1498,15 @@ void LiveAccountState::observe_quotes(std::span<const MarketQuote> quotes)
         const auto today = dashed(state.trading_day);
         if (basis_changed) {
             const auto day = latest_.trading_day();
-            if (state.funds && state.positions_reconciled && !today.empty() && today >= day) {
+            const bool previous_close_pending =
+                !day.empty() && today > day && !closes_.contains(day);
+            if (!previous_close_pending && state.funds && state.positions_reconciled
+                && !today.empty() && today >= day) {
                 latest_ = close_with_valuation(state);
                 attach_cancels(latest_, &state);
                 to_save = latest_;
             }
-            if (day.empty() || today.empty() || today <= day || closes_.contains(day))
+            if (!previous_close_pending)
                 last_close_basis_ = basis;
         } else if (latest_dirty_
             && steady_now(*clock_) - latest_saved_at_ >= std::chrono::seconds{1}) {
