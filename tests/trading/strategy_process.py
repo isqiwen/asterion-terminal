@@ -88,14 +88,14 @@ def account_ready(host):
     return account_snapshot(host)
 
 
-def initialize_account(host):
+def initialize_account(host, symbol='rb2610', delivery_month='2026-10'):
     # Explicit test policy initialization is independent of code publication.
     policy = trading.Policy(
         limits=dict(max_order_lots={'text': '5'}, max_gross_lots={'text': '10'},
                     max_contract_lots={'text': '10'}, max_working_orders=2),
         max_price_deviation={'text': '0.02'})
-    policy.contracts.add(instrument=dict(exchange='SHFE', symbol='rb2610'), product='rb',
-                         delivery_month='2026-10', multiplier={'text': '10'},
+    policy.contracts.add(instrument=dict(exchange='SHFE', symbol=symbol), product='rb',
+                         delivery_month=delivery_month, multiplier={'text': '10'},
                          price_tick={'text': '1'}, lot_size={'text': '1'})
     account_rpc(host, trading.Request(open_account=policy))
     return account_ready(host)

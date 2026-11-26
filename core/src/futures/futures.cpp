@@ -23,6 +23,17 @@ bool is_dated_futures_symbol(
     return month >= "01" && month <= "12";
 }
 
+bool prohibits_natural_person_delivery_month(std::string_view venue, std::string_view product)
+{
+    if (venue != "CFFEX")
+        return true;
+    std::string upper(product);
+    for (char& c : upper)
+        if (c >= 'a' && c <= 'z')
+            c = static_cast<char>(c - 'a' + 'A');
+    return upper == "T" || upper == "TF" || upper == "TS" || upper == "TL";
+}
+
 void FuturesContract::validate() const
 {
     instrument.validate();
@@ -77,6 +88,25 @@ Instrument FuturesContract::terms_for(const InstrumentId& id) const
     Instrument resolved = instrument;
     resolved.id = id;
     return resolved;
+}
+
+std::string
+FuturesContract::delivery_month_for(const InstrumentId& id, std::string_view trading_day) const
+{
+    if (!delivery_month.empty())
+        return delivery_month;
+    const auto suffix = id.symbol.substr(product.size());
+    if (id.venue == "CZCE") {
+        const int ref_year = std::stoi(std::string(trading_day.substr(0, 4)));
+        const int decade = (ref_year / 10) * 10;
+        int year = decade + (suffix[0] - '0');
+        if (year < ref_year - 2)
+            year += 10;
+        else if (year > ref_year + 7)
+            year -= 10;
+        return std::to_string(year) + "-" + suffix.substr(1, 2);
+    }
+    return std::string(trading_day.substr(0, 2)) + suffix.substr(0, 2) + "-" + suffix.substr(2, 2);
 }
 
 } // namespace asterion

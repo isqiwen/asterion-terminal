@@ -843,8 +843,8 @@ TEST_F(
     std::vector<InstrumentId> selected;
     for (int i = 1; i <= 10; ++i) {
         const auto month = (i < 10 ? std::string("0") : std::string{}) + std::to_string(i);
-        const auto symbol = "rb26" + month;
-        const auto delivery = "2026-" + month;
+        const auto symbol = "rb27" + month;
+        const auto delivery = "2027-" + month;
         definition["policy"]["contracts"].push_back(
             contract(symbol.c_str(), "rb", delivery.c_str()));
         selected.push_back({"SHFE", symbol});
@@ -859,7 +859,7 @@ TEST_F(
     deviated.instrument = selected.front();
     deviated.ask = Decimal::parse("3600");
     auto bad_decision = lots(1, 1);
-    bad_decision.mutable_targets(0)->mutable_instrument()->set_symbol("rb2601");
+    bad_decision.mutable_targets(0)->mutable_instrument()->set_symbol("rb2701");
     session.accept_target(owner, bad_decision, {deviated});
     EXPECT_NO_THROW(session.advance_target(owner).get());
     EXPECT_TRUE(session.strategy_failure(owner).empty());
@@ -1360,7 +1360,7 @@ TEST_F(
         });
 
         exchange.call<void (*)(int)>("asterion_fake_trader_quote_mode", 10);
-        act(session, submit("preopen-buy", "3", "3490"));
+        act(session, submit("preopen-buy", "3", "3489"));
         wait_for(session, [](const Json& s) {
             return order_has_status(s, "preopen-buy", "accepted");
         });
@@ -1587,4 +1587,53 @@ TEST_F(StrategyTarget, MiniTwapSlicesTargetSequentiallyOverInterval)
     EXPECT_EQ(decimal(s3.at("orders")[2].at("quantity")), "1");
     EXPECT_EQ(held(s3), "5");
     EXPECT_TRUE(session.strategy_failure(owner).empty());
+}
+
+TEST_F(StrategyTarget, DeliveryMonthAbandonsContractWithoutStoppingInstance)
+{
+    auto m = manifest(4);
+    m["policy"]["contracts"].push_back(contract("rb2701", "rb", "2027-01"));
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, m);
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+
+    // Enter rb2610's delivery month (2026-10); rb2701 remains openable.
+    ctp::SharedLibrary(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_next_day")
+        .symbol<void (*)(const char*)>()("20261009");
+    ASSERT_EQ(
+        wait_for(
+            session,
+            [](const Json& s) {
+                return s.at("phase") == "ready" && s.at("trading_day") == "2026-10-09";
+            })
+            .at("trading_day"),
+        "2026-10-09");
+
+    auto owner =
+        session.register_strategy("guard-run", {{"SHFE", "rb2610"}, {"SHFE", "rb2701"}}).get();
+    ::strategy::Decision decision;
+    decision.set_sequence(1);
+    decision.set_ready(true);
+    for (const char* sym : {"rb2610", "rb2701"}) {
+        auto* target = decision.add_targets();
+        target->mutable_instrument()->set_exchange("SHFE");
+        target->mutable_instrument()->set_symbol(sym);
+        target->set_lots(1);
+    }
+    auto q_delivery = quote();
+    q_delivery.trading_day = "20261009";
+    auto q_active = q_delivery;
+    q_active.instrument = {"SHFE", "rb2701"};
+    session.accept_target(owner, decision, {q_delivery, q_active});
+
+    // rb2610 is abandoned by the delivery-month gate while rb2701 fills cleanly.
+    const auto state = progress(session, owner, filled(1));
+    EXPECT_TRUE(session.strategy_failure(owner).empty());
+    ASSERT_EQ(state.at("orders").size(), 1U);
+    EXPECT_EQ(state.at("orders")[0].at("symbol"), "rb2701");
+    EXPECT_EQ(state.at("orders")[0].at("status"), "filled");
+    const auto events = session.strategy_events(owner);
+    EXPECT_TRUE(std::ranges::any_of(events, [](const auto& ev) {
+        return ev.text().find("delivery month") != std::string::npos;
+    }));
 }

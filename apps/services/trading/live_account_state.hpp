@@ -342,6 +342,9 @@ private:
         const BrokerSnapshot& state) const;
     void
     check_closable_lots(const BrokerSnapshot& state, const LimitOrder& order, Offset offset) const;
+    void
+    check_delivery_month(const InstrumentId& id, Offset offset, std::string_view trading_day) const;
+    void check_self_trade(const BrokerSnapshot& state, const LimitOrder& order) const;
     void check_pre_trade_risk(
         const BrokerSnapshot& state,
         const Instrument& terms,

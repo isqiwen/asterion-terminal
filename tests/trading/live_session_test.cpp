@@ -1929,3 +1929,169 @@ TEST_F(Live, MarginCapReservesWorkingAndUnconfirmedOpenOrders)
     });
     EXPECT_NO_THROW(act(restored, submit("released", "4")));
 }
+
+TEST_F(Live, SelfTradePreventionBlocksCrossingActiveAndUnconfirmedOrders)
+{
+    {
+        LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest(4));
+        ASSERT_EQ(ready(session).at("phase"), "ready");
+        act(session, authorize());
+
+        // Hold 1 long lot so a closing sell can also be tested against a resting buy.
+        act(session, submit("seed-long", "1", "3500"));
+        wait_for(session, [](const Json& s) {
+            return order_has_status(s, "seed-long", "filled")
+                && s.at("positions_reconciled") == true;
+        });
+
+        // Resting buy at 3500 (3 lots rests on the fake exchange).
+        act(session, submit("resting-buy", "3", "3500"));
+        wait_for(session, [](const Json& s) {
+            return order_has_status(s, "resting-buy", "accepted");
+        });
+
+        auto sell_touch = submit("sell-touch", "1", "3500");
+        sell_touch["side"] = "sell";
+        EXPECT_THROW(act(session, sell_touch), std::invalid_argument);
+
+        auto sell_cross = submit("sell-cross", "1", "3499");
+        sell_cross["side"] = "sell";
+        EXPECT_THROW(act(session, sell_cross), std::invalid_argument);
+
+        auto sell_close = submit("sell-close-cross", "1", "3500");
+        sell_close["side"] = "sell";
+        sell_close["offset"] = "close_today";
+        EXPECT_THROW(act(session, sell_close), std::invalid_argument);
+
+        // Non-crossing passive sell above 3500 is allowed.
+        auto sell_above = submit("resting-sell", "3", "3501");
+        sell_above["side"] = "sell";
+        EXPECT_NO_THROW(act(session, sell_above));
+        wait_for(session, [](const Json& s) {
+            return order_has_status(s, "resting-sell", "accepted");
+        });
+
+        // A buy crossing the resting sell at 3501 is blocked; one below it is allowed.
+        EXPECT_THROW(act(session, submit("buy-cross", "1", "3501")), std::invalid_argument);
+
+        // Cancelling the resting buy lifts the block on selling at 3500.
+        act(session,
+            {{"request_id", "cancel.buy"}, {"action", "cancel"}, {"order_id", "resting-buy"}});
+        wait_for(session, [](const Json& s) {
+            return order_has_status(s, "resting-buy", "cancelled");
+        });
+        auto sell_after_cancel = submit("sell-after-cancel", "1", "3500");
+        sell_after_cancel["side"] = "sell";
+        EXPECT_NO_THROW(act(session, sell_after_cancel));
+        wait_for(session, [](const Json& s) {
+            return order_has_status(s, "sell-after-cancel", "filled")
+                && s.at("positions_reconciled") == true;
+        });
+
+        act(session,
+            {{"request_id", "cancel.sell"}, {"action", "cancel"}, {"order_id", "resting-sell"}});
+        wait_for(session, [](const Json& s) {
+            return order_has_status(s, "resting-sell", "cancelled");
+        });
+
+        // Leave a resting buy at 3500 that becomes unconfirmed after exchange reset.
+        act(session, submit("unconfirmed-buy", "3", "3500"));
+        wait_for(session, [](const Json& s) {
+            return order_has_status(s, "unconfirmed-buy", "accepted");
+        });
+    }
+
+    exchange.reset();
+    LiveSession restored(directory.path, ASTERION_TEST_CTP_TRADER, owners.path);
+    ASSERT_EQ(ready(restored).at("unconfirmed").size(), 1U);
+    act(restored, authorize("auth.restored"));
+
+    auto cross_unconfirmed = submit("sell-cross-unconfirmed", "1", "3500");
+    cross_unconfirmed["side"] = "sell";
+    EXPECT_THROW(act(restored, cross_unconfirmed), std::invalid_argument);
+
+    auto clear_unconfirmed = submit("sell-above-unconfirmed", "1", "3501");
+    clear_unconfirmed["side"] = "sell";
+    EXPECT_NO_THROW(act(restored, clear_unconfirmed));
+}
+
+TEST_F(Live, DeliveryMonthBlocksPhysicalOpensWhileAllowingClosesAndCashIndexFutures)
+{
+    auto m = manifest(4);
+    m["policy"]["contracts"].push_back(
+        {{"venue", "CZCE"},
+            {"symbol", "TA"},
+            {"currency", "CNY"},
+            {"price_increment", "1"},
+            {"multiplier", "5"},
+            {"quantity_increment", "1"},
+            {"product", "TA"},
+            {"delivery_month", ""}});
+    m["policy"]["contracts"].push_back(
+        {{"venue", "CFFEX"},
+            {"symbol", "T2610"},
+            {"currency", "CNY"},
+            {"price_increment", "1"},
+            {"multiplier", "10000"},
+            {"quantity_increment", "1"},
+            {"product", "T"},
+            {"delivery_month", "2026-10"}});
+    m["policy"]["contracts"].push_back(
+        {{"venue", "CFFEX"},
+            {"symbol", "IF2610"},
+            {"currency", "CNY"},
+            {"price_increment", "1"},
+            {"multiplier", "300"},
+            {"quantity_increment", "1"},
+            {"product", "IF"},
+            {"delivery_month", "2026-10"}});
+
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, m);
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+
+    // On 2026-09-28 (before delivery month 2026-10), opening SHFE/rb2610 succeeds.
+    act(session, submit("pre-delivery-open", "2", "3500"));
+    wait_for(session, [](const Json& s) {
+        return order_has_status(s, "pre-delivery-open", "filled")
+            && s.at("positions_reconciled") == true;
+    });
+
+    // Advance into delivery month 2026-10.
+    ctp::SharedLibrary(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_next_day")
+        .symbol<void (*)(const char*)>()("20261009");
+    ASSERT_EQ(
+        wait_for(
+            session,
+            [](const Json& s) {
+                return s.at("phase") == "ready" && s.at("trading_day") == "2026-10-09";
+            })
+            .at("trading_day"),
+        "2026-10-09");
+
+    // Physical commodity fixed contract open is rejected, while close is allowed.
+    EXPECT_THROW(act(session, submit("rb-delivery-open", "1", "3500")), std::invalid_argument);
+    auto close_rb = submit("rb-delivery-close", "2", "3500");
+    close_rb["side"] = "sell";
+    close_rb["offset"] = "close_yesterday";
+    EXPECT_NO_THROW(act(session, close_rb));
+    wait_for(session, [](const Json& s) {
+        return order_has_status(s, "rb-delivery-close", "filled")
+            && s.at("positions_reconciled") == true;
+    });
+
+    // Product-wide CZCE commodity open in delivery month is rejected.
+    auto czce_open = submit("czce-delivery-open", "1", "3500", "TA610");
+    czce_open["venue"] = "CZCE";
+    EXPECT_THROW(act(session, czce_open), std::invalid_argument);
+
+    // CFFEX physical treasury bond open in delivery month is rejected.
+    auto bond_open = submit("bond-delivery-open", "1", "3500", "T2610");
+    bond_open["venue"] = "CFFEX";
+    EXPECT_THROW(act(session, bond_open), std::invalid_argument);
+
+    // CFFEX cash-settled stock index open in delivery month remains allowed.
+    auto idx_open = submit("index-delivery-open", "1", "3500", "IF2610");
+    idx_open["venue"] = "CFFEX";
+    EXPECT_NO_THROW(act(session, idx_open));
+}

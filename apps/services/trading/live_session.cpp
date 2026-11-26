@@ -871,6 +871,45 @@ void LiveAccountState::check_closable_lots(
         throw std::invalid_argument("closing quantity exceeds available position");
 }
 
+void LiveAccountState::check_delivery_month(
+    const InstrumentId& id,
+    Offset offset,
+    std::string_view trading_day) const
+{
+    if (offset != Offset::open)
+        return;
+    const auto* contract = policy_->find(id);
+    if (!contract || !prohibits_natural_person_delivery_month(id.venue, contract->product))
+        return;
+    if (trading_day.size() != 8 || !std::ranges::all_of(trading_day, [](char c) {
+            return c >= '0' && c <= '9';
+        }))
+        throw Error(ErrorCode::unavailable, "opening orders require a valid broker trading day");
+    const auto trading_month =
+        std::string(trading_day.substr(0, 4)) + "-" + std::string(trading_day.substr(4, 2));
+    if (trading_month >= contract->delivery_month_for(id, trading_day))
+        throw std::invalid_argument(
+            "opening orders are prohibited in or after the delivery month for natural person accounts");
+}
+
+void LiveAccountState::check_self_trade(const BrokerSnapshot& state, const LimitOrder& order) const
+{
+    const auto crosses = [&](const InstrumentId& id, Side side, Decimal price) {
+        if (id != order.instrument || side == order.side)
+            return false;
+        return order.side == Side::buy ? order.limit_price >= price : order.limit_price <= price;
+    };
+    for (const auto& existing : state.orders)
+        if (working(existing.status)
+            && crosses(existing.instrument, existing.side, existing.limit_price))
+            throw std::invalid_argument(
+                "order price crosses an active opposite-side order on the same contract");
+    for (const auto& [_, intent] : unconfirmed(state))
+        if (crosses(intent->instrument, intent->side, intent->limit_price))
+            throw std::invalid_argument(
+                "order price crosses an active opposite-side order on the same contract");
+}
+
 void LiveAccountState::check_pre_trade_risk(
     const BrokerSnapshot& state,
     const Instrument& terms,
@@ -952,8 +991,8 @@ AccountCommand LiveAccountState::submit(
     check_order_source(submission, strategy);
     if (!authorization_)
         throw std::invalid_argument("authorize live trading for this account first");
-    const auto [permitted, reconciled] = observed([&](const BrokerSnapshot& state) {
-        return std::pair{authorized(state), state.reconciled_for(id)};
+    const auto [permitted, reconciled, trading_day] = observed([&](const BrokerSnapshot& state) {
+        return std::tuple{authorized(state), state.reconciled_for(id), state.trading_day};
     });
     if (!permitted)
         throw Error(
@@ -964,6 +1003,7 @@ AccountCommand LiveAccountState::submit(
         throw Error(
             ErrorCode::unavailable,
             "broker fills are awaiting position reconciliation; opening orders are paused");
+    check_delivery_month(id, offset, trading_day);
     if (order.quantity <= Decimal{} || !order.quantity.multiple_of(terms.quantity_increment))
         throw std::invalid_argument("order quantity must be a positive multiple of the lot size");
     if (order.limit_price <= Decimal{} || !order.limit_price.multiple_of(terms.price_increment))
@@ -1041,6 +1081,8 @@ AccountCommand LiveAccountState::finish_submit(
     }
     if (offset != Offset::open)
         check_closable_lots(state, order, offset);
+    check_delivery_month(id, offset, state.trading_day);
+    check_self_trade(state, order);
     check_pre_trade_risk(state, terms, order, offset, check_margin);
     if (control != send_gate_.revision())
         throw Error(

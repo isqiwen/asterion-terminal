@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <asterion/futures/futures.hpp>
 #include <asterion/futures/history_identity.hpp>
 #include <asterion/futures/order.hpp>
 #include <asterion/futures/position_target.hpp>
@@ -298,4 +299,36 @@ TEST(Domain, position_target_contract)
             asterion::PositionSides::short_only})
         EXPECT_EQ(asterion::parse_position_sides(asterion::position_sides_name(sides)), sides);
     EXPECT_THROW(asterion::parse_position_sides("flat"), std::invalid_argument);
+}
+
+TEST(Domain, delivery_month_resolution_and_natural_person_ban)
+{
+    EXPECT_TRUE(prohibits_natural_person_delivery_month("SHFE", "rb"));
+    EXPECT_TRUE(prohibits_natural_person_delivery_month("INE", "sc"));
+    EXPECT_TRUE(prohibits_natural_person_delivery_month("DCE", "m"));
+    EXPECT_TRUE(prohibits_natural_person_delivery_month("CZCE", "TA"));
+    EXPECT_TRUE(prohibits_natural_person_delivery_month("GFEX", "si"));
+    EXPECT_TRUE(prohibits_natural_person_delivery_month("CFFEX", "T"));
+    EXPECT_TRUE(prohibits_natural_person_delivery_month("CFFEX", "tf"));
+    EXPECT_TRUE(prohibits_natural_person_delivery_month("CFFEX", "TS"));
+    EXPECT_TRUE(prohibits_natural_person_delivery_month("CFFEX", "TL"));
+    EXPECT_FALSE(prohibits_natural_person_delivery_month("CFFEX", "IF"));
+    EXPECT_FALSE(prohibits_natural_person_delivery_month("CFFEX", "IC"));
+    EXPECT_FALSE(prohibits_natural_person_delivery_month("CFFEX", "IH"));
+    EXPECT_FALSE(prohibits_natural_person_delivery_month("CFFEX", "IM"));
+
+    const FuturesContract fixed{
+        {{"SHFE", "rb2610"}, "CNY", d("1"), d("10"), d("1")},
+        "rb",
+        "2026-10"
+    };
+    EXPECT_EQ(fixed.delivery_month_for({"SHFE", "rb2610"}, "20260928"), "2026-10");
+
+    const FuturesContract shfe_product{{{"SHFE", "rb"}, "CNY", d("1"), d("10"), d("1")}, "rb", ""};
+    EXPECT_EQ(shfe_product.delivery_month_for({"SHFE", "rb2610"}, "20260928"), "2026-10");
+
+    const FuturesContract czce_product{{{"CZCE", "TA"}, "CNY", d("2"), d("5"), d("1")}, "TA", ""};
+    EXPECT_EQ(czce_product.delivery_month_for({"CZCE", "TA610"}, "20260928"), "2026-10");
+    EXPECT_EQ(czce_product.delivery_month_for({"CZCE", "TA005"}, "20291228"), "2030-05");
+    EXPECT_EQ(czce_product.delivery_month_for({"CZCE", "TA912"}, "20300105"), "2029-12");
 }

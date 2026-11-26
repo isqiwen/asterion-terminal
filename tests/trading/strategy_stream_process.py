@@ -18,15 +18,20 @@ from trading_installation import install, Programs
 from asterion import common_pb2 as common, strategy_pb2 as wire, trading_pb2 as trading
 from asterion_strategy import Bar, Context, step
 
-CODE = '''from asterion_strategy import Strategy
+NEXT_YEAR = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).year + 1
+DELIVERY_MONTH = f"{NEXT_YEAR}-10"
+SYMBOL = f"rb{NEXT_YEAR % 100:02d}10"
+CANONICAL = f"SHFE/rb/{DELIVERY_MONTH}"
+
+CODE = f'''from asterion_strategy import Strategy
 class TwoBars(Strategy):
-    params = {"window": 2, "lots": 3}
+    params = {{"window": 2, "lots": 3}}
     def ready(self, ctx):
         return all(len(ctx.history(s, "close", self.params["window"])) == self.params["window"]
                    for s in ctx.symbols)
     def on_bar(self, ctx, bar):
         # As a backtest names the contract; another name ends the instance.
-        assert bar.symbol == "SHFE/rb/2026-10", bar.symbol
+        assert bar.symbol == "{CANONICAL}", bar.symbol
         # Deliberately asks before readiness: the shared driver must discard it.
         ctx.target(bar.symbol, self.params["lots"])
 '''
@@ -51,7 +56,7 @@ def main():
         process = host.start('account')
         root = host.root / 'data/account/strategies'
         try:
-            initialize_account(host)
+            initialize_account(host, symbol=SYMBOL, delivery_month=DELIVERY_MONTH)
             account_command(host, trading.Command(request_id='authorize.stream',
                 authorize=trading.Authorize(user_id='strategy')))
             manifest = wire.Manifest(name='two-bars', version='1', entry='rule:TwoBars',
@@ -59,7 +64,7 @@ def main():
             rpc(host, 'publish_strategy', wire.Package(manifest=manifest,
                 files=[wire.File(path='rule.py', content=CODE.encode())]))
             config = wire.Instance(id='live-window', package_name='two-bars', package_version='1',
-                instruments=[dict(exchange='SHFE', symbol='rb2610')], period=common.PERIOD_MINUTES_1)
+                instruments=[dict(exchange='SHFE', symbol=SYMBOL)], period=common.PERIOD_MINUTES_1)
             started_ms = int(time.time() * 1000)
             initial = rpc(host, 'start_strategy', config).instance
             assert initial.state == trading.INSTANCE_STATE_WARMING and not initial.completed_steps, initial
@@ -92,7 +97,7 @@ def main():
             assert live_run.configuration.id == config.id and len(live_run.steps) >= 3
             recorded_bars = rpc(host, 'get_recorded_bars', dict(
                 period=common.PERIOD_MINUTES_1,
-                instrument=dict(exchange='SHFE', symbol='rb2610')))
+                instrument=dict(exchange='SHFE', symbol=SYMBOL)))
             assert len(recorded_bars.bars) >= 3
             rpc(host, 'stop_strategy', dict(id=config.id))
             with sqlite3.connect(root / 'runs/live-window.sqlite') as db:
@@ -101,14 +106,14 @@ def main():
                 rows = db.execute('SELECT input,decision FROM steps ORDER BY sequence').fetchall()
                 events = [row[0] for row in db.execute('SELECT event FROM events ORDER BY rowid')]
             assert [e for e in events if e.startswith('market')] == ['market disconnected', 'market reconnected'], events
-            assert events[0].startswith('sent SHFE/rb2610 buy open 3'), events
-            assert 'SHFE/rb2610 abandoned: strategy target expired before completion' in events, events
+            assert events[0].startswith(f'sent SHFE/{SYMBOL} buy open 3'), events
+            assert f'SHFE/{SYMBOL} abandoned: strategy target expired before completion' in events, events
             assert len(rows) >= 3
             step2_end = wire.Bars.FromString(rows[1][0]).bars[0].end_ms
             step3_end = wire.Bars.FromString(rows[2][0]).bars[0].end_ms
             assert step3_end >= step2_end + 120000, (step2_end, step3_end)
             namespace = {}; exec(CODE, namespace)
-            symbol = 'SHFE/rb/2026-10'
+            symbol = CANONICAL
             strategy, context = namespace['TwoBars'](), Context([symbol])
             for index, (raw, result) in enumerate(rows, 1):
                 batch, decision = wire.Bars.FromString(raw), wire.Decision.FromString(result)
@@ -117,7 +122,7 @@ def main():
                 for row in batch.bars:
                     assert row.end_ms % 60000 == 0 and row.end_ms - 60000 > started_ms
                     assert row.HasField('open_interest') and row.volume > 0
-                    assert (row.instrument.exchange, row.instrument.symbol) == ('SHFE', 'rb2610')
+                    assert (row.instrument.exchange, row.instrument.symbol) == ('SHFE', SYMBOL)
                     bars.append(Bar(symbol, symbol,
                         datetime.datetime.fromtimestamp(row.end_ms / 1000,
                             datetime.timezone(datetime.timedelta(hours=8))),
@@ -126,7 +131,7 @@ def main():
                 wanted = step(strategy, context, bars)
                 assert context.ready == decision.ready
                 assert wanted == {symbol: t.lots for t in decision.targets}
-                assert all(t.instrument.symbol == 'rb2610' for t in decision.targets)
+                assert all(t.instrument.symbol == SYMBOL for t in decision.targets)
             assert rpc(host, 'start_strategy', config, True).code == 'conflict'
             # A warm restart replays the ended instance's record before live bars.
             resumed_config = wire.Instance()
@@ -158,13 +163,13 @@ def main():
                     (first_recorded.trading_day, earlier_end, '3500', ''),
                     (first_recorded.trading_day, first_recorded.end_ms, first_recorded.close.text, '1000')], 1):
                 batch = overlap_warmup.bars.add(sequence=seq)
-                bar = batch.bars.add(instrument=dict(exchange='SHFE', symbol='rb2610'),
+                bar = batch.bars.add(instrument=dict(exchange='SHFE', symbol=SYMBOL),
                     trading_day=day, end_ms=end_ms, open={'text': close}, high={'text': close},
                     low={'text': close}, close={'text': close}, volume=50)
                 if oi:
                     bar.open_interest.text = oi
                 digest.update(b'batch\n')
-                digest.update(f'{day}|{end_ms}|SHFE/rb2610|{close}|{close}|{close}|{close}|50|{oi}\n'.encode())
+                digest.update(f'{day}|{end_ms}|SHFE/{SYMBOL}|{close}|{close}|{close}|{close}|50|{oi}\n'.encode())
             overlap_warmup.sha256 = digest.hexdigest()
             overlap_config = wire.Instance()
             overlap_config.CopyFrom(local_config)
