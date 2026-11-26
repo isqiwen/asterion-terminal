@@ -2,6 +2,7 @@
 from collections import deque
 import math
 
+from asterion_lab import statistics as lab_stats
 from asterion_strategy import CombinedStrategy, product_sector
 
 R = 10 ** 8
@@ -481,6 +482,37 @@ def compute(
 
     gross_total = sum(item["gross_pnl"] for item in by_symbol)
     net_total = sum(item["net_pnl"] for item in by_symbol)
+    significance = None
+    if len(daily_returns) >= 4:
+        trial_count = max(1, int((trials or {}).get("strategy_runs") or 1))
+        nw = lab_stats.newey_west_tstat(daily_returns)
+        sig_entry: dict = {
+            "n_days": len(daily_returns),
+            "trials": trial_count,
+            "nw_t": _finite(nw["t"]) if nw else None,
+            "nw_p": _finite(nw["p_value"]) if nw else None,
+        }
+        if getattr(config, "annual_periods", None) and getattr(config, "zero_risk_free", False):
+            dsr_res = lab_stats.deflated_sharpe_ratio(
+                daily_returns,
+                trials=trial_count,
+                annual_periods=float(config.annual_periods),
+            )
+            if dsr_res is not None:
+                sig_entry["skewness"] = _finite(dsr_res["skewness"])
+                sig_entry["excess_kurtosis"] = _finite(dsr_res["excess_kurtosis"])
+                sig_entry["psr"] = _finite(dsr_res["psr"])
+                sig_entry["dsr"] = _finite(dsr_res["dsr"])
+                sig_entry["expected_max_sharpe"] = _finite(dsr_res["expected_max_sharpe"])
+            if len(daily_returns) >= 20:
+                boot = lab_stats.block_bootstrap_ci(
+                    daily_returns,
+                    annual_periods=float(config.annual_periods),
+                )
+                if boot is not None:
+                    sig_entry["bootstrap"] = boot
+        significance = sig_entry
+
     result = {
         "trades": {
             "count": trade_count,
@@ -529,6 +561,8 @@ def compute(
         "components": list(components or []),
         "uses_pit_fundamentals": bool(uses_pit_fundamentals),
     }
+    if significance is not None:
+        result["significance"] = significance
     if trials is not None:
         result["trials"] = trials
     return result

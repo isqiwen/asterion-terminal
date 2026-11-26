@@ -12,6 +12,8 @@ export type LabSweepState = {
   selected: string;
   rolling?: RunSummary;
   active: boolean;
+  pbo?: number;
+  pboRankCorr?: number;
 };
 
 // Polls a running backtest or parameter sweep sequentially every 1.5 s until it finishes.
@@ -41,6 +43,8 @@ export function useLabActiveReport(report: LabActiveReportTarget | null, onCompl
         selected: reply.selectedId,
         rolling: reply.rolling,
         active: reply.active,
+        pbo: reply.pbo,
+        pboRankCorr: reply.pboRankCorr,
       });
       return reply.active;
     },

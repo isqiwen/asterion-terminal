@@ -658,6 +658,8 @@ export function StrategyLab(context: TerminalContext) {
                   <SweepResult
                     runs={activeSweep.runs}
                     selected={activeSweep.selected}
+                    pbo={activeSweep.pbo}
+                    pboRankCorr={activeSweep.pboRankCorr}
                     open={id => setReport({ kind: "run", id, fromSweep: report.id })}
                     rolling={
                       activeSweep.rolling

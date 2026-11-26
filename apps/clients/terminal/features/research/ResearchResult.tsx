@@ -894,6 +894,25 @@ type DiagnosticsData = {
   drawdowns?: DrawdownEpisode[];
   benchmark?: BenchmarkData | null;
   trials?: { strategy_runs?: number; holdout_runs?: number };
+  significance?: {
+    n_days?: number;
+    trials?: number;
+    skewness?: number | null;
+    excess_kurtosis?: number | null;
+    psr?: number | null;
+    dsr?: number | null;
+    expected_max_sharpe?: number | null;
+    nw_t?: number | null;
+    nw_p?: number | null;
+    bootstrap?: {
+      alpha?: number;
+      block_size?: number;
+      samples?: number;
+      sharpe_ci?: [number, number] | null;
+      annual_return_ci?: [number, number] | null;
+      max_drawdown_ci?: [number, number] | null;
+    } | null;
+  };
   uses_pit_fundamentals?: boolean;
   by_symbol?: Array<{
     symbol: string;
@@ -1041,6 +1060,7 @@ function RunDiagnostics({
   const costs = diag.costs ?? {};
   const exposure = diag.exposure ?? {};
   const direction = diag.direction ?? {};
+  const significance = diag.significance;
   const bySymbol = diag.by_symbol ?? [];
   const bySector = diag.by_sector ?? [];
   const components = diag.components ?? [];
@@ -1193,6 +1213,71 @@ function RunDiagnostics({
           </dd>
         </div>
       </dl>
+
+      {significance && (
+        <>
+          <h3>{t("统计显著性与稳健性")}</h3>
+          <dl className="lab-kv-strip" aria-label={t("统计显著性与稳健性")}>
+            {significance.psr != null && (
+              <div>
+                <dt>{t("PSR 置信度")}</dt>
+                <dd>{metric(significance.psr, true)}</dd>
+              </div>
+            )}
+            {significance.dsr != null && (
+              <div>
+                <dt>{t("DSR 置信度")}</dt>
+                <dd>{metric(significance.dsr, true)}</dd>
+              </div>
+            )}
+            {significance.nw_t != null && (
+              <div>
+                <dt>{t("Newey-West t")}</dt>
+                <dd>
+                  {metric(significance.nw_t, false)}
+                  {significance.nw_p != null ? ` (p=${significance.nw_p.toFixed(3)})` : ""}
+                </dd>
+              </div>
+            )}
+            {significance.skewness != null && significance.excess_kurtosis != null && (
+              <div>
+                <dt>{t("偏度 / 超额峰度")}</dt>
+                <dd>
+                  {metric(significance.skewness, false)} /{" "}
+                  {metric(significance.excess_kurtosis, false)}
+                </dd>
+              </div>
+            )}
+            {significance.bootstrap?.sharpe_ci && (
+              <div>
+                <dt>{t("夏普 95% 区间")}</dt>
+                <dd>
+                  [{metric(significance.bootstrap.sharpe_ci[0], false)},{" "}
+                  {metric(significance.bootstrap.sharpe_ci[1], false)}]
+                </dd>
+              </div>
+            )}
+            {significance.bootstrap?.annual_return_ci && (
+              <div>
+                <dt>{t("年化收益 95% 区间")}</dt>
+                <dd>
+                  [{metric(significance.bootstrap.annual_return_ci[0], true)},{" "}
+                  {metric(significance.bootstrap.annual_return_ci[1], true)}]
+                </dd>
+              </div>
+            )}
+            {significance.bootstrap?.max_drawdown_ci && (
+              <div>
+                <dt>{t("最大回撤 95% 区间")}</dt>
+                <dd>
+                  [{metric(significance.bootstrap.max_drawdown_ci[0], true)},{" "}
+                  {metric(significance.bootstrap.max_drawdown_ci[1], true)}]
+                </dd>
+              </div>
+            )}
+          </dl>
+        </>
+      )}
 
       <div className="lab-segments">
         <div className="lab-flow-card">
@@ -2101,11 +2186,15 @@ function Comparison({
 export function SweepResult({
   runs,
   selected,
+  pbo,
+  pboRankCorr,
   open,
   rolling,
 }: {
   runs: readonly RunSummary[];
   selected: string;
+  pbo?: number;
+  pboRankCorr?: number;
   open: (id: string) => void;
   rolling?: () => void;
 }) {
@@ -2312,6 +2401,18 @@ export function SweepResult({
             <dt>{t("高原稳健度")}</dt>
             <dd>{metric(sweepCheck.plateauRatio ?? undefined, true)}</dd>
           </div>
+          {pbo !== undefined && Number.isFinite(pbo) && (
+            <div>
+              <dt>{t("PBO 过拟合概率")}</dt>
+              <dd>{metric(pbo, true)}</dd>
+            </div>
+          )}
+          {pboRankCorr !== undefined && Number.isFinite(pboRankCorr) && (
+            <div>
+              <dt>{t("CSCV 秩相关")}</dt>
+              <dd className={signed(pboRankCorr)}>{metric(pboRankCorr, false)}</dd>
+            </div>
+          )}
         </dl>
       )}
       <div className="lab-toolbar">

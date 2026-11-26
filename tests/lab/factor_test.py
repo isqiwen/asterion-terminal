@@ -84,6 +84,8 @@ class Evaluation(unittest.TestCase):
         one, five = factor.statistics(1, ic), factor.statistics(5, ic)
         self.assertAlmostEqual(one["t"], one["ir"] * 6 ** 0.5)
         self.assertAlmostEqual(five["t"], five["ir"] * (6 / 5) ** 0.5)
+        self.assertIsNotNone(one["t_hac"])
+        self.assertIsNotNone(five["t_hac"])
 
     def test_values_that_order_the_returns_have_an_ic_of_one(self):
         result = factor.evaluate(frame([1, 2, 3, 4], [0.01, 0.02, 0.03, 0.04]), [1, 2], 2)

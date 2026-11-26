@@ -1124,6 +1124,56 @@ class Service:
             summary(reply.rolling, rolling)
         members = {row["id"] for row in rows} | {f"{request.id}-rolling"}
         reply.active = bool(waiting or members & set(self.backtests) or request.id in self.rolling)
+        if not reply.active:
+            pbo_res = await self.read(self._sweep_pbo, rows)
+            if pbo_res is not None:
+                reply.pbo = pbo_res["pbo"]
+                if pbo_res["is_oos_rank_corr"] is not None:
+                    reply.pbo_rank_corr = pbo_res["is_oos_rank_corr"]
+
+    def _sweep_pbo(self, rows: list) -> dict | None:
+        from asterion_lab import statistics as lab_stats
+
+        succeeded = [
+            row for row in rows
+            if row["state"] == "succeeded"
+            and BATCH_STRATEGY not in row["params"]
+            and SLIPPAGE_STRESS not in row["params"]
+        ]
+        if len(succeeded) < 2:
+            return None
+        series_by_run = []
+        common_days = None
+        annual_periods = 252.0
+        for row in succeeded:
+            try:
+                record = self.runs.record(row["id"])
+                deposit = float(record["costs"]["deposit"])
+                if deposit <= 0:
+                    continue
+                ann = record.get("statistics", {}).get("annual_periods")
+                if ann:
+                    annual_periods = float(ann)
+                settlements = self.runs.table(row["id"], "settlements")
+                days = [d.isoformat() for d in settlements["trading_day"]]
+                equities = [float(e) for e in settlements["equity"]]
+            except (OSError, KeyError, ValueError):
+                continue
+            if len(days) < 16:
+                continue
+            rets = {}
+            prev = deposit
+            for d_str, eq in zip(days, equities):
+                rets[d_str] = (eq / prev - 1.0) if prev > 0 else 0.0
+                prev = eq
+            series_by_run.append(rets)
+            day_set = set(rets)
+            common_days = day_set if common_days is None else (common_days & day_set)
+        if len(series_by_run) < 2 or not common_days or len(common_days) < 16:
+            return None
+        ordered_days = sorted(common_days)
+        matrix = [[s[d] for s in series_by_run] for d in ordered_days]
+        return lab_stats.cscv_pbo(matrix, annual_periods=annual_periods)
 
     def finish_child(self, identity, plan, state, error):
         row = self.runs.get(identity)

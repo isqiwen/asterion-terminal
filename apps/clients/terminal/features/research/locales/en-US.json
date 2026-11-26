@@ -528,5 +528,15 @@
   "体检通过": "Checks passed",
   "无留出衰减、成本过载、拒单或实盘流缺口警示": "No holdout decay, cost drag, rejection, or live-feed warnings",
   "佣金倍率": "Fee multiplier",
-  "佣金 ×{mult}": "Fees ×{mult}"
+  "佣金 ×{mult}": "Fees ×{mult}",
+  "统计显著性与稳健性": "Statistical significance & robustness",
+  "PSR 置信度": "PSR confidence",
+  "Newey-West t": "Newey-West t",
+  "偏度 / 超额峰度": "Skew / excess kurt",
+  "夏普 95% 区间": "Sharpe 95% CI",
+  "年化收益 95% 区间": "Annual return 95% CI",
+  "最大回撤 95% 区间": "Max DD 95% CI",
+  "PBO 过拟合概率": "PBO overfit prob.",
+  "CSCV 秩相关": "CSCV rank corr",
+  "HAC t 值": "HAC t"
 }

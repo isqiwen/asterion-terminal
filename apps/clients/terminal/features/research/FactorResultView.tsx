@@ -189,6 +189,9 @@ export function FactorResultView({ result }: { result: FactorResult }) {
               ],
               ["ICIR", metric(first.ir, false), first.ir],
               [t("t 值"), metric(first.t, false), first.t],
+              ...(first.tHac !== undefined
+                ? [[t("HAC t 值"), metric(first.tHac, false), first.tHac] as const]
+                : []),
               [t("IC 为正"), metric(first.positiveShare, true), undefined],
               [
                 t("多空累计"),
@@ -245,6 +248,9 @@ export function FactorResultView({ result }: { result: FactorResult }) {
                   {t("t 值")}
                 </th>
                 <th scope="col" className="numeric">
+                  {t("HAC t 值")}
+                </th>
+                <th scope="col" className="numeric">
                   {t("IC 为正")}
                 </th>
                 <th scope="col" className="numeric">
@@ -266,6 +272,7 @@ export function FactorResultView({ result }: { result: FactorResult }) {
                   <td className="numeric">{metric(item.deviation, false)}</td>
                   <td className="numeric">{metric(item.ir, false)}</td>
                   <td className="numeric">{metric(item.t, false)}</td>
+                  <td className="numeric">{metric(item.tHac, false)}</td>
                   <td className="numeric">{metric(item.positiveShare, true)}</td>
                   <td className="numeric">{item.days}</td>
                 </tr>

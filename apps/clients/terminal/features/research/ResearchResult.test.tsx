@@ -454,6 +454,24 @@ test("diagnostics tab renders trade quality, symbol/sector attribution, and comb
               max_drawdown_days: 14,
             },
             direction: { long_pnl: 30000, short_pnl: 18000 },
+            significance: {
+              n_days: 120,
+              trials: 5,
+              skewness: 0.25,
+              excess_kurtosis: 0.4,
+              psr: 0.96,
+              dsr: 0.84,
+              nw_t: 2.35,
+              nw_p: 0.021,
+              bootstrap: {
+                alpha: 0.05,
+                block_size: 5,
+                samples: 500,
+                sharpe_ci: [0.45, 2.15],
+                annual_return_ci: [0.04, 0.28],
+                max_drawdown_ci: [-0.12, -0.03],
+              },
+            },
             by_symbol: [
               {
                 symbol: "SHFE/rb",
@@ -526,6 +544,11 @@ test("diagnostics tab renders trade quality, symbol/sector attribution, and comb
   expect(screen.getByRole("table", { name: "分板块归因" })).toBeTruthy();
   const comp = screen.getByRole("table", { name: "子策略过程与贡献" });
   expect(within(comp).getByRole("rowheader", { name: "MultiFactorRank" })).toBeTruthy();
+  expect(screen.getByText("统计显著性与稳健性")).toBeTruthy();
+  expect(screen.getByText("PSR 置信度")).toBeTruthy();
+  expect(screen.getByText("DSR 置信度")).toBeTruthy();
+  expect(screen.getByText("Newey-West t")).toBeTruthy();
+  expect(screen.getByText("夏普 95% 区间")).toBeTruthy();
 });
 
 test("sweep result renders slippage break-even summary and parameter overfitting check", () => {
@@ -588,12 +611,18 @@ test("sweep result renders slippage break-even summary and parameter overfitting
       ]}
       selected=""
       open={vi.fn()}
+      pbo={0.17}
+      pboRankCorr={0.62}
     />,
   );
   expect(screen.getByText("DSR 置信度")).toBeTruthy();
   expect(screen.getByText("高原稳健度")).toBeTruthy();
   // Neighbors of fast=10 (1.6) are 1.0 and 1.4 -> median 1.2 -> plateau ratio 75.00%.
   expect(screen.getByText("75.00%")).toBeTruthy();
+  expect(screen.getByText("PBO 过拟合概率")).toBeTruthy();
+  expect(screen.getByText("17.00%")).toBeTruthy();
+  expect(screen.getByText("CSCV 秩相关")).toBeTruthy();
+  expect(screen.getByText("0.620")).toBeTruthy();
 });
 
 test("run comparison computes correlation matrix, portfolio simulation, and generates a CombinedStrategy", async () => {

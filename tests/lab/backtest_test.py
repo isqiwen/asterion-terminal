@@ -2389,6 +2389,13 @@ class BacktestSweeps(BacktestCase):
         self.assertIsNotNone(diag["benchmark"])
         self.assertEqual(len(diag["benchmark"]["nav"]), n_days)
         self.assertIsInstance(diag["drawdowns"], list)
+        sig = diag.get("significance")
+        self.assertIsNotNone(sig)
+        self.assertEqual(sig["n_days"], n_days)
+        self.assertIn("psr", sig)
+        self.assertIn("dsr", sig)
+        self.assertIn("nw_t", sig)
+        self.assertIn("nw_p", sig)
 
     def test_slippage_stress_sweep_runs_each_tick_level(self):
         async def exercise():
@@ -2483,11 +2490,10 @@ class BacktestSweeps(BacktestCase):
     def test_fee_multiplier_scales_commissions_without_changing_margin(self):
         import asterion_engine
         from asterion_lab import backtest
-        from asterion_lab.warehouse_client import Dataset
         from asterion_strategy import Strategy
 
         contract = "SHFE/rb/2026-05"
-        version = self.dataset.current().identity
+        version = Dataset(self.directory).current().identity
 
         class HoldOne(Strategy):
             history_limit = 10

@@ -33,7 +33,7 @@ import sys
 import numpy as np
 import polars as pl
 
-from asterion_lab import repository
+from asterion_lab import repository, statistics as lab_stats
 from asterion_lab.backtest import COSTS, Config, Data, observations, prepare, raw, rolls
 from asterion_lab.warehouse_client import Dataset
 from asterion_strategy import (
@@ -550,7 +550,7 @@ def group_returns(frame: pl.DataFrame, horizon: int, groups: int):
 def statistics(horizon: int, ic) -> dict:
     count = len(ic)
     result = {"horizon": horizon, "days": count, "mean": mean(ic), "deviation": None,
-              "ir": None, "t": None, "positive": float((ic > 0).mean()) if count else None}
+              "ir": None, "t": None, "t_hac": None, "positive": float((ic > 0).mean()) if count else None}
     if count > 1:
         deviation = float(np.std(ic, ddof=1))
         result["deviation"] = deviation
@@ -558,6 +558,9 @@ def statistics(horizon: int, ic) -> dict:
             result["ir"] = result["mean"] / deviation
             # Returns over `horizon` bars overlap: about count / horizon are independent.
             result["t"] = result["ir"] * math.sqrt(count / horizon)
+            nw = lab_stats.newey_west_tstat(ic, max_lag=max(1, horizon - 1))
+            if nw is not None and nw["t"] is not None:
+                result["t_hac"] = nw["t"]
     return result
 
 
@@ -681,7 +684,7 @@ def run(directory: Path, admitted, reply):
         for item in rows:
             entry = target.add(horizon=item["horizon"], days=item["days"])
             for name, field in (("mean", "mean"), ("deviation", "deviation"), ("ir", "ir"),
-                                ("t", "t"), ("positive", "positive_share")):
+                                ("t", "t"), ("t_hac", "t_hac"), ("positive", "positive_share")):
                 if item[name] is not None:
                     setattr(entry, field, item[name])
     fill_horizons(reply.horizons, result["horizons"])

@@ -77,6 +77,8 @@ export function Runs(context: TerminalContext) {
     selected: string;
     rolling?: RunSummary;
     active: boolean;
+    pbo?: number;
+    pboRankCorr?: number;
   } | null>(null);
   const [compared, setCompared] = useState<string[]>([]);
   const [strategy, setStrategy] = useWorkspaceDraft("runs-strategy", "");
@@ -194,6 +196,8 @@ export function Runs(context: TerminalContext) {
           selected: reply.selectedId,
           rolling: reply.rolling,
           active: reply.active,
+          pbo: reply.pbo,
+          pboRankCorr: reply.pboRankCorr,
         });
       })
       .catch(failure => active && notify(failure, { namespace: "asterion.terminal.research" }));
@@ -235,6 +239,8 @@ export function Runs(context: TerminalContext) {
         selected: reply.selectedId,
         rolling: reply.rolling,
         active: reply.active,
+        pbo: reply.pbo,
+        pboRankCorr: reply.pboRankCorr,
       });
       await readRuns();
     });
@@ -351,6 +357,8 @@ export function Runs(context: TerminalContext) {
           <SweepResult
             runs={currentSweep.runs}
             selected={currentSweep.selected}
+            pbo={currentSweep.pbo}
+            pboRankCorr={currentSweep.pboRankCorr}
             open={id => setShown({ kind: "run", id })}
             rolling={
               currentSweep.rolling || byId.has(`${shown.id}-rolling`)

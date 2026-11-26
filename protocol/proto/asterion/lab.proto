@@ -311,6 +311,8 @@ message FactorHorizon {
   optional double ir = 5;
   optional double t = 6;
   optional double positive_share = 7;
+  // Newey-West HAC-adjusted t-statistic accounting for overlapping horizons.
+  optional double t_hac = 8;
 }
 
 message FactorDay {
@@ -528,6 +530,9 @@ message SweepRuns {
   string selected_id = 2;
   RunSummary rolling = 3;
   bool active = 4;
+  // CSCV Probability of Backtest Overfitting across succeeded sweep candidates.
+  optional double pbo = 5;
+  optional double pbo_rank_corr = 6;
 }
 
 // ---- Lab to its run processes
