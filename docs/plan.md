@@ -61,7 +61,6 @@ flowchart LR
 
 ## 待定问题
 
-- **策略上下文内存上限**：Linux 容量夹具中，64 个品种各 131,072 根 K 线后的扩容会触及 Trading 的地址空间上限。需确定显式历史保留长度及完整前缀因子的支持方案，再实施有界存储；复测入口见[历史容量夹具](acceptance/research-data.md#历史容量夹具)。
 - **偶发前端时序用例**：`LivePanel.test.tsx` 的 “a split close keeps only remaining lots…” 在 2026-11-21 偶发失败一次，随后完整单元测试连续 8 次、该文件单独 10 次均通过；复现时需定位时序原因。
 - **macOS 回归负载超时**：macOS 完整回归中的 RPC 完成通知耗时与逐日采集批量发布检查偶发超限，串行复跑通过；需定位负载与时序影响。
 - **Lab 空闲连接复用**：Lab `Dataset` 在采集等待后复用读取连接时报 `Warehouse closed the dataset connection`，新建连接核验通过；需明确空闲连接被服务端断开后的研究读取处理方式。

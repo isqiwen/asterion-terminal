@@ -507,3 +507,63 @@ test("experiment annotations, verdicts, drawdowns, histogram, deltas, and AI sum
   expect(md).toContain("holdout decayed");
   expect(md).toContain("Trials: 35");
 });
+
+test("feeMultiplier round-trips through runRequest, formFromRun, sameScope, and onScope", () => {
+  const form = { ...defaultForm(), symbols: "SHFE/rb", feeMultiplier: "1.5" };
+  const { run } = runRequest(form, "/repo", "ma_cross.MaCross", [], "r-fee");
+  expect(run.feeMultiplier?.text).toBe("1.5");
+  expect(sameScope(scopeOf(form), scopeOf({ ...form, feeMultiplier: "1.50" }))).toBe(true);
+  expect(sameScope(scopeOf(form), scopeOf({ ...form, feeMultiplier: "1" }))).toBe(false);
+  expect(
+    sameScope(scopeOf({ ...form, feeMultiplier: "" }), scopeOf({ ...form, feeMultiplier: "1" })),
+  ).toBe(true);
+
+  const detail = create(RunDetailSchema, {
+    summary: {
+      id: "r-fee",
+      strategy: "ma_cross.MaCross",
+      symbols: ["SHFE/rb"],
+      firstDay: "2026-01-01",
+      lastDay: "2026-01-31",
+      period: Period.DAY,
+      settings: {
+        deposit: { text: "1000000" },
+        slippageTicks: 1,
+        feeMultiplier: { text: "1.5" },
+        limits: {
+          maxOrderLots: { text: "100" },
+          maxContractLots: { text: "500" },
+          maxGrossLots: { text: "2000" },
+          maxWorkingOrders: 64,
+        },
+        maxGrossWeight: { text: "1" },
+        maxNetWeight: { text: "1" },
+        periodsPerYear: 252,
+        zeroRiskFreeRate: true,
+      },
+    },
+    record: JSON.stringify({
+      strategy: { id: "ma_cross.MaCross" },
+      params: {},
+      data: {
+        symbols: ["SHFE/rb"],
+        begin_day: "2026-01-01",
+        end_day: "2026-01-31",
+        bars: { period: "day" },
+      },
+      costs: { deposit: "1000000", slippage_ticks: 1, fee_multiplier: "1.5" },
+      risk: {
+        max_order_lots: "100",
+        max_contract_lots: "500",
+        max_gross_lots: "2000",
+        max_working_orders: 64,
+      },
+      statistics: { annual_periods: 252, zero_risk_free: true, holdout_day: "" },
+    }),
+  });
+  expect(onScope(form, detail.summary!, "2026-01-01", "2026-01-31")).toBe(true);
+  expect(
+    onScope({ ...form, feeMultiplier: "2" }, detail.summary!, "2026-01-01", "2026-01-31"),
+  ).toBe(false);
+  expect(formFromRun(detail).form.feeMultiplier).toBe("1.5");
+});

@@ -32,6 +32,7 @@ const t = (key: string, values?: MessageValues) =>
 const costFields = [
   ["初始资金", "deposit", ""],
   ["滑点（跳）", "slippage", ""],
+  ["佣金倍率", "feeMultiplier", "1"],
 ] as const;
 
 const riskLimitFields = [
@@ -62,12 +63,14 @@ const store: ConditionStore<ScopeFields> = {
 
 function summary(form: RunForm, begin: string, end: string) {
   const deposit = Number(form.deposit);
+  const feeMult = form.feeMultiplier.trim();
   return [
     dayRange(form.begin, form.end, begin, end),
     Number.isFinite(deposit)
       ? new Intl.NumberFormat(getLocale(), { notation: "compact" }).format(deposit)
       : form.deposit,
     t("滑点 {count} 跳", { count: form.slippage }),
+    ...(feeMult && Number(feeMult) !== 1 ? [t("佣金 ×{mult}", { mult: feeMult })] : []),
     ...(form.holdoutDay ? [t("留出 {day}", { day: form.holdoutDay })] : []),
   ].join(" · ");
 }
@@ -179,7 +182,13 @@ function RunFields({
       <span>{t(label)}</span>
       <input
         className="lab-param"
-        placeholder={placeholder ? (placeholder === "252" ? "252" : t(placeholder)) : undefined}
+        placeholder={
+          placeholder
+            ? /^\d+(\.\d+)?$/.test(placeholder)
+              ? placeholder
+              : t(placeholder)
+            : undefined
+        }
         value={form[key]}
         onChange={event => change({ [key]: event.target.value })}
       />

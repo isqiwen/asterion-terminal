@@ -1,5 +1,5 @@
 import { translate } from "../../src/i18n";
-export type Activity = "positions" | "orders" | "fills" | "rates" | "policy";
+export type Activity = "positions" | "orders" | "fills" | "performance" | "rates" | "policy";
 const t = (key: string) => translate("asterion.terminal.trading", key);
 // `counts` follow a tab's name, such as the working orders of all orders.
 export function ActivityTabs({
@@ -15,6 +15,7 @@ export function ActivityTabs({
     ["positions", "持仓"],
     ["orders", "委托"],
     ["fills", "成交"],
+    ["performance", "绩效"],
     ["rates", "费率"],
     ["policy", "风控"],
   ];

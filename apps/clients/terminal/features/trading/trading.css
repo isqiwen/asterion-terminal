@@ -1256,3 +1256,16 @@
   font-size: var(--font-size-aux);
   cursor: default;
 }
+.account-performance {
+  display: grid;
+  gap: var(--space-3);
+}
+.performance-charts {
+  display: grid;
+  gap: var(--space-3);
+}
+.performance-day-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}

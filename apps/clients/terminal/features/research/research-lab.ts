@@ -49,6 +49,7 @@ export type RunForm = {
   params: Record<string, string>;
   deposit: string;
   slippage: string;
+  feeMultiplier: string;
   maxOrderLots: string;
   maxContractLots: string;
   maxGrossLots: string;
@@ -77,6 +78,7 @@ export function defaultForm(): RunForm {
     params: {},
     deposit: "1000000",
     slippage: "1",
+    feeMultiplier: "1",
     maxOrderLots: "100",
     maxContractLots: "500",
     maxGrossLots: "2000",
@@ -103,6 +105,7 @@ const scopeFields = [
   "minutes",
   "deposit",
   "slippage",
+  "feeMultiplier",
   "maxOrderLots",
   "maxContractLots",
   "maxGrossLots",
@@ -190,6 +193,8 @@ export function sameSymbolList(a: string, b: string) {
 export function sameScope(a: ScopeFields, b: ScopeFields) {
   return scopeFields.every(field => {
     if (field === "symbols") return sameSymbolList(a.symbols, b.symbols);
+    if (field === "feeMultiplier")
+      return Number(a.feeMultiplier || 1) === Number(b.feeMultiplier || 1);
     const [x, y] = [a[field], b[field]];
     return (
       x === y ||
@@ -218,6 +223,7 @@ export function onScope(form: RunForm, run: RunSummary, begin: string, end: stri
     protocolPeriod(form.minutes === "0" ? "day" : Number(form.minutes)) === run.period &&
     same(form.deposit, settings.deposit) &&
     Number(form.slippage) === settings.slippageTicks &&
+    Number(form.feeMultiplier || 1) === Number(settings.feeMultiplier?.text || 1) &&
     same(form.maxOrderLots, settings.limits?.maxOrderLots) &&
     same(form.maxContractLots, settings.limits?.maxContractLots) &&
     same(form.maxGrossLots, settings.limits?.maxGrossLots) &&
@@ -289,7 +295,7 @@ export function slippageStressBase(detail: RunDetail, fallbackRepository: string
     strategy?: { id?: string; repository?: string };
     params?: Record<string, unknown>;
     data?: { symbols?: string[]; begin_day?: string; end_day?: string; bars?: { period?: string } };
-    costs?: { deposit?: string; slippage_ticks?: number };
+    costs?: { deposit?: string; slippage_ticks?: number; fee_multiplier?: string | number };
     risk?: Record<string, string | number>;
     statistics?: { annual_periods?: number | null; zero_risk_free?: boolean; holdout_day?: string };
   };
@@ -315,6 +321,7 @@ export function slippageStressBase(detail: RunDetail, fallbackRepository: string
     period: protocolPeriod(minutes || "day"),
     deposit: decimal(String(rec.costs?.deposit ?? "1000000")),
     slippageTicks: Number(rec.costs?.slippage_ticks ?? 0),
+    feeMultiplier: decimal(String(rec.costs?.fee_multiplier ?? "1")),
     limits: {
       maxOrderLots: decimal(String(risk.max_order_lots ?? "100")),
       maxContractLots: decimal(String(risk.max_contract_lots ?? "500")),
@@ -372,6 +379,7 @@ export function formFromRun(detail: RunDetail): { strategy: string; form: RunFor
       params,
       deposit: String(record.costs?.deposit ?? base.deposit),
       slippage: String(record.costs?.slippage_ticks ?? base.slippage),
+      feeMultiplier: String(record.costs?.fee_multiplier ?? base.feeMultiplier),
       maxOrderLots: lots(record.risk?.max_order_lots),
       maxContractLots: lots(record.risk?.max_contract_lots),
       maxGrossLots: lots(record.risk?.max_gross_lots),
@@ -432,6 +440,7 @@ export function runRequest(
     period: protocolPeriod(form.minutes === "0" ? "day" : Number(form.minutes)),
     deposit: decimal(form.deposit),
     slippageTicks: Number(form.slippage),
+    feeMultiplier: form.feeMultiplier.trim() ? decimal(form.feeMultiplier) : decimal("1"),
     limits: {
       maxOrderLots: decimal(form.maxOrderLots),
       maxGrossLots: decimal(form.maxGrossLots),
@@ -1874,7 +1883,7 @@ export function formatRunSummaryMarkdown(
   const rec = record as {
     strategy?: { id?: string; commit?: string };
     params?: Record<string, unknown>;
-    costs?: { deposit?: string; slippage_ticks?: number };
+    costs?: { deposit?: string; slippage_ticks?: number; fee_multiplier?: string | number };
     data?: {
       dataset_version?: string;
       symbols?: string[];

@@ -306,7 +306,11 @@ def _replay_backtest(
     )
     symbols = {engine.unit(index): symbol for symbol, index in first.items()}
     units = {symbol: unit for unit, symbol in symbols.items()}
-    context = Context([symbols[unit] for unit in sorted(symbols)], backtest.rolls(contracts))
+    context = Context(
+        [symbols[unit] for unit in sorted(symbols)],
+        backtest.rolls(contracts),
+        max_history=getattr(strategy, "history_limit", None),
+    )
 
     replayed_bars = {}
     decisions = {}
@@ -951,6 +955,7 @@ def reconcile_records(
             deposit=Decimal(costs["deposit"]),
             costs=None,
             slippage_ticks=int(costs["slippage_ticks"]),
+            fee_multiplier=Decimal(str(costs.get("fee_multiplier", "1"))),
             max_order_lots=Decimal(risk["max_order_lots"]),
             max_gross_lots=Decimal(risk["max_gross_lots"]),
             max_contract_lots=Decimal(risk["max_contract_lots"]),

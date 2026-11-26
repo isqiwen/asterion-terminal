@@ -526,5 +526,7 @@
   "PIT 基本面": "PIT fundamentals",
   "Trading 实盘暂无实时基本面更新流": "Trading live has no real-time fundamental feed yet",
   "体检通过": "Checks passed",
-  "无留出衰减、成本过载、拒单或实盘流缺口警示": "No holdout decay, cost drag, rejection, or live-feed warnings"
+  "无留出衰减、成本过载、拒单或实盘流缺口警示": "No holdout decay, cost drag, rejection, or live-feed warnings",
+  "佣金倍率": "Fee multiplier",
+  "佣金 ×{mult}": "Fees ×{mult}"
 }

@@ -21,6 +21,7 @@ import { useMarket } from "../../src/host/market";
 import { useTradingDayFills, useTradingOrders } from "../../src/host/trading-accounts";
 import { contractName } from "../../src/ui/contract-names";
 import { StatusBadge, type Tone } from "../../src/ui/StatusBadge";
+import { AccountPerformance } from "./AccountPerformance";
 import { AccountPolicyEditor } from "./AccountPolicyEditor";
 import { closableLots, lots } from "./exposure";
 import { ActivityTabs, type Activity } from "./ActivityTabs";
@@ -602,6 +603,13 @@ export function AccountRecords({
       </div>
       <div hidden={activity !== "fills"}>
         <Fills connection={connection} live={live} active={activity === "fills"} />
+      </div>
+      <div hidden={activity !== "performance"}>
+        <AccountPerformance
+          connection={connection}
+          live={live}
+          active={activity === "performance"}
+        />
       </div>
       {activity === "rates" && (
         <div>

@@ -390,6 +390,7 @@ class Strategy:
     """The base of every strategy. `params` names each parameter with its
     default; a run may set any of them to a value of the same kind."""
     params: dict = {}
+    history_limit: int | None = None
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -399,6 +400,13 @@ class Strategy:
             if type(value) not in KINDS:
                 raise TypeError(f"{cls.__qualname__}: parameter {name} defaults to a "
                                 f"{type(value).__name__}; use bool, int, float or str")
+        if cls.history_limit is not None:
+            if (
+                not isinstance(cls.history_limit, numbers.Integral)
+                or isinstance(cls.history_limit, bool)
+                or cls.history_limit < 1
+            ):
+                raise TypeError(f"{cls.__qualname__}: history_limit must be None or a positive int")
         if cls.on_bar is Strategy.on_bar and cls.on_bars is Strategy.on_bars:
             raise TypeError(f"{cls.__qualname__} defines neither on_bar nor on_bars")
 
@@ -439,25 +447,85 @@ class Strategy:
 
 
 class Column:
-    """A growing array whose filled part is read without copying."""
+    """A growing or bounded array whose filled part is read without copying.
 
-    def __init__(self):
-        self.values = np.empty(256)
+    Stays unallocated while only NaN values arrive, avoiding memory overhead for
+    unused optional fields. When `max_len` is set, compacts at `2 * max_len` so
+    memory stays O(max_len) while preserving O(1) amortized append and zero-copy views.
+    """
+
+    def __init__(self, max_len: int | None = None):
+        self.max_len = None if max_len is None else int(max_len)
+        self.values: np.ndarray | None = None
         self.size = 0
 
+    @property
+    def nbytes(self) -> int:
+        return 0 if self.values is None else int(self.values.nbytes)
+
+    def _allocate(self, min_size: int):
+        if self.max_len is None:
+            cap = 256
+            while cap < min_size:
+                cap *= 2
+        else:
+            limit = max(2, 2 * self.max_len)
+            cap = min(256, limit)
+            while cap < min_size and cap < limit:
+                cap = min(limit, cap * 2)
+        arr = np.empty(cap)
+        if self.size:
+            arr[:self.size] = math.nan
+        self.values = arr
+
     def append(self, value: float):
+        if self.values is None:
+            if math.isnan(value):
+                if self.max_len is None or self.size < self.max_len:
+                    self.size += 1
+                return
+            self._allocate(self.size + 1)
         if self.size == len(self.values):
-            self.values = np.concatenate([self.values, np.empty(len(self.values))])
+            if self.max_len is not None:
+                limit = max(2, 2 * self.max_len)
+                if len(self.values) < limit:
+                    grown = np.empty(min(limit, len(self.values) * 2))
+                    grown[:self.size] = self.values
+                    self.values = grown
+                else:
+                    # A new array: views handed out before keep what they showed.
+                    compacted = np.empty(len(self.values))
+                    keep = self.max_len
+                    compacted[:keep] = self.values[self.size - keep:self.size]
+                    self.values = compacted
+                    self.size = keep
+            else:
+                grown = np.empty(len(self.values) * 2)
+                grown[:self.size] = self.values
+                self.values = grown
         self.values[self.size] = value
         self.size += 1
 
     def scale(self, ratio: float):
+        if self.values is None:
+            return
         # A new array: views handed out before keep what they showed.
         scaled = np.empty_like(self.values)
-        scaled[:self.size] = self.values[:self.size] * ratio
+        if self.max_len is not None and self.size > self.max_len:
+            keep = self.max_len
+            scaled[:keep] = self.values[self.size - keep:self.size] * ratio
+            self.size = keep
+        else:
+            scaled[:self.size] = self.values[:self.size] * ratio
         self.values = scaled
 
     def last(self, count: int) -> np.ndarray:
+        if self.max_len is not None and count > self.max_len:
+            raise ValueError(f"requested {count} bars exceeds history_limit {self.max_len}")
+        if self.values is None:
+            view = np.full(min(count, self.size), math.nan)
+            view.flags.writeable = False
+            return view
         view = self.values[max(0, self.size - count):self.size]
         view.flags.writeable = False
         return view
@@ -467,14 +535,27 @@ class Context:
     """A run's view for its strategy: the bars so far and what it wants to hold.
     It offers no way to send an order."""
 
-    def __init__(self, symbols, rolls=None):
+    def __init__(self, symbols, rolls=None, max_history: int | None = None):
         """`rolls`: for each month a dominant series rolls into, new over old
-        settlement on the day before the roll."""
+        settlement on the day before the roll. `max_history`: maximum bars
+        retained per field, or None for full prefix."""
         self.symbols = tuple(symbols)
         if not self.symbols or len(set(self.symbols)) != len(self.symbols):
             raise ValueError("a run trades one or more distinct symbols")
+        if max_history is not None:
+            if (
+                not isinstance(max_history, numbers.Integral)
+                or isinstance(max_history, bool)
+                or max_history < 1
+            ):
+                raise ValueError("max_history must be None or a positive int")
+            max_history = int(max_history)
+        self.max_history = max_history
         self.time = None
-        self.columns = {symbol: {field: Column() for field in FIELDS} for symbol in self.symbols}
+        self.columns = {
+            symbol: {field: Column(max_history) for field in FIELDS}
+            for symbol in self.symbols
+        }
         self.rolls = dict(rolls or {})
         self.contracts = {}
         self.mode = None  # "target" or "weights", whichever the strategy used first
@@ -915,6 +996,10 @@ class CombinedStrategy(Strategy):
         self._comp_returns: list[list[float]] = [[] for _ in self._subs]
         self._prev_combined: dict[str, float] = {}
         self.last_components: list[dict] = []
+        if type(self).history_limit is None:
+            sub_limits = [getattr(sub, "history_limit", None) for sub, _ in self._subs]
+            if all(limit is not None for limit in sub_limits):
+                self.history_limit = max(2, max(sub_limits))
 
     def ready(self, ctx: Context) -> bool:
         return self._all_ready

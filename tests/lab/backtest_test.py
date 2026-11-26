@@ -2480,6 +2480,54 @@ class BacktestSweeps(BacktestCase):
 
         asyncio.run(exercise())
 
+    def test_fee_multiplier_scales_commissions_without_changing_margin(self):
+        import asterion_engine
+        from asterion_lab import backtest
+        from asterion_lab.warehouse_client import Dataset
+        from asterion_strategy import Strategy
+
+        contract = "SHFE/rb/2026-05"
+        version = self.dataset.current().identity
+
+        class HoldOne(Strategy):
+            history_limit = 10
+
+            def ready(self, ctx):
+                return True
+
+            def on_bars(self, ctx, bars):
+                ctx.target(contract, 1)
+
+        def run_with(mult: Decimal):
+            config = backtest.Config(
+                repository=str(self.repository), strategy="hold.HoldOne", params={},
+                symbols=(contract,), begin_day=DAYS[0].isoformat(), end_day=DAYS[3].isoformat(),
+                deposit=Decimal(1000000), costs=None, slippage_ticks=0,
+                max_order_lots=Decimal(100), max_gross_lots=Decimal(500),
+                max_contract_lots=Decimal(200), max_working_orders=32,
+                fee_multiplier=mult, dataset_version=version,
+            )
+            data = backtest.Data(Dataset(self.directory), config.begin_day, config.end_day, version=version)
+            contracts, series, first = backtest.prepare(data, config)
+            r = backtest.R
+            engine = asterion_engine.Replay(
+                backtest.raw(config.deposit), contracts, series,
+                (100 * r, 500 * r, 32, 200 * r),
+            )
+            symbols = {engine.unit(index): symbol for symbol, index in first.items()}
+            ctx = backtest.replay(engine, HoldOne(), symbols, contracts, config)
+            self.assertEqual(ctx.max_history, 10)
+            return backtest.tables(engine, contracts)
+
+        base = run_with(Decimal("1"))
+        scaled = run_with(Decimal("2.5"))
+        base_fee = sum(Decimal(v) for v in base["fills"]["fee"])
+        scaled_fee = sum(Decimal(v) for v in scaled["fills"]["fee"])
+        self.assertGreater(base_fee, 0)
+        self.assertEqual(scaled_fee, base_fee * Decimal("2.5"))
+        # Margin stays identical because fee_multiplier affects commissions only.
+        self.assertEqual(list(base["positions"]["margin"]), list(scaled["positions"]["margin"]))
+
 
 if __name__ == "__main__":
     unittest.main()

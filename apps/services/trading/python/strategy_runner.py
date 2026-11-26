@@ -113,7 +113,10 @@ def main():
                         inst = entry.instrument
                         instrument_map[f'{inst.exchange}/{inst.symbol}'] = (
                             sym, f'{sym}/{entry.delivery_month}', inst)
-                context = Context(list(load.symbols))
+                context = Context(
+                    list(load.symbols),
+                    max_history=getattr(strategy, 'history_limit', None),
+                )
                 reply(channel, Response(load={}))
                 sequence = 0
                 while True:

@@ -44,7 +44,7 @@ build/electron-resources/python/bin/python3 -I -B tests/acceptance/research_minu
 
 ```sh
 build/electron-resources/python/bin/python3 -I -B tests/lab/strategy_capacity.py --symbols 64 --bars 65536
-build/electron-resources/python/bin/python3 -I -B tests/lab/strategy_capacity.py --symbols 64 --bars 131073
+build/electron-resources/python/bin/python3 -I -B tests/lab/strategy_capacity.py --symbols 64 --bars 131073 --history-limit 2048
 ```
 
 当 `status` 为 `memory_exhausted` 时，依据 `phase` 与 `completed_bars` 定位容量边界；真实固定版本数据的长期验收按上一节执行。

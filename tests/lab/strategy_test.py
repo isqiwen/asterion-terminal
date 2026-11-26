@@ -1003,6 +1003,62 @@ class Records(unittest.TestCase):
         self.assertGreater(comb.last_components[0]["share"], comb.last_components[1]["share"])
         self.assertLessEqual(abs(wanted["SHFE/rb"]), 0.5 + 1e-7)
 
+    def test_bounded_context_compaction_roll_scaling_and_lazy_nan_columns(self):
+        import numpy as np
+        from asterion_strategy import CombinedStrategy, Context, Strategy, observe
+
+        # Lazy NaN columns stay unallocated while only NaN values arrive.
+        lazy_ctx = Context(["SHFE/rb"], max_history=16)
+        for i in range(40):
+            observe(lazy_ctx, [bar("SHFE/rb", i, 100.0 + i)])
+        self.assertIsNone(lazy_ctx.columns["SHFE/rb"]["inventory_total"].values)
+        self.assertEqual(lazy_ctx.columns["SHFE/rb"]["inventory_total"].nbytes, 0)
+        nan_hist = lazy_ctx.history("SHFE/rb", "inventory_total", 10)
+        self.assertEqual(len(nan_hist), 10)
+        self.assertTrue(np.all(np.isnan(nan_hist)))
+        self.assertFalse(nan_hist.flags.writeable)
+
+        # Bounded compaction matches unbounded history exactly on every step and across rolls.
+        bounded = Context(["SHFE/rb"], rolls={"SHFE/rb/2026-09": 1.1}, max_history=5)
+        unbounded = Context(["SHFE/rb"], rolls={"SHFE/rb/2026-09": 1.1})
+        views = []
+        for i in range(25):
+            contract = "SHFE/rb/2026-05" if i < 14 else "SHFE/rb/2026-09"
+            b = replace(bar("SHFE/rb", i, 100.0 + i), contract=contract)
+            observe(bounded, [b])
+            observe(unbounded, [b])
+            b_last = bounded.history("SHFE/rb", "close", 5)
+            u_last = unbounded.history("SHFE/rb", "close", 5)
+            np.testing.assert_allclose(b_last, u_last)
+            views.append((b_last, b_last.copy()))
+        # Previous views remain untouched after compaction and roll scaling.
+        for view, snapshot in views:
+            np.testing.assert_allclose(view, snapshot)
+        # Buffer never grows past 2 * max_history.
+        self.assertLessEqual(len(bounded.columns["SHFE/rb"]["close"].values), 10)
+        with self.assertRaisesRegex(ValueError, "exceeds history_limit"):
+            bounded.history("SHFE/rb", "close", 6)
+
+        # Strategy.history_limit validation and CombinedStrategy inheritance.
+        with self.assertRaises(TypeError):
+            class BadLimit(Strategy):
+                history_limit = 0
+                def on_bar(self, ctx, b): pass
+
+        class SubA(Strategy):
+            history_limit = 12
+            def on_bars(self, ctx, bars): pass
+
+        class SubB(Strategy):
+            history_limit = 30
+            def on_bars(self, ctx, bars): pass
+
+        class BothBounded(CombinedStrategy):
+            def components(self):
+                return [(SubA(), 0.5), (SubB(), 0.5)]
+
+        self.assertEqual(BothBounded().history_limit, 30)
+
 
 if __name__ == "__main__":
     unittest.main()

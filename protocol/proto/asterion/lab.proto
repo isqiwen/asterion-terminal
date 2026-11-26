@@ -363,6 +363,8 @@ message Backtest {
   string holdout_day = 17;
   common.Decimal max_margin_ratio = 18;
   common.Decimal min_rebalance_weight = 19;
+  // Multiplier applied to exchange commission fees; empty defaults to 1 (margins unchanged).
+  common.Decimal fee_multiplier = 20;
 }
 
 message RunId {
@@ -412,6 +414,7 @@ message RunSettings {
   double periods_per_year = 8;
   bool zero_risk_free_rate = 9;
   string holdout_day = 10;
+  common.Decimal fee_multiplier = 11;
 }
 
 message RunSummary {

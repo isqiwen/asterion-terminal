@@ -138,6 +138,7 @@ def run_settings(item, settings: dict):
     costs, risk, statistics = settings["costs"], settings["risk"], settings["statistics"]
     item.deposit.text = costs["deposit"]
     item.slippage_ticks = costs["slippage_ticks"]
+    item.fee_multiplier.text = str(costs.get("fee_multiplier", "1"))
     for name in ("max_order_lots", "max_gross_lots", "max_contract_lots"):
         getattr(item.limits, name).text = risk[name]
     item.limits.max_working_orders = risk["max_working_orders"]

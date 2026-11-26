@@ -35,7 +35,7 @@ reads its AdmittedRun (asterion/lab.proto) from standard input.
 from bisect import bisect_left
 from dataclasses import dataclass
 import datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from itertools import groupby
 import math
 from operator import itemgetter
@@ -62,6 +62,12 @@ def raw(value) -> int:
     if units != units.to_integral_value():
         raise ValueError(f"{value} has more than eight decimal places")
     return int(units)
+
+
+def scale_fee(value, multiplier: Decimal) -> int:
+    """Scale an exchange commission fee by `multiplier`, rounded to engine precision."""
+    scaled = (Decimal(value) * multiplier).quantize(Decimal("0.00000001"), rounding=ROUND_HALF_UP)
+    return raw(scaled)
 
 
 def limit_units(value, tick: int) -> int:
@@ -98,6 +104,8 @@ class Config:
     max_net_weight: Decimal = Decimal(0)
     max_margin_ratio: Decimal = Decimal(0)
     min_rebalance_weight: Decimal = Decimal(0)
+    # Multiplier applied to exchange commission fees (margins unchanged).
+    fee_multiplier: Decimal = Decimal(1)
     # Statistics: periods in a year, and an explicitly zero risk-free rate;
     # without them the annual figures and the Sharpe ratio stay absent.
     annual_periods: float | None = None
@@ -280,7 +288,8 @@ class Data:
             result[day] = next(iter(ticks))
         return result
 
-    def costs(self, exchange: str, contract: str, days: list) -> list:
+    def costs(self, exchange: str, contract: str, days: list,
+              fee_multiplier: Decimal = Decimal(1)) -> list:
         """The contract's exchange margin and fees on each of `days` (ascending), from the
         version's settlement parameters, as the engine's dated costs. A fee the exchange
         published for no source stops the run instead of being replaced."""
@@ -315,9 +324,13 @@ class Data:
             has_today = today_rate is not None and today_per_lot is not None
             # As COSTS names them, plus short_margin_rate: closing yesterday costs what opening does;
             # missing close-today fees stay None and fail only if a close-today trade occurs.
-            costs = [raw(Decimal(0)), raw(per_lot), raw(today_per_lot) if has_today else None,
-                     raw(per_lot), raw(long), raw(rate), raw(today_rate) if has_today else None,
-                     raw(rate), raw(short)]
+            # fee_multiplier scales commission fees only; margin rates stay exact exchange rates.
+            costs = [raw(Decimal(0)), scale_fee(per_lot, fee_multiplier),
+                     scale_fee(today_per_lot, fee_multiplier) if has_today else None,
+                     scale_fee(per_lot, fee_multiplier), raw(long),
+                     scale_fee(rate, fee_multiplier),
+                     scale_fee(today_rate, fee_multiplier) if has_today else None,
+                     scale_fee(rate, fee_multiplier), raw(short)]
             if not schedule or schedule[-1]["values"] != costs:
                 schedule.append(dict(effective_from=day, source="warehouse", values=costs))
         return schedule
@@ -462,7 +475,7 @@ def contract_input(data: Data, config: Config, contract: str, begin: str, end: s
             if increments[day] != current:
                 current = increments[day]
                 changes.append((day, current))
-        costs = data.costs(exchange, contract, tick_days)
+        costs = data.costs(exchange, contract, tick_days, config.fee_multiplier)
     else:
         # A replay that trades nothing prices every contract from its first day on.
         initial, changes = 1, []
@@ -705,7 +718,11 @@ def observations(engine, symbols: dict, contracts: list):
 def warmup(engine, strategy, symbols: dict, contracts: list) -> Context:
     """Rebuild strategy state from history. No target reaches the engine;
     the returned context continues with the next completed live bar."""
-    context = Context([symbols[unit] for unit in sorted(symbols)], rolls(contracts))
+    context = Context(
+        [symbols[unit] for unit in sorted(symbols)],
+        rolls(contracts),
+        max_history=getattr(strategy, "history_limit", None),
+    )
     for bars in observations(engine, symbols, contracts):
         if bars:
             step(strategy, context, bars)
@@ -718,7 +735,11 @@ def replay(engine, strategy, symbols: dict, contracts: list, config: Config,
            decided=lambda bars, wanted: None) -> Context:
     """Drives the strategy through the engine. `symbols` maps each unit to its
     symbol; `decided` sees each time's bars and what the strategy asked for."""
-    context = Context([symbols[unit] for unit in sorted(symbols)], rolls(contracts))
+    context = Context(
+        [symbols[unit] for unit in sorted(symbols)],
+        rolls(contracts),
+        max_history=getattr(strategy, "history_limit", None),
+    )
     units = {symbol: unit for unit, symbol in symbols.items()}
     for bars in observations(engine, symbols, contracts):
         if not bars:
@@ -852,6 +873,7 @@ def metrics(config: Config, engine) -> dict:
 
 def costs_record(config: Config) -> dict:
     return {"fees": "exchange settlement parameters of each trading day",
+            "fee_multiplier": format(config.fee_multiplier.normalize(), "f"),
             "slippage_ticks": config.slippage_ticks, "deposit": str(config.deposit)}
 
 
@@ -1051,6 +1073,9 @@ def config_of(admitted) -> Config:
     params = {name: getattr(value, value.WhichOneof("value"))
               for name, value in request.params.items() if value.WhichOneof("value")}
     limits = request.limits
+    fee_multiplier = number("fee_multiplier", request.fee_multiplier.text or "1")
+    if fee_multiplier < 0:
+        raise ValueError("fee_multiplier must be nonnegative")
     return Config(
         repository=request.repository, strategy=request.strategy, params=params,
         symbols=tuple(request.symbols),
@@ -1065,6 +1090,7 @@ def config_of(admitted) -> Config:
         max_net_weight=number("max_net_weight", request.max_net_weight.text or "0"),
         max_margin_ratio=number("max_margin_ratio", request.max_margin_ratio.text or "0"),
         min_rebalance_weight=number("min_rebalance_weight", request.min_rebalance_weight.text or "0"),
+        fee_multiplier=fee_multiplier,
         annual_periods=request.periods_per_year or None,
         zero_risk_free=request.zero_risk_free_rate,
         holdout_day=request.holdout_day, minutes=minutes_of(request.period),
