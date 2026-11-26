@@ -315,8 +315,8 @@ public:
         night = user == "dce-night" ? "DCE" : user == "czce-night" ? "CZCE" : "";
         login_minute = static_cast<int>((std::time(nullptr) + 8 * 3600) % 86400 / 60);
         strategy_stream = user == "strategy" || next_day || !night.empty();
-        reconnect = user != "steady" && user != "catalog-large" && !publication && !flood
-            && !strategy_stream && !scripted;
+        reconnect = user != "steady" && user != "acceptance" && user != "catalog-large"
+            && !publication && !flood && !strategy_stream && !scripted;
         if (std::filesystem::exists(flow / "count-logins"))
             std::ofstream(flow / "login-attempts", std::ios::app).put('1');
         CThostFtdcRspInfoField info{};

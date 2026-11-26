@@ -2584,6 +2584,8 @@ class BacktestSweeps(BacktestCase):
         self.assertEqual(by_sess["opening_15m"]["trades"], 1)
         self.assertEqual(by_sess["opening_15m"]["fills"], 1)
 
+
+class BacktestSearch(BacktestCase):
     def test_embargoed_walk_forward_and_lhs_bayes_parameter_sweeps(self):
         # Embargo inserts a clean gap between training_last_day and validation first_day.
         self.assertEqual(rolling.rounds(30, 20, 4, embargo=2), [(22, 26), (26, 30)])

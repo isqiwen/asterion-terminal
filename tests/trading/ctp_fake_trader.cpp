@@ -1171,6 +1171,15 @@ public:
                 put(item.ExpireDate, "20261015");
                 item.DeliveryYear = 2026;
                 item.DeliveryMonth = 10;
+                if (mode == "acceptance") {
+                    // Real-clock acceptance needs a contract outside its delivery month.
+                    const auto today = std::chrono::floor<std::chrono::days>(
+                        std::chrono::system_clock::now() + std::chrono::hours{8});
+                    item.DeliveryYear = int(std::chrono::year_month_day{today}.year()) + 1;
+                    const auto year = std::to_string(item.DeliveryYear);
+                    put(item.InstrumentID, "rb" + year.substr(2) + "10");
+                    put(item.ExpireDate, year + "1015");
+                }
                 item.ProductClass = THOST_FTDC_PC_Futures;
                 item.IsTrading = 1;
                 item.VolumeMultiple = 10;

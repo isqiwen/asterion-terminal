@@ -18,11 +18,10 @@ test(
     await trading(page.request, account, {
       sendCommand: { ...reviewed, requestId: "allow", authorize: { userId: "000001" } },
     });
-    // More than two lots rest at the test counter; one fills at once. Opening
-    // waits for positions to be reconciled after a fill, so the resting one goes first.
-    for (const [id, lots] of [
-      ["resting", "3"],
-      ["filled", "1"],
+    // Rest the larger buy before the fill requires reconciliation, below the later closing sell.
+    for (const [id, lots, price] of [
+      ["resting", "3", "3499"],
+      ["filled", "1", "3500"],
     ])
       await trading(page.request, account, {
         sendCommand: {
@@ -34,7 +33,7 @@ test(
             side: "SIDE_BUY",
             offset: "OFFSET_OPEN",
             lots: { text: lots },
-            price: { text: "3500" },
+            price: { text: price },
           },
         },
       });

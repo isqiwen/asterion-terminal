@@ -1,4 +1,5 @@
 """The real acceptance scripts run against isolated Market and Trading fixtures."""
+import datetime
 import json
 import os
 from pathlib import Path
@@ -12,11 +13,13 @@ from trading_installation import Programs, install
 import warehouse_tls
 build=Path(sys.argv[1]).resolve()
 script=Path(__file__).parents[1]/'acceptance/ctp_market.py'
+year = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).year + 1
+contract = f'rb{year % 100:02d}10'
 with tempfile.TemporaryDirectory(prefix='ast-market-acceptance-test-') as folder:
-    with market_host(build,Path(folder)/'market') as port:
+    with market_host(build,Path(folder)/'market',user='acceptance') as port:
         tls = Path(folder) / 'market/config/tls'
         warehouse_tls.install_client(tls, Path(folder) / 'client')
-        for symbol, success in [('rb2610',True),('rb2999',False)]:
+        for symbol, success in [(contract,True),('rb2999',False)]:
             report=Path(folder)/(symbol+'.json')
             result=subprocess.run([sys.executable,str(script),'--build',str(build),'--host','127.0.0.1',
                 '--port',str(port),'--fingerprint',warehouse_tls.fingerprint(tls),
@@ -48,7 +51,7 @@ with tempfile.TemporaryDirectory(prefix='ast-market-acceptance-test-') as folder
                         '--market-host', '127.0.0.1', '--market-port', str(port),
                         '--market-fingerprint', warehouse_tls.fingerprint(tls),
                         '--trade-front', 'tcp://127.0.0.1:41205', '--broker', '9999', '--user', user,
-                        '--instrument', 'SHFE:rb2610', '--timeout', '5', '--report', str(report)],
+                        '--instrument', 'SHFE:' + contract, '--timeout', '5', '--report', str(report)],
                         capture_output=True, text=True, timeout=60)
                     outcome = json.loads(report.read_text())
                     assert result.returncode == (0 if success else 1), result.stdout + result.stderr
