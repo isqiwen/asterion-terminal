@@ -271,8 +271,8 @@ export function comparePortfolio(
     const map = new Map<string, number>();
     if (!Number.isFinite(deposit) || deposit <= 0) return map;
     for (const item of detail.days) {
-      const eq = Number(item.equity?.text ?? 0);
-      if (Number.isFinite(eq) && eq > 0) map.set(item.tradingDay, eq / deposit);
+      const eq = Number(item.equity?.text || NaN);
+      if (Number.isFinite(eq)) map.set(item.tradingDay, eq / deposit);
     }
     return map;
   });
@@ -280,6 +280,12 @@ export function comparePortfolio(
     navMaps.every(map => map.has(day)),
   );
   if (commonDays.length < 3) return null;
+  const firstDay = commonDays[0]!;
+  const lastDay = commonDays.at(-1)!;
+  if (
+    navMaps.some(map => [...map].some(([day, nav]) => day >= firstDay && day < lastDay && nav <= 0))
+  )
+    return null;
 
   const seriesReturns = navMaps.map(map => {
     const rets: number[] = [];

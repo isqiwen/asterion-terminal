@@ -418,6 +418,34 @@ test("factor strategies use retained history for default and long factor windows
   }
 });
 
+test("portfolio comparisons retain terminal losses and never bridge nonpositive equity", () => {
+  const run = (equities: (number | undefined)[]) =>
+    create(RunDetailSchema, {
+      record: JSON.stringify({ costs: { deposit: "100" } }),
+      days: equities.map((equity, index) => ({
+        tradingDay: `2026-01-0${index + 1}`,
+        equity: equity === undefined ? undefined : { text: String(equity) },
+      })),
+    });
+  for (const mode of ["equal", "inv_vol"] as const) {
+    for (const terminal of [0, -50]) {
+      const detail = run([100, 80, 60, terminal]);
+      const portfolio = comparePortfolio([detail, detail], mode)!;
+      expect(portfolio.days).toHaveLength(4);
+      expect(portfolio.nav.at(-1)).toBeCloseTo(terminal / 100);
+      expect(portfolio.maxDrawdown).toBeCloseTo(1 - terminal / 100);
+      expect(portfolio.totalReturn).toBeCloseTo(terminal / 100 - 1);
+      expect(portfolio.annualReturn).toBeNull();
+
+      const recovered = run([100, terminal, 100, 110]);
+      expect(comparePortfolio([recovered, recovered], mode)).toBeNull();
+      const missingDay = run([100, undefined, 100, 110]);
+      expect(comparePortfolio([recovered, missingDay], mode)).toBeNull();
+      expect(comparePortfolio([missingDay, missingDay], mode)?.days).toHaveLength(3);
+    }
+  }
+});
+
 test("DSR, break-even slippage, portfolio comparison, and combinedStrategyTemplate compute accurate strategy analytics", () => {
   // Higher trial dispersion lowers DSR confidence; strong Sharpe with many observations gives high DSR.
   const strong = deflatedSharpeRatio(2.2, [0.4, 0.8, 1.2, 2.2], 504)!;
