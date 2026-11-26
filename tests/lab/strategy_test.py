@@ -1151,6 +1151,152 @@ class Records(unittest.TestCase):
 
             BadAlloc()
 
+    def test_causal_timeseries_kalman_and_microstructure_primitives(self):
+        import math
+        import numpy as np
+        from asterion_strategy import (
+            check_factor,
+            corwin_schultz_spread,
+            garman_klass_vol,
+            kalman_filter,
+            kalman_hedge,
+            ou_half_life,
+            parkinson_vol,
+            ts_autocorr,
+            ts_ema,
+            ts_hurst,
+            ts_kurt,
+            ts_ols_beta,
+            ts_ols_r2,
+            ts_ols_resid,
+            ts_skew,
+            ts_variance_ratio,
+            ts_vwap_dev,
+            yang_zhang_vol,
+        )
+
+        rng = np.random.default_rng(20260401)
+        n = 160
+        rets = rng.normal(0.0003, 0.012, n)
+        close = 100.0 * np.exp(np.cumsum(rets))
+        opening = close * np.exp(rng.normal(0.0, 0.004, n))
+        high = np.maximum(opening, close) * (1.0 + rng.uniform(0.002, 0.015, n))
+        low = np.minimum(opening, close) * (1.0 - rng.uniform(0.002, 0.015, n))
+        volume = rng.uniform(200.0, 4000.0, n)
+
+        # Causal EMA tracks a step change smoothly and passes prefix causality.
+        step_arr = np.concatenate([np.zeros(5), np.ones(10)])
+        ema = ts_ema(step_arr, 3)
+        self.assertTrue(np.isnan(ema[1]))
+        self.assertAlmostEqual(ema[2], 0.0)
+        self.assertGreater(ema[-1], 0.95)
+        check_factor(lambda close: ts_ema(close, 5), {"close": close[:25]}, count=25)
+
+        # Rolling OLS recovers exact linear slope, zero residual, and R^2 = 1.
+        x = np.linspace(10.0, 30.0, 30)
+        y = 2.5 * x - 4.0
+        np.testing.assert_allclose(ts_ols_beta(y, x, 10)[9:], 2.5, atol=1e-12)
+        np.testing.assert_allclose(ts_ols_resid(y, x, 10)[9:], 0.0, atol=1e-12)
+        np.testing.assert_allclose(ts_ols_r2(y, x, 10)[9:], 1.0, atol=1e-12)
+        check_factor(lambda close, far_close: ts_ols_beta(close, far_close, 8),
+                     {"close": close[:25], "far_close": opening[:25]}, count=8)
+        check_factor(lambda close, far_close: ts_ols_resid(close, far_close, 8),
+                     {"close": close[:25], "far_close": opening[:25]}, count=8)
+        check_factor(lambda close, far_close: ts_ols_r2(close, far_close, 8),
+                     {"close": close[:25], "far_close": opening[:25]}, count=8)
+
+        # 1D Kalman filter reduces observation noise and is strictly causal.
+        noisy = 100.0 + rng.normal(0.0, 2.0, 60)
+        filtered = kalman_filter(noisy, process_var=1e-4, obs_var=4.0)
+        self.assertLess(float(np.std(filtered[10:])), float(np.std(noisy[10:])) * 0.5)
+        check_factor(lambda close: kalman_filter(close, process_var=1e-3, obs_var=1.0),
+                     {"close": close[:25]}, count=25)
+
+        # 2-state Kalman hedge tracks a regime shift in beta and yields causal innovation spread.
+        x_pair = 50.0 + np.cumsum(rng.normal(0.0, 1.0, 120))
+        true_beta = np.where(np.arange(120) < 60, 1.5, 2.5)
+        y_pair = true_beta * x_pair + 10.0 + rng.normal(0.0, 0.1, 120)
+        kb, ki, ks = kalman_hedge(y_pair, x_pair, delta=1e-3, obs_var=0.05)
+        self.assertTrue(np.isnan(ks[0]))
+        self.assertAlmostEqual(float(np.mean(kb[30:55])), 1.5, delta=0.15)
+        self.assertAlmostEqual(float(np.mean(kb[95:120])), 2.5, delta=0.20)
+        self.assertTrue(np.all(np.isfinite(ki[2:])))
+        check_factor(lambda close, far_close: kalman_hedge(close, far_close)[0],
+                     {"close": y_pair[:25], "far_close": x_pair[:25]}, count=25)
+        check_factor(lambda close, far_close: kalman_hedge(close, far_close)[2],
+                     {"close": y_pair[:25], "far_close": x_pair[:25]}, count=25)
+
+        # Higher-order moments & autocorrelation detect alternating vs persistent series.
+        alt = np.array([1.0 if i % 2 == 0 else -1.0 for i in range(20)])
+        self.assertAlmostEqual(float(ts_autocorr(alt, 10, lag=1)[-1]), -1.0, places=10)
+        self.assertGreater(float(ts_skew(np.array([0.0, 0.0, 0.0, 0.0, 10.0]), 5)[-1]), 1.0)
+        self.assertGreater(float(ts_kurt(np.array([0.0] * 18 + [10.0, -10.0]), 20)[-1]), 3.0)
+        check_factor(lambda close: ts_autocorr(close, 8, lag=1), {"close": close[:25]}, count=8)
+        check_factor(lambda close: ts_skew(close, 8), {"close": close[:25]}, count=8)
+        check_factor(lambda close: ts_kurt(close, 8), {"close": close[:25]}, count=8)
+
+        # Variance ratio & Hurst distinguish trending vs mean-reverting dynamics.
+        mr = np.empty(180)
+        mr[0] = 0.0
+        for i in range(1, 180):
+            mr[i] = 0.55 * mr[i - 1] + rng.normal(0.0, 0.02)
+        mr_price = 100.0 * np.exp(mr)
+        tr_inc = np.empty(180)
+        tr_inc[0] = 0.005
+        for i in range(1, 180):
+            tr_inc[i] = 0.7 * tr_inc[i - 1] + rng.normal(0.0, 0.005)
+        tr_price = 100.0 * np.exp(np.cumsum(tr_inc))
+        self.assertLess(float(ts_variance_ratio(mr_price, 60, q=5)[-1]), 0.75)
+        self.assertGreater(float(ts_variance_ratio(tr_price, 60, q=5)[-1]), 1.5)
+        self.assertLess(float(ts_hurst(mr_price, window=120, max_lag=15)[-1]), 0.35)
+        self.assertGreater(float(ts_hurst(tr_price, window=120, max_lag=15)[-1]), 0.65)
+        check_factor(lambda close: ts_variance_ratio(close, 12, q=3), {"close": close[:30]}, count=13)
+        check_factor(lambda close: ts_hurst(close, window=20, max_lag=8), {"close": close[:35]}, count=20)
+
+        # Ornstein-Uhlenbeck half-life matches theoretical -ln(2) / ln(phi) on AR(1) and NaN on trend.
+        phi = 0.8
+        ou = np.empty(200)
+        ou[0] = 0.0
+        for i in range(1, 200):
+            ou[i] = phi * ou[i - 1] + rng.normal(0.0, 0.05)
+        hl = ou_half_life(ou, window=120)
+        expected_hl = -math.log(2.0) / math.log(phi)
+        self.assertAlmostEqual(float(hl[-1]), expected_hl, delta=1.5)
+        self.assertTrue(np.isnan(ou_half_life(np.arange(1.0, 40.0), window=20)[-1]))
+        check_factor(lambda close: ou_half_life(close, window=15), {"close": mr_price[:30]}, count=16)
+
+        # OHLC range volatilities, Corwin-Schultz spread, and VWAP deviation are causal and positive.
+        pv = parkinson_vol(high, low, window=20, annualize=252.0)
+        gk = garman_klass_vol(opening, high, low, close, window=20, annualize=252.0)
+        yz = yang_zhang_vol(opening, high, low, close, window=20, annualize=252.0)
+        self.assertTrue(np.isfinite(pv[-1]) and pv[-1] > 0.0)
+        self.assertTrue(np.isfinite(gk[-1]) and gk[-1] > 0.0)
+        self.assertTrue(np.isfinite(yz[-1]) and yz[-1] > 0.0)
+        check_factor(lambda high, low: parkinson_vol(high, low, window=8),
+                     {"high": high[:25], "low": low[:25]}, count=8)
+        check_factor(lambda open, high, low, close: garman_klass_vol(open, high, low, close, window=8),
+                     {"open": opening[:25], "high": high[:25], "low": low[:25], "close": close[:25]}, count=8)
+        check_factor(lambda open, high, low, close: yang_zhang_vol(open, high, low, close, window=8),
+                     {"open": opening[:25], "high": high[:25], "low": low[:25], "close": close[:25]}, count=9)
+
+        # Wider symmetric bid-ask spread produces strictly larger Corwin-Schultz spread estimate.
+        mid = 100.0 * np.exp(np.cumsum(rng.normal(0.0, 0.005, 80)))
+        tight_h, tight_l = mid * 1.003, mid * 0.997
+        wide_h, wide_l = mid * 1.015, mid * 0.985
+        cs_tight = corwin_schultz_spread(tight_h, tight_l, window=20)
+        cs_wide = corwin_schultz_spread(wide_h, wide_l, window=20)
+        self.assertGreater(float(cs_wide[-1]), float(cs_tight[-1]) + 0.005)
+        check_factor(lambda high, low: corwin_schultz_spread(high, low, window=5),
+                     {"high": high[:25], "low": low[:25]}, count=6)
+
+        # VWAP deviation equals exact close / VWAP - 1.
+        c_v = np.array([100.0, 110.0, 120.0])
+        v_v = np.array([1.0, 1.0, 2.0])
+        expected_vwap = (100.0 * 1.0 + 110.0 * 1.0 + 120.0 * 2.0) / 4.0
+        self.assertAlmostEqual(float(ts_vwap_dev(c_v, v_v, window=3)[-1]), 120.0 / expected_vwap - 1.0)
+        check_factor(lambda close, volume: ts_vwap_dev(close, volume, window=6),
+                     {"close": close[:25], "volume": volume[:25]}, count=6)
+
 
 if __name__ == "__main__":
     unittest.main()
