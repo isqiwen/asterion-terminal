@@ -929,11 +929,8 @@ void LiveAccountState::check_pre_trade_risk(
             exposure.add_working_order(id, o.instrument, o.offset, o.quantity - o.filled);
     for (const auto& [_, intent] : unconfirmed(state))
         exposure.add_working_order(id, intent->instrument, intent->offset, intent->quantity);
-    const auto& lim = policy_->definition.limits;
-    if (offset == Offset::open && !state.funds
-        && (lim.max_daily_loss > Decimal{} || lim.max_drawdown > Decimal{}
-            || lim.max_margin_ratio > Decimal{}))
-        throw Error(ErrorCode::unavailable, "opening orders require synchronized account funds");
+    if (!state.funds)
+        throw Error(ErrorCode::unavailable, "orders require synchronized account funds");
     const auto val = valuation(state);
     std::uint32_t contract_cancels = 0;
     if (const auto day_it = cancels_.find(dashed(state.trading_day)); day_it != cancels_.end())

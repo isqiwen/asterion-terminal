@@ -1,4 +1,5 @@
 {
+  "orders require synchronized account funds": "Orders require synchronized account funds.",
   "CTP subscriptions failed": "Subscription failed for {count} contracts. Market retries every 5 minutes.",
   "unknown Protobuf field": "Terminal and the service use different communication protocols. Update both to the same release.",
   "market protocol differs from this Terminal": "Market and Terminal use different communication protocols. Update both to the same release.",

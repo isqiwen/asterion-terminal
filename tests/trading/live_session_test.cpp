@@ -256,6 +256,17 @@ TEST_F(Live, IncompleteFailedOrForeignDayQuotesNeverJournalAnOrder)
     EXPECT_EQ(journal.command("submit.completed").at("command"), submit("completed", "1"));
 }
 
+TEST_F(Live, MissingFundsRejectOpeningWithoutOptionalCapitalLimits)
+{
+    exchange.call<void (*)(int)>("asterion_fake_trader_empty_funds", 1);
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    ASSERT_FALSE(session.wire_snapshot().has_funds());
+    act(session, authorize());
+    EXPECT_THROW(act(session, submit("no.funds", "1")), Error);
+    EXPECT_EQ(session.orders().orders_size(), 0);
+}
+
 TEST_F(Live, FilledOrdersDoNotCreateRiskHeadroomBeforePositionsAreReconciled)
 {
     auto input = manifest(3);
