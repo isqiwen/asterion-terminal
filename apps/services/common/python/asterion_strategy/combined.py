@@ -26,10 +26,10 @@ class _SubView:
     def contracts(self):
         return self.parent.contracts
 
-    def history(self, symbol: str, field: str, count: int) -> np.ndarray:
+    def history(self, symbol: str, field: str, count: int | None = None) -> np.ndarray:
         return self.parent.history(symbol, field, count)
 
-    def factor(self, function, symbol: str, count: int, **settings) -> float:
+    def factor(self, function, symbol: str, count: int | None = None, **settings) -> float:
         return self.parent.factor(function, symbol, count, **settings)
 
     def weights(self, weights: dict):

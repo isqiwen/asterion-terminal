@@ -313,7 +313,9 @@ class Column:
             scaled[: self.size] = self.values[: self.size] * ratio
         self.values = scaled
 
-    def last(self, count: int) -> np.ndarray:
+    def last(self, count: int | None = None) -> np.ndarray:
+        if count is None:
+            count = self.max_len if self.max_len is not None else self.size
         if self.max_len is not None and count > self.max_len:
             raise ValueError(f"requested {count} bars exceeds history_limit {self.max_len}")
         if self.values is None:
@@ -355,21 +357,23 @@ class Context:
         self.wanted = {}
         self.ready = False
 
-    def history(self, symbol: str, field: str, count: int) -> np.ndarray:
+    def history(self, symbol: str, field: str, count: int | None = None) -> np.ndarray:
         """The last `count` values of a field, through the bar being decided on;
-        fewer while there are not that many. Read-only."""
+        fewer while there are not that many. None uses all retained history. Read-only."""
         if symbol not in self.columns:
             raise KeyError(f"{symbol} is not traded by this run")
         if field not in FIELDS_SET:
             raise KeyError(f"no bar field {field}")
-        if not isinstance(count, numbers.Integral) or isinstance(count, bool) or count < 1:
-            raise ValueError("count is a positive whole number")
-        return self.columns[symbol][field].last(int(count))
+        if count is not None:
+            if not isinstance(count, numbers.Integral) or isinstance(count, bool) or count < 1:
+                raise ValueError("count is a positive whole number")
+            count = int(count)
+        return self.columns[symbol][field].last(count)
 
-    def factor(self, function, symbol: str, count: int, **settings) -> float:
+    def factor(self, function, symbol: str, count: int | None = None, **settings) -> float:
         """A factor's value at the bar being decided on, computed over the
         symbol's last `count` bars: the function's parameters named after bar
-        fields get that history, `settings` the rest."""
+        fields get that history, `settings` the rest. None uses all retained history."""
         inputs = {name: self.history(symbol, name, count) for name in _factor_inputs(function)}
         return float(function(**inputs, **settings)[-1])
 

@@ -129,6 +129,44 @@ class Interface(unittest.TestCase):
         with self.assertRaises(ValueError):
             context.history("a", "close", 0)
 
+    def test_factor_defaults_use_full_prefix_in_standalone_and_combined_strategies(self):
+        import numpy as np
+        from asterion_strategy import CombinedStrategy, ts_ema
+
+        def trend(close, span=252):
+            return ts_ema(close, span)
+
+        class Trend(Strategy):
+            def ready(self, ctx):
+                return True
+
+            def on_bar(self, ctx, bar):
+                self.length = len(ctx.history(bar.symbol, "close"))
+                self.score = ctx.factor(trend, bar.symbol)
+                ctx.weights({bar.symbol: 0.5 if np.isfinite(self.score) else 0.0})
+
+        component = Trend()
+
+        class Portfolio(CombinedStrategy):
+            def components(self):
+                return [(component, 1.0)]
+
+        close = 100.0 + np.arange(300) * 0.1 + np.sin(np.arange(300) / 13)
+        expected = trend(close)
+        for strategy, probe in ((Trend(), None), (Portfolio(), component)):
+            context = Context(["a"])
+            probe = strategy if probe is None else probe
+            scores = []
+            for i, value in enumerate(close):
+                wanted = step(strategy, context, [bar("a", i, float(value))])
+                scores.append(probe.score)
+                self.assertEqual(probe.length, i + 1)
+                self.assertEqual(wanted, {"a": 0.5 if i >= 251 else 0.0})
+            np.testing.assert_allclose(scores, expected)
+            self.assertAlmostEqual(context.factor(trend, "a", None), expected[-1])
+            self.assertAlmostEqual(context.factor(trend, "a", span=20), ts_ema(close, 20)[-1])
+            self.assertNotAlmostEqual(context.factor(trend, "a", 252), expected[-1])
+
     def test_targets_and_weights(self):
         context = Context(["a", "b"])
         self.assertEqual(step(Follow(), context, [bar("a", 0, 1.0)]), {"a": 2})
@@ -1013,8 +1051,8 @@ class Records(unittest.TestCase):
             observe(lazy_ctx, [bar("SHFE/rb", i, 100.0 + i)])
         self.assertIsNone(lazy_ctx.columns["SHFE/rb"]["inventory_total"].values)
         self.assertEqual(lazy_ctx.columns["SHFE/rb"]["inventory_total"].nbytes, 0)
-        nan_hist = lazy_ctx.history("SHFE/rb", "inventory_total", 10)
-        self.assertEqual(len(nan_hist), 10)
+        nan_hist = lazy_ctx.history("SHFE/rb", "inventory_total")
+        self.assertEqual(len(nan_hist), 16)
         self.assertTrue(np.all(np.isnan(nan_hist)))
         self.assertFalse(nan_hist.flags.writeable)
 
@@ -1027,10 +1065,17 @@ class Records(unittest.TestCase):
             b = replace(bar("SHFE/rb", i, 100.0 + i), contract=contract)
             observe(bounded, [b])
             observe(unbounded, [b])
-            b_last = bounded.history("SHFE/rb", "close", 5)
+            b_last = bounded.history("SHFE/rb", "close")
             u_last = unbounded.history("SHFE/rb", "close", 5)
             np.testing.assert_allclose(b_last, u_last)
+            np.testing.assert_allclose(bounded.history("SHFE/rb", "close", None), u_last)
+            self.assertEqual(bounded.factor(lambda close: close.cumsum(), "SHFE/rb"), u_last.sum())
+            full = unbounded.history("SHFE/rb", "close")
+            self.assertEqual(len(full), i + 1)
+            self.assertFalse(full.flags.writeable)
+            self.assertFalse(b_last.flags.writeable)
             views.append((b_last, b_last.copy()))
+            views.append((full, full.copy()))
         # Previous views remain untouched after compaction and roll scaling.
         for view, snapshot in views:
             np.testing.assert_allclose(view, snapshot)

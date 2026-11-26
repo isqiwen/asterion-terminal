@@ -100,16 +100,6 @@ export function factorStrategyTemplate(result: FactorResult, moduleName: string)
   if (controls.length) strategyImports.push("orthogonalize");
   strategyImports.push("cap_sector_weights", "smooth_weights");
 
-  let maxWindow = 20;
-  for (const spec of allSpecs) {
-    for (const val of Object.values(spec.params)) {
-      if (val.value.case === "integer") {
-        const n = Number(val.value.value);
-        if (Number.isFinite(n) && n > maxWindow && n <= 500) maxWindow = n;
-      }
-    }
-  }
-  const factorNeed = maxWindow + 2;
   const rebalance = evaluation?.horizons[0] ? Math.max(1, evaluation.horizons[0]) : 5;
   const groups = Math.max(2, evaluation?.groups || 5);
   const symbolCount = result.symbols.length || evaluation?.symbols.length || 6;
@@ -137,7 +127,7 @@ export function factorStrategyTemplate(result: FactorResult, moduleName: string)
         .map(([k, v]) => `, ${k}=${pythonLiteral(v)}`)
         .join("");
       scoreLines.push(
-        `        part_${idx} = {s: float(ctx.factor(${alias}, s, self.need${kwargs})) for s in eligible}`,
+        `        part_${idx} = {s: float(ctx.factor(${alias}, s${kwargs})) for s in eligible}`,
       );
       if (winsorize) scoreLines.push(`        part_${idx} = winsorize_mad(part_${idx})`);
       scoreLines.push(
@@ -158,7 +148,7 @@ export function factorStrategyTemplate(result: FactorResult, moduleName: string)
       .map(([k, v]) => `, ${k}=${pythonLiteral(v)}`)
       .join("");
     scoreLines.push(
-      `        scores = {s: float(ctx.factor(${alias}, s, self.need${kwargs})) for s in eligible}`,
+      `        scores = {s: float(ctx.factor(${alias}, s${kwargs})) for s in eligible}`,
     );
     scoreLines.push("        scores = {s: v for s, v in scores.items() if np.isfinite(v)}");
     if (winsorize) scoreLines.push("        scores = winsorize_mad(scores)");
@@ -174,7 +164,7 @@ export function factorStrategyTemplate(result: FactorResult, moduleName: string)
         .map(([k, v]) => `, ${k}=${pythonLiteral(v)}`)
         .join("");
       scoreLines.push(
-        `            {s: float(ctx.factor(${alias}, s, self.need${kwargs})) for s in eligible},`,
+        `            {s: float(ctx.factor(${alias}, s${kwargs})) for s in eligible},`,
       );
     });
     scoreLines.push("        ]", "        scores = orthogonalize(scores, controls)");
@@ -219,7 +209,7 @@ class ${cls}(Strategy):
             or p["min_open_interest"] < 0
         ):
             raise ValueError("invalid factor strategy parameters")
-        self.need = max(${factorNeed}, p["volatility"] + 1)
+        self.need = p["volatility"] + 1
         self._steps = 0
         self._prev_weights = {}
 

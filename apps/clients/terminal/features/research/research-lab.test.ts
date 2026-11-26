@@ -378,8 +378,10 @@ test("factorStrategyTemplate generates deployable Python strategy code preservin
   expect(built.content).toContain(
     "from factors.controls import momentum as controls_momentum, orthogonalize as controls_orthogonalize",
   );
-  expect(built.content).toContain("ctx.factor(controls_momentum, s, self.need, lookback=40)");
-  expect(built.content).toContain("ctx.factor(controls_orthogonalize, s, self.need, window=25)");
+  expect(built.content).toContain("ctx.factor(momentum, s, lookback=30)");
+  expect(built.content).toContain("ctx.factor(interest_change, s)");
+  expect(built.content).toContain("ctx.factor(controls_momentum, s, lookback=40)");
+  expect(built.content).toContain("ctx.factor(controls_orthogonalize, s, window=25)");
   expect(built.content).toContain("scores = orthogonalize(scores, controls)");
   expect(built.content.indexOf("scores = orthogonalize(scores, controls)")).toBeGreaterThan(
     built.content.indexOf("scores = sector_neutralize(scores)"),
@@ -394,6 +396,26 @@ test("factorStrategyTemplate generates deployable Python strategy code preservin
   expect(built.content).toContain('"min_volume": 500.0');
   expect(built.content).toContain("lookback=30");
   expect(built.content).toContain("def ready(self, ctx):");
+});
+
+test("factor strategies use retained history for default and long factor windows", () => {
+  for (const extraFactors of [[], [{ factor: "price.skip_momentum", params: {} }]]) {
+    const result = create(FactorResultSchema, {
+      evaluation: {
+        factor: "price.momentum",
+        params: { lookback: { value: { case: "integer", value: 600n } } },
+        extraFactors,
+      },
+    });
+    const { content } = factorStrategyTemplate(result, "long_momentum");
+    expect(content).toContain("ctx.factor(momentum, s, lookback=600)");
+    if (extraFactors.length) expect(content).toContain("ctx.factor(skip_momentum, s)");
+    expect(content).toContain('self.need = p["volatility"] + 1');
+    expect(content).toContain(
+      'ctx.factor(_volatility, s, p["volatility"] + 1, window=p["volatility"])',
+    );
+    expect(content).not.toContain("history_limit");
+  }
 });
 
 test("DSR, break-even slippage, portfolio comparison, and combinedStrategyTemplate compute accurate strategy analytics", () => {
