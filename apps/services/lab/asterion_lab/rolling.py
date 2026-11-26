@@ -19,8 +19,8 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
-from asterion_lab import backtest, diagnostics, repository, statistics as lab_stats
-from asterion_lab.backtest import R, raw
+from asterion_lab import backtest, data as lab_data, diagnostics, repository, statistics as lab_stats
+from asterion_lab.data import R, raw
 from asterion_lab.runs import Runs
 from asterion_strategy import Context, quantize_weight, step
 
@@ -58,12 +58,12 @@ class Curve:
 
     def __init__(self, runs: Runs, identity: str):
         equity = runs.table(identity, "equity")
-        self.marks = [backtest.raw(value) for value in equity["equity"]]
+        self.marks = [raw(value) for value in equity["equity"]]
         self.first_ns = equity["time_ns"][0]
         self.day_end = [n for n, event in enumerate(equity["event"]) if event == "settlement"]
         settled = runs.table(identity, "settlements")
         self.days = [day.isoformat() for day in settled["trading_day"]]
-        self.equity = [backtest.raw(value) for value in settled["equity"]]
+        self.equity = [raw(value) for value in settled["equity"]]
         self.times = list(settled["time_ns"])
 
     def sharpe(self, begin: int, first: int, deposit: int, config):
@@ -264,7 +264,7 @@ def run(
         raise ValueError("rolling validation needs two or more candidates that all succeeded")
     candidates = [row["id"] for row in members]
     chosen, followed = select(runs, candidates, config, training, validation, embargo, objective)
-    data = backtest.open_data(directory, config)
+    data = lab_data.open_data(directory, config)
     runs.start(
         identity,
         plan(config, data.version.identity, sweep, members, training, validation, chosen, embargo, objective),
@@ -278,7 +278,7 @@ def run(
                 raise ValueError(f"candidate {candidate} used different dataset versions or bar inputs")
         strategies = [repository.load(Path(config.source), config.strategy,
                                       {**config.params, **row["params"]}) for row in members]
-        contracts, series, first = backtest.prepare(data, config)
+        contracts, series, first = lab_data.prepare(data, config)
         engine = asterion_engine.Replay(
             raw(config.deposit), contracts, series,
             (raw(config.max_order_lots), raw(config.max_gross_lots), config.max_working_orders,

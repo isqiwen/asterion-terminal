@@ -25,7 +25,7 @@ from asterion.lab_pb2 import AdmittedRun, Request, RunState  # noqa: E402
 
 INVALID = ErrorCode.ERROR_CODE_INVALID_REQUEST
 SUCCEEDED = RunState.RUN_STATE_SUCCEEDED
-from asterion_lab import backtest, chart, repository, rolling, worker  # noqa: E402
+from asterion_lab import backtest, chart, data as lab_data, repository, rolling, worker  # noqa: E402
 from asterion_strategy import Bar, FIELDS, Strategy, step  # noqa: E402
 from asterion_lab.runs import Runs  # noqa: E402
 from service_fixture import Service  # noqa: E402
@@ -126,8 +126,8 @@ class Chart(unittest.TestCase):
 
 class Readiness(unittest.TestCase):
     def contract(self, symbol, days, closes, times=None):
-        r = backtest.R
-        times = times or [backtest.close_ns(day) for day in days]
+        r = lab_data.R
+        times = times or [lab_data.close_ns(day) for day in days]
         bars = [(day, stamp, close * r, (close + 10) * r, (close - 10) * r,
                  close * r, 1000 * r) for day, stamp, close in zip(days, times, closes)]
         return dict(venue="SHFE", symbol=symbol, price_increment=r, quantity_increment=r,
@@ -140,7 +140,7 @@ class Readiness(unittest.TestCase):
 
     def engine(self, contracts, series=(), order_lots=10):
         import asterion_engine
-        r = backtest.R
+        r = lab_data.R
         return asterion_engine.Replay(1_000_000 * r, contracts, list(series),
                                      (order_lots * r, 10 * r, 10, 10 * r))
 
@@ -148,7 +148,7 @@ class Readiness(unittest.TestCase):
         first, second = "SHFE/rb/2026-05", "SHFE/rb/2026-10"
         day = "2026-01-05"
         minute = 60 * 10 ** 9
-        start = backtest.close_ns(day) - 180 * minute
+        start = lab_data.close_ns(day) - 180 * minute
         contracts = [self.contract(first, [day] * 3, [100] * 3,
                                    [start, start + minute, start + 3 * minute]),
                      self.contract(second, [day] * 2, [100] * 2, [start, start + 2 * minute])]
@@ -197,7 +197,7 @@ class Readiness(unittest.TestCase):
                     contracts = [self.contract("SHFE/rb/2026-05", days, [100] * 4),
                                  self.contract("SHFE/rb/2026-10", days, [130] * 4)]
                     contracts[0]["bars"][1] = (*contracts[0]["bars"][1][:6],
-                                               (10 if filled else 0) * backtest.R)
+                                               (10 if filled else 0) * lab_data.R)
                     contracts[1]["roll_ratio"] = 1.0
                     engine = self.engine(contracts, [[(days[0], 0), (days[2], 1)]], order_lots=1)
                     if followed:
@@ -207,13 +207,13 @@ class Readiness(unittest.TestCase):
                     self.assertEqual(len(engine.orders()), 1)
                     self.assertEqual(len(engine.fills()), int(filled))
                     held = [(row[1], row[2], row[3]) for row in engine.positions if row[0] == days[-1]]
-                    self.assertEqual(held, [(0, backtest.R, 0)] if filled else [])
+                    self.assertEqual(held, [(0, lab_data.R, 0)] if filled else [])
 
     def test_switching_to_an_unready_candidate_discards_the_previous_target(self):
         symbol = "SHFE/rb/2026-05"
         days = [day.isoformat() for day in DAYS[:4]]
         contracts = [self.contract(symbol, days, [100] * 4)]
-        contracts[0]["bars"] = [(*bar[:6], 10 * backtest.R) for bar in contracts[0]["bars"]]
+        contracts[0]["bars"] = [(*bar[:6], 10 * lab_data.R) for bar in contracts[0]["bars"]]
 
         class Ready(Strategy):
             def on_bar(self, ctx, bar):
@@ -239,7 +239,7 @@ class Readiness(unittest.TestCase):
         symbol = "SHFE/rb/2026-05"
         days = [day.isoformat() for day in DAYS[:8]]
         contracts = [self.contract(symbol, days, [100] * 8)]
-        contracts[0]["bars"][1] = (*contracts[0]["bars"][1][:6], 10 * backtest.R)
+        contracts[0]["bars"][1] = (*contracts[0]["bars"][1][:6], 10 * lab_data.R)
 
         class Resume(Strategy):
             def __init__(self):
@@ -264,8 +264,8 @@ class Readiness(unittest.TestCase):
                 else:
                     backtest.replay(engine, Resume(), {0: symbol}, contracts, None)
                 self.assertEqual([fill[5] for fill in engine.fills()],
-                                 [backtest.close_ns(days[1]), backtest.close_ns(days[5])])
-                self.assertEqual(engine.positions[-1][2], 2 * backtest.R)
+                                 [lab_data.close_ns(days[1]), lab_data.close_ns(days[5])])
+                self.assertEqual(engine.positions[-1][2], 2 * lab_data.R)
 
 
 class BacktestCase(unittest.TestCase):
@@ -451,7 +451,7 @@ class Backtests(BacktestCase):
         import asterion_engine
 
         contract, day = "SHFE/rb/2026-05", DAYS[0].isoformat()
-        start = int(datetime.datetime.combine(DAYS[0], datetime.time(9), backtest.BEIJING).timestamp()) * 1000
+        start = int(datetime.datetime.combine(DAYS[0], datetime.time(9), lab_data.BEIJING).timestamp()) * 1000
         writer = Warehouse(self.directory).writer()
         writer.put_rows(f"minutes/SHFE/{day}/rb/2026-05", "minutes", [
             dict(exchange="SHFE", product="rb", contract=contract, day=day,
@@ -463,15 +463,15 @@ class Backtests(BacktestCase):
         config = self.config((contract,), end_day=day, minutes=1, slippage_ticks=1)
 
         def morning(final_high):
-            data = backtest.open_data(self.directory, config)
+            data = lab_data.open_data(self.directory, config)
             data.product("SHFE", "rb")[contract].days[day]["high"] = Decimal(final_high)
-            item = backtest.contract_input(data, config, contract, day, day)
-            engine = asterion_engine.Replay(backtest.raw(config.deposit), [item], [],
-                                            (10 * backtest.R, 10 * backtest.R, 10, 10 * backtest.R))
+            item = lab_data.contract_input(data, config, contract, day, day)
+            engine = asterion_engine.Replay(lab_data.raw(config.deposit), [item], [],
+                                            (10 * lab_data.R, 10 * lab_data.R, 10, 10 * lab_data.R))
             while not engine.finished:
                 while not engine.day_done:
                     engine.next()
-                    engine.want(0, backtest.R)
+                    engine.want(0, lab_data.R)
                     engine.decide()
                 engine.settle()
             return item, engine.fills()
@@ -479,9 +479,9 @@ class Backtests(BacktestCase):
         before, before_fills = morning(3045)
         after, after_fills = morning(3046)
         self.assertEqual(after_fills, before_fills)
-        self.assertEqual([fill[3] for fill in before_fills], [3021 * backtest.R])
-        self.assertEqual(before["price_increment"], backtest.R)
-        self.assertEqual(after["price_increment"], backtest.R)
+        self.assertEqual([fill[3] for fill in before_fills], [3021 * lab_data.R])
+        self.assertEqual(before["price_increment"], lab_data.R)
+        self.assertEqual(after["price_increment"], lab_data.R)
 
     def test_each_contract_uses_its_pinned_price_increment(self):
         symbols = ("SHFE/rb/2026-05", "SHFE/rb/2026-10")
@@ -491,10 +491,10 @@ class Backtests(BacktestCase):
             price_tick(symbol, tick) for symbol, tick in zip(symbols, ("2", "0.00000001"))])
         writer.commit()
         current = self.config(symbols)
-        for config, ticks in ((pinned, [backtest.R, backtest.R]),
-                              (current, [2 * backtest.R, 1])):
+        for config, ticks in ((pinned, [lab_data.R, lab_data.R]),
+                              (current, [2 * lab_data.R, 1])):
             with self.subTest(version=config.dataset_version):
-                contracts, _, _ = backtest.prepare(backtest.open_data(self.directory, config), config)
+                contracts, _, _ = lab_data.prepare(lab_data.open_data(self.directory, config), config)
                 self.assertEqual([item["price_increment"] for item in contracts], ticks)
                 self.assertEqual([item["increments"] for item in contracts], [[], []])
 
@@ -506,8 +506,8 @@ class Backtests(BacktestCase):
             {**price_tick("SHFE/cu/2026-05", "10"), "contract": None}])
         writer.commit()
         config = self.config(symbols)
-        contracts, _, _ = backtest.prepare(backtest.open_data(self.directory, config), config)
-        self.assertEqual([item["price_increment"] for item in contracts], [2 * backtest.R] * 2)
+        contracts, _, _ = lab_data.prepare(lab_data.open_data(self.directory, config), config)
+        self.assertEqual([item["price_increment"] for item in contracts], [2 * lab_data.R] * 2)
 
     def test_shipped_exchange_rules_cover_six_exchanges_from_2016_to_2026_offline(self):
         rules = json.loads((Path(__file__).resolve().parents[2]
@@ -574,7 +574,7 @@ class Backtests(BacktestCase):
                 writer.commit()
                 config = self.config((symbol,))
                 with self.assertRaisesRegex(ValueError, f"price tick.*{symbol}.*{day}"):
-                    backtest.prepare(backtest.open_data(self.directory, config), config)
+                    lab_data.prepare(lab_data.open_data(self.directory, config), config)
 
     def test_price_tick_changes_apply_to_night_session_fills_by_trading_day(self):
         import asterion_engine
@@ -588,7 +588,7 @@ class Backtests(BacktestCase):
             price_tick(symbol, "2", begin=second, source="https://example.test/second-source")])
         for day, closes in zip(DAYS[:2], ((3030, 3020), (3030, 3040))):
             evening = day - datetime.timedelta(days=3 if day.weekday() == 0 else 1)
-            start = int(datetime.datetime.combine(evening, datetime.time(21), backtest.BEIJING).timestamp()) * 1000
+            start = int(datetime.datetime.combine(evening, datetime.time(21), lab_data.BEIJING).timestamp()) * 1000
             writer.put_rows(f"minutes/SHFE/{day}/rb/2026-05", "minutes", [
                 dict(exchange="SHFE", product="rb", contract=symbol, day=day.isoformat(),
                      start_ms=start + minute * 60000, partial=False,
@@ -597,27 +597,27 @@ class Backtests(BacktestCase):
                 for minute, close in enumerate(closes)], days=[day.isoformat()])
         writer.commit()
         config = self.config((symbol,), end_day=second, minutes=1, slippage_ticks=1)
-        contracts, _, _ = backtest.prepare(backtest.open_data(self.directory, config), config)
-        self.assertEqual(contracts[0]["price_increment"], backtest.R)
-        self.assertEqual(contracts[0]["increments"], [(second, 2 * backtest.R)])
-        engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, [],
-                                        (10 * backtest.R, 10 * backtest.R, 10, 10 * backtest.R))
+        contracts, _, _ = lab_data.prepare(lab_data.open_data(self.directory, config), config)
+        self.assertEqual(contracts[0]["price_increment"], lab_data.R)
+        self.assertEqual(contracts[0]["increments"], [(second, 2 * lab_data.R)])
+        engine = asterion_engine.Replay(lab_data.raw(config.deposit), contracts, [],
+                                        (10 * lab_data.R, 10 * lab_data.R, 10, 10 * lab_data.R))
         while not engine.finished:
             while not engine.day_done:
                 bar, = engine.next()
-                engine.want(0, backtest.R if bar[4] == first else 0)
+                engine.want(0, lab_data.R if bar[4] == first else 0)
                 engine.decide()
             engine.settle()
-        self.assertEqual([fill[3] for fill in engine.fills()], [3021 * backtest.R, 3038 * backtest.R])
+        self.assertEqual([fill[3] for fill in engine.fills()], [3021 * lab_data.R, 3038 * lab_data.R])
         # Monday's first fill came on Friday night: it belongs to Monday, at Friday's time.
         fill = engine.fills()[0]
         self.assertEqual(fill[6], first)
-        self.assertEqual(datetime.datetime.fromtimestamp(fill[5] / 10 ** 9, backtest.BEIJING).date(),
+        self.assertEqual(datetime.datetime.fromtimestamp(fill[5] / 10 ** 9, lab_data.BEIJING).date(),
                          DAYS[0] - datetime.timedelta(days=3))
         self.assertEqual(engine.orders()[0][9], first)
         later = self.config((symbol,), begin_day=second, end_day=second, minutes=1)
-        contracts, _, _ = backtest.prepare(backtest.open_data(self.directory, later), later)
-        self.assertEqual(contracts[0]["price_increment"], 2 * backtest.R)
+        contracts, _, _ = lab_data.prepare(lab_data.open_data(self.directory, later), later)
+        self.assertEqual(contracts[0]["price_increment"], 2 * lab_data.R)
         self.assertEqual(contracts[0]["increments"], [])
 
     def test_a_run_reads_its_pinned_version_when_new_data_are_published(self):
@@ -652,7 +652,7 @@ class Backtests(BacktestCase):
         self.assertEqual(pinned.pinned.dataset_version, version)
         writer.put_rows(key, "minutes", [{**bar, "close": Decimal(3010)}], days=[bar["day"]])
         self.assertNotEqual(writer.commit().identity, version)
-        data = backtest.open_data(self.directory, backtest.config_of(pinned))
+        data = lab_data.open_data(self.directory, backtest.config_of(pinned))
         self.assertEqual(data.version.identity, version)
         rows = data.minute_rows(bar["contract"], bar["day"], bar["day"])
         self.assertEqual(chart.minute_bars(rows, 1, bar["contract"])[0]["close"], Decimal(3000))
@@ -662,10 +662,10 @@ class Backtests(BacktestCase):
         writer.put_rows("price_ticks/SHFE", "price_ticks", [
             price_tick("SHFE/rb/2026-05"), price_tick("SHFE/rb/2026-10", "0.2")])
         writer.commit()
-        data = backtest.Data(Warehouse(self.directory), DAYS[0].isoformat(), DAYS[-1].isoformat())
+        data = lab_data.Data(Warehouse(self.directory), DAYS[0].isoformat(), DAYS[-1].isoformat())
         self.assertEqual(data.multiplier("SHFE", "SHFE/rb/2026-05"), Decimal(10))
-        contracts, series, first = backtest.prepare(data, self.config(("SHFE/rb",)))
-        self.assertEqual([item["price_increment"] for item in contracts], [backtest.R, backtest.R // 5])
+        contracts, series, first = lab_data.prepare(data, self.config(("SHFE/rb",)))
+        self.assertEqual([item["price_increment"] for item in contracts], [lab_data.R, lab_data.R // 5])
         # 2605 until day 15 rolls into 2610, which joins a day before the roll.
         self.assertEqual([item["symbol"] for item in contracts], ["SHFE/rb/2026-05", "SHFE/rb/2026-10"])
         (rolls,) = series
@@ -676,8 +676,8 @@ class Backtests(BacktestCase):
         # Starting after the first stored day uses the previous trading day as anchor,
         # so the dominant series is active from begin_day itself.
         anchored = self.config(("SHFE/rb",), begin_day=DAYS[5].isoformat())
-        _, anchored_series, _ = backtest.prepare(
-            backtest.Data(Warehouse(self.directory), anchored.begin_day, anchored.end_day), anchored)
+        _, anchored_series, _ = lab_data.prepare(
+            lab_data.Data(Warehouse(self.directory), anchored.begin_day, anchored.end_day), anchored)
         self.assertEqual(anchored_series, [[(DAYS[5].isoformat(), 0), (DAYS[16].isoformat(), 1)]])
 
     def test_a_series_rejects_missing_daily_partitions(self):
@@ -693,7 +693,7 @@ class Backtests(BacktestCase):
                 writer.commit()
                 config = self.config(("SHFE/rb",))
                 with self.assertRaisesRegex(ValueError, f"daily bars of SHFE are not stored on {missing}"):
-                    backtest.prepare(backtest.open_data(self.directory, config), config)
+                    lab_data.prepare(lab_data.open_data(self.directory, config), config)
 
     def test_later_days_never_change_what_a_series_showed_before(self):
         import asterion_engine
@@ -708,9 +708,9 @@ class Backtests(BacktestCase):
 
         def seen(end_day):
             config = self.config(("SHFE/rb",), end_day=end_day)
-            contracts, series, first = backtest.prepare(backtest.open_data(self.directory, config), config)
-            engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
-                                            (10 * backtest.R, 10 * backtest.R, 10, 10 * backtest.R))
+            contracts, series, first = lab_data.prepare(lab_data.open_data(self.directory, config), config)
+            engine = asterion_engine.Replay(lab_data.raw(config.deposit), contracts, series,
+                                            (10 * lab_data.R, 10 * lab_data.R, 10, 10 * lab_data.R))
             strategy = Watch()
             backtest.replay(engine, strategy, {engine.unit(index): symbol for symbol, index in first.items()},
                             contracts, config)
@@ -743,11 +743,11 @@ class Backtests(BacktestCase):
 
         # Daily dominant series: 2026-05 -> 2026-10 roll on DAYS[16].
         config = self.config(("SHFE/rb",))
-        data = backtest.open_data(self.directory, config)
+        data = lab_data.open_data(self.directory, config)
         stored = data.product("SHFE", "rb")
-        contracts, series, first = backtest.prepare(data, config)
-        engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
-                                        (10 * backtest.R, 10 * backtest.R, 10, 10 * backtest.R))
+        contracts, series, first = lab_data.prepare(data, config)
+        engine = asterion_engine.Replay(lab_data.raw(config.deposit), contracts, series,
+                                        (10 * lab_data.R, 10 * lab_data.R, 10, 10 * lab_data.R))
         watch = WatchRollYield()
         backtest.replay(engine, watch, {engine.unit(index): symbol for symbol, index in first.items()},
                         contracts, config)
@@ -766,9 +766,9 @@ class Backtests(BacktestCase):
 
         # Fixed single contract receives NaN roll_yield.
         fixed_cfg = self.config(("SHFE/rb/2026-05",))
-        fc, fs, ff = backtest.prepare(backtest.open_data(self.directory, fixed_cfg), fixed_cfg)
-        fe = asterion_engine.Replay(backtest.raw(fixed_cfg.deposit), fc, fs,
-                                    (10 * backtest.R, 10 * backtest.R, 10, 10 * backtest.R))
+        fc, fs, ff = lab_data.prepare(lab_data.open_data(self.directory, fixed_cfg), fixed_cfg)
+        fe = asterion_engine.Replay(lab_data.raw(fixed_cfg.deposit), fc, fs,
+                                    (10 * lab_data.R, 10 * lab_data.R, 10, 10 * lab_data.R))
         fixed_watch = WatchRollYield()
         backtest.replay(fe, fixed_watch, {fe.unit(i): s for s, i in ff.items()}, fc, fixed_cfg)
         self.assertTrue(all(math.isnan(ry) for _, _, ry in fixed_watch.bars))
@@ -781,7 +781,7 @@ class Backtests(BacktestCase):
         ):
             for day in days:
                 base_close = Decimal(stored[contract].days[day.isoformat()]["close"])
-                start = int(datetime.datetime.combine(day, datetime.time(9), backtest.BEIJING)
+                start = int(datetime.datetime.combine(day, datetime.time(9), lab_data.BEIJING)
                             .timestamp()) * 1000
                 writer.put_rows(f"minutes/SHFE/{day.isoformat()}/rb/{contract[-7:]}", "minutes", [
                     dict(exchange="SHFE", product="rb", contract=contract, day=day.isoformat(),
@@ -792,9 +792,9 @@ class Backtests(BacktestCase):
                     for minute in range(5)], days=[day.isoformat()])
         writer.commit()
         m_cfg = self.config(("SHFE/rb",), minutes=1)
-        mc, ms, mf = backtest.prepare(backtest.open_data(self.directory, m_cfg), m_cfg)
-        me = asterion_engine.Replay(backtest.raw(m_cfg.deposit), mc, ms,
-                                    (10 * backtest.R, 10 * backtest.R, 10, 10 * backtest.R))
+        mc, ms, mf = lab_data.prepare(lab_data.open_data(self.directory, m_cfg), m_cfg)
+        me = asterion_engine.Replay(lab_data.raw(m_cfg.deposit), mc, ms,
+                                    (10 * lab_data.R, 10 * lab_data.R, 10, 10 * lab_data.R))
         m_watch = WatchRollYield()
         backtest.replay(me, m_watch, {me.unit(i): s for s, i in mf.items()}, mc, m_cfg)
         expected_min_day1 = float(dominant.annualized_roll_yield(
@@ -816,7 +816,7 @@ class Backtests(BacktestCase):
         # NOT visible until DAYS[5] daily 15:00 bar!).
         day1_iso, day2_iso, day3_iso, day4_iso, day5_iso = [d.isoformat() for d in DAYS[1:6]]
         delayed_pub_ms = int(datetime.datetime.combine(
-            DAYS[4], datetime.time(16), backtest.BEIJING).timestamp()) * 1000
+            DAYS[4], datetime.time(16), lab_data.BEIJING).timestamp()) * 1000
         writer.put_rows(f"warehouse_receipts/SHFE/{day1_iso}", "warehouse_receipts", [
             dict(exchange="SHFE", product="rb", day=day1_iso, warehouse="仓库A",
                  warehouse_id="A", warehouse_type="仓库", area="上海", crop_year=None,
@@ -845,11 +845,11 @@ class Backtests(BacktestCase):
                 seen[bar.time.date().isoformat()] = bar
 
         config = self.config(("SHFE/rb",))
-        data = backtest.open_data(self.directory, config)
+        data = lab_data.open_data(self.directory, config)
         stored = data.product("SHFE", "rb")
-        contracts, series, first = backtest.prepare(data, config)
-        engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
-                                        (10 * backtest.R, 10 * backtest.R, 10, 10 * backtest.R))
+        contracts, series, first = lab_data.prepare(data, config)
+        engine = asterion_engine.Replay(lab_data.raw(config.deposit), contracts, series,
+                                        (10 * lab_data.R, 10 * lab_data.R, 10, 10 * lab_data.R))
         backtest.replay(engine, WatchPit(), {engine.unit(i): s for s, i in first.items()},
                         contracts, config)
 
@@ -897,7 +897,7 @@ class Backtests(BacktestCase):
         contract = "SHFE/rb/2026-05"
         monday, tuesday = DAYS[5:7]
         for day in (monday, tuesday):
-            midnight = datetime.datetime.combine(day, datetime.time(), backtest.BEIJING)
+            midnight = datetime.datetime.combine(day, datetime.time(), lab_data.BEIJING)
             sessions = [(midnight, 540, 615), (midnight, 630, 690), (midnight, 810, 900)]
             if day == monday:
                 sessions.insert(0, (midnight - datetime.timedelta(days=3), 1260, 1380))
@@ -934,7 +934,7 @@ class Backtests(BacktestCase):
     def test_minutes_missing_on_a_settled_day_stop_the_run(self):
         writer = Warehouse(self.directory).writer()
         day = DAYS[0].isoformat()
-        start = int(datetime.datetime.combine(DAYS[0], datetime.time(9), backtest.BEIJING).timestamp()) * 1000
+        start = int(datetime.datetime.combine(DAYS[0], datetime.time(9), lab_data.BEIJING).timestamp()) * 1000
         writer.put_rows(f"minutes/SHFE/{day}/rb/2026-05", "minutes", [
             dict(exchange="SHFE", product="rb", contract="SHFE/rb/2026-05", day=day,
                  start_ms=start + minute * 60000, partial=False, open=Decimal(3000),
@@ -956,7 +956,7 @@ class Backtests(BacktestCase):
         for row in calendar:
             row["day"] = row["day"].isoformat()
         for day in DAYS:
-            start = int(datetime.datetime.combine(day, datetime.time(9), backtest.BEIJING).timestamp()) * 1000
+            start = int(datetime.datetime.combine(day, datetime.time(9), lab_data.BEIJING).timestamp()) * 1000
             writer.put_rows(f"minutes/SHFE/{day.isoformat()}/rb/2026-05", "minutes", [
                 dict(exchange="SHFE", product="rb", contract=contract, day=day.isoformat(),
                      start_ms=start, partial=False, open=Decimal(3000), high=Decimal(3005),
@@ -1003,7 +1003,7 @@ class Backtests(BacktestCase):
                 writer.put_rows("daily/SHFE/2026-01", "daily", rows,
                                 days=[day.isoformat() for day in DAYS[:3]])
                 for day in (DAYS[0], DAYS[2]):
-                    start = int(datetime.datetime.combine(day, datetime.time(9), backtest.BEIJING).timestamp()) * 1000
+                    start = int(datetime.datetime.combine(day, datetime.time(9), lab_data.BEIJING).timestamp()) * 1000
                     writer.put_rows(f"minutes/SHFE/{day.isoformat()}/rb/2026-05", "minutes", [
                         dict(exchange="SHFE", product="rb", contract=contract, day=day.isoformat(),
                              start_ms=start, partial=False, open=Decimal(3000), high=Decimal(3005),
@@ -1036,7 +1036,7 @@ class Backtests(BacktestCase):
         writer.put_rows("daily/SHFE/2026-01", "daily", rows,
                         days=[day.isoformat() for day in DAYS[1:4]])
         for day in (DAYS[1], DAYS[3]):
-            start = int(datetime.datetime.combine(day, datetime.time(9), backtest.BEIJING).timestamp()) * 1000
+            start = int(datetime.datetime.combine(day, datetime.time(9), lab_data.BEIJING).timestamp()) * 1000
             writer.put_rows(f"minutes/SHFE/{day.isoformat()}/rb/2026-05", "minutes", [
                 dict(exchange="SHFE", product="rb", contract=contract, day=day.isoformat(),
                      start_ms=start, partial=False, open=Decimal(3000), high=Decimal(3005),
@@ -1071,15 +1071,15 @@ class Backtests(BacktestCase):
                 return self.bars in (1, 10)
 
         config = self.config(("SHFE/rb/2026-05",), max_order_lots=Decimal(1))
-        contracts, series, first = backtest.prepare(backtest.open_data(self.directory, config), config)
-        contracts[0]["bars"][1] = (*contracts[0]["bars"][1][:6], 10 * backtest.R)
-        engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
-                                        (backtest.R, 10 * backtest.R, 10, 10 * backtest.R))
+        contracts, series, first = lab_data.prepare(lab_data.open_data(self.directory, config), config)
+        contracts[0]["bars"][1] = (*contracts[0]["bars"][1][:6], 10 * lab_data.R)
+        engine = asterion_engine.Replay(lab_data.raw(config.deposit), contracts, series,
+                                        (lab_data.R, 10 * lab_data.R, 10, 10 * lab_data.R))
         backtest.replay(engine, Once(), {engine.unit(index): symbol for symbol, index in first.items()},
                         contracts, config)
         # One lot of the first leg; the rest of the target is never placed, and stays void once ready again.
-        self.assertEqual([order[4] for order in engine.orders()], [backtest.R])
-        self.assertEqual(engine.positions[-1][2], backtest.R)
+        self.assertEqual([order[4] for order in engine.orders()], [lab_data.R])
+        self.assertEqual(engine.positions[-1][2], lab_data.R)
 
     def test_a_paused_series_keeps_its_old_month_until_a_new_target_arrives(self):
         import asterion_engine
@@ -1095,31 +1095,31 @@ class Backtests(BacktestCase):
                 return ctx.time.date() <= DAYS[2] or ctx.time.date() >= DAYS[22]
 
         config = self.config(("SHFE/rb",), max_order_lots=Decimal(1))
-        contracts, series, first = backtest.prepare(backtest.open_data(self.directory, config), config)
-        contracts[0]["bars"][2] = (*contracts[0]["bars"][2][:6], 10 * backtest.R)
-        engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
-                                        (backtest.R, 10 * backtest.R, 10, 10 * backtest.R))
+        contracts, series, first = lab_data.prepare(lab_data.open_data(self.directory, config), config)
+        contracts[0]["bars"][2] = (*contracts[0]["bars"][2][:6], 10 * lab_data.R)
+        engine = asterion_engine.Replay(lab_data.raw(config.deposit), contracts, series,
+                                        (lab_data.R, 10 * lab_data.R, 10, 10 * lab_data.R))
         backtest.replay(engine, Pause(), {engine.unit(index): symbol for symbol, index in first.items()},
                         contracts, config)
         held = [row for row in engine.positions
                 if DAYS[3].isoformat() <= row[0] <= DAYS[22].isoformat()]
         self.assertEqual([row[0] for row in held], [day.isoformat() for day in DAYS[3:23]])
-        self.assertTrue(all(row[1:4] == (0, backtest.R, 0) for row in held))
+        self.assertTrue(all(row[1:4] == (0, lab_data.R, 0) for row in held))
         self.assertEqual([fill[5] for fill in engine.fills()
-                          if fill[5] <= backtest.close_ns(DAYS[22].isoformat())],
-                         [backtest.close_ns(DAYS[3].isoformat())])
-        self.assertEqual(engine.positions[-1][1:4], (1, 2 * backtest.R, 0))
+                          if fill[5] <= lab_data.close_ns(DAYS[22].isoformat())],
+                         [lab_data.close_ns(DAYS[3].isoformat())])
+        self.assertEqual(engine.positions[-1][1:4], (1, 2 * lab_data.R, 0))
 
     def test_a_series_month_needs_minutes_only_while_it_trades(self):
         import asterion_engine
 
         # 2026-05 is dominant until its handover on DAYS[16]; 2026-10 joins on DAYS[15].
         writer = Warehouse(self.directory).writer()
-        stored = backtest.open_data(self.directory, self.config(("SHFE/rb",))).product("SHFE", "rb")
+        stored = lab_data.open_data(self.directory, self.config(("SHFE/rb",))).product("SHFE", "rb")
         for contract, days in (("SHFE/rb/2026-05", DAYS[1:18]), ("SHFE/rb/2026-10", DAYS[15:])):
             for day in days:
                 close = Decimal(stored[contract].days[day.isoformat()]["close"])
-                start = int(datetime.datetime.combine(day, datetime.time(9), backtest.BEIJING)
+                start = int(datetime.datetime.combine(day, datetime.time(9), lab_data.BEIJING)
                             .timestamp()) * 1000
                 writer.put_rows(f"minutes/SHFE/{day.isoformat()}/rb/{contract[-7:]}", "minutes", [
                     dict(exchange="SHFE", product="rb", contract=contract, day=day.isoformat(),
@@ -1140,9 +1140,9 @@ class Backtests(BacktestCase):
                 return ctx.time.date() <= DAYS[2]
 
         config = self.config(("SHFE/rb",), minutes=1)
-        contracts, series, first = backtest.prepare(backtest.open_data(self.directory, config), config)
-        engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
-                                        (backtest.R, 10 * backtest.R, 10, 10 * backtest.R))
+        contracts, series, first = lab_data.prepare(lab_data.open_data(self.directory, config), config)
+        engine = asterion_engine.Replay(lab_data.raw(config.deposit), contracts, series,
+                                        (lab_data.R, 10 * lab_data.R, 10, 10 * lab_data.R))
         backtest.replay(engine, Pause(), {engine.unit(index): symbol for symbol, index in first.items()},
                         contracts, config)
         with self.assertRaisesRegex(ValueError, f"prices of SHFE/rb/2026-05 are missing on "
@@ -1174,9 +1174,9 @@ class Backtests(BacktestCase):
             def ready(self, ctx):
                 return ctx.time.date() <= DAYS[2]
 
-        contracts, series, first = backtest.prepare(backtest.open_data(self.directory, config), config)
-        engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
-                                        (backtest.R, 10 * backtest.R, 10, 10 * backtest.R))
+        contracts, series, first = lab_data.prepare(lab_data.open_data(self.directory, config), config)
+        engine = asterion_engine.Replay(lab_data.raw(config.deposit), contracts, series,
+                                        (lab_data.R, 10 * lab_data.R, 10, 10 * lab_data.R))
         backtest.replay(engine, Pause(), {engine.unit(index): symbol for symbol, index in first.items()},
                         contracts, config)
         with self.assertRaisesRegex(ValueError, "prices of SHFE/rb/2026-05 are missing on .*while it is held"):
@@ -1215,14 +1215,14 @@ class Backtests(BacktestCase):
                 self.assertGreater(fills.height, 0)
                 # A fill happens at a minute's end, never at the days' 15:00 label.
                 self.assertTrue(all(t % (60 * 10 ** 9) == 0 for t in fills["time_ns"]))
-                self.assertFalse(any(t == backtest.close_ns(d.isoformat())
+                self.assertFalse(any(t == lab_data.close_ns(d.isoformat())
                                      for t in fills["time_ns"] for d in DAYS[:10]))
                 import asterion_engine
                 config = self.config(("SHFE/rb/2026-05",), end_day=DAYS[9].isoformat(),
                                      minutes=minutes)
-                contracts, series, first = backtest.prepare(backtest.open_data(self.directory, config), config)
-                engine = asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
-                                               (10 * backtest.R, 10 * backtest.R, 10, 10 * backtest.R))
+                contracts, series, first = lab_data.prepare(lab_data.open_data(self.directory, config), config)
+                engine = asterion_engine.Replay(lab_data.raw(config.deposit), contracts, series,
+                                               (10 * lab_data.R, 10 * lab_data.R, 10, 10 * lab_data.R))
                 context = backtest.warmup(engine, repository.load(
                     self.repository, config.strategy, config.params),
                     {engine.unit(index): symbol for symbol, index in first.items()}, contracts)
@@ -1255,11 +1255,11 @@ class Backtests(BacktestCase):
         for symbols, settings in cases:
             with self.subTest(symbols=symbols):
                 config = self.config(symbols, **settings)
-                contracts, series, first = backtest.prepare(backtest.open_data(self.directory, config), config)
+                contracts, series, first = lab_data.prepare(lab_data.open_data(self.directory, config), config)
 
                 def engine():
-                    return asterion_engine.Replay(backtest.raw(config.deposit), contracts, series,
-                                                 (10 * backtest.R, 10 * backtest.R, 10, 10 * backtest.R))
+                    return asterion_engine.Replay(lab_data.raw(config.deposit), contracts, series,
+                                                 (10 * lab_data.R, 10 * lab_data.R, 10, 10 * lab_data.R))
 
                 trading, warming = engine(), engine()
                 units = {trading.unit(index): symbol for symbol, index in first.items()}
@@ -1752,7 +1752,8 @@ Runs.start = interrupted_start
                                  (DAYS[0].isoformat(), DAYS[-1].isoformat()))
                 self.assertEqual(record["statistics"]["rolling"], {
                     "sweep": identity, "candidates": [f"{identity}-0", f"{identity}-1"],
-                    "training_days": len(DAYS), "validation_days": 3, "rounds": []})
+                    "training_days": len(DAYS), "validation_days": 3,
+                    "embargo_days": 0, "objective": "sharpe", "rounds": []})
         for spawn_fails in (False, True):
             with self.subTest(spawn_fails=spawn_fails):
                 asyncio.run(scenario(spawn_fails))
@@ -1943,7 +1944,7 @@ class BacktestSweeps(BacktestCase):
             else:
                 self.assertIsNone(item["selected"])
         # Nothing is held before the first round's validation days.
-        first = backtest.close_ns(DAYS[20].isoformat())
+        first = lab_data.close_ns(DAYS[20].isoformat())
         self.assertTrue(all(time_ns >= first for time_ns in runs.table("walk-rolling", "fills")["time_ns"]))
         request = self.sweep_request("refused", [2, 3], [4], 2)
         request.start_sweep.walk_forward.training_days, request.start_sweep.walk_forward.validation_days = 20, 3
@@ -2107,7 +2108,7 @@ class BacktestSweeps(BacktestCase):
 
         contract = "SHFE/rb/2026-05"
         tuesday, wednesday = DAYS[1], DAYS[2]
-        midnight = datetime.datetime.combine(tuesday, datetime.time(), backtest.BEIJING)
+        midnight = datetime.datetime.combine(tuesday, datetime.time(), lab_data.BEIJING)
         sessions = [(midnight - datetime.timedelta(days=1), 1260, 1380),
                     (midnight, 540, 615), (midnight, 630, 690), (midnight, 810, 900)]
         minutes = [dict(exchange="SHFE", product="rb", contract=contract, day=tuesday.isoformat(),
@@ -2217,9 +2218,9 @@ class BacktestSweeps(BacktestCase):
             max_order_lots=Decimal(10), max_gross_lots=Decimal(10),
             max_contract_lots=Decimal(10), max_working_orders=10, dataset_version=version,
         )
-        data = backtest.Data(Dataset(self.directory), config.begin_day, config.end_day, version=version)
-        contracts, _, _ = backtest.prepare(data, config)
-        self.assertEqual(contracts[0]["price_limits"][0][1], 2850 * backtest.R)
+        data = lab_data.Data(Dataset(self.directory), config.begin_day, config.end_day, version=version)
+        contracts, _, _ = lab_data.prepare(data, config)
+        self.assertEqual(contracts[0]["price_limits"][0][1], 2850 * lab_data.R)
 
     def test_stored_daily_price_limits_block_limit_locked_fills_and_clamp_slippage(self):
         import asterion_engine
@@ -2263,12 +2264,12 @@ class BacktestSweeps(BacktestCase):
             max_order_lots=Decimal(10), max_gross_lots=Decimal(10),
             max_contract_lots=Decimal(10), max_working_orders=10, dataset_version=version,
         )
-        data = backtest.Data(Dataset(self.directory), config.begin_day, config.end_day, version=version)
-        contracts, series, _ = backtest.prepare(data, config)
+        data = lab_data.Data(Dataset(self.directory), config.begin_day, config.end_day, version=version)
+        contracts, series, _ = lab_data.prepare(data, config)
         self.assertEqual(len(contracts[0]["price_limits"]), 4)
-        r = backtest.R
+        r = lab_data.R
         engine = asterion_engine.Replay(
-            backtest.raw(config.deposit), contracts, series,
+            lab_data.raw(config.deposit), contracts, series,
             (10 * r, 10 * r, 10, 10 * r),
         )
         backtest.replay(engine, BuyThenExit(), {0: contract}, contracts, config)
@@ -2287,9 +2288,9 @@ class BacktestSweeps(BacktestCase):
             daily(contract, DAYS[0], 3000, 1000, lower_limit=2850, upper_limit=None),
         ], [DAYS[0].isoformat()])
         bad_version = bad_writer.commit().identity
-        bad_data = backtest.Data(Dataset(self.directory), DAYS[0].isoformat(), DAYS[0].isoformat(), version=bad_version)
+        bad_data = lab_data.Data(Dataset(self.directory), DAYS[0].isoformat(), DAYS[0].isoformat(), version=bad_version)
         with self.assertRaisesRegex(ValueError, "incomplete price limits"):
-            backtest.contract_input(bad_data, config, contract, DAYS[0].isoformat(), DAYS[0].isoformat())
+            lab_data.contract_input(bad_data, config, contract, DAYS[0].isoformat(), DAYS[0].isoformat())
 
     def test_diagnostics_attribute_round_trips_sectors_exposure_and_components(self):
         import asterion_engine
@@ -2350,11 +2351,11 @@ class BacktestSweeps(BacktestCase):
             max_gross_weight=Decimal(1), max_net_weight=Decimal(1),
             annual_periods=252, zero_risk_free=True, dataset_version=version,
         )
-        data = backtest.Data(Dataset(self.directory), config.begin_day, config.end_day, version=version)
-        contracts, series, first = backtest.prepare(data, config)
-        r = backtest.R
+        data = lab_data.Data(Dataset(self.directory), config.begin_day, config.end_day, version=version)
+        contracts, series, first = lab_data.prepare(data, config)
+        r = lab_data.R
         engine = asterion_engine.Replay(
-            backtest.raw(config.deposit), contracts, series,
+            lab_data.raw(config.deposit), contracts, series,
             (100 * r, 500 * r, 32, 200 * r),
         )
         symbols = {engine.unit(index): symbol for symbol, index in first.items()}
@@ -2513,11 +2514,11 @@ class BacktestSweeps(BacktestCase):
                 max_contract_lots=Decimal(200), max_working_orders=32,
                 fee_multiplier=mult, dataset_version=version,
             )
-            data = backtest.Data(Dataset(self.directory), config.begin_day, config.end_day, version=version)
-            contracts, series, first = backtest.prepare(data, config)
-            r = backtest.R
+            data = lab_data.Data(Dataset(self.directory), config.begin_day, config.end_day, version=version)
+            contracts, series, first = lab_data.prepare(data, config)
+            r = lab_data.R
             engine = asterion_engine.Replay(
-                backtest.raw(config.deposit), contracts, series,
+                lab_data.raw(config.deposit), contracts, series,
                 (100 * r, 500 * r, 32, 200 * r),
             )
             symbols = {engine.unit(index): symbol for symbol, index in first.items()}
@@ -2544,7 +2545,7 @@ class BacktestSweeps(BacktestCase):
             return int(dt.timestamp() * 1_000_000_000)
 
         contract = "SHFE/rb/2026-05"
-        r = backtest.R
+        r = lab_data.R
         config = self.config((contract,), minutes=5, slippage_ticks=1)
         contracts = [dict(
             symbol=contract, run_symbol=contract, price_increment=r, multiplier=10 * r,

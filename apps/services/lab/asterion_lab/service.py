@@ -2,28 +2,30 @@
 fixed Warehouse versions run on a small thread pool."""
 import asyncio
 import collections
-from dataclasses import dataclass
-import datetime
-import hashlib
-import itertools
-import json
-import math
 from concurrent.futures import ThreadPoolExecutor
+import datetime
 from decimal import Decimal
+import json
 import os
-import re
-import shutil
 from pathlib import Path
+import shutil
 import tempfile
 import time
 
-from asterion.common_pb2 import ErrorCode, Period, Side, Offset
-from asterion.lab_pb2 import (AdmittedFactor, AdmittedRun, FactorResult, ReconcileLive, Request,
-                              Response, RollingRun, RunState, TaskKind)
-from asterion.strategy_pb2 import Bar, Warmup
+from asterion.common_pb2 import ErrorCode, Offset, Period, Side
+from asterion.lab_pb2 import (
+    AdmittedFactor,
+    AdmittedRun,
+    FactorResult,
+    ReconcileLive,
+    Request,
+    Response,
+    RunState,
+    TaskKind,
+)
 
-from asterion_lab import backtest, chart, dominant, optimize, pit, repository, package, rolling, worker
-from asterion_lab.runs import BATCH_STRATEGY, IDENTITY, SLIPPAGE_STRESS, Runs
+from asterion_lab import backtest, chart, data as lab_data, optimize, package, repository, rolling, sweeps, warmup, worker
+from asterion_lab.runs import IDENTITY, Runs
 from asterion_lab.warehouse import write_durably
 from asterion_lab.warehouse_client import Client, Dataset, WarehouseError
 
@@ -45,80 +47,41 @@ def decimal(value):
 
 
 # Chart periods as chart.py names them.
-PERIODS = {Period.PERIOD_MINUTES_1: 1, Period.PERIOD_MINUTES_5: 5, Period.PERIOD_MINUTES_10: 10,
-           Period.PERIOD_MINUTES_15: 15, Period.PERIOD_MINUTES_30: 30, Period.PERIOD_MINUTES_60: 60,
-           Period.PERIOD_DAY: "day", Period.PERIOD_WEEK: "week", Period.PERIOD_MONTH: "month",
-           Period.PERIOD_QUARTER: "quarter", Period.PERIOD_YEAR: "year"}
-STATES = {"running": RunState.RUN_STATE_RUNNING, "succeeded": RunState.RUN_STATE_SUCCEEDED,
-          "failed": RunState.RUN_STATE_FAILED, "stopped": RunState.RUN_STATE_STOPPED,
-          "interrupted": RunState.RUN_STATE_INTERRUPTED}
-TASK_KINDS = {"backtest": TaskKind.TASK_KIND_BACKTEST, "sweep": TaskKind.TASK_KIND_SWEEP,
-              "batch": TaskKind.TASK_KIND_BATCH, "slippage": TaskKind.TASK_KIND_SLIPPAGE_STRESS,
-              "rolling": TaskKind.TASK_KIND_ROLLING}
+PERIODS = {
+    Period.PERIOD_MINUTES_1: 1,
+    Period.PERIOD_MINUTES_5: 5,
+    Period.PERIOD_MINUTES_10: 10,
+    Period.PERIOD_MINUTES_15: 15,
+    Period.PERIOD_MINUTES_30: 30,
+    Period.PERIOD_MINUTES_60: 60,
+    Period.PERIOD_DAY: "day",
+    Period.PERIOD_WEEK: "week",
+    Period.PERIOD_MONTH: "month",
+    Period.PERIOD_QUARTER: "quarter",
+    Period.PERIOD_YEAR: "year",
+}
+STATES = {
+    "running": RunState.RUN_STATE_RUNNING,
+    "succeeded": RunState.RUN_STATE_SUCCEEDED,
+    "failed": RunState.RUN_STATE_FAILED,
+    "stopped": RunState.RUN_STATE_STOPPED,
+    "interrupted": RunState.RUN_STATE_INTERRUPTED,
+}
+TASK_KINDS = {
+    "backtest": TaskKind.TASK_KIND_BACKTEST,
+    "sweep": TaskKind.TASK_KIND_SWEEP,
+    "batch": TaskKind.TASK_KIND_BATCH,
+    "slippage": TaskKind.TASK_KIND_SLIPPAGE_STRESS,
+    "rolling": TaskKind.TASK_KIND_ROLLING,
+}
 
 
 def error_code(name: str) -> int:
-    return ErrorCode.Value(f"ERROR_CODE_{name.upper()}") if f"ERROR_CODE_{name.upper()}" in \
-        ErrorCode.keys() else ErrorCode.ERROR_CODE_OPERATION_FAILED
-
-
-def ctp_instrument(exchange: str, cased_product: str, month: str):
-    from asterion.common_pb2 import Instrument
-    suffix = month[3:4] + month[5:] if exchange == "CZCE" else month[2:4] + month[5:]
-    return Instrument(exchange=exchange, symbol=cased_product + suffix)
-
-
-def contract_name(selection) -> str:
-    series_match = re.fullmatch(r"(SHFE|INE|DCE|CZCE|CFFEX|GFEX)/([a-z]{1,8})", selection.contract)
-    if series_match:
-        exchange, product = series_match.groups()
-        prev = ""
-        for entry in selection.candidates:
-            datetime.date.fromisoformat(entry.delivery_month + "-01")
-            suffix = entry.delivery_month[3:4] + entry.delivery_month[5:] if exchange == "CZCE" \
-                else entry.delivery_month[2:4] + entry.delivery_month[5:]
-            if entry.instrument.exchange != exchange \
-                    or entry.instrument.symbol.lower() != product + suffix \
-                    or (prev and entry.delivery_month <= prev):
-                raise ValueError(f"invalid dominant warmup candidate for {selection.contract}")
-            prev = entry.delivery_month
-        return selection.contract
-    instrument = selection.instrument
-    match = re.fullmatch(r"(SHFE|INE|DCE|CZCE|CFFEX|GFEX)/([a-z]{1,8})/([0-9]{4}-[0-9]{2})",
-                         selection.contract)
-    if not match:
-        raise ValueError(f"invalid historical contract {selection.contract}")
-    exchange, product, month = match.groups()
-    datetime.date.fromisoformat(month + "-01")
-    suffix = month[3:4] + month[5:] if exchange == "CZCE" else month[2:4] + month[5:]
-    if instrument.exchange != exchange or instrument.symbol.lower() != product + suffix:
-        raise ValueError(f"historical contract does not match {instrument.exchange}/{instrument.symbol}")
-    return selection.contract
-
-
-@dataclass
-class Rolling:
-    request: object  # RollingRun
-    candidates: int
-    starting: bool = False
-
-
-@dataclass
-class BayesSweep:
-    sweep_id: str
-    base: object  # AdmittedRun
-    names: list
-    axis_values: list  # list[list[ParameterValue]]
-    axis_coords: list  # list[list[float]]
-    max_trials: int
-    seed: int
-    limit: int
-    next_index: int
-    target_metric: str
-    planned_combos: dict  # run_id -> tuple[int, ...]
-    observed: dict  # tuple[int, ...] -> float
-    tried: set  # set[tuple[int, ...]]
-    advancing: bool = False
+    return (
+        ErrorCode.Value(f"ERROR_CODE_{name.upper()}")
+        if f"ERROR_CODE_{name.upper()}" in ErrorCode.keys()
+        else ErrorCode.ERROR_CODE_OPERATION_FAILED
+    )
 
 
 def summary(item, row):
@@ -145,8 +108,11 @@ def summary(item, row):
         item.label = row["label"]
         item.symbols.extend(row["symbols"])
         item.first_day, item.last_day = row["begin_day"], row["end_day"]
-        item.period = next(key for key, value in PERIODS.items()
-                           if value == ("day" if row["period"] == "day" else int(row["period"][:-1])))
+        item.period = next(
+            key
+            for key, value in PERIODS.items()
+            if value == ("day" if row["period"] == "day" else int(row["period"][:-1]))
+        )
         parameters(item.params, row["params"])
         run_settings(item.settings, row["settings"])
     return item
@@ -176,26 +142,6 @@ def parameters(target, values: dict):
             setattr(target[name], fields[type(value)], value)
 
 
-def stored_span(found: dict, symbols, minutes: bool) -> tuple[str, str]:
-    table = "minutes" if minutes else "daily"
-    firsts, lasts = [], []
-    for symbol in symbols:
-        matched = [
-            found[c][table]
-            for c in found
-            if table in found[c]
-            and (c == symbol if symbol.count("/") == 2 else c.startswith(f"{symbol}/"))
-        ]
-        if not matched:
-            raise ValueError(f"no stored {table} bars for {symbol}")
-        firsts.append(min(item[0] for item in matched))
-        lasts.append(max(item[1] for item in matched))
-    overlap_first, overlap_last = max(firsts), min(lasts)
-    if overlap_first <= overlap_last:
-        return overlap_first, overlap_last
-    return min(firsts), max(lasts)
-
-
 class Service:
     def __init__(self, name: str, directory: Path, log, warehouse=None):
         self.name = name
@@ -209,9 +155,9 @@ class Service:
         self.runs.interrupt()
         self.prune_sources()
         self.backtests = {}  # run id -> its child process, while it runs
-        self.waiting = collections.deque()  # (sweep, AdmittedRun) not started yet
+        self.waiting = collections.deque()  # (sweep, AdmittedRun, limit) not started yet
         self.processes = max(1, (os.cpu_count() or 2) - 1)
-        self.rolling = {}  # sweep -> its RollingRun, until every candidate has ended
+        self.rolling = {}  # sweep -> its Rolling, until every candidate has ended
         self.bayes = {}  # sweep -> active BayesSweep state across waves
         self.activity = {}  # run or sweep id -> metadata while active
         self.run_task = {}  # child run id -> owning sweep id
@@ -263,8 +209,11 @@ class Service:
         if "rolling" in record["statistics"]:
             raise ValueError("choose a single backtest from the rolling validation candidates")
         name = f"sweep-{row['sweep']}" if row["sweep"] else f"run-{row['id']}"
-        copies = [path for path in (self.directory / "sources").glob(f"{name}-*")
-                  if path.name.rsplit("-", 1)[0] == name]
+        copies = [
+            path
+            for path in (self.directory / "sources").glob(f"{name}-*")
+            if path.name.rsplit("-", 1)[0] == name
+        ]
         if len(copies) != 1:
             raise ValueError(f"the frozen source of run {request.run_id} is missing or ambiguous")
         result = package.build(copies[0], row["strategy"])
@@ -272,8 +221,11 @@ class Service:
         research.run_id = request.run_id
         research.dataset_version = row["dataset_version"]
         research.symbols.extend(row["symbols"])
-        research.period = next(key for key, value in PERIODS.items()
-                               if value == ("day" if row["period"] == "day" else int(row["period"][:-1])))
+        research.period = next(
+            key
+            for key, value in PERIODS.items()
+            if value == ("day" if row["period"] == "day" else int(row["period"][:-1]))
+        )
         parameters(research.params, row["params"])
         research.weight_limits.gross.text = record["risk"]["max_gross_weight"]
         research.weight_limits.net.text = record["risk"]["max_net_weight"]
@@ -284,328 +236,7 @@ class Service:
         return result
 
     def build_warmup(self, request):
-        if not 1 <= len(request.instruments) <= 64:
-            raise ValueError("warmup requires 1 to 64 instruments")
-        if not 1 <= request.max_bars <= 500:
-            raise ValueError("warmup max_bars must be between 1 and 500")
-        period = PERIODS.get(request.period)
-        if period != "day" and period not in chart.MINUTES:
-            raise ValueError("warmup bars are daily or of 1 to 60 minutes")
-        contracts = [contract_name(selection) for selection in request.instruments]
-        has_series = any(len(c.split("/")) == 2 for c in contracts)
-        tables = ("daily",) if period == "day" else (("daily", "minutes") if has_series else ("minutes",))
-        identity = self.data_version(request.dataset_version, tables)
-        warehouse = self.dataset()
-        with warehouse:
-            version = warehouse.version(identity)
-            grouped = collections.defaultdict(dict)
-            daily_cache = {}
-            delist_cache = {}
-            pit_cache = {}
-            lookback_days = max(request.max_bars * 2 + 120, 400)
-
-            def exchange_pit(exchange_name):
-                if exchange_name not in pit_cache:
-                    ex_days = sorted(version.days(exchange_name))
-                    if ex_days:
-                        latest = datetime.date.fromisoformat(ex_days[-1])
-                        begin_w = (latest - datetime.timedelta(days=lookback_days)).isoformat()
-                        pit_cache[exchange_name] = pit.load_exchange_pit(
-                            warehouse, version, exchange_name, begin_w, ex_days[-1]
-                        )
-                    else:
-                        pit_cache[exchange_name] = pit.EMPTY_PIT
-                return pit_cache[exchange_name]
-
-            def pit_extra(exchange_name, product_name, bar_day, bar_end_ms):
-                rv, ml, ms, inv = exchange_pit(exchange_name).lookup(
-                    product_name, bar_day, bar_end_ms
-                )
-                out = {}
-                for key, val in (
-                    ("receipt_volume", rv),
-                    ("member_long", ml),
-                    ("member_short", ms),
-                    ("inventory_total", inv),
-                ):
-                    if math.isfinite(val):
-                        out[key] = decimal(dominant.rounded(Decimal(f"{val:.8f}")))
-                return out
-            for index, selection in enumerate(request.instruments):
-                inst, contract = selection.instrument, contracts[index]
-                parts = contract.split("/")
-                if len(parts) == 2:
-                    exchange, product = parts
-                    if exchange not in delist_cache:
-                        delist_map = {}
-                        contracts_key = f"contracts/{exchange}"
-                        if version.has(contracts_key):
-                            table = warehouse.read(version, contracts_key)
-                            for c_name, delist_date in table.select("contract", "delist_date").rows():
-                                if delist_date is not None:
-                                    delist_map[c_name] = delist_date.isoformat()
-                        delist_cache[exchange] = delist_map
-                    cased = product.upper() if exchange in ("CZCE", "CFFEX") else product
-                    if selection.candidates:
-                        sample = selection.candidates[0]
-                        suf = 3 if exchange == "CZCE" else 4
-                        cased = sample.instrument.symbol[:-suf]
-                    candidate_map = {
-                        f"{exchange}/{product}/{entry.delivery_month}": entry.instrument
-                        for entry in selection.candidates
-                    }
-                    by_contract = collections.defaultdict(dict)
-                    exchange_days = sorted(version.days(exchange))
-                    begin_window = ""
-                    if exchange_days:
-                        latest_day = datetime.date.fromisoformat(exchange_days[-1])
-                        begin_window = (latest_day - datetime.timedelta(days=lookback_days)).isoformat()
-                    for key in version.keys("daily", exchange=exchange, begin=begin_window):
-                        data = daily_cache.get((exchange, key))
-                        if data is None:
-                            data = warehouse.read(version, key)
-                            daily_cache[(exchange, key)] = data
-                        filtered = data.filter(data["product"] == product)
-                        for c_name, day, open_, high, low, close, settle, vol, oi in filtered.sort("day").select(
-                                "contract", "day", "open", "high", "low", "close",
-                                "settlement", "volume", "open_interest").rows():
-                            by_contract[c_name][day.isoformat()] = (
-                                day, open_, high, low, close, settle, vol, oi)
-                    months = []
-                    for c_name in sorted(by_contract):
-                        days_map = by_contract[c_name]
-                        traded_days = [
-                            d for d, r in sorted(days_map.items())
-                            if None not in (r[1], r[2], r[3], r[4]) and r[5] is not None
-                        ]
-                        if not traded_days:
-                            continue
-                        item = dominant.Month(
-                            c_name,
-                            c_name.rsplit("/", 1)[1],
-                            last_bar=traded_days[-1],
-                            delist_date=delist_cache[exchange].get(c_name, ""),
-                        )
-                        for d, r in days_map.items():
-                            if r[5] is not None:
-                                item.settlement[d] = Decimal(r[5])
-                            if r[7] is not None:
-                                item.open_interest[d] = Decimal(r[7])
-                        months.append(item)
-                    if len(months) < 2:
-                        raise ValueError(f"dominant warmup for {contract} requires at least two months")
-                    dom_plan = dominant.plan(months, traded=True)
-                    day_segment = {}
-                    for seg_idx, seg in enumerate(dom_plan.segments):
-                        end_bound = dom_plan.segments[seg_idx + 1].begin \
-                            if seg_idx + 1 < len(dom_plan.segments) else ""
-                        m_contract = months[seg.month].contract
-                        for d in dom_plan.days:
-                            if d >= seg.begin and (not end_bound or d < end_bound):
-                                day_segment[d] = (seg_idx, m_contract)
-                    bars = []
-                    emitted_rolls = set()
-                    if period == "day":
-                        prev_daily_close = {}
-                        for c_name, days_map in by_contract.items():
-                            prev_map, last_c = {}, None
-                            for d_key, r in sorted(days_map.items()):
-                                if None not in (r[1], r[2], r[3], r[4]):
-                                    c_val = Decimal(r[4])
-                                    if last_c is not None and last_c > 0:
-                                        prev_map[d_key] = last_c
-                                    last_c = c_val
-                            prev_daily_close[c_name] = prev_map
-                        for d in sorted(day_segment):
-                            seg_idx, m_contract = day_segment[d]
-                            row = by_contract[m_contract].get(d)
-                            if row is None or None in (row[1], row[2], row[3], row[4]):
-                                continue
-                            day_obj, open_, high, low, close, _, vol, oi = row
-                            m_inst = candidate_map.get(m_contract) or ctp_instrument(
-                                exchange, cased, m_contract.rsplit("/", 1)[1])
-                            end_ms = int(datetime.datetime.combine(
-                                day_obj, datetime.time(15), chart.BEIJING).timestamp()) * 1000
-                            extra = pit_extra(exchange, product, d, end_ms)
-                            if oi is not None:
-                                extra["open_interest"] = decimal(oi)
-                            if seg_idx > 0 and seg_idx not in emitted_rolls:
-                                extra["roll_ratio"] = decimal(dom_plan.ratios[seg_idx])
-                                emitted_rolls.add(seg_idx)
-                            near_px = Decimal(close)
-                            prev_near = prev_daily_close.get(m_contract, {}).get(d)
-                            if prev_near is not None and near_px > 0:
-                                nr = dominant.simple_return(near_px, prev_near)
-                                if nr is not None:
-                                    extra["near_return"] = decimal(nr)
-                            sub_idx = dom_plan.second.get(d)
-                            if sub_idx is not None and near_px > 0:
-                                sub_contract = months[sub_idx].contract
-                                sub_row = by_contract[sub_contract].get(d)
-                                if (sub_row is not None
-                                        and None not in (sub_row[1], sub_row[2], sub_row[3], sub_row[4])
-                                        and Decimal(sub_row[4]) > 0):
-                                    sub_px = Decimal(sub_row[4])
-                                    extra["far_close"] = decimal(sub_px)
-                                    extra["roll_yield"] = decimal(dominant.annualized_roll_yield(
-                                        near_px, sub_px,
-                                        m_contract.rsplit("/", 1)[1], months[sub_idx].delivery_month))
-                                    prev_sub = prev_daily_close.get(sub_contract, {}).get(d)
-                                    if prev_sub is not None:
-                                        fr = dominant.simple_return(sub_px, prev_sub)
-                                        if fr is not None:
-                                            extra["far_return"] = decimal(fr)
-                            bars.append(Bar(
-                                instrument=m_inst, trading_day=d, end_ms=end_ms,
-                                open=decimal(open_), high=decimal(high), low=decimal(low),
-                                close=decimal(close), volume=int(vol or 0), **extra))
-                    else:
-                        recent = []
-                        for d in sorted(day_segment, reverse=True):
-                            seg_idx, m_contract = day_segment[d]
-                            _, prod, month = m_contract.split("/")
-                            key = f"minutes/{exchange}/{d}/{prod}/{month}"
-                            if key not in version.manifest["partitions"]:
-                                continue
-                            rows = warehouse.read(version, key).sort("start_ms").select(
-                                "day", "start_ms", "partial", "open", "high", "low", "close",
-                                "volume", "open_interest").rows()
-                            day_bars = chart.minute_bars(rows, period, m_contract)
-                            sub_closes = {}
-                            sub_idx = dom_plan.second.get(d)
-                            sub_contract = months[sub_idx].contract if sub_idx is not None else ""
-                            sub_month = months[sub_idx].delivery_month if sub_idx is not None else ""
-                            if sub_idx is not None:
-                                _, s_prod, s_month = sub_contract.split("/")
-                                s_key = f"minutes/{exchange}/{d}/{s_prod}/{s_month}"
-                                if version.has(s_key):
-                                    s_rows = warehouse.read(version, s_key).sort("start_ms").select(
-                                        "day", "start_ms", "partial", "open", "high", "low", "close",
-                                        "volume", "open_interest").rows()
-                                    sub_closes = {
-                                        sb["time_ms"]: Decimal(sb["close"])
-                                        for sb in chart.minute_bars(s_rows, period, sub_contract)
-                                        if not sb["partial"] and sb["close"] is not None
-                                    }
-                            recent.extend(
-                                (seg_idx, m_contract, bar, sub_closes.get(bar["time_ms"]),
-                                 sub_contract, sub_month)
-                                for bar in reversed(day_bars) if not bar["partial"]
-                            )
-                            if len(recent) >= request.max_bars:
-                                break
-                        prev_min_close = {}
-                        for seg_idx, m_contract, bar, sub_close, sub_contract, sub_month in reversed(
-                            recent[:request.max_bars]
-                        ):
-                            m_inst = candidate_map.get(m_contract) or ctp_instrument(
-                                exchange, cased, m_contract.rsplit("/", 1)[1])
-                            t_day = bar["trading_day"].isoformat()
-                            extra = pit_extra(exchange, product, t_day, bar["time_ms"])
-                            if bar["open_interest"] is not None:
-                                extra["open_interest"] = decimal(bar["open_interest"])
-                            if seg_idx > 0 and seg_idx not in emitted_rolls:
-                                extra["roll_ratio"] = decimal(dom_plan.ratios[seg_idx])
-                                emitted_rolls.add(seg_idx)
-                            near_px = Decimal(bar["close"])
-                            prev_near = prev_min_close.get(m_contract)
-                            if prev_near is not None and near_px > 0:
-                                nr = dominant.simple_return(near_px, prev_near)
-                                if nr is not None:
-                                    extra["near_return"] = decimal(nr)
-                            if near_px > 0:
-                                prev_min_close[m_contract] = near_px
-                            if sub_close is not None and sub_close > 0 and near_px > 0:
-                                extra["far_close"] = decimal(sub_close)
-                                extra["roll_yield"] = decimal(dominant.annualized_roll_yield(
-                                    near_px, sub_close,
-                                    m_contract.rsplit("/", 1)[1], sub_month))
-                                prev_sub = prev_min_close.get(sub_contract)
-                                if prev_sub is not None:
-                                    fr = dominant.simple_return(sub_close, prev_sub)
-                                    if fr is not None:
-                                        extra["far_return"] = decimal(fr)
-                                prev_min_close[sub_contract] = sub_close
-                            bars.append(Bar(
-                                instrument=m_inst, trading_day=t_day,
-                                end_ms=bar["time_ms"], open=decimal(bar["open"]),
-                                high=decimal(bar["high"]), low=decimal(bar["low"]),
-                                close=decimal(bar["close"]), volume=int(bar["volume"]), **extra))
-                    for bar in bars[-request.max_bars:]:
-                        grouped[bar.end_ms][index] = bar
-                    continue
-                bars = []
-                fixed_exchange, fixed_product = parts[0], parts[1]
-                table = "daily" if period == "day" else "minutes"
-                keys = list(version.keys(table, exchange=inst.exchange, contract=contract))
-                for key in reversed(keys):
-                    data = warehouse.read(version, key)
-                    data = data.filter(data["contract"] == contract)
-                    columns = ["open", "high", "low", "close", "volume", "open_interest"]
-                    recent = []
-                    if period == "day":
-                        rows = data.sort("day").select("day", *columns).rows()
-                        for day, open_, high, low, close, volume, interest in rows:
-                            if None in (open_, high, low, close):
-                                continue
-                            end_ms = int(datetime.datetime.combine(
-                                day, datetime.time(15), chart.BEIJING).timestamp()) * 1000
-                            extra = pit_extra(fixed_exchange, fixed_product, day.isoformat(), end_ms)
-                            if interest is not None:
-                                extra["open_interest"] = decimal(interest)
-                            recent.append(Bar(
-                                instrument=inst, trading_day=day.isoformat(), end_ms=end_ms,
-                                open=decimal(open_), high=decimal(high), low=decimal(low),
-                                close=decimal(close), volume=int(volume or 0), **extra))
-                    else:
-                        rows = data.sort("start_ms").select("day", "start_ms", "partial", *columns).rows()
-                        for bar in chart.minute_bars(rows, period, contract):
-                            if bar["partial"]:
-                                continue
-                            t_day = bar["trading_day"].isoformat()
-                            extra = pit_extra(fixed_exchange, fixed_product, t_day, bar["time_ms"])
-                            if bar["open_interest"] is not None:
-                                extra["open_interest"] = decimal(bar["open_interest"])
-                            recent.append(Bar(
-                                instrument=inst, trading_day=t_day,
-                                end_ms=bar["time_ms"], open=decimal(bar["open"]),
-                                high=decimal(bar["high"]), low=decimal(bar["low"]),
-                                close=decimal(bar["close"]), volume=int(bar["volume"]), **extra))
-                    bars = recent + bars
-                    if len(bars) >= request.max_bars:
-                        break
-                for bar in bars[-request.max_bars:]:
-                    grouped[bar.end_ms][index] = bar
-        if not grouped:
-            raise ValueError("no stored bars for the requested warmup instruments")
-        warmup = Warmup(dataset_version=version.identity)
-        digest = hashlib.sha256()
-        for sequence, end_ms in enumerate(sorted(grouped)[-request.max_bars:], 1):
-            batch = warmup.bars.add(sequence=sequence)
-            digest.update(b"batch\n")
-            for index in sorted(grouped[end_ms]):
-                bar = batch.bars.add()
-                bar.CopyFrom(grouped[end_ms][index])
-                suffix = f"|{bar.roll_ratio.text}" if bar.HasField("roll_ratio") else ""
-                for field, tag in (
-                    ("roll_yield", "ry"),
-                    ("far_close", "fc"),
-                    ("near_return", "nr"),
-                    ("far_return", "fr"),
-                    ("receipt_volume", "rv"),
-                    ("member_long", "ml"),
-                    ("member_short", "ms"),
-                    ("inventory_total", "inv"),
-                ):
-                    if bar.HasField(field):
-                        suffix += f"|{tag}={getattr(bar, field).text}"
-                line = (f"{bar.trading_day}|{bar.end_ms}|"
-                        f"{bar.instrument.exchange}/{bar.instrument.symbol}|"
-                        f"{bar.open.text}|{bar.high.text}|{bar.low.text}|{bar.close.text}|"
-                        f"{bar.volume}|{bar.open_interest.text}{suffix}\n")
-                digest.update(line.encode())
-        warmup.sha256 = digest.hexdigest()
-        return warmup
+        return warmup.build_warmup(request, dataset=self.dataset, data_version=self.data_version)
 
     async def on_build_warmup(self, request, result):
         result.CopyFrom(await self.read(self.build_warmup, request))
@@ -646,14 +277,16 @@ class Service:
                 include_daily=not is_minutes,
                 include_names=False,
             )
-            first, last = stored_span(found, request.symbols, is_minutes)
+            first, last = lab_data.stored_span(found, request.symbols, is_minutes)
             if not admitted.evaluation.first_day:
                 admitted.evaluation.first_day = first
             if not admitted.evaluation.last_day:
                 admitted.evaluation.last_day = last
         admitted.source, revision = self.copy_source(
-            request.repository, f"factor-{request.id}",
-            f"factors/{request.factor.partition('.')[0]}.py")
+            request.repository,
+            f"factor-{request.id}",
+            f"factors/{request.factor.partition('.')[0]}.py",
+        )
         for extra in (*request.extra_factors, *request.orthogonalize_against):
             repository.snapshot(
                 Path(request.repository),
@@ -721,7 +354,7 @@ class Service:
                 include_daily=not is_minutes,
                 include_names=False,
             )
-            first, last = stored_span(found, request.symbols, is_minutes)
+            first, last = lab_data.stored_span(found, request.symbols, is_minutes)
             if not admitted.backtest.first_day:
                 admitted.backtest.first_day = first
             if not admitted.backtest.last_day:
@@ -734,6 +367,7 @@ class Service:
                 raise WarehouseError("not_found", "no Warehouse is configured")
             with Client(self.warehouse.selected()) as client:
                 return client.call("get_dataset_summary")
+
         result.CopyFrom(await self.read(read_summary))
 
     def chart_bars(self, request):
@@ -743,27 +377,43 @@ class Service:
             raise ValueError("a chart needs a period")
         warehouse = self.dataset()
         with warehouse:
-            version = warehouse.version(request.dataset_version) if request.dataset_version else warehouse.current()
+            version = (
+                warehouse.version(request.dataset_version)
+                if request.dataset_version
+                else warehouse.current()
+            )
             if period in chart.CALENDAR:
-                rows = warehouse.query(version, """
+                rows = warehouse.query(
+                    version,
+                    """
                     select day, open, high, low, close, volume from daily
-                    where contract = ? order by day""", ("daily",), (request.contract,),
-                    exchange=exchange)
+                    where contract = ? order by day""",
+                    ("daily",),
+                    (request.contract,),
+                    exchange=exchange,
+                )
                 return version, chart.calendar_bars(rows, period)
-            rows = warehouse.query(version, """
+            rows = warehouse.query(
+                version,
+                """
                 select day, start_ms, partial, open, high, low, close, volume from minutes
-                where contract = ? order by start_ms""", ("minutes",), (request.contract,),
-                contract=request.contract)
+                where contract = ? order by start_ms""",
+                ("minutes",),
+                (request.contract,),
+                contract=request.contract,
+            )
         return version, chart.minute_bars(rows, period, request.contract)
 
     async def on_get_chart_bars(self, request, result):
         version, bars = await self.read(self.chart_bars, request)
         result.dataset_version = version.identity
         for bar, indicator in zip(bars, chart.macd(bar["close"] for bar in bars)):
-            item = result.bars.add(end_ms=bar["time_ms"], trading_day=bar["trading_day"].isoformat(),
-                                   partial=bar["partial"],
-                                   **{name: decimal(bar[name]) for name in
-                                      ("open", "high", "low", "close", "volume")})
+            item = result.bars.add(
+                end_ms=bar["time_ms"],
+                trading_day=bar["trading_day"].isoformat(),
+                partial=bar["partial"],
+                **{name: decimal(bar[name]) for name in ("open", "high", "low", "close", "volume")},
+            )
             if indicator:
                 item.macd_diff, item.macd_signal, item.macd_histogram = indicator
 
@@ -779,15 +429,24 @@ class Service:
                 found.setdefault(contract, {})["minutes"] = coverage
             names = {}
             if include_names:
-                name_exchanges = [only.split("/")[0]] if only else (sorted(exchanges) if exchanges else [""])
+                name_exchanges = (
+                    [only.split("/")[0]] if only else (sorted(exchanges) if exchanges else [""])
+                )
                 for exchange in name_exchanges:
-                    names.update(warehouse.query(version, "select contract, name from contracts",
-                                                 ("contracts",), exchange=exchange))
+                    names.update(
+                        warehouse.query(
+                            version,
+                            "select contract, name from contracts",
+                            ("contracts",),
+                            exchange=exchange,
+                        )
+                    )
         return version, found, names
 
     async def on_list_stored_contracts(self, request, result):
-        version, found, names = await self.read(self.stored_contracts, request.contract,
-                                                request.dataset_version)
+        version, found, names = await self.read(
+            self.stored_contracts, request.contract, request.dataset_version
+        )
         result.dataset_version = version.identity
         for contract in sorted(found):
             item = result.contracts.add(contract=contract, name=names.get(contract) or "")
@@ -802,8 +461,9 @@ class Service:
         result.CopyFrom(repository.read_source(Path(request.repository), request.path))
 
     async def on_save_source(self, request, _):
-        repository.write_source(Path(request.source.repository), request.source.path,
-                                request.content, request.create)
+        repository.write_source(
+            Path(request.source.repository), request.source.path, request.content, request.create
+        )
 
     async def on_delete_source(self, request, _):
         repository.delete_source(Path(request.repository), request.path)
@@ -817,11 +477,17 @@ class Service:
         try:
             try:
                 output = await worker.output(
-                    "asterion_lab.factor", str(self.directory), cwd=admitted.source,
-                    input=admitted.SerializeToString(), timeout=timeout)
+                    "asterion_lab.factor",
+                    str(self.directory),
+                    cwd=admitted.source,
+                    input=admitted.SerializeToString(),
+                    timeout=timeout,
+                )
             except TimeoutError:
-                raise ValueError(f"the factor took longer than {timeout} s; "
-                                 "evaluate fewer symbols or a shorter range")
+                raise ValueError(
+                    f"the factor took longer than {timeout} s; "
+                    "evaluate fewer symbols or a shorter range"
+                )
             result.ParseFromString(output)
             await self.read(self.save_factor, admitted, result)
         except Exception:
@@ -833,8 +499,9 @@ class Service:
         if not IDENTITY.fullmatch(request.id):
             raise ValueError("run id is invalid")
         try:
-            output = await worker.output("asterion_lab.report", str(self.directory), request.id,
-                                         timeout=REPORT_SECONDS)
+            output = await worker.output(
+                "asterion_lab.report", str(self.directory), request.id, timeout=REPORT_SECONDS
+            )
         except TimeoutError:
             raise ValueError(f"QuantStats took longer than {REPORT_SECONDS} s")
         result = json.loads(output)
@@ -862,17 +529,23 @@ class Service:
         admitted = await self.read(self.pin_reconcile, request)
         try:
             output = await worker.output(
-                "asterion_lab.reconcile", "--rpc", str(self.directory),
-                input=admitted.SerializeToString(), timeout=REPORT_SECONDS,
+                "asterion_lab.reconcile",
+                "--rpc",
+                str(self.directory),
+                input=admitted.SerializeToString(),
+                timeout=REPORT_SECONDS,
             )
         except TimeoutError:
             raise ValueError(f"reconciliation took longer than {REPORT_SECONDS} s")
         reply.ParseFromString(output)
 
     def check_run_id(self, identity):
-        if not IDENTITY.fullmatch(identity) or identity in self.backtests \
-                or self.runs.used(identity) \
-                or any(rolling.request.id == identity for rolling in self.rolling.values()):
+        if (
+            not IDENTITY.fullmatch(identity)
+            or identity in self.backtests
+            or self.runs.used(identity)
+            or any(pending.request.id == identity for pending in self.rolling.values())
+        ):
             raise ValueError("run id is invalid or already used")
 
     async def checked_run(self, request):
@@ -894,11 +567,15 @@ class Service:
     def with_source(self, admitted, name, others=()):
         """The run with its strategy's code, and that of `others`, copied for it alone."""
         module = admitted.backtest.strategy.partition(".")[0]
-        admitted.source, taken = self.copy_source(admitted.backtest.repository, name,
-                                                  f"strategies/{module}.py")
+        admitted.source, taken = self.copy_source(
+            admitted.backtest.repository, name, f"strategies/{module}.py"
+        )
         for other in others:
-            repository.snapshot(Path(admitted.backtest.repository), Path(admitted.source),
-                                f"strategies/{other.partition('.')[0]}.py")
+            repository.snapshot(
+                Path(admitted.backtest.repository),
+                Path(admitted.source),
+                f"strategies/{other.partition('.')[0]}.py",
+            )
         admitted.pinned.commit, admitted.pinned.changes = taken.commit, taken.changes
         return admitted
 
@@ -909,17 +586,27 @@ class Service:
         plan = backtest.plan(config, config.dataset_version)
         if source:
             members = await self.read(self.runs.sweep, request.sweep_id)
-            plan = rolling.plan(config, config.dataset_version, request.sweep_id, members,
-                                request.walk_forward.training_days,
-                                request.walk_forward.validation_days, [],
-                                request.walk_forward.embargo_days,
-                                request.walk_forward.objective)
+            plan = rolling.plan(
+                config,
+                config.dataset_version,
+                request.sweep_id,
+                members,
+                request.walk_forward.training_days,
+                request.walk_forward.validation_days,
+                [],
+                request.walk_forward.embargo_days,
+                request.walk_forward.objective,
+            )
         process = None
         try:
             process = await asyncio.create_subprocess_exec(
-                *worker.command(module), str(self.directory), cwd=source or request.source,
-                stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE)
+                *worker.command(module),
+                str(self.directory),
+                cwd=source or request.source,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
             process.stdin.write(request.SerializeToString())
             process.stdin.close()
         except Exception as error:
@@ -939,18 +626,6 @@ class Service:
         async with self.admission:
             await self.start_waiting()
 
-    def _materialize_combo(self, base, sweep_id: str, index: int, names: list, axis_values: list,
-                           combo: tuple[int, ...]):
-        run = AdmittedRun()
-        run.CopyFrom(base)
-        run.backtest.id = f"{sweep_id}-{index}"
-        swept = {}
-        for d, name in enumerate(names):
-            val = axis_values[d][combo[d]]
-            run.backtest.params[name].CopyFrom(val)
-            swept[name] = getattr(val, val.WhichOneof("value"))
-        return run, (run.backtest.id, swept)
-
     async def start_waiting(self):
         """Starts waiting runs while fewer than the allowed number run, advances
         active Bayesian optimization sweeps between waves, and starts a sweep's
@@ -962,8 +637,9 @@ class Service:
                 try:
                     await self.launch(run)
                 except Exception as error:
-                    self.log.write("error", MODULE, "backtest.not_started", run=run.backtest.id,
-                                   message=str(error))
+                    self.log.write(
+                        "error", MODULE, "backtest.not_started", run=run.backtest.id, message=str(error)
+                    )
                 self.waiting.popleft()
 
             advanced = False
@@ -977,16 +653,7 @@ class Service:
                 bayes.advancing = True
                 try:
                     rows = await self.read(self.runs.sweep, sweep)
-                    for row in rows:
-                        combo = bayes.planned_combos.get(row["id"])
-                        if combo is None or combo in bayes.observed or row["state"] == "running":
-                            continue
-                        score = row["metrics"].get(bayes.target_metric)
-                        if score is None:
-                            score = row["metrics"].get("total_return")
-                        if score is None or not math.isfinite(float(score)):
-                            score = -10.0
-                        bayes.observed[combo] = float(score)
+                    sweeps.observe_bayes_rows(rows, bayes)
                     remaining = bayes.max_trials - len(bayes.tried)
                     if remaining <= 0:
                         if sweep in self.rolling:
@@ -1007,18 +674,9 @@ class Service:
                             self.rolling[sweep].candidates = bayes.next_index
                         del self.bayes[sweep]
                         continue
-                    offset = bayes.next_index
-                    new_runs, new_planned = [], []
-                    for pos, combo in enumerate(next_combos):
-                        run, planned_item = self._materialize_combo(
-                            bayes.base, sweep, offset + pos, bayes.names, bayes.axis_values, combo
-                        )
-                        backtest.config_of(run)
-                        new_runs.append(run)
-                        new_planned.append(planned_item)
-                        bayes.planned_combos[run.backtest.id] = combo
-                        bayes.tried.add(combo)
-                    bayes.next_index += len(new_runs)
+                    offset, new_runs, new_planned = sweeps.materialize_bayes_wave(
+                        sweep, bayes, next_combos
+                    )
                     await asyncio.to_thread(self.runs.append_sweep, sweep, offset, new_planned)
                     for run in new_runs:
                         self.run_task[run.backtest.id] = sweep
@@ -1033,22 +691,32 @@ class Service:
             if sweep in self.bayes:
                 continue
             members = {f"{sweep}-{n}" for n in range(pending.candidates)}
-            if pending.starting or any(item[0] == sweep for item in self.waiting) \
-                    or members & set(self.backtests):
+            if (
+                pending.starting
+                or any(item[0] == sweep for item in self.waiting)
+                or members & set(self.backtests)
+            ):
                 continue
             # Kept until its process runs, so the sweep never looks finished before.
             pending.starting = True
             try:
                 states = {row["state"] for row in await self.read(self.runs.sweep, sweep)}
                 if states != {"succeeded"}:
-                    self.log.write("warning", MODULE, "rolling.skipped", sweep=sweep,
-                                   message="not every candidate succeeded")
+                    self.log.write(
+                        "warning",
+                        MODULE,
+                        "rolling.skipped",
+                        sweep=sweep,
+                        message="not every candidate succeeded",
+                    )
                 else:
-                    await self.launch(pending.request, "asterion_lab.rolling",
-                                      pending.request.base.source)
+                    await self.launch(
+                        pending.request, "asterion_lab.rolling", pending.request.base.source
+                    )
             except Exception as error:
-                self.log.write("error", MODULE, "backtest.not_started", run=pending.request.id,
-                               message=str(error))
+                self.log.write(
+                    "error", MODULE, "backtest.not_started", run=pending.request.id, message=str(error)
+                )
             finally:
                 del self.rolling[sweep]
 
@@ -1057,9 +725,13 @@ class Service:
         admitted = await self.read(self.pin_backtest, request)
         admitted = await asyncio.to_thread(self.with_source, admitted, f"run-{request.id}")
         self.activity[request.id] = dict(
-            id=request.id, kind="backtest", strategy=request.strategy,
-            symbols=list(admitted.backtest.symbols), total=1,
-            started_ms=int(time.time() * 1000), has_rolling=False,
+            id=request.id,
+            kind="backtest",
+            strategy=request.strategy,
+            symbols=list(admitted.backtest.symbols),
+            total=1,
+            started_ms=int(time.time() * 1000),
+            has_rolling=False,
         )
         # Accepted once recorded: whoever asked can read the run at once.
         try:
@@ -1072,46 +744,8 @@ class Service:
             raise ValueError(error)
 
     async def on_start_sweep(self, request, _):
-        if not IDENTITY.fullmatch(request.id) or any(item[0] == request.id for item in self.waiting):
-            raise ValueError("sweep id is invalid or already used")
-        symbols = list(request.symbols)
-        if len(set(symbols)) != len(symbols) or any(not item.strip() for item in symbols):
-            raise ValueError("a sweep lists distinct non-empty symbols")
-        names = [item.name for item in request.values]
-        if len(set(names)) != len(names) or any(not item.values for item in request.values):
-            raise ValueError("a sweep gives each of its parameters one or more values")
-        batch = list(request.strategies)
-        slippages = list(request.slippage_ticks)
-        if batch and (names or symbols or slippages or request.HasField("walk_forward")):
-            raise ValueError("a strategy batch varies only the strategy")
-        if batch and (len(batch) < 2 or len({item.strategy for item in batch}) != len(batch)):
-            raise ValueError("a strategy batch runs two or more distinct strategies")
-        if slippages and (names or symbols or batch or request.HasField("walk_forward")):
-            raise ValueError("a slippage stress sweep varies only slippage_ticks")
-        if slippages and (len(slippages) < 2 or len(set(slippages)) != len(slippages)):
-            raise ValueError("a slippage stress sweep runs two or more distinct tick levels")
-        if not batch and not slippages and not names and len(symbols) < 2:
-            raise ValueError("a sweep varies parameters, slippage or two or more symbols")
-        search_mode = request.search_mode or "grid"
-        if search_mode not in ("grid", "lhs", "bayes"):
-            raise ValueError(f"unknown sweep search_mode: {search_mode!r}")
-        if search_mode != "grid" and (batch or slippages or len(symbols) > 1 or not names):
-            raise ValueError(f"{search_mode} search requires parameter values on a single symbol set")
-        symbol_items = symbols or [None]
-        slippage_items = slippages or [None]
-        axis_values = [list(item.values) for item in request.values]
-        axis_lengths = [len(vals) for vals in axis_values]
-        total_space = len(symbol_items) * len(slippage_items) * math.prod(axis_lengths)
-        if search_mode == "grid":
-            if total_space > 10000:
-                raise ValueError(f"a sweep runs at most 10000 combinations, not {total_space}")
-        else:
-            max_trials = min(request.max_trials or 32, total_space)
-            if max_trials < 2 or max_trials > 10000:
-                raise ValueError("lhs and bayes sweeps require 2 to 10000 trials")
-        if request.HasField("walk_forward") and len(symbols) > 1:
-            raise ValueError("rolling validation compares parameter values on the same symbols")
-        backtest.config_of(AdmittedRun(backtest=request.base))
+        parsed = sweeps.validate_sweep(request, self.waiting)
+        symbols, batch, slippages = parsed["symbols"], parsed["batch"], parsed["slippages"]
         base = await self.read(self.pin_backtest, request.base, "", not symbols)
         is_minutes = request.base.period != Period.PERIOD_DAY
         found = None
@@ -1125,107 +759,29 @@ class Service:
                 not is_minutes,
                 False,
             )
-        base = await asyncio.to_thread(self.with_source, base, f"sweep-{request.id}",
-                                       [item.strategy for item in batch])
+        base = await asyncio.to_thread(
+            self.with_source, base, f"sweep-{request.id}", [item.strategy for item in batch]
+        )
         limit = min(request.processes, os.cpu_count() or 1) if request.processes else self.processes
-        seed = int(request.seed) if request.seed else optimize.DEFAULT_SEED
-        bayes_state = None
-        runs, planned = [], []
-        if search_mode == "grid":
-            combinations = list(itertools.product(*axis_values)) if names else [()]
-            for symbol in symbol_items:
-                span = (
-                    stored_span(found, [symbol], is_minutes)
-                    if symbol and found is not None
-                    else None
-                )
-                for values, choice, slip in itertools.product(combinations, batch or [None], slippage_items):
-                    n = len(runs)
-                    run = AdmittedRun()
-                    run.CopyFrom(base)
-                    run.backtest.id = f"{request.id}-{n}"
-                    if symbol is not None:
-                        del run.backtest.symbols[:]
-                        run.backtest.symbols.append(symbol)
-                        if span is not None:
-                            if not run.backtest.first_day:
-                                run.backtest.first_day = span[0]
-                            if not run.backtest.last_day:
-                                run.backtest.last_day = span[1]
-                    for name, value in zip(names, values):
-                        run.backtest.params[name].CopyFrom(value)
-                    swept = {name: getattr(value, value.WhichOneof("value"))
-                             for name, value in zip(names, values)}
-                    if choice:
-                        run.backtest.strategy = choice.strategy
-                        run.backtest.params.clear()
-                        for name, value in choice.params.items():
-                            run.backtest.params[name].CopyFrom(value)
-                        swept[BATCH_STRATEGY] = choice.strategy
-                    if slip is not None:
-                        run.backtest.slippage_ticks = slip
-                        swept[SLIPPAGE_STRESS] = slip
-                    runs.append(run)
-                    planned.append((run.backtest.id, swept))
-        elif search_mode == "lhs":
-            sampled = optimize.lhs_sample(axis_lengths, max_trials, seed=seed)
-            for idx, combo in enumerate(sampled):
-                run, planned_item = self._materialize_combo(base, request.id, idx, names, axis_values, combo)
-                runs.append(run)
-                planned.append(planned_item)
-        else:
-            init_n = min(max_trials, max(4, min(limit * 2, len(names) * 2 + 2)))
-            initial_combos = optimize.lhs_sample(axis_lengths, init_n, seed=seed)
-            planned_combos = {}
-            for idx, combo in enumerate(initial_combos):
-                run, planned_item = self._materialize_combo(base, request.id, idx, names, axis_values, combo)
-                runs.append(run)
-                planned.append(planned_item)
-                planned_combos[run.backtest.id] = combo
-            axis_coords = [
-                optimize.encode_axis([getattr(v, v.WhichOneof("value")) for v in vals])
-                for vals in axis_values
-            ]
-            target_metric = "development_sharpe" if request.base.holdout_day else "sharpe"
-            bayes_state = BayesSweep(
-                sweep_id=request.id,
-                base=base,
-                names=names,
-                axis_values=axis_values,
-                axis_coords=axis_coords,
-                max_trials=max_trials,
-                seed=seed,
-                limit=limit,
-                next_index=len(runs),
-                target_metric=target_metric,
-                planned_combos=planned_combos,
-                observed={},
-                tried=set(initial_combos),
-            )
+        runs, planned, bayes_state = sweeps.plan_runs(request, base, found, limit, parsed)
         await self.checked_run(runs[0].backtest)
         for run in runs[1:]:
             self.check_run_id(run.backtest.id)
             backtest.config_of(run)
-        rolling_run = None
-        if request.HasField("walk_forward"):
-            if request.base.holdout_day or (len(runs) < 2 and not bayes_state):
-                raise ValueError("rolling validation compares two or more candidates and takes no holdout")
-            if not request.base.periods_per_year or not request.base.zero_risk_free_rate:
-                raise ValueError("rolling validation requires periods_per_year and zero_risk_free_rate")
-            if request.walk_forward.training_days < 20 or request.walk_forward.validation_days < 1:
-                raise ValueError("rolling validation needs at least 20 training days and one validation day")
-            rolling.normalize_objective(request.walk_forward.objective)
-            rolling_run = RollingRun(id=f"{request.id}-rolling", sweep_id=request.id, base=base,
-                                     walk_forward=request.walk_forward)
+        rolling_run = sweeps.build_rolling_run(request, base, runs, bayes_state)
+        if rolling_run is not None:
             self.check_run_id(rolling_run.id)
         await asyncio.to_thread(self.runs.plan_sweep, request.id, planned)
         kind = "batch" if batch else ("slippage" if slippages else "sweep")
         total_planned = bayes_state.max_trials if bayes_state else len(runs)
         self.activity[request.id] = dict(
-            id=request.id, kind=kind, strategy="" if batch else request.base.strategy,
+            id=request.id,
+            kind=kind,
+            strategy="" if batch else request.base.strategy,
             symbols=list(symbols or request.base.symbols),
             total=total_planned + (1 if rolling_run else 0),
-            started_ms=int(time.time() * 1000), has_rolling=bool(rolling_run),
+            started_ms=int(time.time() * 1000),
+            has_rolling=bool(rolling_run),
         )
         for run in runs:
             self.run_task[run.backtest.id] = request.id
@@ -1233,7 +789,7 @@ class Service:
             self.bayes[request.id] = bayes_state
         if rolling_run:
             self.run_task[rolling_run.id] = request.id
-            self.rolling[request.id] = Rolling(rolling_run, total_planned)
+            self.rolling[request.id] = sweeps.Rolling(rolling_run, total_planned)
         self.waiting.extend((request.id, run, limit) for run in runs)
         await self.start_waiting()
 
@@ -1251,7 +807,7 @@ class Service:
         if not running_members:
             meta = self.activity.pop(request.id, None)
             if meta is not None:
-                info = await self.read(self._sweep_info, request.id, meta, 0, 0)
+                info = await self.read(sweeps.sweep_info, self.runs, request.id, meta, 0, 0)
                 if info["state"] == "running":
                     info["state"] = "interrupted"
                 info["finished_ms"] = int(time.time() * 1000)
@@ -1277,63 +833,22 @@ class Service:
             if sharpe is not None and (best is None or sharpe > best[1]):
                 best = (row["id"], sharpe)
         reply.selected_id = best[0] if best else ""
-        rolling = await self.read(self.runs.get, f"{request.id}-rolling")
-        if rolling:
-            summary(reply.rolling, rolling)
+        rolling_row = await self.read(self.runs.get, f"{request.id}-rolling")
+        if rolling_row:
+            summary(reply.rolling, rolling_row)
         members = {row["id"] for row in rows} | {f"{request.id}-rolling"}
         reply.active = bool(
-            waiting or members & set(self.backtests) or request.id in self.rolling or request.id in self.bayes
+            waiting
+            or members & set(self.backtests)
+            or request.id in self.rolling
+            or request.id in self.bayes
         )
         if not reply.active:
-            pbo_res = await self.read(self._sweep_pbo, rows)
+            pbo_res = await self.read(sweeps.compute_sweep_pbo, self.runs, rows)
             if pbo_res is not None:
                 reply.pbo = pbo_res["pbo"]
                 if pbo_res["is_oos_rank_corr"] is not None:
                     reply.pbo_rank_corr = pbo_res["is_oos_rank_corr"]
-
-    def _sweep_pbo(self, rows: list) -> dict | None:
-        from asterion_lab import statistics as lab_stats
-
-        succeeded = [
-            row for row in rows
-            if row["state"] == "succeeded"
-            and BATCH_STRATEGY not in row["params"]
-            and SLIPPAGE_STRESS not in row["params"]
-        ]
-        if len(succeeded) < 2:
-            return None
-        series_by_run = []
-        common_days = None
-        annual_periods = 252.0
-        for row in succeeded:
-            try:
-                record = self.runs.record(row["id"])
-                deposit = float(record["costs"]["deposit"])
-                if deposit <= 0:
-                    continue
-                ann = record.get("statistics", {}).get("annual_periods")
-                if ann:
-                    annual_periods = float(ann)
-                settlements = self.runs.table(row["id"], "settlements")
-                days = [d.isoformat() for d in settlements["trading_day"]]
-                equities = [float(e) for e in settlements["equity"]]
-            except (OSError, KeyError, ValueError):
-                continue
-            if len(days) < 16:
-                continue
-            rets = {}
-            prev = deposit
-            for d_str, eq in zip(days, equities):
-                rets[d_str] = (eq / prev - 1.0) if prev > 0 else 0.0
-                prev = eq
-            series_by_run.append(rets)
-            day_set = set(rets)
-            common_days = day_set if common_days is None else (common_days & day_set)
-        if len(series_by_run) < 2 or not common_days or len(common_days) < 16:
-            return None
-        ordered_days = sorted(common_days)
-        matrix = [[s[d] for s in series_by_run] for d in ordered_days]
-        return lab_stats.cscv_pbo(matrix, annual_periods=annual_periods)
 
     def finish_child(self, identity, plan, state, error):
         row = self.runs.get(identity)
@@ -1375,8 +890,9 @@ class Service:
             if state == "succeeded":
                 self.log.write("info", MODULE, "backtest.finished", run=identity)
             else:
-                self.log.write("warning", MODULE, "backtest.failed", run=identity, exit_code=code,
-                               stack=error)
+                self.log.write(
+                    "warning", MODULE, "backtest.failed", run=identity, exit_code=code, stack=error
+                )
         except Exception as failure:
             message = str(failure)
             final_state, final_error = "failed", message
@@ -1395,46 +911,30 @@ class Service:
         )
         self.recent_tasks.appendleft(info)
 
-    def _sweep_info(self, sweep_id: str, meta: dict, running: int, queued: int) -> dict:
-        rows = list(self.runs.sweep(sweep_id))
-        if meta["has_rolling"]:
-            rolling_row = self.runs.get(f"{sweep_id}-rolling")
-            if rolling_row is not None:
-                rows.append(rolling_row)
-        succeeded = sum(1 for row in rows if row["state"] == "succeeded")
-        failed_rows = [row for row in rows if row["state"] in ("failed", "interrupted", "stopped")]
-        failed = len(failed_rows)
-        first_error = next((row["error"] for row in failed_rows if row.get("error")), "")
-        total = max(meta["total"], len(rows))
-        done = succeeded + failed
-        if running or queued:
-            state = "running"
-        elif succeeded == total and total > 0:
-            state = "succeeded"
-        elif any(row["state"] == "interrupted" for row in failed_rows) or done < total:
-            state = "interrupted"
-        else:
-            state = "failed"
-        return dict(
-            id=sweep_id, kind=meta["kind"], strategy=meta["strategy"], symbols=meta["symbols"],
-            total=total, done=done, succeeded=succeeded, failed=failed,
-            running=running, queued=queued, started_ms=meta["started_ms"],
-            finished_ms=0, state=state, error="" if state == "succeeded" else first_error,
-        )
-
     async def _complete_activity(self, identity: str, state: str, error: str):
         sweep_id = self.run_task.pop(identity, None)
         if sweep_id is None:
             meta = self.activity.pop(identity, None)
             if meta is None:
                 return
-            self._record_recent(dict(
-                id=identity, kind=meta["kind"], strategy=meta["strategy"], symbols=meta["symbols"],
-                total=1, done=1, succeeded=1 if state == "succeeded" else 0,
-                failed=0 if state == "succeeded" else 1, running=0, queued=0,
-                started_ms=meta["started_ms"], finished_ms=int(time.time() * 1000),
-                state=state, error=error,
-            ))
+            self._record_recent(
+                dict(
+                    id=identity,
+                    kind=meta["kind"],
+                    strategy=meta["strategy"],
+                    symbols=meta["symbols"],
+                    total=1,
+                    done=1,
+                    succeeded=1 if state == "succeeded" else 0,
+                    failed=0 if state == "succeeded" else 1,
+                    running=0,
+                    queued=0,
+                    started_ms=meta["started_ms"],
+                    finished_ms=int(time.time() * 1000),
+                    state=state,
+                    error=error,
+                )
+            )
             return
         still_running = any(self.run_task.get(r) == sweep_id for r in self.backtests)
         still_queued = (
@@ -1447,7 +947,7 @@ class Service:
         meta = self.activity.pop(sweep_id, None)
         if meta is None:
             return
-        info = await self.read(self._sweep_info, sweep_id, meta, 0, 0)
+        info = await self.read(sweeps.sweep_info, self.runs, sweep_id, meta, 0, 0)
         info["finished_ms"] = int(time.time() * 1000)
         self._record_recent(info)
 
@@ -1476,9 +976,20 @@ class Service:
             if meta["kind"] == "backtest":
                 running = 1 if task_id in self.backtests else 0
                 info = dict(
-                    id=task_id, kind="backtest", strategy=meta["strategy"], symbols=meta["symbols"],
-                    total=1, done=0, succeeded=0, failed=0, running=running, queued=0,
-                    started_ms=meta["started_ms"], finished_ms=0, state="running", error="",
+                    id=task_id,
+                    kind="backtest",
+                    strategy=meta["strategy"],
+                    symbols=meta["symbols"],
+                    total=1,
+                    done=0,
+                    succeeded=0,
+                    failed=0,
+                    running=running,
+                    queued=0,
+                    started_ms=meta["started_ms"],
+                    finished_ms=0,
+                    state="running",
+                    error="",
                 )
             else:
                 running = sum(1 for r in self.backtests if self.run_task.get(r) == task_id)
@@ -1492,7 +1003,7 @@ class Service:
                     + bayes_rem
                     + (1 if task_id in self.rolling else 0)
                 )
-                info = await self.read(self._sweep_info, task_id, meta, running, queued)
+                info = await self.read(sweeps.sweep_info, self.runs, task_id, meta, running, queued)
             self._write_task(reply.active.add(), info)
         for info in list(self.recent_tasks):
             self._write_task(reply.recent.add(), info)
@@ -1505,8 +1016,10 @@ class Service:
         kept |= {f"factor-{path.stem}" for path in (self.directory / "factors").glob("*.binpb")}
         # Each copy is named "<kind>-<record id>-<random>".
         for path in (self.directory / "sources").glob("*"):
-            if path.name.split("-", 1)[0] in ("run", "sweep", "factor") \
-                    and path.name.rsplit("-", 1)[0] not in kept:
+            if (
+                path.name.split("-", 1)[0] in ("run", "sweep", "factor")
+                and path.name.rsplit("-", 1)[0] not in kept
+            ):
                 shutil.rmtree(path)
 
     def remove_sources(self, *names):
@@ -1525,12 +1038,21 @@ class Service:
             if sweep:
                 members = [item["id"] for item in await self.read(self.runs.sweep, sweep)]
                 members.append(f"{sweep}-rolling")
-            if set(members) & set(self.backtests) or sweep and (
-                    sweep in self.rolling or sweep in self.bayes or any(item[0] == sweep for item in self.waiting)):
+            if set(members) & set(self.backtests) or (
+                sweep
+                and (
+                    sweep in self.rolling
+                    or sweep in self.bayes
+                    or any(item[0] == sweep for item in self.waiting)
+                )
+            ):
                 raise ValueError("a running or waiting run cannot be deleted")
             await asyncio.to_thread(self.runs.delete, members)
-            await asyncio.to_thread(self.remove_sources, *[f"run-{item}" for item in members],
-                                    *([f"sweep-{sweep}"] if sweep else []))
+            await asyncio.to_thread(
+                self.remove_sources,
+                *[f"run-{item}" for item in members],
+                *([f"sweep-{sweep}"] if sweep else []),
+            )
             removed = set(members) | ({sweep} if sweep else set())
             self.recent_tasks = collections.deque(
                 (item for item in self.recent_tasks if item["id"] not in removed),
@@ -1557,8 +1079,9 @@ class Service:
         record = (self.runs.root / identity / "run.json").read_text()
         if row["state"] != "succeeded":
             return row, record, None
-        return row, record, {name: self.runs.table(identity, name)
-                             for name in ("equity", "settlements", "fills")}
+        return row, record, {
+            name: self.runs.table(identity, name) for name in ("equity", "settlements", "fills")
+        }
 
     async def on_get_run(self, request, reply):
         row, record, tables = await self.read(self.run_detail, request.id)
@@ -1567,20 +1090,33 @@ class Service:
         if tables is None:
             return
         for point in tables["equity"].iter_rows(named=True):
-            reply.equity.add(time_ms=point["time_ns"] // 1_000_000, equity=decimal(point["equity"]),
-                             settlement=point["event"] == "settlement")
+            reply.equity.add(
+                time_ms=point["time_ns"] // 1_000_000,
+                equity=decimal(point["equity"]),
+                settlement=point["event"] == "settlement",
+            )
         for day in tables["settlements"].iter_rows(named=True):
-            reply.days.add(trading_day=day["trading_day"].isoformat(),
-                           settled_ms=day["time_ns"] // 1_000_000, equity=decimal(day["equity"]), balance=decimal(day["balance"]),
-                           fees=decimal(day["fees"]), margin=decimal(day["margin"]))
+            reply.days.add(
+                trading_day=day["trading_day"].isoformat(),
+                settled_ms=day["time_ns"] // 1_000_000,
+                equity=decimal(day["equity"]),
+                balance=decimal(day["balance"]),
+                fees=decimal(day["fees"]),
+                margin=decimal(day["margin"]),
+            )
         for fill in tables["fills"].iter_rows(named=True):
-            reply.fills.add(id=fill["fill"], order_id=fill["order"],
-                            time_ms=fill["time_ns"] // 1_000_000,
-                            trading_day=fill["trading_day"].isoformat(), contract=fill["contract"],
-                            side=Side.Value(f"SIDE_{fill['side'].upper()}"),
-                            offset=Offset.Value(f"OFFSET_{fill['offset'].upper()}"),
-                            lots=decimal(fill["quantity"]), price=decimal(fill["price"]),
-                            fee=decimal(fill["fee"]))
+            reply.fills.add(
+                id=fill["fill"],
+                order_id=fill["order"],
+                time_ms=fill["time_ns"] // 1_000_000,
+                trading_day=fill["trading_day"].isoformat(),
+                contract=fill["contract"],
+                side=Side.Value(f"SIDE_{fill['side'].upper()}"),
+                offset=Offset.Value(f"OFFSET_{fill['offset'].upper()}"),
+                lots=decimal(fill["quantity"]),
+                price=decimal(fill["price"]),
+                fee=decimal(fill["fee"]),
+            )
 
     async def on_rename_run(self, request, _):
         await asyncio.to_thread(self.runs.rename, request.id, request.label)
@@ -1602,10 +1138,14 @@ class Service:
         if order not in ("started", "total_return", "annual_return", "sharpe", "max_drawdown", "calmar", "fills"):
             raise ValueError(f"unknown run sort: {order}")
         rows, result.has_more, strategies = await self.read(
-            self.runs.page, limit, request.offset, request.strategy, request.search, order, request.ascending)
+            self.runs.page, limit, request.offset, request.strategy, request.search, order, request.ascending
+        )
         result.strategies.extend(strategies)
         for row in rows:
-            row["sweep_running"] = row.get("sweep_running", False) or any(
-                item[0] == row["sweep"] for item in self.waiting
-            ) or row["sweep"] in self.rolling or row["sweep"] in self.bayes
+            row["sweep_running"] = (
+                row.get("sweep_running", False)
+                or any(item[0] == row["sweep"] for item in self.waiting)
+                or row["sweep"] in self.rolling
+                or row["sweep"] in self.bayes
+            )
             summary(result.runs.add(), row)

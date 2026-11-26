@@ -27,7 +27,7 @@ from asterion import (  # noqa: E402
     strategy_pb2 as wire,
     trading_pb2 as trading,
 )
-from asterion_lab import backtest  # noqa: E402
+from asterion_lab import backtest, data as lab_data  # noqa: E402
 from service_fixture import Service  # noqa: E402
 from strategy_process import (  # noqa: E402
     account_command,
@@ -237,22 +237,22 @@ def verify_backtest_parity(lab_dir: Path, version_id: str):
         minutes=0,
         dataset_version=version_id,
     )
-    data = backtest.Data(
+    data = lab_data.Data(
         Service("test", lab_dir, None).dataset(),
         cfg.begin_day,
         cfg.end_day,
         version=version_id,
     )
-    contracts, series, first = backtest.prepare(data, cfg)
+    contracts, series, first = lab_data.prepare(data, cfg)
     engine = asterion_engine.Replay(
-        backtest.raw(cfg.deposit),
+        lab_data.raw(cfg.deposit),
         contracts,
         series,
         (
-            backtest.raw(cfg.max_order_lots),
-            backtest.raw(cfg.max_gross_lots),
+            lab_data.raw(cfg.max_order_lots),
+            lab_data.raw(cfg.max_gross_lots),
             cfg.max_working_orders,
-            backtest.raw(cfg.max_contract_lots),
+            lab_data.raw(cfg.max_contract_lots),
         ),
     )
     ns = {}

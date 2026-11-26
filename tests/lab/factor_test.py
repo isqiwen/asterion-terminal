@@ -392,7 +392,7 @@ class Repository(unittest.TestCase):
 
     def test_exchange_panel_reads_parquet_tables_once_and_prepares_each_product_once(self):
         from unittest.mock import patch
-        from asterion_lab.backtest import Data
+        from asterion_lab.data import Data
         from warehouse_fixture import closes, contract_row, daily
 
         products = [f"p{i:02d}" for i in range(20)]

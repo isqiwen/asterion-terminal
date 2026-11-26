@@ -22,10 +22,10 @@ import sys
 from asterion.common_pb2 import Offset, Period, Side
 from asterion.strategy_pb2 import Bar as WireBar, Bars as WireBars, Decision, Instance
 from asterion.trading_pb2 import InstanceStatus
-from asterion_lab import backtest, chart, repository
+from asterion_lab import backtest, chart, data as lab_data, repository
 from asterion_lab.runs import Runs
 from asterion_lab.warehouse_client import Dataset
-from asterion_strategy import Context, Strategy, quantize_weight
+from asterion_strategy import Context, Strategy, quantize_weight, step
 
 PERIOD_MINUTES = {
     Period.PERIOD_DAY: 0,
@@ -291,17 +291,17 @@ def _replay_backtest(
     """Run Lab backtest replay and capture bar-by-bar inputs, strategy decisions, and fills."""
     import asterion_engine
 
-    data = backtest.Data(dataset, config.begin_day, config.end_day, version=config.dataset_version)
-    contracts, series, first = backtest.prepare(data, config)
+    data = lab_data.Data(dataset, config.begin_day, config.end_day, version=config.dataset_version)
+    contracts, series, first = lab_data.prepare(data, config)
     engine = asterion_engine.Replay(
-        backtest.raw(config.deposit),
+        lab_data.raw(config.deposit),
         contracts,
         series,
         (
-            backtest.raw(config.max_order_lots),
-            backtest.raw(config.max_gross_lots),
+            lab_data.raw(config.max_order_lots),
+            lab_data.raw(config.max_gross_lots),
             config.max_working_orders,
-            backtest.raw(config.max_contract_lots),
+            lab_data.raw(config.max_contract_lots),
         ),
     )
     symbols = {engine.unit(index): symbol for symbol, index in first.items()}
@@ -350,7 +350,7 @@ def _replay_backtest(
                     "roll_ratio": roll_ratio,
                     "roll_yield": _dec(bar.roll_yield),
                 }
-            wanted = backtest.step(strategy, context, bars)
+            wanted = step(strategy, context, bars)
             targets = {}
             for symbol, val in wanted.items():
                 if context.mode == "weights":
@@ -369,14 +369,14 @@ def _replay_backtest(
                 continue
             if context.mode == "weights" and wanted:
                 sized = engine.weights(
-                    {units[s]: backtest.raw(quantize_weight(w)) for s, w in wanted.items()},
-                    backtest.raw(config.max_gross_weight),
-                    backtest.raw(config.max_net_weight),
-                    backtest.raw(config.max_margin_ratio),
-                    backtest.raw(config.min_rebalance_weight),
+                    {units[s]: lab_data.raw(quantize_weight(w)) for s, w in wanted.items()},
+                    lab_data.raw(config.max_gross_weight),
+                    lab_data.raw(config.max_net_weight),
+                    lab_data.raw(config.max_margin_ratio),
+                    lab_data.raw(config.min_rebalance_weight),
                 )
             else:
-                sized = {units[s]: lots * backtest.R for s, lots in wanted.items()}
+                sized = {units[s]: lots * lab_data.R for s, lots in wanted.items()}
             for unit, quantity in sized.items():
                 engine.want(unit, quantity)
             engine.decide()
@@ -425,7 +425,7 @@ def _tick_lookup(contracts: list):
 
 
 def _warehouse_contract_bars(
-    data: backtest.Data,
+    data: lab_data.Data,
     canonical_contracts: set[str],
     minutes: int,
     begin_day: str,
@@ -443,7 +443,7 @@ def _warehouse_contract_bars(
                 for day, row in sorted(daily.days.items()):
                     if not (begin_day <= day <= end_day) or not row["auction"] or row["close"] is None:
                         continue
-                    end_ms = backtest.close_ns(day) // 10 ** 6
+                    end_ms = lab_data.close_ns(day) // 10 ** 6
                     result[(end_ms, contract)] = {
                         "trading_day": day,
                         "open": _dec(row["open"]),

@@ -299,7 +299,7 @@ class RemoteResearch(unittest.TestCase):
             service.reads.shutdown(wait=True)
 
     def test_daily_research_downloads_only_its_padded_date_window(self):
-        from asterion_lab import backtest
+        from asterion_lab import data as lab_data
 
         contract = 'SHFE/rb/2026-05'
         writer = Warehouse(self.data).writer()
@@ -310,7 +310,7 @@ class RemoteResearch(unittest.TestCase):
         version = writer.commit()
         for exchange_scan in (False, True):
             dataset = Dataset(self.node / str(exchange_scan), history=self.warehouse)
-            research = backtest.Data(dataset, DAYS[0].isoformat(), DAYS[0].isoformat(),
+            research = lab_data.Data(dataset, DAYS[0].isoformat(), DAYS[0].isoformat(),
                                      version=version.identity)
             if exchange_scan:
                 research.load_exchange('SHFE')
@@ -325,7 +325,7 @@ class RemoteResearch(unittest.TestCase):
     def test_a_contract_s_minutes_download_only_its_days_and_coverage_downloads_nothing(self):
         from datetime import datetime
         import socket
-        from asterion_lab import backtest, chart
+        from asterion_lab import backtest, chart, data as lab_data
 
         writer = Warehouse(self.data).writer()
         for month in ('2026-05', '2026-10'):
@@ -369,8 +369,8 @@ class RemoteResearch(unittest.TestCase):
             max_contract_lots=Decimal(10), max_working_orders=10, minutes=1,
             dataset_version=pinned.identity)
         with patch.object(socket, 'create_connection', count_connect):
-            contracts, _, _ = backtest.prepare(
-                backtest.Data(cold, config.begin_day, config.end_day, version=pinned.identity), config)
+            contracts, _, _ = lab_data.prepare(
+                lab_data.Data(cold, config.begin_day, config.end_day, version=pinned.identity), config)
         self.assertEqual(len(contracts), 2)
         self.assertGreaterEqual(len(connects), 1)
         self.assertLessEqual(len(connects), 4)

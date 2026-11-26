@@ -34,7 +34,8 @@ import numpy as np
 import polars as pl
 
 from asterion_lab import repository, statistics as lab_stats
-from asterion_lab.backtest import COSTS, Config, Data, observations, prepare, raw, rolls
+from asterion_lab.backtest import Config, observations, rolls
+from asterion_lab.data import COSTS, Data, prepare, raw
 from asterion_lab.warehouse_client import Dataset
 from asterion_strategy import (
     FIELDS,

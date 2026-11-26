@@ -35,7 +35,7 @@ def main(argv=None):
     if "asterion_lab" not in sys.modules:
         sys.path[:0] = [str(root / "apps/services/lab"), str(root / "apps/services/common/python"),
                         str(args.build / "generated-python"), str(args.build / "engine-python")]
-    from asterion_lab import backtest, chart
+    from asterion_lab import chart, data as lab_data
     from asterion_lab.version import COMMIT
     from asterion_lab.warehouse import write_durably
     from asterion_lab.warehouse_client import Dataset, Endpoint
@@ -48,7 +48,7 @@ def main(argv=None):
     report = dict(analysis_commit=COMMIT, dataset_version=args.version, contract=args.contract, period_minutes=args.minutes,
                   first_day=args.first_day.isoformat(), last_day=args.last_day.isoformat(), days=[])
     with Dataset(args.lab_directory, history=endpoint) as dataset:
-        data = backtest.Data(dataset, report["first_day"], report["last_day"], version=args.version)
+        data = lab_data.Data(dataset, report["first_day"], report["last_day"], version=args.version)
         calendar = data.calendar(exchange)
         life = data.contract_life(exchange, args.contract)
         report["listed_life"] = [date.isoformat() for date in life] if life else None

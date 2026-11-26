@@ -119,10 +119,10 @@ sequenceDiagram
 | 顺序 | 入口 | 阅读目标 |
 | --- | --- | --- |
 | 1 | [__main__.py](../../apps/services/lab/asterion_lab/__main__.py) | 启动参数、Unix socket 封帧与拥有者存活监测 |
-| 2 | [service.py](../../apps/services/lab/asterion_lab/service.py) | RPC 分派、输入固定、扫描队列与子进程管理 |
-| 3 | [warehouse_client.py](../../apps/services/lab/asterion_lab/warehouse_client.py)、[warehouse.py](../../apps/services/lab/asterion_lab/warehouse.py) | mTLS 请求、固定版本清单、并发分区缓存与 DuckDB 查询 |
+| 2 | [service.py](../../apps/services/lab/asterion_lab/service.py)、[sweeps.py](../../apps/services/lab/asterion_lab/sweeps.py)、[warmup.py](../../apps/services/lab/asterion_lab/warmup.py) | RPC 分派、参数扫描/贝叶斯调度、预热 K 线组装与子进程管理 |
+| 3 | [warehouse_client.py](../../apps/services/lab/asterion_lab/warehouse_client.py)、[warehouse.py](../../apps/services/lab/asterion_lab/warehouse.py)、[data.py](../../apps/services/lab/asterion_lab/data.py) | mTLS 请求、固定版本清单、并发分区缓存、DuckDB 查询与合约/主力序列准备 |
 | 4 | [repository.py](../../apps/services/lab/asterion_lab/repository.py)、[package.py](../../apps/services/lab/asterion_lab/package.py) | 源码冻结副本、模块读写与策略打包 |
-| 5 | [backtest.py](../../apps/services/lab/asterion_lab/backtest.py)、[rolling.py](../../apps/services/lab/asterion_lab/rolling.py)、[engine](../../apps/services/lab/engine) | 回放数据准备、目标执行、滚动验证与 C++ 扩展 |
+| 5 | [backtest.py](../../apps/services/lab/asterion_lab/backtest.py)、[rolling.py](../../apps/services/lab/asterion_lab/rolling.py)、[engine](../../apps/services/lab/engine) | 回放执行、目标换算、滚动验证与 C++ 扩展 |
 | 6 | [factor.py](../../apps/services/lab/asterion_lab/factor.py)、[report.py](../../apps/services/lab/asterion_lab/report.py)、[runs.py](../../apps/services/lab/asterion_lab/runs.py) | 因子评价、QuantStats 报表与结果存储 |
 
 测试位于 [tests/lab](../../tests/lab)，Python 测试环境准备见[开发指南](../development.md#测试)。
