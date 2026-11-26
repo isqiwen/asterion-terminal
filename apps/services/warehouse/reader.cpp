@@ -126,8 +126,8 @@ std::string table_filter_sql(std::string_view table, std::string_view product, s
         const auto date = "DATE '" + std::string(day) + "'";
         if (table == "price_ticks") {
             append(
-                "(effective_from <= " + date
-                + " AND (effective_until IS NULL OR effective_until >= " + date + "))");
+                "(effective_from <= " + date + " AND (effective_until IS NULL OR effective_until > "
+                + date + "))");
         } else if (table == "contracts") {
             append(
                 "((list_date IS NULL OR list_date <= " + date

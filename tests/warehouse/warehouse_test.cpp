@@ -526,7 +526,7 @@ TEST_F(Warehouse, ReferenceTableFiltersByProductContractAndDay)
         tick_old[1] = std::string("rb");
         tick_old[2] = std::string("SHFE/rb/2026-10");
         tick_old[3] = std::string("2025-01-01");
-        tick_old[4] = std::string("2025-12-31");
+        tick_old[4] = std::string("2026-01-01");
         auto tick_now = row("price_ticks");
         tick_now[0] = std::string("SHFE");
         tick_now[1] = std::string("rb");
@@ -581,7 +581,7 @@ TEST_F(Warehouse, ReferenceTableFiltersByProductContractAndDay)
         wire::GetTableRows query;
         query.set_table(wire::TABLE_PRICE_TICKS);
         query.set_exchange("SHFE");
-        query.set_day("2026-06-01");
+        query.set_day("2026-01-01");
         const auto effective = reader.rows(query);
         ASSERT_EQ(effective.total(), 1);
         EXPECT_EQ(effective.rows(0).values(3), "2026-01-01");
