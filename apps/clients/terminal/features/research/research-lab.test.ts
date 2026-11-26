@@ -14,36 +14,39 @@ import { registerLanguageResources, setLocale } from "../../src/i18n";
 import { feature } from "./feature";
 import {
   breakEvenSlippage,
-  combinedStrategyTemplate,
   comparePortfolio,
   computeDrawdowns,
   cumulativeIc,
-  defaultFactorForm,
-  defaultForm,
   deflatedSharpeRatio,
   evaluateRunVerdicts,
-  factorRequest,
-  factorStrategyStem,
-  factorStrategyTemplate,
   factorTurnover,
-  formatRunSummaryMarkdown,
-  formFromRun,
   heatmap,
-  identity,
   metricDeltaText,
   monthlyReturns,
+  returnHistogram,
+  yearlyIc,
+} from "./research-analytics";
+import {
+  defaultFactorForm,
+  defaultForm,
+  factorRequest,
+  formFromRun,
+  identity,
   onScope,
   parameterValues,
-  readAnnotations,
-  returnHistogram,
   runRequest,
   sameScope,
-  saveAnnotation,
   saveConditions,
   savedForm,
   scopeOf,
-  yearlyIc,
 } from "./research-lab";
+import { formatRunSummaryMarkdown } from "./research-markdown";
+import { readAnnotations, saveAnnotation } from "./research-storage";
+import {
+  combinedStrategyTemplate,
+  factorStrategyStem,
+  factorStrategyTemplate,
+} from "./research-templates";
 
 registerLanguageResources(feature.id, feature.languageResources!);
 setLocale("zh-CN");

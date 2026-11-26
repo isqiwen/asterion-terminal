@@ -4,8 +4,9 @@ import { Period } from "../../src/generated/asterion/common_pb";
 import type { FactorResult } from "../../src/generated/asterion/lab_pb";
 import { type MessageValues, translate } from "../../src/i18n";
 import { CopySummaryButton, ExperimentNoteBar, useAnnotations } from "./LabParts";
-import { cumulativeIc, formatFactorSummaryMarkdown, yearlyIc } from "./research-lab";
-import { metric, signed } from "./ResearchResult";
+import { cumulativeIc, yearlyIc } from "./research-analytics";
+import { formatFactorSummaryMarkdown } from "./research-markdown";
+import { metric, signed } from "./result-parts";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);

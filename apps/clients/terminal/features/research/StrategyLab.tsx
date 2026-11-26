@@ -8,8 +8,8 @@ import type { TerminalContext } from "../../src/host/feature-registry";
 import { notify } from "../../src/host/notifications";
 import { useLabActiveReport } from "../../src/host/lab";
 import { type MessageValues, translate, listSeparator } from "../../src/i18n";
+import { SLIPPAGE_STRESS_TICKS } from "./research-analytics";
 import {
-  SLIPPAGE_STRESS_TICKS,
   defaultProcesses,
   defaultText,
   formFromRun,
@@ -23,12 +23,11 @@ import {
   scopeOf,
   slippageKey,
   slippageStressBase,
-  symbolsOf,
   type RunForm,
 } from "./research-lab";
+import { symbolsOf } from "./research-storage";
 import {
   ConfigFold,
-  datePlaceholders,
   LabCentre,
   ModuleErrors,
   type ModuleItem,
@@ -39,11 +38,13 @@ import {
   useModuleMenu,
   useModules,
   useSource,
-  useStoredCatalog,
 } from "./LabParts";
-import { RunResult, SweepResult, metric, runTones, signed, states } from "./ResearchResult";
+import { metric, runTones, signed, states } from "./result-parts";
+import { RunResult } from "./RunResult";
 import { RunScope, useRunConditions } from "./RunScope";
 import { strategyResult, StrategyLibrary, useStrategyBatch } from "./StrategyLibrary";
+import { SweepResult } from "./SweepResult";
+import { datePlaceholders, useStoredCatalog } from "./SymbolPicker";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);

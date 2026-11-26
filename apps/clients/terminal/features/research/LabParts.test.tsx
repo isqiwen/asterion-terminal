@@ -7,17 +7,10 @@ import type { TerminalContext } from "../../src/host/feature-registry";
 import { StoredContractsSchema } from "../../src/generated/asterion/lab_pb";
 import { feature } from "./feature";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "../../src/host/workspace/drafts";
-import {
-  datePlaceholders,
-  filterModuleItems,
-  NewModule,
-  SymbolField,
-  SymbolPopover,
-  useSource,
-  useStoredCatalog,
-  type ModuleItem,
-} from "./LabParts";
-import { copiedModule, copyStem, readUniverses } from "./research-lab";
+import { filterModuleItems, NewModule, useSource, type ModuleItem } from "./LabParts";
+import { readUniverses } from "./research-storage";
+import { copiedModule, copyStem } from "./research-templates";
+import { datePlaceholders, SymbolField, SymbolPopover, useStoredCatalog } from "./SymbolPicker";
 
 vi.mock("../../src/bridge/lab", () => ({ lab: vi.fn() }));
 registerTerminalFeatures([feature]);

@@ -2,7 +2,7 @@ import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react"
 import { listSeparator, type MessageValues, translate } from "../../src/i18n";
 import { warehouseName } from "../../src/ui/contract-names";
 import { DeleteRecord } from "./LabParts";
-import { symbolsOf, type ConditionSet } from "./research-lab";
+import { symbolsOf, type ConditionSet } from "./research-storage";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);

@@ -9,22 +9,22 @@ import {
   type ConditionStore,
 } from "./Conditions";
 import {
-  datePlaceholders,
-  SymbolField,
-  SymbolPopover,
-  type StoredCatalog,
-  useStoredCatalog,
-} from "./LabParts";
-import {
   defaultFactorForm,
   factorScopeOf,
   readFactorConditions,
   sameFactorScope,
   saveFactorConditions,
-  symbolsOf,
   type FactorForm,
   type FactorScope,
 } from "./research-lab";
+import { symbolsOf } from "./research-storage";
+import {
+  datePlaceholders,
+  SymbolField,
+  SymbolPopover,
+  type StoredCatalog,
+  useStoredCatalog,
+} from "./SymbolPicker";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);

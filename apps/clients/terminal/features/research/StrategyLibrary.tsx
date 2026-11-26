@@ -8,8 +8,8 @@ import { type MessageValues, translate } from "../../src/i18n";
 import { StatusBadge, type Tone } from "../../src/ui/StatusBadge";
 import { Tag } from "../../src/ui/Tag";
 import { filterModuleItems, type ModuleItem, useLibrarySort } from "./LabParts";
-import { metric, runTones, shortTime, signed, states } from "./ResearchResult";
 import { batchStrategy, runState } from "./research-lab";
+import { metric, runTones, shortTime, signed, states } from "./result-parts";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);

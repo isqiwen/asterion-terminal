@@ -10,7 +10,9 @@ import {
   RunState,
   RunSummarySchema,
 } from "../../src/generated/asterion/lab_pb";
-import { RunComparison, RunResult, SweepResult } from "./ResearchResult";
+import { RunComparison } from "./RunComparison";
+import { RunResult } from "./RunResult";
+import { SweepResult } from "./SweepResult";
 import { feature } from "./feature";
 import { BackendError } from "../../src/i18n/errors";
 

@@ -11,19 +11,8 @@ import { type MessageValues, translate, listSeparator } from "../../src/i18n";
 import { StatusBadge } from "../../src/ui/StatusBadge";
 import { DeleteRecord, useAnnotations } from "./LabParts";
 import { ReconcileView } from "./ReconcileView";
+import { SLIPPAGE_STRESS_TICKS } from "./research-analytics";
 import {
-  RunComparison,
-  RunResult,
-  SweepResult,
-  metric,
-  periodText,
-  runTones,
-  shortTime,
-  signed,
-  states,
-} from "./ResearchResult";
-import {
-  SLIPPAGE_STRESS_TICKS,
   batchKey,
   identity,
   parameterText,
@@ -31,10 +20,14 @@ import {
   recordTime,
   runName,
   runState,
-  saveAnnotation,
   slippageKey,
   slippageStressBase,
 } from "./research-lab";
+import { saveAnnotation } from "./research-storage";
+import { metric, periodText, runTones, shortTime, signed, states } from "./result-parts";
+import { RunComparison } from "./RunComparison";
+import { RunResult } from "./RunResult";
+import { SweepResult } from "./SweepResult";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);

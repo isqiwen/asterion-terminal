@@ -16,26 +16,24 @@ import type { TerminalContext } from "../../src/host/feature-registry";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { type MessageValues, translate, listSeparator } from "../../src/i18n";
 import { StatusBadge } from "../../src/ui/StatusBadge";
+import { factorTurnover } from "./research-analytics";
 import {
   defaultText,
   factorRequest,
   factorScopeOf,
-  factorStrategyStem,
-  factorStrategyTemplate,
-  factorTurnover,
   identity,
   onFactorScope,
   recordName,
   recordTime,
   savedFactorForm,
-  symbolsOf,
   type FactorForm,
 } from "./research-lab";
+import { symbolsOf } from "./research-storage";
+import { factorStrategyStem, factorStrategyTemplate } from "./research-templates";
 import { FactorResultView } from "./FactorResultView";
 import { FactorScopeBar, useFactorConditions } from "./FactorScope";
 import {
   ConfigFold,
-  datePlaceholders,
   DeleteRecord,
   filterModuleItems,
   LabCentre,
@@ -49,9 +47,9 @@ import {
   useModuleMenu,
   useModules,
   useSource,
-  useStoredCatalog,
 } from "./LabParts";
-import { metric, shortTime, signed } from "./ResearchResult";
+import { metric, shortTime, signed } from "./result-parts";
+import { datePlaceholders, useStoredCatalog } from "./SymbolPicker";
 
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
