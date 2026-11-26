@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file asterion/strategy.proto.
  */
 export const file_asterion_strategy: GenFile = /*@__PURE__*/
-  fileDesc("Chdhc3Rlcmlvbi9zdHJhdGVneS5wcm90bxIIc3RyYXRlZ3kicAoHUmVxdWVzdBIeCgRsb2FkGAEgASgLMg4uc3RyYXRlZ3kuTG9hZEgAEh4KBGJhcnMYAiABKAsyDi5zdHJhdGVneS5CYXJzSAASHQoEc3RvcBgDIAEoCzINLmNvbW1vbi5FbXB0eUgAQgYKBGNhbGwiPQoETG9hZBIkCghpbnN0YW5jZRgBIAEoCzISLnN0cmF0ZWd5Lkluc3RhbmNlEg8KB3N5bWJvbHMYAiADKAkilgEKCFJlc3BvbnNlEh4KBWVycm9yGAEgASgLMg0uY29tbW9uLkVycm9ySAASHQoEbG9hZBgCIAEoCzINLmNvbW1vbi5FbXB0eUgAEiIKBGJhcnMYAyABKAsyEi5zdHJhdGVneS5EZWNpc2lvbkgAEh0KBHN0b3AYBCABKAsyDS5jb21tb24uRW1wdHlIAEIICgZyZXN1bHQiXgoOUGFyYW1ldGVyVmFsdWUSDgoEZmxhZxgBIAEoCEgAEhEKB2ludGVnZXIYAiABKANIABIQCgZudW1iZXIYAyABKAFIABIOCgR0ZXh0GAQgASgJSABCBwoFdmFsdWUiTgoHUGFja2FnZRIkCghtYW5pZmVzdBgBIAEoCzISLnN0cmF0ZWd5Lk1hbmlmZXN0Eh0KBWZpbGVzGAIgAygLMg4uc3RyYXRlZ3kuRmlsZSKBAQoITWFuaWZlc3QSDAoEbmFtZRgBIAEoCRIPCgd2ZXJzaW9uGAIgASgJEg0KBWVudHJ5GAMgASgJEg8KB3J1bnRpbWUYBCABKAkSDQoFZmlsZXMYBSADKAkSJwoIcmVzZWFyY2gYBiABKAsyFS5zdHJhdGVneS5SZXNlYXJjaFJ1biKSAgoLUmVzZWFyY2hSdW4SDgoGcnVuX2lkGAEgASgJEjEKBnBhcmFtcxgCIAMoCzIhLnN0cmF0ZWd5LlJlc2VhcmNoUnVuLlBhcmFtc0VudHJ5Eh4KBnBlcmlvZBgDIAEoDjIOLmNvbW1vbi5QZXJpb2QSDwoHc3ltYm9scxgEIAMoCRIXCg9kYXRhc2V0X3ZlcnNpb24YBSABKAkSLQoNd2VpZ2h0X2xpbWl0cxgGIAEoCzIWLnN0cmF0ZWd5LldlaWdodExpbWl0cxpHCgtQYXJhbXNFbnRyeRILCgNrZXkYASABKAkSJwoFdmFsdWUYAiABKAsyGC5zdHJhdGVneS5QYXJhbWV0ZXJWYWx1ZToCOAEiJQoERmlsZRIMCgRwYXRoGAEgASgJEg8KB2NvbnRlbnQYAiABKAwiUAoOU2VyaWVzQ29udHJhY3QSJgoKaW5zdHJ1bWVudBgBIAEoCzISLmNvbW1vbi5JbnN0cnVtZW50EhYKDmRlbGl2ZXJ5X21vbnRoGAIgASgJImAKDkRvbWluYW50U2VyaWVzEhAKCGV4Y2hhbmdlGAEgASgJEg8KB3Byb2R1Y3QYAiABKAkSKwoJY29udHJhY3RzGAMgAygLMhguc3RyYXRlZ3kuU2VyaWVzQ29udHJhY3QiqwMKCEluc3RhbmNlEgoKAmlkGAEgASgJEhQKDHBhY2thZ2VfbmFtZRgCIAEoCRIXCg9wYWNrYWdlX3ZlcnNpb24YAyABKAkSJwoLaW5zdHJ1bWVudHMYBCADKAsyEi5jb21tb24uSW5zdHJ1bWVudBIeCgZwZXJpb2QYBSABKA4yDi5jb21tb24uUGVyaW9kEi4KBnBhcmFtcxgGIAMoCzIeLnN0cmF0ZWd5Lkluc3RhbmNlLlBhcmFtc0VudHJ5Ei0KDXdlaWdodF9saW1pdHMYByABKAsyFi5zdHJhdGVneS5XZWlnaHRMaW1pdHMSEwoLcmVzdW1lX2Zyb20YCCABKAkSIAoGd2FybXVwGAkgASgLMhAuc3RyYXRlZ3kuV2FybXVwEhIKCmxvY2FsX2JhcnMYCiABKAgSKAoGc2VyaWVzGAsgAygLMhguc3RyYXRlZ3kuRG9taW5hbnRTZXJpZXMaRwoLUGFyYW1zRW50cnkSCwoDa2V5GAEgASgJEicKBXZhbHVlGAIgASgLMhguc3RyYXRlZ3kuUGFyYW1ldGVyVmFsdWU6AjgBIk8KBldhcm11cBIXCg9kYXRhc2V0X3ZlcnNpb24YASABKAkSDgoGc2hhMjU2GAIgASgJEhwKBGJhcnMYAyADKAsyDi5zdHJhdGVneS5CYXJzIqYBCgxXZWlnaHRMaW1pdHMSHgoFZ3Jvc3MYASABKAsyDy5jb21tb24uRGVjaW1hbBIcCgNuZXQYAiABKAsyDy5jb21tb24uRGVjaW1hbBIpChBtYXhfbWFyZ2luX3JhdGlvGAMgASgLMg8uY29tbW9uLkRlY2ltYWwSLQoUbWluX3JlYmFsYW5jZV93ZWlnaHQYBCABKAsyDy5jb21tb24uRGVjaW1hbCI1CgRCYXJzEhAKCHNlcXVlbmNlGAEgASgEEhsKBGJhcnMYAiADKAsyDS5zdHJhdGVneS5CYXIi3wQKA0JhchImCgppbnN0cnVtZW50GAEgASgLMhIuY29tbW9uLkluc3RydW1lbnQSEwoLdHJhZGluZ19kYXkYAiABKAkSDgoGZW5kX21zGAMgASgDEh0KBG9wZW4YBCABKAsyDy5jb21tb24uRGVjaW1hbBIdCgRoaWdoGAUgASgLMg8uY29tbW9uLkRlY2ltYWwSHAoDbG93GAYgASgLMg8uY29tbW9uLkRlY2ltYWwSHgoFY2xvc2UYByABKAsyDy5jb21tb24uRGVjaW1hbBIOCgZ2b2x1bWUYCCABKAMSJgoNb3Blbl9pbnRlcmVzdBgJIAEoCzIPLmNvbW1vbi5EZWNpbWFsEiMKCnJvbGxfcmF0aW8YCiABKAsyDy5jb21tb24uRGVjaW1hbBIjCgpyb2xsX3lpZWxkGAsgASgLMg8uY29tbW9uLkRlY2ltYWwSIgoJZmFyX2Nsb3NlGAwgASgLMg8uY29tbW9uLkRlY2ltYWwSJAoLbmVhcl9yZXR1cm4YDSABKAsyDy5jb21tb24uRGVjaW1hbBIjCgpmYXJfcmV0dXJuGA4gASgLMg8uY29tbW9uLkRlY2ltYWwSJwoOcmVjZWlwdF92b2x1bWUYDyABKAsyDy5jb21tb24uRGVjaW1hbBIkCgttZW1iZXJfbG9uZxgQIAEoCzIPLmNvbW1vbi5EZWNpbWFsEiUKDG1lbWJlcl9zaG9ydBgRIAEoCzIPLmNvbW1vbi5EZWNpbWFsEigKD2ludmVudG9yeV90b3RhbBgSIAEoCzIPLmNvbW1vbi5EZWNpbWFsIk4KCERlY2lzaW9uEhAKCHNlcXVlbmNlGAEgASgEEg0KBXJlYWR5GAIgASgIEiEKB3RhcmdldHMYAyADKAsyEC5zdHJhdGVneS5UYXJnZXQiawoGVGFyZ2V0EiYKCmluc3RydW1lbnQYASABKAsyEi5jb21tb24uSW5zdHJ1bWVudBIOCgRsb3RzGAIgASgDSAASIQoGd2VpZ2h0GAMgASgLMg8uY29tbW9uLkRlY2ltYWxIAEIGCgRzaXplYgZwcm90bzM", [file_asterion_common]);
+  fileDesc("Chdhc3Rlcmlvbi9zdHJhdGVneS5wcm90bxIIc3RyYXRlZ3kicAoHUmVxdWVzdBIeCgRsb2FkGAEgASgLMg4uc3RyYXRlZ3kuTG9hZEgAEh4KBGJhcnMYAiABKAsyDi5zdHJhdGVneS5CYXJzSAASHQoEc3RvcBgDIAEoCzINLmNvbW1vbi5FbXB0eUgAQgYKBGNhbGwiPQoETG9hZBIkCghpbnN0YW5jZRgBIAEoCzISLnN0cmF0ZWd5Lkluc3RhbmNlEg8KB3N5bWJvbHMYAiADKAkilgEKCFJlc3BvbnNlEh4KBWVycm9yGAEgASgLMg0uY29tbW9uLkVycm9ySAASHQoEbG9hZBgCIAEoCzINLmNvbW1vbi5FbXB0eUgAEiIKBGJhcnMYAyABKAsyEi5zdHJhdGVneS5EZWNpc2lvbkgAEh0KBHN0b3AYBCABKAsyDS5jb21tb24uRW1wdHlIAEIICgZyZXN1bHQiXgoOUGFyYW1ldGVyVmFsdWUSDgoEZmxhZxgBIAEoCEgAEhEKB2ludGVnZXIYAiABKANIABIQCgZudW1iZXIYAyABKAFIABIOCgR0ZXh0GAQgASgJSABCBwoFdmFsdWUiTgoHUGFja2FnZRIkCghtYW5pZmVzdBgBIAEoCzISLnN0cmF0ZWd5Lk1hbmlmZXN0Eh0KBWZpbGVzGAIgAygLMg4uc3RyYXRlZ3kuRmlsZSKBAQoITWFuaWZlc3QSDAoEbmFtZRgBIAEoCRIPCgd2ZXJzaW9uGAIgASgJEg0KBWVudHJ5GAMgASgJEg8KB3J1bnRpbWUYBCABKAkSDQoFZmlsZXMYBSADKAkSJwoIcmVzZWFyY2gYBiABKAsyFS5zdHJhdGVneS5SZXNlYXJjaFJ1biKSAgoLUmVzZWFyY2hSdW4SDgoGcnVuX2lkGAEgASgJEjEKBnBhcmFtcxgCIAMoCzIhLnN0cmF0ZWd5LlJlc2VhcmNoUnVuLlBhcmFtc0VudHJ5Eh4KBnBlcmlvZBgDIAEoDjIOLmNvbW1vbi5QZXJpb2QSDwoHc3ltYm9scxgEIAMoCRIXCg9kYXRhc2V0X3ZlcnNpb24YBSABKAkSLQoNd2VpZ2h0X2xpbWl0cxgGIAEoCzIWLnN0cmF0ZWd5LldlaWdodExpbWl0cxpHCgtQYXJhbXNFbnRyeRILCgNrZXkYASABKAkSJwoFdmFsdWUYAiABKAsyGC5zdHJhdGVneS5QYXJhbWV0ZXJWYWx1ZToCOAEiJQoERmlsZRIMCgRwYXRoGAEgASgJEg8KB2NvbnRlbnQYAiABKAwiUAoOU2VyaWVzQ29udHJhY3QSJgoKaW5zdHJ1bWVudBgBIAEoCzISLmNvbW1vbi5JbnN0cnVtZW50EhYKDmRlbGl2ZXJ5X21vbnRoGAIgASgJImAKDkRvbWluYW50U2VyaWVzEhAKCGV4Y2hhbmdlGAEgASgJEg8KB3Byb2R1Y3QYAiABKAkSKwoJY29udHJhY3RzGAMgAygLMhguc3RyYXRlZ3kuU2VyaWVzQ29udHJhY3Qi2gMKCEluc3RhbmNlEgoKAmlkGAEgASgJEhQKDHBhY2thZ2VfbmFtZRgCIAEoCRIXCg9wYWNrYWdlX3ZlcnNpb24YAyABKAkSJwoLaW5zdHJ1bWVudHMYBCADKAsyEi5jb21tb24uSW5zdHJ1bWVudBIeCgZwZXJpb2QYBSABKA4yDi5jb21tb24uUGVyaW9kEi4KBnBhcmFtcxgGIAMoCzIeLnN0cmF0ZWd5Lkluc3RhbmNlLlBhcmFtc0VudHJ5Ei0KDXdlaWdodF9saW1pdHMYByABKAsyFi5zdHJhdGVneS5XZWlnaHRMaW1pdHMSEwoLcmVzdW1lX2Zyb20YCCABKAkSIAoGd2FybXVwGAkgASgLMhAuc3RyYXRlZ3kuV2FybXVwEhIKCmxvY2FsX2JhcnMYCiABKAgSKAoGc2VyaWVzGAsgAygLMhguc3RyYXRlZ3kuRG9taW5hbnRTZXJpZXMSLQoJZXhlY3V0aW9uGAwgASgLMhouc3RyYXRlZ3kuRXhlY3V0aW9uT3B0aW9ucxpHCgtQYXJhbXNFbnRyeRILCgNrZXkYASABKAkSJwoFdmFsdWUYAiABKAsyGC5zdHJhdGVneS5QYXJhbWV0ZXJWYWx1ZToCOAEijgEKEEV4ZWN1dGlvbk9wdGlvbnMSGAoQYWdncmVzc2l2ZV90aWNrcxgBIAEoDRIUCgxtYXhfcmVwcmljZXMYAiABKA0SGwoTcmVwcmljZV9pbnRlcnZhbF9tcxgDIAEoDRITCgt0d2FwX3NsaWNlcxgEIAEoDRIYChB0d2FwX2ludGVydmFsX21zGAUgASgNIk8KBldhcm11cBIXCg9kYXRhc2V0X3ZlcnNpb24YASABKAkSDgoGc2hhMjU2GAIgASgJEhwKBGJhcnMYAyADKAsyDi5zdHJhdGVneS5CYXJzIqYBCgxXZWlnaHRMaW1pdHMSHgoFZ3Jvc3MYASABKAsyDy5jb21tb24uRGVjaW1hbBIcCgNuZXQYAiABKAsyDy5jb21tb24uRGVjaW1hbBIpChBtYXhfbWFyZ2luX3JhdGlvGAMgASgLMg8uY29tbW9uLkRlY2ltYWwSLQoUbWluX3JlYmFsYW5jZV93ZWlnaHQYBCABKAsyDy5jb21tb24uRGVjaW1hbCI1CgRCYXJzEhAKCHNlcXVlbmNlGAEgASgEEhsKBGJhcnMYAiADKAsyDS5zdHJhdGVneS5CYXIi3wQKA0JhchImCgppbnN0cnVtZW50GAEgASgLMhIuY29tbW9uLkluc3RydW1lbnQSEwoLdHJhZGluZ19kYXkYAiABKAkSDgoGZW5kX21zGAMgASgDEh0KBG9wZW4YBCABKAsyDy5jb21tb24uRGVjaW1hbBIdCgRoaWdoGAUgASgLMg8uY29tbW9uLkRlY2ltYWwSHAoDbG93GAYgASgLMg8uY29tbW9uLkRlY2ltYWwSHgoFY2xvc2UYByABKAsyDy5jb21tb24uRGVjaW1hbBIOCgZ2b2x1bWUYCCABKAMSJgoNb3Blbl9pbnRlcmVzdBgJIAEoCzIPLmNvbW1vbi5EZWNpbWFsEiMKCnJvbGxfcmF0aW8YCiABKAsyDy5jb21tb24uRGVjaW1hbBIjCgpyb2xsX3lpZWxkGAsgASgLMg8uY29tbW9uLkRlY2ltYWwSIgoJZmFyX2Nsb3NlGAwgASgLMg8uY29tbW9uLkRlY2ltYWwSJAoLbmVhcl9yZXR1cm4YDSABKAsyDy5jb21tb24uRGVjaW1hbBIjCgpmYXJfcmV0dXJuGA4gASgLMg8uY29tbW9uLkRlY2ltYWwSJwoOcmVjZWlwdF92b2x1bWUYDyABKAsyDy5jb21tb24uRGVjaW1hbBIkCgttZW1iZXJfbG9uZxgQIAEoCzIPLmNvbW1vbi5EZWNpbWFsEiUKDG1lbWJlcl9zaG9ydBgRIAEoCzIPLmNvbW1vbi5EZWNpbWFsEigKD2ludmVudG9yeV90b3RhbBgSIAEoCzIPLmNvbW1vbi5EZWNpbWFsIk4KCERlY2lzaW9uEhAKCHNlcXVlbmNlGAEgASgEEg0KBXJlYWR5GAIgASgIEiEKB3RhcmdldHMYAyADKAsyEC5zdHJhdGVneS5UYXJnZXQiawoGVGFyZ2V0EiYKCmluc3RydW1lbnQYASABKAsyEi5jb21tb24uSW5zdHJ1bWVudBIOCgRsb3RzGAIgASgDSAASIQoGd2VpZ2h0GAMgASgLMg8uY29tbW9uLkRlY2ltYWxIAEIGCgRzaXplYgZwcm90bzM", [file_asterion_common]);
 
 /**
  * @generated from message strategy.Request
@@ -403,6 +403,13 @@ export type Instance = Message<"strategy.Instance"> & {
    * @generated from field: repeated strategy.DominantSeries series = 11;
    */
   series: DominantSeries[];
+
+  /**
+   * Controlled live execution options (aggressive ticks, bounded reprice, Mini-TWAP).
+   *
+   * @generated from field: strategy.ExecutionOptions execution = 12;
+   */
+  execution?: ExecutionOptions | undefined;
 };
 
 /**
@@ -411,6 +418,55 @@ export type Instance = Message<"strategy.Instance"> & {
  */
 export const InstanceSchema: GenMessage<Instance> = /*@__PURE__*/
   messageDesc(file_asterion_strategy, 10);
+
+/**
+ * Controlled execution options for a live strategy instance.
+ *
+ * @generated from message strategy.ExecutionOptions
+ */
+export type ExecutionOptions = Message<"strategy.ExecutionOptions"> & {
+  /**
+   * Adverse ticks added to counterparty quote (0-5, clamped to exchange price limits).
+   *
+   * @generated from field: uint32 aggressive_ticks = 1;
+   */
+  aggressiveTicks: number;
+
+  /**
+   * Max cancel-and-reprice attempts per resting leg (0-5); never resends unconfirmed orders.
+   *
+   * @generated from field: uint32 max_reprices = 2;
+   */
+  maxReprices: number;
+
+  /**
+   * Milliseconds before repricing a resting order (1000-30000; 0 defaults to 3000 when enabled).
+   *
+   * @generated from field: uint32 reprice_interval_ms = 3;
+   */
+  repriceIntervalMs: number;
+
+  /**
+   * Sequential time slices per contract target delta (1-10; 0 or 1 disables slicing).
+   *
+   * @generated from field: uint32 twap_slices = 4;
+   */
+  twapSlices: number;
+
+  /**
+   * Milliseconds between TWAP slices (1000-60000; 0 defaults to 5000 when enabled).
+   *
+   * @generated from field: uint32 twap_interval_ms = 5;
+   */
+  twapIntervalMs: number;
+};
+
+/**
+ * Describes the message strategy.ExecutionOptions.
+ * Use `create(ExecutionOptionsSchema)` to create a new message.
+ */
+export const ExecutionOptionsSchema: GenMessage<ExecutionOptions> = /*@__PURE__*/
+  messageDesc(file_asterion_strategy, 11);
 
 /**
  * @generated from message strategy.Warmup
@@ -437,7 +493,7 @@ export type Warmup = Message<"strategy.Warmup"> & {
  * Use `create(WarmupSchema)` to create a new message.
  */
 export const WarmupSchema: GenMessage<Warmup> = /*@__PURE__*/
-  messageDesc(file_asterion_strategy, 11);
+  messageDesc(file_asterion_strategy, 12);
 
 /**
  * Shares of equity.
@@ -471,7 +527,7 @@ export type WeightLimits = Message<"strategy.WeightLimits"> & {
  * Use `create(WeightLimitsSchema)` to create a new message.
  */
 export const WeightLimitsSchema: GenMessage<WeightLimits> = /*@__PURE__*/
-  messageDesc(file_asterion_strategy, 12);
+  messageDesc(file_asterion_strategy, 13);
 
 /**
  * @generated from message strategy.Bars
@@ -496,7 +552,7 @@ export type Bars = Message<"strategy.Bars"> & {
  * Use `create(BarsSchema)` to create a new message.
  */
 export const BarsSchema: GenMessage<Bars> = /*@__PURE__*/
-  messageDesc(file_asterion_strategy, 13);
+  messageDesc(file_asterion_strategy, 14);
 
 /**
  * @generated from message strategy.Bar
@@ -602,7 +658,7 @@ export type Bar = Message<"strategy.Bar"> & {
  * Use `create(BarSchema)` to create a new message.
  */
 export const BarSchema: GenMessage<Bar> = /*@__PURE__*/
-  messageDesc(file_asterion_strategy, 14);
+  messageDesc(file_asterion_strategy, 15);
 
 /**
  * Targets are acted on only once the strategy is ready.
@@ -631,7 +687,7 @@ export type Decision = Message<"strategy.Decision"> & {
  * Use `create(DecisionSchema)` to create a new message.
  */
 export const DecisionSchema: GenMessage<Decision> = /*@__PURE__*/
-  messageDesc(file_asterion_strategy, 15);
+  messageDesc(file_asterion_strategy, 16);
 
 /**
  * @generated from message strategy.Target
@@ -665,5 +721,5 @@ export type Target = Message<"strategy.Target"> & {
  * Use `create(TargetSchema)` to create a new message.
  */
 export const TargetSchema: GenMessage<Target> = /*@__PURE__*/
-  messageDesc(file_asterion_strategy, 16);
+  messageDesc(file_asterion_strategy, 17);
 

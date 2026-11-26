@@ -261,9 +261,11 @@ public:
     auto register_strategy(
         std::string instance = "strategy-run",
         std::vector<InstrumentId> contracts = {{"SHFE", "rb2610"}},
-        std::optional<asterion::trading::StrategyWeightBudget> budget = std::nullopt)
+        std::optional<asterion::trading::StrategyWeightBudget> budget = std::nullopt,
+        asterion::trading::StrategyExecutionOptions execution = {})
     {
-        return session_.register_strategy(std::move(instance), std::move(contracts), budget);
+        return session_
+            .register_strategy(std::move(instance), std::move(contracts), budget, {}, execution);
     }
 
     void accept_target(
@@ -4596,6 +4598,150 @@ TEST_F(StrategyTarget, FlatteningFallsBackOnEmptyOppositeBookAndRetriesAfterPart
     });
     EXPECT_EQ(decimal(done.at("orders")[2].at("quantity")), "2");
     EXPECT_EQ(held(done), "0");
+    EXPECT_TRUE(session.strategy_failure(owner).empty());
+}
+
+TEST_F(StrategyTarget, AggressiveTicksCrossSpreadClampToExchangeLimitAndRespectDeviation)
+{
+    using asterion::trading::StrategyExecutionOptions;
+    {
+        LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest(4));
+        ASSERT_EQ(ready(session).at("phase"), "ready");
+        act(session, authorize("auth-agg"));
+        StrategyExecutionOptions exec;
+        exec.aggressive_ticks = 2;
+        auto owner =
+            session.register_strategy("agg-run", {{"SHFE", "rb2610"}}, std::nullopt, exec).get();
+
+        // Buy 1 lot with ask=3501, tick=1, aggressive_ticks=2 -> limit price 3503.
+        session.accept_target(owner, lots(1), {quote()});
+        const auto after_buy = progress(session, owner, filled(1));
+        EXPECT_EQ(decimal(after_buy.at("orders")[0].at("limit_price")), "3503");
+        session.advance_target(owner).get();
+
+        // Quote near upper limit (ask=3699, upper_limit=3700) clamps to 3700 without exceeding limit.
+        auto near_limit = quote();
+        near_limit.last = Decimal::parse("3699");
+        near_limit.ask = Decimal::parse("3699");
+        near_limit.bid = Decimal::parse("3698");
+        near_limit.upper_limit = Decimal::parse("3700");
+        session.accept_target(owner, lots(2, 2), {near_limit});
+        const auto clamped = progress(session, owner, filled(2));
+        EXPECT_EQ(decimal(clamped.at("orders")[1].at("limit_price")), "3700");
+        EXPECT_TRUE(session.strategy_failure(owner).empty());
+    }
+    // Tight max_price_deviation (0.001 => +/-3.5 on 3500): aggressive_ticks=5 yields 3506 -> rejected.
+    Directory tight_dir, tight_owners;
+    auto tight_manifest = manifest(4);
+    tight_manifest["policy"]["max_price_deviation"] = "0.001";
+    LiveSession tight(tight_dir.path, ASTERION_TEST_CTP_TRADER, tight_owners.path, tight_manifest);
+    ASSERT_EQ(ready(tight).at("phase"), "ready");
+    act(tight, authorize("auth-tight"));
+    StrategyExecutionOptions agg5;
+    agg5.aggressive_ticks = 5;
+    auto owner = tight.register_strategy("agg-dev", {{"SHFE", "rb2610"}}, std::nullopt, agg5).get();
+    const auto before_orders = tight.snapshot().at("orders").size();
+    tight.accept_target(owner, lots(1), {quote()});
+    tight.advance_target(owner, {quote()}).get();
+    EXPECT_EQ(tight.snapshot().at("orders").size(), before_orders);
+    EXPECT_TRUE(tight.strategy_failure(owner).empty());
+}
+
+TEST_F(StrategyTarget, BoundedRepriceCancelsRestingOrderOnAdverseMoveAndRespectsCancelLimit)
+{
+    using asterion::trading::StrategyExecutionOptions;
+    using asterion::trading::strategy_execution_window;
+    auto m = manifest(4);
+    m["policy"]["max_daily_cancels_per_contract"] = 2;
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, m);
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize("auth-reprice"));
+
+    StrategyExecutionOptions exec;
+    exec.max_reprices = 2;
+    exec.reprice_interval_ms = 2000;
+    auto owner =
+        session.register_strategy("reprice-run", {{"SHFE", "rb2610"}}, std::nullopt, exec).get();
+
+    // Fake trader leaves 3-lot buy resting at 3501.
+    const auto window = strategy_execution_window(exec);
+    session.accept_target(owner, lots(3), {quote()}, steady_now(*test_clock) + window);
+    ASSERT_EQ(progress(session, owner, resting(1)).at("orders").size(), 1U);
+    EXPECT_EQ(decimal(session.snapshot().at("orders")[0].at("limit_price")), "3501");
+
+    // Advance past reprice_interval_ms and move opposite ask adversely to 3504.
+    test_clock->advance(2500ms);
+    auto moved = quote();
+    moved.last = Decimal::parse("3504");
+    moved.ask = Decimal::parse("3504");
+    moved.bid = Decimal::parse("3503");
+    session.advance_target(owner, {moved}).get();
+
+    // First reprice cancels order 0 and submits fresh order 1 at 3504.
+    const auto repriced = progress(session, owner, [](const Json& s) {
+        return s.at("orders").size() == 2 && s.at("orders")[0].at("status") == "cancelled"
+            && s.at("orders")[1].at("status") == "accepted";
+    });
+    EXPECT_EQ(decimal(repriced.at("orders")[1].at("limit_price")), "3504");
+
+    // Daily cancel limit is 2 (1 used; 1 headroom reserved for replacement open):
+    // a further adverse move must NOT cancel order 1.
+    test_clock->advance(2500ms);
+    auto moved2 = quote();
+    moved2.last = Decimal::parse("3506");
+    moved2.ask = Decimal::parse("3506");
+    moved2.bid = Decimal::parse("3505");
+    session.advance_target(owner, {moved2}).get();
+    EXPECT_EQ(session.snapshot().at("orders").size(), 2U);
+    EXPECT_EQ(session.snapshot().at("orders")[1].at("status"), "accepted");
+
+    // Fill the resting repriced order to finish cleanly.
+    exchange.call<void (*)(int, int)>("asterion_fake_trader_fill", 1, 3);
+    ASSERT_EQ(held(progress(session, owner, filled(2))), "3");
+    EXPECT_TRUE(session.strategy_failure(owner).empty());
+}
+
+TEST_F(StrategyTarget, MiniTwapSlicesTargetSequentiallyOverInterval)
+{
+    using asterion::trading::StrategyExecutionOptions;
+    using asterion::trading::strategy_execution_window;
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest(10));
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize("auth-twap"));
+
+    StrategyExecutionOptions exec;
+    exec.twap_slices = 3;
+    exec.twap_interval_ms = 10000;
+    auto owner =
+        session.register_strategy("twap-run", {{"SHFE", "rb2610"}}, std::nullopt, exec).get();
+
+    // Target 5 lots over 3 slices -> ceil(5/3)=2, ceil(3/2)=2, ceil(1/1)=1.
+    const auto window = strategy_execution_window(exec);
+    session.accept_target(owner, lots(5), {quote()}, steady_now(*test_clock) + window);
+
+    // Slice 1 (2 lots) executes immediately and fills on fake trader (<= 2 lots auto-fill).
+    const auto s1 = progress(session, owner, filled(1));
+    EXPECT_EQ(decimal(s1.at("orders")[0].at("quantity")), "2");
+    EXPECT_EQ(held(s1), "2");
+
+    // Before twap_interval_ms (10s) elapses, advancing sends no second slice.
+    test_clock->advance(500ms);
+    session.advance_target(owner, {quote()}).get();
+    EXPECT_EQ(session.snapshot().at("orders").size(), 1U);
+
+    // After interval elapses, slice 2 (2 lots) sends and fills.
+    test_clock->advance(10000ms);
+    session.advance_target(owner, {quote()}).get();
+    const auto s2 = progress(session, owner, filled(2));
+    EXPECT_EQ(decimal(s2.at("orders")[1].at("quantity")), "2");
+    EXPECT_EQ(held(s2), "4");
+
+    // After second interval elapses, slice 3 (1 lot) sends and completes target.
+    test_clock->advance(10000ms);
+    session.advance_target(owner, {quote()}).get();
+    const auto s3 = progress(session, owner, filled(3));
+    EXPECT_EQ(decimal(s3.at("orders")[2].at("quantity")), "1");
+    EXPECT_EQ(held(s3), "5");
     EXPECT_TRUE(session.strategy_failure(owner).empty());
 }
 

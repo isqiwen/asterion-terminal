@@ -58,7 +58,8 @@ public:
         std::string instance,
         std::vector<InstrumentId> contracts,
         std::optional<StrategyWeightBudget> budget = std::nullopt,
-        std::vector<DominantSeriesSpec> series = {});
+        std::vector<DominantSeriesSpec> series = {},
+        StrategyExecutionOptions execution = {});
     std::future<void> roll_strategy_series(
         StrategyAuthorityPtr authority,
         std::size_t series_index,

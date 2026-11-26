@@ -228,6 +228,14 @@ void validate(const wire::Instance& instance)
         && (!instance.weight_limits().has_gross() || !instance.weight_limits().has_net()))
         throw std::invalid_argument(
             "strategy weight budget requires explicit gross and net limits");
+    if (instance.has_execution()) {
+        (void)normalize_execution_options(
+            {instance.execution().aggressive_ticks(),
+                instance.execution().max_reprices(),
+                instance.execution().reprice_interval_ms(),
+                instance.execution().twap_slices(),
+                instance.execution().twap_interval_ms()});
+    }
     auto stripped = instance;
     if (stripped.has_warmup())
         stripped.mutable_warmup()->clear_bars();
@@ -310,6 +318,7 @@ std::vector<wire::Bars> recorded_inputs(const fs::path& run, const wire::Instanc
         item->mutable_params()->clear();
         item->clear_weight_limits();
         item->clear_warmup();
+        item->clear_execution();
     }
     if (!google::protobuf::util::MessageDifferencer::Equals(recorded, wanted))
         throw std::invalid_argument(
@@ -754,6 +763,7 @@ struct StrategyHost::State
         next_subscription_retry = {};
         next_feed_reconnect = {};
         next_target_heartbeat = {};
+        execution_options = {};
         last_awaited_day.clear();
         running.store(false, std::memory_order_release);
         channel.close();
@@ -1153,7 +1163,7 @@ struct StrategyHost::State
                 }
             }
         }
-        const auto expires_at = steady_now(*clock) + 10s;
+        const auto expires_at = steady_now(*clock) + strategy_execution_window(execution_options);
         const auto input_bytes = input.SerializeAsString();
         // Commit live inputs before delivering them. A missing reply remains
         // unknown in the record and is never replayed into a live child.
@@ -1620,10 +1630,22 @@ struct StrategyHost::State
                     : Decimal{}
             };
         }
-        authority =
-            execution
-                ->register_strategy(configuration.id(), contracts, budget, std::move(series_specs))
-                .get();
+        execution_options = configuration.has_execution()
+            ? normalize_execution_options(
+                  {configuration.execution().aggressive_ticks(),
+                      configuration.execution().max_reprices(),
+                      configuration.execution().reprice_interval_ms(),
+                      configuration.execution().twap_slices(),
+                      configuration.execution().twap_interval_ms()})
+            : StrategyExecutionOptions{};
+        authority = execution
+                        ->register_strategy(
+                            configuration.id(),
+                            contracts,
+                            budget,
+                            std::move(series_specs),
+                            execution_options)
+                        .get();
         account = execution;
         auto persisted = configuration;
         if (persisted.has_warmup())
@@ -1790,6 +1812,7 @@ struct StrategyHost::State
     std::atomic<bool> running{false};
     std::string last_awaited_day;
     std::chrono::steady_clock::time_point next_target_heartbeat{};
+    StrategyExecutionOptions execution_options{};
 };
 
 StrategyHost::StrategyHost(

@@ -383,5 +383,20 @@
   "回撤（%）": "Drawdown (%)",
   "每日净值明细": "Daily NAV breakdown",
   "日收益率": "Daily return",
-  "盘中": "Intraday"
+  "盘中": "Intraday",
+  "设置实盘执行选项": "Configure live execution options",
+  "实盘执行选项": "Execution options",
+  "超价跳数": "Aggressive ticks",
+  "最大追价次数": "Max reprices",
+  "追价间隔（毫秒）": "Reprice interval (ms)",
+  "TWAP 切片数": "TWAP slices",
+  "切片间隔（毫秒）": "Slice interval (ms)",
+  "超价 {n} 跳": "+{n} ticks",
+  "追价 {n} 次 / {ms}ms": "Reprice ×{n} / {ms}ms",
+  "TWAP {n} 片 / {ms}ms": "TWAP {n} slices / {ms}ms",
+  "超价跳数须为 0–5 的整数。": "Aggressive ticks must be an integer between 0 and 5.",
+  "最大追价次数须为 0–5 的整数。": "Max reprices must be an integer between 0 and 5.",
+  "追价间隔须为 1000–30000 毫秒的整数。": "Reprice interval must be an integer between 1000 and 30000 ms.",
+  "TWAP 切片数须为 1–10 的整数。": "TWAP slices must be an integer between 1 and 10.",
+  "切片间隔须为 1000–60000 毫秒的整数。": "Slice interval must be an integer between 1000 and 60000 ms."
 }

@@ -1283,11 +1283,36 @@ void LiveAccountState::poll_broker()
                     const auto active = strategy_->batch->active_orders.find(order.instrument);
                     if (active != strategy_->batch->active_orders.end()
                         && active->second == order.order_id) {
-                        if (strategy_->batch->flattening
+                        if (order.status == BrokerOrderStatus::cancelled
+                            && strategy_->batch->reprice_cancelling.erase(order.instrument) > 0) {
+                            if (order.filled > Decimal{}) {
+                                if (auto tw = strategy_->batch->twap.find(order.instrument);
+                                    tw != strategy_->batch->twap.end() && tw->second.slice_active) {
+                                    tw->second.slice_remaining =
+                                        tw->second.slice_remaining > order.filled
+                                        ? tw->second.slice_remaining - order.filled
+                                        : Decimal{};
+                                    if (tw->second.slice_remaining <= Decimal{}) {
+                                        tw->second.slice_active = false;
+                                        ++tw->second.slices_done;
+                                        tw->second.next_slice_at = steady_now(*clock_)
+                                            + std::chrono::milliseconds(
+                                                strategy_->execution.twap_interval_ms);
+                                    }
+                                }
+                            }
+                            strategy_->batch->active_order_prices.erase(order.instrument);
+                            strategy_->batch->active_order_sides.erase(order.instrument);
+                            strategy_->batch->active_order_sent_at.erase(order.instrument);
+                            strategy_->batch->active_orders.erase(active);
+                        } else if (strategy_->batch->flattening
                             && order.status == BrokerOrderStatus::cancelled
                             && order.filled > Decimal{}
                             && strategy_->batch->flatten_retries[order.instrument] < 2) {
                             ++strategy_->batch->flatten_retries[order.instrument];
+                            strategy_->batch->active_order_prices.erase(order.instrument);
+                            strategy_->batch->active_order_sides.erase(order.instrument);
+                            strategy_->batch->active_order_sent_at.erase(order.instrument);
                             strategy_->batch->active_orders.erase(active);
                         } else {
                             contract_abandons.emplace_back(
@@ -1878,10 +1903,31 @@ AccountCommand LiveAccountState::advance_storage()
 std::chrono::steady_clock::time_point LiveAccountState::next_broker_deadline() const
 {
     auto deadline = trader_->next_deadline();
-    if (strategy_ && strategy_->batch && strategy_->failure.empty())
-        for (const auto& [contract, dl] : strategy_->batch->deadlines)
-            if (!strategy_->batch->abandoned.contains(contract))
+    if (strategy_ && strategy_->batch && strategy_->failure.empty()) {
+        const auto& batch = *strategy_->batch;
+        for (const auto& [contract, dl] : batch.deadlines)
+            if (!batch.abandoned.contains(contract))
                 deadline = std::min(deadline, dl);
+        if (!batch.flattening && strategy_->execution.max_reprices > 0) {
+            const auto interval =
+                std::chrono::milliseconds(strategy_->execution.reprice_interval_ms);
+            for (const auto& [contract, sent_at] : batch.active_order_sent_at) {
+                if (batch.abandoned.contains(contract)
+                    || batch.reprice_cancelling.contains(contract))
+                    continue;
+                const auto count_it = batch.reprice_counts.find(contract);
+                const auto used = count_it == batch.reprice_counts.end() ? 0U : count_it->second;
+                if (used < strategy_->execution.max_reprices)
+                    deadline = std::min(deadline, sent_at + interval);
+            }
+        }
+        if (!batch.flattening && strategy_->execution.twap_slices > 1) {
+            for (const auto& [contract, tw] : batch.twap)
+                if (!batch.abandoned.contains(contract) && !tw.slice_active
+                    && tw.next_slice_at != std::chrono::steady_clock::time_point{})
+                    deadline = std::min(deadline, tw.next_slice_at);
+        }
+    }
     return deadline;
 }
 

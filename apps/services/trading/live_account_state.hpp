@@ -67,7 +67,8 @@ public:
         std::string instance,
         std::vector<InstrumentId> contracts,
         std::optional<StrategyWeightBudget> budget,
-        std::vector<DominantSeriesSpec> series = {});
+        std::vector<DominantSeriesSpec> series = {},
+        StrategyExecutionOptions execution = {});
     void roll_strategy_series(
         const StrategyAuthorityPtr& authority,
         std::size_t series_index,
@@ -207,6 +208,14 @@ private:
         std::string exchange_id, order_id;
     };
 
+    struct TwapProgress
+    {
+        std::uint32_t slices_done = 0;
+        bool slice_active = false;
+        Decimal slice_remaining = {};
+        std::chrono::steady_clock::time_point next_slice_at = {};
+    };
+
     struct StrategyTargetBatch
     {
         ::strategy::Decision decision;
@@ -218,6 +227,12 @@ private:
         std::map<InstrumentId, std::string> active_orders = {};
         bool flattening = false;
         std::map<InstrumentId, int> flatten_retries = {};
+        std::map<InstrumentId, Decimal> active_order_prices = {};
+        std::map<InstrumentId, Side> active_order_sides = {};
+        std::map<InstrumentId, std::chrono::steady_clock::time_point> active_order_sent_at = {};
+        std::map<InstrumentId, std::uint32_t> reprice_counts = {};
+        std::set<InstrumentId> reprice_cancelling = {};
+        std::map<InstrumentId, TwapProgress> twap = {};
     };
 
     struct ActiveStrategy
@@ -243,6 +258,7 @@ private:
         Decimal frozen_margin_scale = Decimal::parse("1");
         std::map<InstrumentId, Decimal> sized_prices = {};
         bool weights_validated = true;
+        StrategyExecutionOptions execution = {};
     };
 
     struct OrderOrigin

@@ -311,6 +311,35 @@ export function StrategyMonitor({
               )}
             </>
           )}
+          {configuration.execution &&
+            (configuration.execution.aggressiveTicks > 0 ||
+              configuration.execution.maxReprices > 0 ||
+              configuration.execution.twapSlices > 1) && (
+              <>
+                <dt>{t("实盘执行选项")}</dt>
+                <dd>
+                  {[
+                    configuration.execution.aggressiveTicks > 0
+                      ? t("超价 {n} 跳", { n: String(configuration.execution.aggressiveTicks) })
+                      : "",
+                    configuration.execution.maxReprices > 0
+                      ? t("追价 {n} 次 / {ms}ms", {
+                          n: String(configuration.execution.maxReprices),
+                          ms: String(configuration.execution.repriceIntervalMs || 3000),
+                        })
+                      : "",
+                    configuration.execution.twapSlices > 1
+                      ? t("TWAP {n} 片 / {ms}ms", {
+                          n: String(configuration.execution.twapSlices),
+                          ms: String(configuration.execution.twapIntervalMs || 5000),
+                        })
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </dd>
+              </>
+            )}
         </dl>
       </details>
       {confirmOpen && (

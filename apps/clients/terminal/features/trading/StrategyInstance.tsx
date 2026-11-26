@@ -84,6 +84,12 @@ export function StrategyInstance({
   const [net, setNet] = useState("");
   const [maxMarginRatio, setMaxMarginRatio] = useState("");
   const [minRebalanceWeight, setMinRebalanceWeight] = useState("");
+  const [customExec, setCustomExec] = useState(false);
+  const [aggressiveTicks, setAggressiveTicks] = useState("0");
+  const [maxReprices, setMaxReprices] = useState("0");
+  const [repriceIntervalMs, setRepriceIntervalMs] = useState("3000");
+  const [twapSlices, setTwapSlices] = useState("1");
+  const [twapIntervalMs, setTwapIntervalMs] = useState("5000");
   const [warmupBars, setWarmupBars] = useState("");
   const [localBars, setLocalBars] = useState(false);
   const [review, setReview] = useState<{ configuration: Instance; policy: string }>();
@@ -233,6 +239,54 @@ export function StrategyInstance({
     packageKey && ended && !packageKey.startsWith(`${ended.packageName}/`),
   );
 
+  const buildExecution = () => {
+    if (!customExec) return undefined;
+    const agg = Number(aggressiveTicks.trim() || "0");
+    const reprices = Number(maxReprices.trim() || "0");
+    const repriceMs = Number(repriceIntervalMs.trim() || "0");
+    const slices = Number(twapSlices.trim() || "1");
+    const sliceMs = Number(twapIntervalMs.trim() || "0");
+    if (!Number.isInteger(agg) || agg < 0 || agg > 5)
+      throw new Error(t("超价跳数须为 0–5 的整数。"));
+    if (!Number.isInteger(reprices) || reprices < 0 || reprices > 5)
+      throw new Error(t("最大追价次数须为 0–5 的整数。"));
+    if (reprices > 0 && (!Number.isInteger(repriceMs) || repriceMs < 1000 || repriceMs > 30000))
+      throw new Error(t("追价间隔须为 1000–30000 毫秒的整数。"));
+    if (!Number.isInteger(slices) || slices < 1 || slices > 10)
+      throw new Error(t("TWAP 切片数须为 1–10 的整数。"));
+    if (slices > 1 && (!Number.isInteger(sliceMs) || sliceMs < 1000 || sliceMs > 60000))
+      throw new Error(t("切片间隔须为 1000–60000 毫秒的整数。"));
+    if (agg === 0 && reprices === 0 && slices <= 1) return undefined;
+    return {
+      aggressiveTicks: agg,
+      maxReprices: reprices,
+      repriceIntervalMs: reprices > 0 ? repriceMs : 0,
+      twapSlices: slices,
+      twapIntervalMs: slices > 1 ? sliceMs : 0,
+    };
+  };
+
+  const formatExecution = (exec?: Instance["execution"]) => {
+    if (!exec) return "";
+    const parts: string[] = [];
+    if (exec.aggressiveTicks > 0) parts.push(t("超价 {n} 跳", { n: String(exec.aggressiveTicks) }));
+    if (exec.maxReprices > 0)
+      parts.push(
+        t("追价 {n} 次 / {ms}ms", {
+          n: String(exec.maxReprices),
+          ms: String(exec.repriceIntervalMs || 3000),
+        }),
+      );
+    if (exec.twapSlices > 1)
+      parts.push(
+        t("TWAP {n} 片 / {ms}ms", {
+          n: String(exec.twapSlices),
+          ms: String(exec.twapIntervalMs || 5000),
+        }),
+      );
+    return parts.join(" · ");
+  };
+
   return (
     <section className="strategy-instance" aria-label={t("配置策略实例")}>
       <h2>{t("配置策略实例")}</h2>
@@ -300,6 +354,12 @@ export function StrategyInstance({
                     <dd>{decimalText(review.configuration.weightLimits.minRebalanceWeight)}</dd>
                   </>
                 )}
+              </>
+            )}
+            {review.configuration.execution && formatExecution(review.configuration.execution) && (
+              <>
+                <dt>{t("实盘执行选项")}</dt>
+                <dd>{formatExecution(review.configuration.execution)}</dd>
               </>
             )}
           </dl>
@@ -409,6 +469,7 @@ export function StrategyInstance({
                     : undefined,
                   warmup,
                   localBars,
+                  execution: buildExecution(),
                 }),
               });
             }).finally(() => {
@@ -453,6 +514,11 @@ export function StrategyInstance({
                               : undefined,
                           },
                         }).weightLimits;
+                      const exec = buildExecution();
+                      if (exec)
+                        configuration.execution = create(InstanceSchema, {
+                          execution: exec,
+                        }).execution;
                       setReview({ policy: live!.policyRevision, configuration });
                     })
                   }
@@ -685,6 +751,68 @@ export function StrategyInstance({
                     inputMode="decimal"
                     value={minRebalanceWeight}
                     onChange={event => setMinRebalanceWeight(event.target.value)}
+                  />
+                </label>
+              </div>
+            )}
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={customExec}
+                onChange={event => setCustomExec(event.target.checked)}
+              />
+              {t("设置实盘执行选项")}
+            </label>
+            {customExec && (
+              <div className="futures-fields">
+                <label>
+                  {t("超价跳数")}
+                  <input
+                    type="number"
+                    min={0}
+                    max={5}
+                    value={aggressiveTicks}
+                    onChange={event => setAggressiveTicks(event.target.value)}
+                  />
+                </label>
+                <label>
+                  {t("最大追价次数")}
+                  <input
+                    type="number"
+                    min={0}
+                    max={5}
+                    value={maxReprices}
+                    onChange={event => setMaxReprices(event.target.value)}
+                  />
+                </label>
+                <label>
+                  {t("追价间隔（毫秒）")}
+                  <input
+                    type="number"
+                    min={1000}
+                    max={30000}
+                    value={repriceIntervalMs}
+                    onChange={event => setRepriceIntervalMs(event.target.value)}
+                  />
+                </label>
+                <label>
+                  {t("TWAP 切片数")}
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={twapSlices}
+                    onChange={event => setTwapSlices(event.target.value)}
+                  />
+                </label>
+                <label>
+                  {t("切片间隔（毫秒）")}
+                  <input
+                    type="number"
+                    min={1000}
+                    max={60000}
+                    value={twapIntervalMs}
+                    onChange={event => setTwapIntervalMs(event.target.value)}
                   />
                 </label>
               </div>

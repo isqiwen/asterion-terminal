@@ -99,6 +99,22 @@ message Instance {
   // Replay the bars Trading recorded locally for these contracts and period.
   bool local_bars = 10;
   repeated DominantSeries series = 11;
+  // Controlled live execution options (aggressive ticks, bounded reprice, Mini-TWAP).
+  ExecutionOptions execution = 12;
+}
+
+// Controlled execution options for a live strategy instance.
+message ExecutionOptions {
+  // Adverse ticks added to counterparty quote (0-5, clamped to exchange price limits).
+  uint32 aggressive_ticks = 1;
+  // Max cancel-and-reprice attempts per resting leg (0-5); never resends unconfirmed orders.
+  uint32 max_reprices = 2;
+  // Milliseconds before repricing a resting order (1000-30000; 0 defaults to 3000 when enabled).
+  uint32 reprice_interval_ms = 3;
+  // Sequential time slices per contract target delta (1-10; 0 or 1 disables slicing).
+  uint32 twap_slices = 4;
+  // Milliseconds between TWAP slices (1000-60000; 0 defaults to 5000 when enabled).
+  uint32 twap_interval_ms = 5;
 }
 
 message Warmup {

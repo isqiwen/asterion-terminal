@@ -550,17 +550,20 @@ std::future<StrategyAuthorityPtr> LiveSession::register_strategy(
     std::string instance,
     std::vector<InstrumentId> contracts,
     std::optional<StrategyWeightBudget> budget,
-    std::vector<DominantSeriesSpec> series)
+    std::vector<DominantSeriesSpec> series,
+    StrategyExecutionOptions execution)
 {
     return loop_->call([instance = std::move(instance),
                            contracts = std::move(contracts),
                            budget,
-                           series = std::move(series)](LiveAccountState& account) mutable {
+                           series = std::move(series),
+                           execution](LiveAccountState& account) mutable {
         return account.register_strategy(
             std::move(instance),
             std::move(contracts),
             budget,
-            std::move(series));
+            std::move(series),
+            execution);
     });
 }
 

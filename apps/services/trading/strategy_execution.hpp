@@ -17,6 +17,18 @@ struct StrategyWeightBudget
     Decimal min_rebalance_weight = {};
 };
 
+struct StrategyExecutionOptions
+{
+    std::uint32_t aggressive_ticks = 0;
+    std::uint32_t max_reprices = 0;
+    std::uint32_t reprice_interval_ms = 0;
+    std::uint32_t twap_slices = 1;
+    std::uint32_t twap_interval_ms = 0;
+};
+
+StrategyExecutionOptions normalize_execution_options(StrategyExecutionOptions options);
+std::chrono::milliseconds strategy_execution_window(const StrategyExecutionOptions& options);
+
 struct DominantSeriesSpec
 {
     std::string symbol;

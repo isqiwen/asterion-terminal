@@ -117,15 +117,84 @@ bool contract_has_position(const BrokerSnapshot& state, const InstrumentId& id)
     return result;
 }
 
+std::optional<Decimal> aggressive_limit_price(
+    const MarketQuote& uq,
+    const Instrument& terms,
+    Side side,
+    std::uint32_t aggressive_ticks)
+{
+    const auto base = side == Side::buy ? uq.ask : uq.bid;
+    const auto liquidity = side == Side::buy ? uq.ask_quantity : uq.bid_quantity;
+    if (!base || *base <= Decimal{} || liquidity <= 0)
+        return std::nullopt;
+    if (aggressive_ticks == 0)
+        return base;
+    const auto cushion = terms.price_increment * Decimal::from_integer(aggressive_ticks);
+    Decimal candidate = side == Side::buy ? *base + cushion : *base - cushion;
+    if (uq.upper_limit && *uq.upper_limit > Decimal{})
+        candidate = std::min(candidate, *uq.upper_limit);
+    if (uq.lower_limit && *uq.lower_limit > Decimal{})
+        candidate = std::max(candidate, *uq.lower_limit);
+    if (candidate < terms.price_increment)
+        candidate = terms.price_increment;
+    candidate = quantize(
+        candidate,
+        terms.price_increment,
+        side == Side::buy ? Rounding::floor : Rounding::ceiling);
+    return candidate > Decimal{} ? std::optional{candidate} : std::nullopt;
+}
+
 } // namespace
+
+StrategyExecutionOptions normalize_execution_options(StrategyExecutionOptions options)
+{
+    if (options.twap_slices == 0)
+        options.twap_slices = 1;
+    if (options.max_reprices > 0 && options.reprice_interval_ms == 0)
+        options.reprice_interval_ms = 3000;
+    if (options.twap_slices > 1 && options.twap_interval_ms == 0)
+        options.twap_interval_ms = 5000;
+    if (options.aggressive_ticks > 5)
+        throw std::invalid_argument("aggressive_ticks must be between 0 and 5");
+    if (options.max_reprices > 5)
+        throw std::invalid_argument("max_reprices must be between 0 and 5");
+    if (options.max_reprices > 0
+        && (options.reprice_interval_ms < 1000 || options.reprice_interval_ms > 30000))
+        throw std::invalid_argument("reprice_interval_ms must be between 1000 and 30000");
+    if (options.max_reprices == 0 && options.reprice_interval_ms > 30000)
+        throw std::invalid_argument("reprice_interval_ms must be at most 30000");
+    if (options.twap_slices < 1 || options.twap_slices > 10)
+        throw std::invalid_argument("twap_slices must be between 1 and 10");
+    if (options.twap_slices > 1
+        && (options.twap_interval_ms < 1000 || options.twap_interval_ms > 60000))
+        throw std::invalid_argument("twap_interval_ms must be between 1000 and 60000");
+    if (options.twap_slices == 1 && options.twap_interval_ms > 60000)
+        throw std::invalid_argument("twap_interval_ms must be at most 60000");
+    return options;
+}
+
+std::chrono::milliseconds strategy_execution_window(const StrategyExecutionOptions& options)
+{
+    if (options.max_reprices == 0 && options.twap_slices <= 1)
+        return std::chrono::milliseconds{10000};
+    const auto extra_reprice = static_cast<std::int64_t>(options.max_reprices)
+        * (static_cast<std::int64_t>(options.reprice_interval_ms) + 2000);
+    const auto extra_twap = static_cast<std::int64_t>(options.twap_slices - 1)
+        * (static_cast<std::int64_t>(options.twap_interval_ms) + 5000);
+    return std::chrono::milliseconds{
+        std::min<std::int64_t>(10000 + extra_reprice + extra_twap, 300000)
+    };
+}
 
 StrategyAuthorityPtr LiveAccountState::register_strategy(
     std::string instance,
     std::vector<InstrumentId> contracts,
     std::optional<StrategyWeightBudget> budget,
-    std::vector<DominantSeriesSpec> series)
+    std::vector<DominantSeriesSpec> series,
+    StrategyExecutionOptions execution)
 {
     validate_id(instance);
+    execution = normalize_execution_options(execution);
     if (strategy_)
         throw Error(ErrorCode::conflict, "this account already has a strategy execution owner");
     if (!business_ready())
@@ -191,6 +260,7 @@ StrategyAuthorityPtr LiveAccountState::register_strategy(
     send_gate_.invalidate();
     strategy_.emplace(ActiveStrategy{authority, 0, 0, {}, {}, 0});
     strategy_->budget = budget;
+    strategy_->execution = execution;
     strategy_->active_series = std::move(active_series);
     if (budget && budget->max_margin_ratio > Decimal{}) {
         std::vector<std::pair<InstrumentId, std::string>> cost_contracts;
@@ -304,8 +374,10 @@ void LiveAccountState::accept_strategy_target(
         if (!decision.targets_size() && strategy_->held.empty()
             && strategy_->pending_weights.empty())
             return;
-        if (expires_at > now + std::chrono::seconds(10))
-            throw std::invalid_argument("strategy targets have at most 10 seconds of validity");
+        const auto max_window = strategy_execution_window(strategy_->execution);
+        if (expires_at > now + max_window)
+            throw std::invalid_argument(
+                "strategy targets exceed their permitted execution validity window");
         std::vector<InstrumentId> active_contracts = authority->contracts_;
         active_contracts.insert(
             active_contracts.end(),
@@ -419,7 +491,7 @@ void LiveAccountState::accept_strategy_target(
                 if (needed) {
                     const auto age = quote_age_ms(*uq, wall);
                     batch.deadlines[uq->instrument] =
-                        std::min(expires_at, now + std::chrono::milliseconds(10000 - age));
+                        std::min(expires_at, now + max_window - std::chrono::milliseconds(age));
                 }
             }
         }
@@ -635,24 +707,60 @@ AccountCommand LiveAccountState::advance_strategy_target(
                 batch.targets = strategy_->held;
             }
         }
+        const auto exec_window = batch.flattening ? std::chrono::milliseconds{10000}
+                                                  : strategy_execution_window(strategy_->execution);
         std::vector<std::pair<InstrumentId, std::string>> failed_orders;
         for (auto it = batch.active_orders.begin(); it != batch.active_orders.end();) {
             const auto found = std::ranges::find_if(state.orders, [&](const BrokerOrder& order) {
                 return order.order_id == it->second;
             });
             if (found != state.orders.end() && !working_order(*found)) {
+                const auto contract = it->first;
+                const auto advance_twap = [&](Decimal filled_lots) {
+                    if (filled_lots <= Decimal{})
+                        return;
+                    auto tw = batch.twap.find(contract);
+                    if (tw == batch.twap.end() || !tw->second.slice_active)
+                        return;
+                    tw->second.slice_remaining = tw->second.slice_remaining > filled_lots
+                        ? tw->second.slice_remaining - filled_lots
+                        : Decimal{};
+                    if (tw->second.slice_remaining <= Decimal{}) {
+                        tw->second.slice_active = false;
+                        ++tw->second.slices_done;
+                        tw->second.next_slice_at =
+                            now + std::chrono::milliseconds(strategy_->execution.twap_interval_ms);
+                    }
+                };
                 if (found->status == BrokerOrderStatus::filled) {
+                    advance_twap(found->filled);
+                    batch.active_order_prices.erase(contract);
+                    batch.active_order_sides.erase(contract);
+                    batch.active_order_sent_at.erase(contract);
+                    batch.reprice_cancelling.erase(contract);
+                    it = batch.active_orders.erase(it);
+                    continue;
+                }
+                if (found->status == BrokerOrderStatus::cancelled
+                    && batch.reprice_cancelling.erase(contract) > 0) {
+                    advance_twap(found->filled);
+                    batch.active_order_prices.erase(contract);
+                    batch.active_order_sides.erase(contract);
+                    batch.active_order_sent_at.erase(contract);
                     it = batch.active_orders.erase(it);
                     continue;
                 }
                 if (batch.flattening && found->status == BrokerOrderStatus::cancelled
-                    && found->filled > Decimal{} && batch.flatten_retries[it->first] < 2) {
-                    ++batch.flatten_retries[it->first];
+                    && found->filled > Decimal{} && batch.flatten_retries[contract] < 2) {
+                    ++batch.flatten_retries[contract];
+                    batch.active_order_prices.erase(contract);
+                    batch.active_order_sides.erase(contract);
+                    batch.active_order_sent_at.erase(contract);
                     it = batch.active_orders.erase(it);
                     continue;
                 }
                 failed_orders.emplace_back(
-                    it->first,
+                    contract,
                     "strategy order ended without completing its target leg");
             }
             ++it;
@@ -680,7 +788,7 @@ AccountCommand LiveAccountState::advance_strategy_target(
                         usable_quote(batch.quotes, target.instrument, state.trading_day, wall)) {
                     const auto age = quote_age_ms(*uq, wall);
                     batch.deadlines[target.instrument] =
-                        now + std::chrono::milliseconds(10000 - age);
+                        now + exec_window - std::chrono::milliseconds(age);
                 }
             } else if (now >= dl->second) {
                 expired.push_back(target.instrument);
@@ -690,6 +798,100 @@ AccountCommand LiveAccountState::advance_strategy_target(
             abandon_strategy_contract(contract, "strategy target expired before completion");
             if (!strategy_->batch)
                 co_return;
+        }
+        // Bounded reprice: only cancel a broker-confirmed working order once the interval has
+        // elapsed and the opposite quote moved adversely, strictly respecting daily cancel limits.
+        if (!batch.flattening && strategy_->execution.max_reprices > 0
+            && unconfirmed(state).empty()) {
+            const auto interval =
+                std::chrono::milliseconds(strategy_->execution.reprice_interval_ms);
+            for (const auto& [contract, order_id] : batch.active_orders) {
+                if (batch.abandoned.contains(contract)
+                    || batch.reprice_cancelling.contains(contract))
+                    continue;
+                if (batch.reprice_counts[contract] >= strategy_->execution.max_reprices)
+                    continue;
+                const auto intent_it = intents_.find(order_id);
+                if (intent_it == intents_.end() || intent_it->second.terminal
+                    || intent_it->second.cancel_requested)
+                    continue;
+                const auto broker_it =
+                    std::ranges::find_if(state.orders, [&](const BrokerOrder& order) {
+                        return order.order_id == order_id;
+                    });
+                if (broker_it == state.orders.end() || !working_order(*broker_it))
+                    continue;
+                const auto sent_it = batch.active_order_sent_at.find(contract);
+                const auto price_it = batch.active_order_prices.find(contract);
+                const auto side_it = batch.active_order_sides.find(contract);
+                if (sent_it == batch.active_order_sent_at.end()
+                    || price_it == batch.active_order_prices.end()
+                    || side_it == batch.active_order_sides.end()
+                    || now < sent_it->second + interval)
+                    continue;
+                const auto uq = usable_quote(batch.quotes, contract, state.trading_day, wall);
+                if (!uq)
+                    continue;
+                const auto fresh_price = aggressive_limit_price(
+                    *uq,
+                    allowed(contract),
+                    side_it->second,
+                    strategy_->execution.aggressive_ticks);
+                if (!fresh_price)
+                    continue;
+                const bool moved_away = side_it->second == Side::buy
+                    ? (*fresh_price > price_it->second)
+                    : (*fresh_price < price_it->second);
+                if (!moved_away)
+                    continue;
+                if (const auto cancel_limit =
+                        policy_->definition.limits.max_daily_cancels_per_contract;
+                    cancel_limit > 0) {
+                    const auto iso_day = state.trading_day.size() == 8
+                        ? state.trading_day.substr(0, 4) + "-" + state.trading_day.substr(4, 2)
+                            + "-" + state.trading_day.substr(6, 2)
+                        : state.trading_day;
+                    std::uint32_t used = 0;
+                    if (const auto day_it = cancels_.find(iso_day); day_it != cancels_.end())
+                        if (const auto c_it = day_it->second.find(contract);
+                            c_it != day_it->second.end())
+                            used = c_it->second.cancels;
+                    // For opening orders, leave 1 cancel of headroom so the replacement open
+                    // order is not immediately blocked by OrderLimits' daily_cancels check.
+                    const bool blocked = intent_it->second.offset == Offset::open
+                        ? (used + 1 >= cancel_limit)
+                        : (used >= cancel_limit);
+                    if (blocked)
+                        continue;
+                }
+                const auto cancel_contract = contract;
+                const auto cancel_order_id = order_id;
+                const auto attempt = ++batch.reprice_counts[cancel_contract];
+                batch.reprice_cancelling.insert(cancel_contract);
+                ::trading::Command cmd;
+                cmd.set_request_id(unique_process_id());
+                cmd.mutable_cancel_order()->set_id(cancel_order_id);
+                const auto cancel_req = AccountRequest::from_wire(cmd);
+                const auto reprice_text = "reprice " + cancel_contract.venue + "/"
+                    + cancel_contract.symbol + " (" + std::to_string(attempt) + "/"
+                    + std::to_string(strategy_->execution.max_reprices) + ") cancel "
+                    + price_it->second.str() + " -> " + fresh_price->str();
+                try {
+                    co_await cancel(cancel_req, cancel_order_id);
+                    if (strategy_ && strategy_->authority == authority)
+                        strategy_->events.push_back(
+                            event(::trading::INSTANCE_EVENT_KIND_ORDER_SENT, reprice_text));
+                } catch (const std::exception& error) {
+                    if (strategy_ && strategy_->authority == authority && strategy_->batch
+                        && strategy_->batch->accepted_at == batch_accepted_at)
+                        strategy_->batch->reprice_cancelling.erase(cancel_contract);
+                    log::warn(
+                        "strategy reprice cancel failed: order_id={} reason={}",
+                        cancel_order_id,
+                        error.what());
+                }
+                co_return;
+            }
         }
         std::vector<PositionTarget> executable_targets;
         bool waiting_unquoted = false;
@@ -738,6 +940,12 @@ AccountCommand LiveAccountState::advance_strategy_target(
             if (batch.abandoned.contains(candidate.instrument)
                 || batch.active_orders.contains(candidate.instrument))
                 continue;
+            if (!batch.flattening && strategy_->execution.twap_slices > 1) {
+                const auto tw = batch.twap.find(candidate.instrument);
+                if (tw != batch.twap.end() && !tw->second.slice_active
+                    && now < tw->second.next_slice_at)
+                    continue;
+            }
             chosen = &candidate;
             break;
         }
@@ -750,11 +958,29 @@ AccountCommand LiveAccountState::advance_strategy_target(
             co_return;
         // Above the order limit, the move goes out in whole-lot legs replanned after each fill.
         auto leg = *chosen;
+        const auto leg_terms = allowed(leg.instrument);
+        if (!batch.flattening && strategy_->execution.twap_slices > 1) {
+            auto& tw = batch.twap[leg.instrument];
+            if (!tw.slice_active) {
+                const auto rem_slices = strategy_->execution.twap_slices > tw.slices_done
+                    ? (strategy_->execution.twap_slices - tw.slices_done)
+                    : std::uint32_t{1};
+                const auto total_units = leg.quantity.raw() / leg_terms.quantity_increment.raw();
+                const auto slice_units = (total_units + static_cast<std::int64_t>(rem_slices) - 1)
+                    / static_cast<std::int64_t>(rem_slices);
+                tw.slice_remaining = std::min(
+                    leg.quantity,
+                    leg_terms.quantity_increment
+                        * Decimal::from_integer(std::max<std::int64_t>(1, slice_units)));
+                tw.slice_active = true;
+            }
+            leg.quantity = std::min(leg.quantity, tw.slice_remaining);
+        }
         leg.quantity = std::min(
             leg.quantity,
             quantize(
                 policy_->definition.limits.max_order_quantity,
-                allowed(leg.instrument).quantity_increment,
+                leg_terms.quantity_increment,
                 Rounding::floor));
         const auto uq = usable_quote(batch.quotes, leg.instrument, state.trading_day, wall);
         if (!uq)
@@ -762,7 +988,7 @@ AccountCommand LiveAccountState::advance_strategy_target(
         auto price = leg.side == Side::buy ? uq->ask : uq->bid;
         const auto liquidity = leg.side == Side::buy ? uq->ask_quantity : uq->bid_quantity;
         if (batch.flattening) {
-            const auto terms = allowed(leg.instrument);
+            const auto& terms = leg_terms;
             const auto ref = uq->last && *uq->last > Decimal{} ? uq->last
                 : uq->previous_settlement && *uq->previous_settlement > Decimal{}
                 ? uq->previous_settlement
@@ -795,8 +1021,12 @@ AccountCommand LiveAccountState::advance_strategy_target(
             } else if (liquidity <= 0) {
                 price.reset();
             }
-        } else if (liquidity <= 0) {
-            price.reset();
+        } else {
+            price = aggressive_limit_price(
+                *uq,
+                leg_terms,
+                leg.side,
+                strategy_->execution.aggressive_ticks);
         }
         if (!price || *price <= Decimal{}) {
             abandon_strategy_contract(
@@ -809,7 +1039,7 @@ AccountCommand LiveAccountState::advance_strategy_target(
             dl = batch.deadlines
                      .emplace(
                          leg.instrument,
-                         now + std::chrono::milliseconds(10000 - quote_age_ms(*uq, wall)))
+                         now + exec_window - std::chrono::milliseconds(quote_age_ms(*uq, wall)))
                      .first;
         }
         StrategyOrderBasis
@@ -855,6 +1085,9 @@ AccountCommand LiveAccountState::advance_strategy_target(
             {{sent, leg.instrument, leg.side, leg.quantity, *price}, leg.offset},
             origin);
         batch.active_orders[leg.instrument] = sent;
+        batch.active_order_prices[leg.instrument] = *price;
+        batch.active_order_sides[leg.instrument] = leg.side;
+        batch.active_order_sent_at[leg.instrument] = now;
         // Not std::format: macOS 13.0 libc++ lacks the to_chars it instantiates.
         const auto sent_text = "sent " + leg.instrument.venue + "/" + leg.instrument.symbol
             + (leg.side == Side::buy ? " buy " : " sell ")
@@ -898,8 +1131,12 @@ AccountCommand LiveAccountState::advance_strategy_target(
             || msg
                 == "broker fills are awaiting position reconciliation; opening orders are paused") {
             if (const auto active = strategy_->batch->active_orders.find(sent_instrument);
-                active != strategy_->batch->active_orders.end() && active->second == sent)
+                active != strategy_->batch->active_orders.end() && active->second == sent) {
                 strategy_->batch->active_orders.erase(active);
+                strategy_->batch->active_order_prices.erase(sent_instrument);
+                strategy_->batch->active_order_sides.erase(sent_instrument);
+                strategy_->batch->active_order_sent_at.erase(sent_instrument);
+            }
             co_return;
         }
         if (const auto active = strategy_->batch->active_orders.find(sent_instrument);
@@ -948,6 +1185,11 @@ void LiveAccountState::abandon_strategy_contract(
         reason);
     strategy_->batch->abandoned.insert(contract);
     strategy_->batch->active_orders.erase(contract);
+    strategy_->batch->active_order_prices.erase(contract);
+    strategy_->batch->active_order_sides.erase(contract);
+    strategy_->batch->active_order_sent_at.erase(contract);
+    strategy_->batch->reprice_cancelling.erase(contract);
+    strategy_->batch->twap.erase(contract);
     strategy_->batch->deadlines.erase(contract);
     strategy_->pending_weights.erase(contract);
     strategy_->events.push_back(event(
