@@ -236,6 +236,17 @@ const API_COMPLETIONS = completeFromList([
     type: "function",
     detail: "(returns, shrinkage=True, linkage_method='single') -> dict | ndarray",
   },
+  {
+    label: "erc_weights",
+    type: "function",
+    detail: "(returns, shrinkage=True, is_cov=False, max_weight=1.0) -> dict | ndarray",
+  },
+  {
+    label: "mvo_weights",
+    type: "function",
+    detail:
+      "(expected_returns, cov, previous_weights=None, risk_aversion=1.0, turnover_cost=0.0, ...) -> dict | ndarray",
+  },
   { label: "history_limit", type: "property", detail: "int | None" },
   { label: "winsorize_mad", type: "function", detail: "(scores, n=5.0) -> dict" },
   { label: "sector_neutralize", type: "function", detail: "(scores, sectors=None) -> dict" },

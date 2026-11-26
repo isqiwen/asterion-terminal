@@ -1297,6 +1297,109 @@ class Records(unittest.TestCase):
         check_factor(lambda close, volume: ts_vwap_dev(close, volume, window=6),
                      {"close": close[:25], "volume": volume[:25]}, count=6)
 
+    def test_erc_weights_combined_erc_and_turnover_aware_mvo_weights(self):
+        import math
+        import numpy as np
+        from asterion_strategy import (
+            CombinedStrategy,
+            Context,
+            Strategy,
+            erc_weights,
+            mvo_weights,
+            step,
+        )
+
+        # ERC on a known covariance matrix equalizes marginal risk contributions w_i (Sigma w)_i / V = 1/N.
+        cov = np.array([
+            [0.04, 0.015, 0.002],
+            [0.015, 0.09, 0.004],
+            [0.002, 0.004, 0.01],
+        ])
+        w_erc = erc_weights(cov, is_cov=True)
+        self.assertAlmostEqual(float(np.sum(w_erc)), 1.0, places=10)
+        self.assertTrue(np.all(w_erc > 0.0))
+        rc = (w_erc * (cov @ w_erc)) / float(w_erc @ cov @ w_erc)
+        np.testing.assert_allclose(rc, np.full(3, 1.0 / 3.0), atol=1e-6)
+
+        # Box-constrained ERC caps the dominant low-vol asset while keeping sum == 1.
+        w_cap = erc_weights(cov, is_cov=True, max_weight=0.45)
+        self.assertAlmostEqual(float(np.sum(w_cap)), 1.0, places=9)
+        self.assertLessEqual(float(np.max(w_cap)), 0.45 + 1e-8)
+
+        # Dict returns input with Ledoit-Wolf shrinkage and CombinedStrategy(allocation="erc").
+        t = np.arange(80, dtype=float)
+        r_low = 0.005 * np.sin(t * 0.4)
+        r_high = 0.03 * np.cos(t * 0.4)
+        w_dict = erc_weights({"low": r_low, "high": r_high})
+        self.assertAlmostEqual(sum(w_dict.values()), 1.0, places=9)
+        self.assertGreater(w_dict["low"], w_dict["high"] * 3.0)
+
+        class ConstSub(Strategy):
+            params = {"symbol": "SHFE/rb"}
+
+            def ready(self, ctx):
+                return True
+
+            def on_bars(self, ctx, bars):
+                ctx.weights({self.params["symbol"]: 0.5})
+
+        class ErcPortfolio(CombinedStrategy):
+            allocation = "erc"
+            vol_window = 10
+
+            def components(self):
+                return [
+                    (ConstSub(symbol="SHFE/rb"), 0.5),
+                    (ConstSub(symbol="SHFE/au"), 0.5),
+                ]
+
+        ctx = Context(["SHFE/rb", "SHFE/au"])
+        comb = ErcPortfolio()
+        rb, au = 3000.0, 500.0
+        for idx in range(25):
+            rb *= 1.0 + 0.025 * math.sin(idx * 0.6)
+            au *= 1.0 + 0.005 * math.cos(idx * 0.6)
+            step(comb, ctx, [bar("SHFE/rb", idx, rb), bar("SHFE/au", idx, au)])
+        shares = [item["share"] for item in comb.last_components]
+        self.assertAlmostEqual(sum(shares), 1.0, places=9)
+        self.assertGreater(shares[1], shares[0] * 2.0)
+
+        # MVO respects gross, net, max_weight, long_only, and China futures sector gross limits.
+        mu = {"SHFE/rb": 0.12, "SHFE/hc": 0.10, "SHFE/cu": -0.09, "SHFE/au": 0.04}
+        mvo_cov = np.diag([0.04, 0.04, 0.04, 0.02])
+        w_ls = mvo_weights(
+            mu,
+            mvo_cov,
+            risk_aversion=2.0,
+            gross_limit=0.80,
+            net_limit=0.20,
+            max_weight=0.35,
+            max_sector_gross=0.40,
+        )
+        self.assertLessEqual(sum(abs(v) for v in w_ls.values()), 0.80 + 1e-7)
+        self.assertLessEqual(abs(sum(w_ls.values())), 0.20 + 1e-7)
+        self.assertLessEqual(max(abs(v) for v in w_ls.values()), 0.35 + 1e-7)
+        # SHFE/rb + SHFE/hc belong to the 'black' sector.
+        self.assertLessEqual(abs(w_ls["SHFE/rb"]) + abs(w_ls["SHFE/hc"]), 0.40 + 1e-7)
+        self.assertGreater(w_ls["SHFE/rb"], 0.0)
+        self.assertLess(w_ls["SHFE/cu"], 0.0)
+
+        w_long = mvo_weights(mu, mvo_cov, risk_aversion=2.0, gross_limit=0.80, max_weight=0.35, long_only=True)
+        self.assertTrue(all(v >= 0.0 for v in w_long.values()))
+        self.assertEqual(w_long["SHFE/cu"], 0.0)
+
+        # Turnover cost monotonically reduces L1 trade distance from previous weights.
+        prev = {"SHFE/rb": 0.15, "SHFE/hc": 0.15, "SHFE/cu": 0.10, "SHFE/au": -0.10}
+        w_free = mvo_weights(mu, mvo_cov, previous_weights=prev, risk_aversion=10.0, turnover_cost=0.0, gross_limit=1.0, max_weight=0.4)
+        w_mid = mvo_weights(mu, mvo_cov, previous_weights=prev, risk_aversion=10.0, turnover_cost=0.03, gross_limit=1.0, max_weight=0.4)
+        w_high = mvo_weights(mu, mvo_cov, previous_weights=prev, risk_aversion=10.0, turnover_cost=0.5, gross_limit=1.0, max_weight=0.4)
+        def dist(a, b):
+            return sum(abs(a[k] - b[k]) for k in prev)
+
+        self.assertGreater(dist(w_free, prev), dist(w_mid, prev))
+        self.assertGreater(dist(w_mid, prev), dist(w_high, prev))
+        self.assertLess(dist(w_high, prev), 1e-5)
+
 
 if __name__ == "__main__":
     unittest.main()

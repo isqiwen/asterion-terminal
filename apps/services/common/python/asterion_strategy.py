@@ -1622,6 +1622,380 @@ def hrp_weights(
     return weights
 
 
+def _project_capped_simplex(values: np.ndarray, upper: float) -> np.ndarray:
+    """Euclidean projection onto `{w : 0 <= w_i <= upper, sum(w) = 1}` via bisection."""
+    lo = float(np.min(values)) - upper - 1.0
+    hi = float(np.max(values)) + 1.0
+    for _ in range(80):
+        mid = 0.5 * (lo + hi)
+        if float(np.sum(np.clip(values - mid, 0.0, upper))) > 1.0:
+            lo = mid
+        else:
+            hi = mid
+    w = np.clip(values - 0.5 * (lo + hi), 0.0, upper)
+    s = float(np.sum(w))
+    return w / s if s > 0.0 else np.full(len(values), 1.0 / len(values))
+
+
+def erc_weights(
+    returns,
+    *,
+    shrinkage: bool = True,
+    is_cov: bool = False,
+    max_weight: float = 1.0,
+):
+    """Equal Risk Contribution (Risk Parity) long-only weights summing to 1.
+
+    References:
+        Maillard, S., Roncalli, T., & Teïletche, J. (2010). The Properties of
+        Equally Weighted Risk Contribution Portfolios. The Journal of Portfolio
+        Management, 36(4), 60-70. https://doi.org/10.3905/jpm.2010.36.4.060
+        Spinu, F. (2013). An Algorithm for Computing Risk Parity Weights.
+        SSRN 2297383. https://ssrn.com/abstract=2297383
+
+    Equations:
+        Unconstrained convex log-barrier formulation (Spinu 2013) in u = ln(y):
+            min_u  0.5 * y^T Sigma y - (1 / N) * sum(u_i),   y = exp(u),
+            grad = y * (Sigma y) - (1 / N),   w* = y* / sum(y*).
+        At optimality, w_i (Sigma w)_i / (w^T Sigma w) = 1 / N for all i.
+
+    Project adaptation:
+        Estimates covariance with Ledoit-Wolf (2004) shrinkage by default
+        (`shrinkage=True`) or accepts a precomputed covariance matrix
+        (`is_cov=True`); when `max_weight < 1.0` binds, refines on the capped
+        simplex by minimizing squared risk-contribution deviations via SLSQP.
+    """
+    from scipy.optimize import minimize
+
+    if (
+        not isinstance(max_weight, numbers.Real)
+        or isinstance(max_weight, bool)
+        or not math.isfinite(max_weight)
+        or float(max_weight) <= 0.0
+    ):
+        raise ValueError("max_weight must be a positive finite number")
+    cap = float(max_weight)
+    names = None
+    if is_cov:
+        cov = np.asarray(returns, dtype=float)
+        if cov.ndim != 2 or cov.shape[0] != cov.shape[1]:
+            raise ValueError("covariance matrix must be a square 2D array")
+        n_assets = cov.shape[0]
+        if n_assets == 0:
+            return np.empty(0, dtype=float)
+        if cap * n_assets < 1.0 - 1e-12:
+            raise ValueError("max_weight * number of assets must be at least 1.0")
+        if n_assets == 1:
+            return np.array([1.0], dtype=float)
+        cov = 0.5 * (cov + cov.T)
+    else:
+        if isinstance(returns, dict):
+            names = list(returns.keys())
+            if not names:
+                return {}
+            arr = np.column_stack([np.asarray(returns[name], dtype=float) for name in names])
+        else:
+            arr = np.asarray(returns, dtype=float)
+            if arr.ndim != 2:
+                raise ValueError("returns must be a {name: series} dict or 2D (T, N) array")
+        n_assets = arr.shape[1]
+        if n_assets == 0:
+            return {} if names is not None else np.empty(0, dtype=float)
+        if cap * n_assets < 1.0 - 1e-12:
+            raise ValueError("max_weight * number of assets must be at least 1.0")
+        if n_assets == 1:
+            return {names[0]: 1.0} if names is not None else np.array([1.0], dtype=float)
+        finite_rows = arr[np.all(np.isfinite(arr), axis=1)]
+        if len(finite_rows) < 2:
+            eq = np.full(n_assets, 1.0 / n_assets, dtype=float)
+            return {name: float(eq[i]) for i, name in enumerate(names)} if names is not None else eq
+        cov = ledoit_wolf_cov(finite_rows) if shrinkage else np.cov(finite_rows, rowvar=False, ddof=1)
+        cov = 0.5 * (np.asarray(cov, dtype=float) + np.asarray(cov, dtype=float).T)
+
+    diag = np.diag(cov)
+    if not np.all(np.isfinite(cov)) or np.any(diag <= 1e-18):
+        eq = np.full(n_assets, 1.0 / n_assets, dtype=float)
+        return {name: float(eq[i]) for i, name in enumerate(names)} if names is not None else eq
+
+    eig_min = float(np.min(np.linalg.eigvalsh(cov)))
+    if eig_min <= 1e-12:
+        cov = cov + (1e-12 - eig_min) * np.eye(n_assets, dtype=float)
+    scale = float(np.trace(cov)) / float(n_assets)
+    cov_s = cov / scale
+
+    inv_vol = 1.0 / np.sqrt(np.diag(cov_s))
+    y0 = inv_vol / math.sqrt(float(inv_vol @ cov_s @ inv_vol))
+    u0 = np.log(np.maximum(y0, 1e-12))
+    target_rc = 1.0 / float(n_assets)
+
+    def spinu_obj(u: np.ndarray) -> tuple[float, np.ndarray]:
+        uc = np.clip(u, -30.0, 30.0)
+        y = np.exp(uc)
+        sy = cov_s @ y
+        val = 0.5 * float(y @ sy) - target_rc * float(np.sum(uc))
+        grad = y * sy - target_rc
+        return val, grad
+
+    res = minimize(spinu_obj, u0, method="L-BFGS-B", jac=True, options={"ftol": 1e-15, "gtol": 1e-12})
+    y_opt = np.exp(np.clip(res.x, -30.0, 30.0))
+    weights = y_opt / float(np.sum(y_opt))
+
+    if cap < 1.0 - 1e-12 and float(np.max(weights)) > cap + 1e-9:
+        w0 = _project_capped_simplex(weights, cap)
+
+        def rc_obj(w: np.ndarray) -> tuple[float, np.ndarray]:
+            sw = cov_s @ w
+            port_var = float(w @ sw)
+            if port_var <= 1e-24:
+                return 0.0, np.zeros_like(w)
+            rc = (w * sw) / port_var
+            diff = rc - target_rc
+            val = float(np.sum(diff * diff))
+            # d(rc_i)/d(w_j) = (delta_ij (Sigma w)_i + w_i Sigma_ij) / V - 2 rc_i (Sigma w)_j / V.
+            grad = (2.0 / port_var) * (diff * sw + cov_s @ (diff * w) - 2.0 * float(diff @ rc) * sw)
+            return val, grad
+
+        capped = minimize(
+            rc_obj,
+            w0,
+            method="SLSQP",
+            jac=True,
+            bounds=[(1e-9, cap)] * n_assets,
+            constraints=[{"type": "eq", "fun": lambda w: float(np.sum(w)) - 1.0, "jac": lambda w: np.ones(n_assets)}],
+            options={"ftol": 1e-14, "maxiter": 300},
+        )
+        if capped.success and np.all(np.isfinite(capped.x)):
+            weights = _project_capped_simplex(capped.x, cap)
+        else:
+            weights = w0
+
+    if names is not None:
+        return {name: float(weights[i]) for i, name in enumerate(names)}
+    return weights
+
+
+def mvo_weights(
+    expected_returns,
+    cov,
+    *,
+    previous_weights=None,
+    risk_aversion: float = 1.0,
+    turnover_cost: float = 0.0,
+    gross_limit: float = 1.0,
+    net_limit: float | None = None,
+    max_weight: float = 0.25,
+    long_only: bool = False,
+    sectors: dict | None = None,
+    max_sector_gross: float = 0.0,
+):
+    """Turnover-aware constrained Mean-Variance portfolio optimizer (convex QP).
+
+    References:
+        Markowitz, H. (1952). Portfolio Selection. The Journal of Finance,
+        7(1), 77-91. https://doi.org/10.2307/2975974
+        Boyd, S., Busseti, E., Diamond, S., Kahn, R. N., Koh, K., Nystrup, P.,
+        & Speth, J. (2017). Multi-Period Trading via Convex Optimization.
+        Foundations and Trends in Optimization, 3(1), 1-76.
+        https://doi.org/10.1561/2400000023
+
+    Equations:
+        min_w  0.5 * lambda * w^T Sigma w - mu^T w + c * ||w - w_prev||_1
+        s.t.   |w_i| <= max_weight (w_i >= 0 if long_only),
+               sum |w_i| <= gross_limit,  |sum w_i| <= net_limit,
+               sum_{i in sector} |w_i| <= max_sector_gross.
+
+    Project adaptation:
+        Uses smooth nonnegative split variables w = w+ - w- (and trade splits
+        w - w_prev = u+ - u- when turnover_cost > 0) solved by SLSQP with exact
+        analytical gradients and Jacobians; outputs are quantized toward zero
+        to WEIGHT_STEP so wire precision never exceeds exposure limits.
+    """
+    from scipy.optimize import minimize
+
+    for label, value, allow_zero in (
+        ("risk_aversion", risk_aversion, False),
+        ("turnover_cost", turnover_cost, True),
+        ("gross_limit", gross_limit, False),
+        ("max_weight", max_weight, False),
+        ("max_sector_gross", max_sector_gross, True),
+    ):
+        if (
+            not isinstance(value, numbers.Real)
+            or isinstance(value, bool)
+            or not math.isfinite(value)
+            or (float(value) < 0.0 if allow_zero else float(value) <= 0.0)
+        ):
+            raise ValueError(f"{label} must be a {'nonnegative' if allow_zero else 'positive'} finite number")
+    if net_limit is not None and (
+        not isinstance(net_limit, numbers.Real)
+        or isinstance(net_limit, bool)
+        or not math.isfinite(net_limit)
+        or float(net_limit) < 0.0
+    ):
+        raise ValueError("net_limit must be None or a nonnegative finite number")
+
+    names = None
+    if isinstance(expected_returns, dict):
+        names = list(expected_returns.keys())
+        if not names:
+            return {}
+        mu_raw = np.array([
+            float(expected_returns[s])
+            if isinstance(expected_returns[s], numbers.Real) and not isinstance(expected_returns[s], bool)
+            else math.nan
+            for s in names
+        ], dtype=float)
+    else:
+        mu_raw = np.asarray(expected_returns, dtype=float)
+        if mu_raw.ndim != 1:
+            raise ValueError("expected_returns must be a {symbol: return} dict or 1D array")
+    n = len(mu_raw)
+    if n == 0:
+        return {} if names is not None else np.empty(0, dtype=float)
+
+    cov_arr = np.asarray(cov, dtype=float)
+    if cov_arr.shape != (n, n) or not np.all(np.isfinite(cov_arr)):
+        raise ValueError(f"cov must be a finite ({n}, {n}) matrix")
+    cov_arr = 0.5 * (cov_arr + cov_arr.T)
+    eig_min = float(np.min(np.linalg.eigvalsh(cov_arr)))
+    if eig_min < 0.0:
+        cov_arr = cov_arr + (-eig_min + 1e-12) * np.eye(n, dtype=float)
+
+    if previous_weights is None:
+        w_prev = np.zeros(n, dtype=float)
+    elif isinstance(previous_weights, dict):
+        if names is None:
+            raise ValueError("previous_weights dict requires expected_returns dict")
+        w_prev = np.array([float(previous_weights.get(s, 0.0)) for s in names], dtype=float)
+    else:
+        w_prev = np.asarray(previous_weights, dtype=float)
+        if w_prev.shape != (n,):
+            raise ValueError(f"previous_weights must have length {n}")
+    if not np.all(np.isfinite(w_prev)):
+        raise ValueError("previous_weights must be finite")
+
+    valid_mu = np.isfinite(mu_raw)
+    mu = np.where(valid_mu, mu_raw, 0.0)
+    lam = float(risk_aversion)
+    tc = float(turnover_cost)
+    g_lim = float(gross_limit)
+    w_cap = float(max_weight)
+    sec_cap = float(max_sector_gross)
+    eps_tie = 1e-10
+
+    sector_groups: list[list[int]] = []
+    if sec_cap > 0.0:
+        groups: dict[str, list[int]] = {}
+        for i in range(n):
+            if names is not None:
+                sym = names[i]
+                sec = sectors[sym] if sectors and sym in sectors else (product_sector(sym) or "other")
+            else:
+                sec = str(sectors[i]) if sectors and i in sectors else "other"
+            groups.setdefault(sec, []).append(i)
+        sector_groups = list(groups.values())
+
+    n_vars = 4 * n if tc > 0.0 else 2 * n
+    bounds = []
+    for i in range(n):
+        hi = w_cap if valid_mu[i] else 0.0
+        bounds.append((0.0, hi))
+    for i in range(n):
+        hi = 0.0 if (long_only or not valid_mu[i]) else w_cap
+        bounds.append((0.0, hi))
+    if tc > 0.0:
+        bounds.extend([(0.0, None)] * (2 * n))
+
+    def objective(z: np.ndarray) -> tuple[float, np.ndarray]:
+        wp = z[:n]
+        wm = z[n:2 * n]
+        w = wp - wm
+        cw = cov_arr @ w
+        val = 0.5 * lam * float(w @ cw) - float(mu @ w) + eps_tie * float(np.sum(wp) + np.sum(wm))
+        gw = lam * cw - mu
+        if tc > 0.0:
+            up = z[2 * n:3 * n]
+            um = z[3 * n:4 * n]
+            val += tc * float(np.sum(up) + np.sum(um))
+            grad = np.concatenate([gw + eps_tie, -gw + eps_tie, np.full(2 * n, tc)])
+        else:
+            grad = np.concatenate([gw + eps_tie, -gw + eps_tie])
+        return val, grad
+
+    constraints = []
+    # Gross exposure: sum(w+ + w-) <= gross_limit
+    jac_gross = np.zeros(n_vars, dtype=float)
+    jac_gross[:2 * n] = -1.0
+    constraints.append({
+        "type": "ineq",
+        "fun": lambda z: g_lim - float(np.sum(z[:2 * n])),
+        "jac": lambda _z, j=jac_gross: j,
+    })
+
+    if net_limit is not None:
+        n_lim = float(net_limit)
+        jac_net_hi = np.zeros(n_vars, dtype=float)
+        jac_net_hi[:n] = -1.0
+        jac_net_hi[n:2 * n] = 1.0
+        jac_net_lo = -jac_net_hi
+        constraints.append({
+            "type": "ineq",
+            "fun": lambda z, lim=n_lim: lim - float(np.sum(z[:n]) - np.sum(z[n:2 * n])),
+            "jac": lambda _z, j=jac_net_hi: j,
+        })
+        constraints.append({
+            "type": "ineq",
+            "fun": lambda z, lim=n_lim: lim + float(np.sum(z[:n]) - np.sum(z[n:2 * n])),
+            "jac": lambda _z, j=jac_net_lo: j,
+        })
+
+    for idxs in sector_groups:
+        idx_arr = np.array(idxs, dtype=int)
+        jac_sec = np.zeros(n_vars, dtype=float)
+        jac_sec[idx_arr] = -1.0
+        jac_sec[n + idx_arr] = -1.0
+        constraints.append({
+            "type": "ineq",
+            "fun": lambda z, ia=idx_arr: sec_cap - float(np.sum(z[ia]) + np.sum(z[n + ia])),
+            "jac": lambda _z, j=jac_sec: j,
+        })
+
+    if tc > 0.0:
+        eye_n = np.eye(n, dtype=float)
+        jac_trade = np.hstack([eye_n, -eye_n, -eye_n, eye_n])
+        constraints.append({
+            "type": "eq",
+            "fun": lambda z: (z[:n] - z[n:2 * n]) - (z[2 * n:3 * n] - z[3 * n:4 * n]) - w_prev,
+            "jac": lambda _z, j=jac_trade: j,
+        })
+
+    z0 = np.zeros(n_vars, dtype=float)
+    if tc > 0.0:
+        # w = 0 is always feasible: u_minus = max(0, w_prev), u_plus = max(0, -w_prev).
+        z0[2 * n:3 * n] = np.maximum(0.0, -w_prev)
+        z0[3 * n:4 * n] = np.maximum(0.0, w_prev)
+
+    sol = minimize(
+        objective,
+        z0,
+        method="SLSQP",
+        jac=True,
+        bounds=bounds,
+        constraints=constraints,
+        options={"ftol": 1e-12, "maxiter": 400},
+    )
+    z_opt = sol.x if np.all(np.isfinite(sol.x)) else z0
+    w_opt = z_opt[:n] - z_opt[n:2 * n]
+    w_opt = np.where(np.abs(w_opt) < 1e-10, 0.0, w_opt)
+    w_quant = np.array(
+        [float(Decimal(str(val)).quantize(WEIGHT_STEP, rounding=ROUND_DOWN)) for val in w_opt],
+        dtype=float,
+    )
+    if names is not None:
+        return {name: float(w_quant[i]) for i, name in enumerate(names)}
+    return w_quant
+
+
 class _SubView:
     def __init__(self, parent: Context):
         self.parent = parent
@@ -1668,10 +2042,11 @@ class CombinedStrategy(Strategy):
     """Standard single-instance combiner merging target weights of sub-strategies.
 
     Subclasses may set `allocation` to `"fixed"`, `"vol_balance"` (or
-    `vol_balance=True`), or `"hrp"` (causal Hierarchical Risk Parity with
-    Ledoit-Wolf shrinkage across component proxy returns), `max_sector_gross` /
-    `max_sector_net` for sector exposure caps, and `smooth_alpha` / `deadband`
-    for portfolio-level turnover control.
+    `vol_balance=True`), `"hrp"` (causal Hierarchical Risk Parity with
+    Ledoit-Wolf shrinkage across component proxy returns), or `"erc"` (causal
+    Equal Risk Contribution / Risk Parity with Ledoit-Wolf shrinkage),
+    `max_sector_gross` / `max_sector_net` for sector exposure caps, and
+    `smooth_alpha` / `deadband` for portfolio-level turnover control.
     """
 
     allocation: str = "fixed"
@@ -1687,11 +2062,14 @@ class CombinedStrategy(Strategy):
 
     def __init__(self, **values):
         super().__init__(**values)
-        if self.allocation not in ("fixed", "vol_balance", "hrp"):
-            raise ValueError("CombinedStrategy allocation must be 'fixed', 'vol_balance', or 'hrp'")
-        self._alloc_mode = "hrp" if self.allocation == "hrp" else (
-            "vol_balance" if (self.vol_balance or self.allocation == "vol_balance") else "fixed"
-        )
+        if self.allocation not in ("fixed", "vol_balance", "hrp", "erc"):
+            raise ValueError("CombinedStrategy allocation must be 'fixed', 'vol_balance', 'hrp', or 'erc'")
+        if self.allocation in ("hrp", "erc"):
+            self._alloc_mode = self.allocation
+        elif self.vol_balance or self.allocation == "vol_balance":
+            self._alloc_mode = "vol_balance"
+        else:
+            self._alloc_mode = "fixed"
         items = list(self.components())
         if not items:
             raise ValueError("CombinedStrategy requires at least one component strategy")
@@ -1726,18 +2104,22 @@ class CombinedStrategy(Strategy):
         if total_share <= 0:
             return base
         active = [idx for idx, share in enumerate(base) if share > 0]
-        if self._alloc_mode == "hrp":
+        if self._alloc_mode in ("hrp", "erc"):
             if len(active) < 2:
                 return base
-            hrp_window = max(5, window)
-            if any(len(self._comp_returns[idx]) < hrp_window for idx in active):
+            cov_window = max(5, window)
+            if any(len(self._comp_returns[idx]) < cov_window for idx in active):
                 return base
             matrix = np.column_stack([
-                np.asarray(self._comp_returns[idx][-hrp_window:], dtype=float)
+                np.asarray(self._comp_returns[idx][-cov_window:], dtype=float)
                 for idx in active
             ])
-            raw_hrp = hrp_weights(matrix, shrinkage=True)
-            tilted = [base[idx] * float(raw_hrp[pos]) for pos, idx in enumerate(active)]
+            raw_alloc = (
+                hrp_weights(matrix, shrinkage=True)
+                if self._alloc_mode == "hrp"
+                else erc_weights(matrix, shrinkage=True)
+            )
+            tilted = [base[idx] * float(raw_alloc[pos]) for pos, idx in enumerate(active)]
             denom = sum(tilted)
             if denom <= 0 or not math.isfinite(denom):
                 return base
