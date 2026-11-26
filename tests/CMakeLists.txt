@@ -189,6 +189,7 @@ asterion_unit_tests(asterion_order_limits_tests trading/order_limits_test.cpp As
 asterion_unit_tests(asterion_strategy_orders_tests trading/strategy_orders_test.cpp asterion_trading_session)
 asterion_unit_tests(asterion_systemd_watchdog_tests trading/systemd_watchdog_test.cpp asterion_trading_session)
 asterion_unit_tests(asterion_live_tests trading/live_session_test.cpp asterion_trading_session 120)
+target_sources(asterion_live_tests PRIVATE trading/strategy_target_test.cpp trading/strategy_execution_test.cpp)
 target_include_directories(asterion_live_tests PRIVATE ${CMAKE_SOURCE_DIR}/apps/services/common/market/ctp)
 target_link_libraries(asterion_live_tests PRIVATE Asterion::Futures asterion_sqlite)
 target_compile_definitions(asterion_live_tests PRIVATE ASTERION_TEST_CTP_TRADER="$<TARGET_FILE:asterion_test_ctp_trader>"
