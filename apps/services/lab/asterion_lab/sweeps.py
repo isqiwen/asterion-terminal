@@ -79,6 +79,8 @@ def validate_sweep(request, waiting) -> dict:
     search_mode = request.search_mode or "grid"
     if search_mode not in ("grid", "lhs", "bayes"):
         raise ValueError(f"unknown sweep search_mode: {search_mode!r}")
+    if search_mode == "bayes" and request.HasField("walk_forward"):
+        raise ValueError("Bayesian search cannot be combined with rolling validation; use grid or lhs")
     if search_mode != "grid" and (batch or slippages or len(symbols) > 1 or not names):
         raise ValueError(f"{search_mode} search requires parameter values on a single symbol set")
     symbol_items = symbols or [None]
