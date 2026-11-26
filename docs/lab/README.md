@@ -33,7 +33,7 @@ flowchart LR
 
 ## 策略
 
-策略与因子存放在本机固定策略目录（路径见[本机数据目录](../development.md#本机数据目录)）。研究页的“策略”和“因子”视图自动扫描并列出全部公开模块，支持新建（自带可运行模板）、内置编辑与删除；内置模块来自仓库 `research/` 并随安装包更新，Lab 每次启动同步为只读文件，新建模块不可与内置同名。研究与交易共用 `apps/services/common/python/asterion_strategy.py`：
+策略与因子存放在本机固定策略目录（路径见[本机数据目录](../development.md#本机数据目录)）。研究页的“策略”和“因子”视图自动扫描并列出全部公开模块，支持新建（自带可运行模板）、内置编辑与删除；内置模块来自仓库 `research/` 并随安装包更新，Lab 每次启动同步为只读文件，新建模块不可与内置同名。研究与交易共用 `apps/services/common/python/asterion_strategy/`：
 
 ```python
 from asterion_strategy import Strategy

@@ -15,7 +15,8 @@ if mode == 'strategy':
     code = installation.root / 'lib/strategy'
     (code / 'asterion').mkdir(parents=True)
     shutil.copy2(source / 'apps/services/trading/python/strategy_runner.py', code)
-    shutil.copy2(source / 'apps/services/common/python/asterion_strategy.py', code)
+    shutil.copytree(source / 'apps/services/common/python/asterion_strategy',
+                    code / 'asterion_strategy', ignore=shutil.ignore_patterns('__pycache__'))
     for name in ('strategy_pb2.py', 'common_pb2.py'):
         shutil.copy2(build / 'generated-python/asterion' / name, code / 'asterion')
     (installation.root / 'runtime').mkdir()

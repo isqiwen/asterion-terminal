@@ -140,7 +140,7 @@ def verify(directory=DESTINATION):
         raise ValueError("Runtime manifest is for another platform; run pnpm prepare:python")
     application = directory / "app"
     if not (application / "asterion_lab" / "__main__.py").is_file() or \
-            not (application / "asterion_strategy.py").is_file() or \
+            not (application / "asterion_strategy" / "__init__.py").is_file() or \
             not list(application.glob("asterion_engine.*")):
         raise ValueError("The application's Python code is missing beside the runtime manifest")
 

@@ -93,7 +93,9 @@ def application_code(build: Path, target: Path):
             shutil.copy2(engine, prepared / engine.name)
         shutil.copytree(PROJECT / "asterion_lab", prepared / "asterion_lab",
                         ignore=shutil.ignore_patterns("__pycache__"))
-        shutil.copy2(ROOT / "apps/services/common/python/asterion_strategy.py", prepared)
+        shutil.copytree(ROOT / "apps/services/common/python/asterion_strategy",
+                        prepared / "asterion_strategy",
+                        ignore=shutil.ignore_patterns("__pycache__"))
         product = json.loads((build / "product.json").read_text())
         (prepared / "asterion_lab/version.py").write_text(
             f"VERSION = {product['version']!r}\n"

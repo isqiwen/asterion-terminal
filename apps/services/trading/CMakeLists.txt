@@ -39,6 +39,13 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   set(stage ${CMAKE_CURRENT_BINARY_DIR}/setup)
   set(release ${CMAKE_BINARY_DIR}/Asterion-Trading-${PROJECT_VERSION}-linux-x86_64.sh)
   set(layout ${stage}/asterion-trading)
+  set(asterion_strategy_sources
+    ${PROJECT_SOURCE_DIR}/apps/services/common/python/asterion_strategy/__init__.py
+    ${PROJECT_SOURCE_DIR}/apps/services/common/python/asterion_strategy/combined.py
+    ${PROJECT_SOURCE_DIR}/apps/services/common/python/asterion_strategy/core.py
+    ${PROJECT_SOURCE_DIR}/apps/services/common/python/asterion_strategy/cross_section.py
+    ${PROJECT_SOURCE_DIR}/apps/services/common/python/asterion_strategy/operators.py
+    ${PROJECT_SOURCE_DIR}/apps/services/common/python/asterion_strategy/portfolio.py)
   add_custom_command(OUTPUT ${release}
     COMMAND ${CMAKE_COMMAND} -E rm -rf ${stage}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${layout}/bin ${layout}/lib ${layout}/config
@@ -46,8 +53,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/config/logging.json ${layout}/config/
     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:asterion_trading> ${CMAKE_CURRENT_BINARY_DIR}/setup.sh ${PROJECT_SOURCE_DIR}/scripts/services/cold_backup.py ${layout}/bin/
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/ctp-trader.so ${CMAKE_BINARY_DIR}/ctp-md.so ${layout}/lib/
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${layout}/lib/strategy/asterion
-    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/python/strategy_runner.py ${PROJECT_SOURCE_DIR}/apps/services/common/python/asterion_strategy.py ${layout}/lib/strategy/
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${layout}/lib/strategy/asterion ${layout}/lib/strategy/asterion_strategy
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/python/strategy_runner.py ${layout}/lib/strategy/
+    COMMAND ${CMAKE_COMMAND} -E copy ${asterion_strategy_sources} ${layout}/lib/strategy/asterion_strategy/
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/generated-python/asterion/strategy_pb2.py ${CMAKE_BINARY_DIR}/generated-python/asterion/common_pb2.py ${layout}/lib/strategy/asterion/
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${runtime} ${layout}/runtime/python
     COMMAND ${CMAKE_COMMAND} -E chdir ${stage} ${CMAKE_COMMAND} -E tar czf payload.tar.gz asterion-trading
@@ -56,7 +64,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     DEPENDS asterion_trading_setup_script asterion_crash_reporter ${CMAKE_CURRENT_SOURCE_DIR}/config/logging.json asterion_trading asterion_python_protocol ${CMAKE_CURRENT_BINARY_DIR}/setup.sh
       ${PROJECT_SOURCE_DIR}/scripts/services/cold_backup.py
       ${runtime_ready} ${runtime}/bin/python3
-      ${CMAKE_CURRENT_SOURCE_DIR}/python/strategy_runner.py ${PROJECT_SOURCE_DIR}/apps/services/common/python/asterion_strategy.py
+      ${CMAKE_CURRENT_SOURCE_DIR}/python/strategy_runner.py ${asterion_strategy_sources}
       ${CMAKE_BINARY_DIR}/generated-python/asterion/strategy_pb2.py
       ${CMAKE_BINARY_DIR}/ctp-trader.so
       ${CMAKE_BINARY_DIR}/ctp-md.so
