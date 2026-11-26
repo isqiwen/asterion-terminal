@@ -213,6 +213,7 @@ export function StrategyLab(context: TerminalContext) {
       if (activeValidation === "rolling" && !swept.length)
         throw new Error(t("滚动验证需要至少一个参数填多个值"));
       if (separateMulti || swept.length || activeValidation === "rolling") {
+        const searchMode = !separateMulti && swept.length ? (form.sweepMode ?? "grid") : "grid";
         await lab({
           case: "startSweep",
           value: {
@@ -221,11 +222,15 @@ export function StrategyLab(context: TerminalContext) {
             symbols: separateMulti ? run.symbols : [],
             values: swept,
             processes: Number(form.processes) || 0,
+            searchMode: searchMode === "grid" ? "" : searchMode,
+            maxTrials: searchMode === "grid" ? 0 : Math.max(2, Number(form.maxTrials) || 24),
             walkForward:
               activeValidation === "rolling"
                 ? {
                     trainingDays: Number(form.trainingDays),
                     validationDays: Number(form.validationDays),
+                    embargoDays: Math.max(0, Number(form.embargoDays) || 0),
+                    objective: form.rollingObjective ?? "sharpe",
                   }
                 : undefined,
           },
@@ -737,66 +742,117 @@ export function StrategyLab(context: TerminalContext) {
                   </fieldset>
                 )}
               </div>
-              <Section title={t("扫描与验证")}>
-                {!separateMulti && (
-                  <label className="lab-check wide">
-                    <input
-                      type="checkbox"
-                      checked={activeValidation === "rolling"}
-                      onChange={event =>
-                        change({ validation: event.target.checked ? "rolling" : "none" })
-                      }
-                    />
-                    {t("滚动验证")}
-                  </label>
-                )}
-                {activeValidation === "rolling" && (
+              {(() => {
+                const sweepCount = strategy.parameters.reduce((total, parameter) => {
+                  const parts = (form.params[parameter.name] ?? "")
+                    .split(",")
+                    .map(part => part.trim())
+                    .filter(Boolean);
+                  return total * Math.max(1, parts.length);
+                }, 1);
+                const sweepMode = form.sweepMode ?? "grid";
+                const effectiveTrials =
+                  !separateMulti && sweepCount > 1 && sweepMode !== "grid"
+                    ? Math.min(sweepCount, Math.max(2, Number(form.maxTrials) || 24))
+                    : sweepCount;
+                return (
                   <>
-                    {field("训练交易日数", "trainingDays")}
-                    {field("每轮验证交易日数", "validationDays")}
+                    <Section title={t("扫描与验证")}>
+                      {!separateMulti && sweepCount > 1 && (
+                        <>
+                          <label className="wide">
+                            <span>{t("搜索方式")}</span>
+                            <select
+                              value={sweepMode}
+                              onChange={event =>
+                                change({
+                                  sweepMode: event.target.value as RunForm["sweepMode"],
+                                })
+                              }
+                            >
+                              <option value="grid">{t("网格枚举")}</option>
+                              <option value="lhs">{t("拉丁超立方 LHS")}</option>
+                              <option value="bayes">{t("贝叶斯优化 GP")}</option>
+                            </select>
+                          </label>
+                          {sweepMode !== "grid" &&
+                            field("最大采样组数", "maxTrials", { placeholder: "24" }, "wide")}
+                        </>
+                      )}
+                      {!separateMulti && (
+                        <label className="lab-check wide">
+                          <input
+                            type="checkbox"
+                            checked={activeValidation === "rolling"}
+                            onChange={event =>
+                              change({ validation: event.target.checked ? "rolling" : "none" })
+                            }
+                          />
+                          {t("滚动验证")}
+                        </label>
+                      )}
+                      {activeValidation === "rolling" && (
+                        <>
+                          {field("训练交易日数", "trainingDays")}
+                          {field("每轮验证交易日数", "validationDays")}
+                          {field("隔离带（交易日）", "embargoDays", { placeholder: "0" })}
+                          <label>
+                            <span>{t("选参目标")}</span>
+                            <select
+                              value={form.rollingObjective ?? "sharpe"}
+                              onChange={event =>
+                                change({
+                                  rollingObjective: event.target
+                                    .value as RunForm["rollingObjective"],
+                                })
+                              }
+                            >
+                              <option value="sharpe">{t("夏普比率")}</option>
+                              <option value="dsr">{t("DSR 置信度")}</option>
+                              <option value="calmar">{t("卡玛比率")}</option>
+                              <option value="total_return">{t("总收益")}</option>
+                            </select>
+                          </label>
+                        </>
+                      )}
+                      {field(
+                        "并行进程数",
+                        "processes",
+                        { placeholder: defaultProcesses() },
+                        "wide",
+                      )}
+                    </Section>
+                    <RecentRuns
+                      runs={strategyRuns}
+                      activeId={report?.kind === "run" ? report.id : ""}
+                      annotations={annotations}
+                      open={id => {
+                        setReport({ kind: "run", id });
+                        setTab(previous => (previous === "split" ? "split" : "result"));
+                      }}
+                      openAll={() => context.navigate("workspace.lab-runs", {})}
+                    />
+                    <footer className="lab-submit">
+                      <button
+                        type="button"
+                        className="primary"
+                        disabled={busy || context.busy}
+                        onClick={() => void submit()}
+                      >
+                        {effectiveTrials > 1
+                          ? t("运行扫描（{count} 组）", { count: effectiveTrials })
+                          : t("运行")}
+                      </button>
+                      {saved.length > 0 && (
+                        <p className="subtle">
+                          {t("已保存 {files}", { files: saved.join(listSeparator()) })}
+                        </p>
+                      )}
+                      <ActionError error={submitted.error} namespace="asterion.terminal.research" />
+                    </footer>
                   </>
-                )}
-                {field("并行进程数", "processes", { placeholder: defaultProcesses() }, "wide")}
-              </Section>
-              <RecentRuns
-                runs={strategyRuns}
-                activeId={report?.kind === "run" ? report.id : ""}
-                annotations={annotations}
-                open={id => {
-                  setReport({ kind: "run", id });
-                  setTab(previous => (previous === "split" ? "split" : "result"));
-                }}
-                openAll={() => context.navigate("workspace.lab-runs", {})}
-              />
-              <footer className="lab-submit">
-                {(() => {
-                  const sweepCount = strategy.parameters.reduce((total, parameter) => {
-                    const parts = (form.params[parameter.name] ?? "")
-                      .split(",")
-                      .map(part => part.trim())
-                      .filter(Boolean);
-                    return total * Math.max(1, parts.length);
-                  }, 1);
-                  return (
-                    <button
-                      type="button"
-                      className="primary"
-                      disabled={busy || context.busy}
-                      onClick={() => void submit()}
-                    >
-                      {sweepCount > 1
-                        ? t("运行扫描（{count} 组）", { count: sweepCount })
-                        : t("运行")}
-                    </button>
-                  );
-                })()}
-                {saved.length > 0 && (
-                  <p className="subtle">
-                    {t("已保存 {files}", { files: saved.join(listSeparator()) })}
-                  </p>
-                )}
-                <ActionError error={submitted.error} namespace="asterion.terminal.research" />
-              </footer>
+                );
+              })()}
             </>
           )}
         </aside>

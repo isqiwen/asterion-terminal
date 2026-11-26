@@ -2583,6 +2583,65 @@ class BacktestSweeps(BacktestCase):
         self.assertEqual(by_sess["opening_15m"]["trades"], 1)
         self.assertEqual(by_sess["opening_15m"]["fills"], 1)
 
+    def test_embargoed_walk_forward_and_lhs_bayes_parameter_sweeps(self):
+        # Embargo inserts a clean gap between training_last_day and validation first_day.
+        self.assertEqual(rolling.rounds(30, 20, 4, embargo=2), [(22, 26), (26, 30)])
+        with self.assertRaises(ValueError):
+            rolling.rounds(22, 20, 2, embargo=2)
+        with self.assertRaises(ValueError):
+            rolling.normalize_objective("invalid")
+
+        async def exercise():
+            async with self.service() as service:
+                # 1. LHS search over 3x3=9 combinations capped at max_trials=4.
+                req_lhs = self.sweep_request("lhs-1", [2, 3, 4], [5, 6, 7], 2)
+                req_lhs.start_sweep.search_mode = "lhs"
+                req_lhs.start_sweep.max_trials = 4
+                req_lhs.start_sweep.seed = 42
+                reply = await service.reply(req_lhs)
+                self.assertEqual(reply.WhichOneof("result"), "start_sweep", reply.error.message)
+                deadline = time.monotonic() + 60
+                while time.monotonic() < deadline:
+                    poll = (await service.reply(Request(id=2, get_sweep={"id": "lhs-1"}))).get_sweep
+                    if not poll.active:
+                        break
+                    await asyncio.sleep(0.1)
+                self.assertFalse(poll.active)
+                self.assertEqual(len(poll.runs), 4)
+                self.assertEqual({r.state for r in poll.runs}, {SUCCEEDED})
+
+                # 2. Bayesian GP-EI sweep over 3x3=9 combinations across waves (max_trials=6, processes=2)
+                #    followed by embargoed walk-forward validation with objective="dsr".
+                req_bo = self.sweep_request("bo-1", [2, 3, 4], [5, 6, 7], 2)
+                req_bo.start_sweep.base.holdout_day = ""
+                req_bo.start_sweep.search_mode = "bayes"
+                req_bo.start_sweep.max_trials = 6
+                req_bo.start_sweep.seed = 77
+                req_bo.start_sweep.walk_forward.training_days = 20
+                req_bo.start_sweep.walk_forward.validation_days = 4
+                req_bo.start_sweep.walk_forward.embargo_days = 2
+                req_bo.start_sweep.walk_forward.objective = "dsr"
+                reply_bo = await service.reply(req_bo)
+                self.assertEqual(reply_bo.WhichOneof("result"), "start_sweep", reply_bo.error.message)
+                deadline = time.monotonic() + 90
+                while time.monotonic() < deadline:
+                    poll_bo = (await service.reply(Request(id=3, get_sweep={"id": "bo-1"}))).get_sweep
+                    if not poll_bo.active:
+                        break
+                    await asyncio.sleep(0.1)
+                self.assertFalse(poll_bo.active)
+                self.assertEqual(len(poll_bo.runs), 6)
+                self.assertEqual({r.state for r in poll_bo.runs}, {SUCCEEDED})
+                self.assertEqual(poll_bo.rolling.state, SUCCEEDED)
+                roll_rec = service.runs.record("bo-1-rolling")["statistics"]["rolling"]
+                self.assertEqual(roll_rec["embargo_days"], 2)
+                self.assertEqual(roll_rec["objective"], "dsr")
+                first_round = roll_rec["rounds"][0]
+                self.assertEqual(first_round["training_last_day"], DAYS[19].isoformat())
+                self.assertEqual(first_round["first_day"], DAYS[22].isoformat())
+
+        asyncio.run(exercise())
+
 
 if __name__ == "__main__":
     unittest.main()

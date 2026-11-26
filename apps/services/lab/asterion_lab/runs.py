@@ -261,6 +261,16 @@ class Runs:
                 [(sweep, n, run, json.dumps(params, sort_keys=True))
                  for n, (run, params) in enumerate(runs)])
 
+    def append_sweep(self, sweep: str, offset: int, runs: list):
+        """Append subsequent wave candidates (e.g. Bayesian optimization) to an existing sweep."""
+        self._require_schema()
+        with self.index:
+            self.index.execute("begin")
+            self.index.executemany(
+                "insert into sweeps (sweep, position, run, params) values (?, ?, ?, ?)",
+                [(sweep, offset + n, run, json.dumps(params, sort_keys=True))
+                 for n, (run, params) in enumerate(runs)])
+
     def sweep(self, sweep: str) -> list:
         """A sweep's runs in order, each with its parameter values; a run not
         started yet, or never started, has no state."""

@@ -548,5 +548,17 @@
   "早盘一": "Morning 1",
   "早盘二": "Morning 2",
   "午盘": "Afternoon",
-  "开盘 15m": "Open 15m"
+  "开盘 15m": "Open 15m",
+  "搜索方式": "Search mode",
+  "网格枚举": "Grid search",
+  "拉丁超立方 LHS": "Latin Hypercube (LHS)",
+  "贝叶斯优化 GP": "Bayesian GP-EI",
+  "最大采样组数": "Max trials",
+  "隔离带（交易日）": "Embargo (days)",
+  "选参目标": "Selection objective",
+  "排序依据": "Sort by",
+  "当前指标": "Metric",
+  "邻域高原": "Plateau median",
+  "行轴": "Row axis",
+  "列轴": "Col axis"
 }

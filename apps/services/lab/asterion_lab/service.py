@@ -22,7 +22,7 @@ from asterion.lab_pb2 import (AdmittedFactor, AdmittedRun, FactorResult, Reconci
                               Response, RollingRun, RunState, TaskKind)
 from asterion.strategy_pb2 import Bar, Warmup
 
-from asterion_lab import backtest, chart, dominant, pit, repository, package, rolling, worker
+from asterion_lab import backtest, chart, dominant, optimize, pit, repository, package, rolling, worker
 from asterion_lab.runs import BATCH_STRATEGY, IDENTITY, SLIPPAGE_STRESS, Runs
 from asterion_lab.warehouse import write_durably
 from asterion_lab.warehouse_client import Client, Dataset, WarehouseError
@@ -101,6 +101,24 @@ class Rolling:
     request: object  # RollingRun
     candidates: int
     starting: bool = False
+
+
+@dataclass
+class BayesSweep:
+    sweep_id: str
+    base: object  # AdmittedRun
+    names: list
+    axis_values: list  # list[list[ParameterValue]]
+    axis_coords: list  # list[list[float]]
+    max_trials: int
+    seed: int
+    limit: int
+    next_index: int
+    target_metric: str
+    planned_combos: dict  # run_id -> tuple[int, ...]
+    observed: dict  # tuple[int, ...] -> float
+    tried: set  # set[tuple[int, ...]]
+    advancing: bool = False
 
 
 def summary(item, row):
@@ -194,6 +212,7 @@ class Service:
         self.waiting = collections.deque()  # (sweep, AdmittedRun) not started yet
         self.processes = max(1, (os.cpu_count() or 2) - 1)
         self.rolling = {}  # sweep -> its RollingRun, until every candidate has ended
+        self.bayes = {}  # sweep -> active BayesSweep state across waves
         self.activity = {}  # run or sweep id -> metadata while active
         self.run_task = {}  # child run id -> owning sweep id
         self.recent_tasks = collections.deque(maxlen=12)  # session-completed tasks, newest first
@@ -892,7 +911,9 @@ class Service:
             members = await self.read(self.runs.sweep, request.sweep_id)
             plan = rolling.plan(config, config.dataset_version, request.sweep_id, members,
                                 request.walk_forward.training_days,
-                                request.walk_forward.validation_days, [])
+                                request.walk_forward.validation_days, [],
+                                request.walk_forward.embargo_days,
+                                request.walk_forward.objective)
         process = None
         try:
             process = await asyncio.create_subprocess_exec(
@@ -918,19 +939,99 @@ class Service:
         async with self.admission:
             await self.start_waiting()
 
+    def _materialize_combo(self, base, sweep_id: str, index: int, names: list, axis_values: list,
+                           combo: tuple[int, ...]):
+        run = AdmittedRun()
+        run.CopyFrom(base)
+        run.backtest.id = f"{sweep_id}-{index}"
+        swept = {}
+        for d, name in enumerate(names):
+            val = axis_values[d][combo[d]]
+            run.backtest.params[name].CopyFrom(val)
+            swept[name] = getattr(val, val.WhichOneof("value"))
+        return run, (run.backtest.id, swept)
+
     async def start_waiting(self):
-        """Starts waiting runs while fewer than the allowed number run, and a
-        sweep's rolling validation once all its candidates have ended.
+        """Starts waiting runs while fewer than the allowed number run, advances
+        active Bayesian optimization sweeps between waves, and starts a sweep's
+        rolling validation once all its candidates have ended.
         Called with the admission lock held."""
-        while self.waiting and len(self.backtests) < self.waiting[0][2]:
-            _, run, _ = self.waiting[0]
-            try:
-                await self.launch(run)
-            except Exception as error:
-                self.log.write("error", MODULE, "backtest.not_started", run=run.backtest.id,
-                               message=str(error))
-            self.waiting.popleft()
+        while True:
+            while self.waiting and len(self.backtests) < self.waiting[0][2]:
+                _, run, _ = self.waiting[0]
+                try:
+                    await self.launch(run)
+                except Exception as error:
+                    self.log.write("error", MODULE, "backtest.not_started", run=run.backtest.id,
+                                   message=str(error))
+                self.waiting.popleft()
+
+            advanced = False
+            for sweep, bayes in list(self.bayes.items()):
+                if bayes.advancing:
+                    continue
+                if any(item[0] == sweep for item in self.waiting):
+                    continue
+                if any(self.run_task.get(r) == sweep for r in self.backtests):
+                    continue
+                bayes.advancing = True
+                try:
+                    rows = await self.read(self.runs.sweep, sweep)
+                    for row in rows:
+                        combo = bayes.planned_combos.get(row["id"])
+                        if combo is None or combo in bayes.observed or row["state"] == "running":
+                            continue
+                        score = row["metrics"].get(bayes.target_metric)
+                        if score is None:
+                            score = row["metrics"].get("total_return")
+                        if score is None or not math.isfinite(float(score)):
+                            score = -10.0
+                        bayes.observed[combo] = float(score)
+                    remaining = bayes.max_trials - len(bayes.tried)
+                    if remaining <= 0:
+                        if sweep in self.rolling:
+                            self.rolling[sweep].candidates = bayes.next_index
+                        del self.bayes[sweep]
+                        continue
+                    wave = min(bayes.limit, remaining)
+                    next_combos = await asyncio.to_thread(
+                        optimize.gp_suggest,
+                        bayes.axis_coords,
+                        list(bayes.observed.items()),
+                        wave,
+                        tried=bayes.tried,
+                        seed=bayes.seed + len(bayes.tried),
+                    )
+                    if not next_combos:
+                        if sweep in self.rolling:
+                            self.rolling[sweep].candidates = bayes.next_index
+                        del self.bayes[sweep]
+                        continue
+                    offset = bayes.next_index
+                    new_runs, new_planned = [], []
+                    for pos, combo in enumerate(next_combos):
+                        run, planned_item = self._materialize_combo(
+                            bayes.base, sweep, offset + pos, bayes.names, bayes.axis_values, combo
+                        )
+                        backtest.config_of(run)
+                        new_runs.append(run)
+                        new_planned.append(planned_item)
+                        bayes.planned_combos[run.backtest.id] = combo
+                        bayes.tried.add(combo)
+                    bayes.next_index += len(new_runs)
+                    await asyncio.to_thread(self.runs.append_sweep, sweep, offset, new_planned)
+                    for run in new_runs:
+                        self.run_task[run.backtest.id] = sweep
+                    self.waiting.extend((sweep, run, bayes.limit) for run in new_runs)
+                    advanced = True
+                finally:
+                    bayes.advancing = False
+            if not advanced:
+                break
+
         for sweep, pending in list(self.rolling.items()):
+            if sweep in self.bayes:
+                continue
             members = {f"{sweep}-{n}" for n in range(pending.candidates)}
             if pending.starting or any(item[0] == sweep for item in self.waiting) \
                     or members & set(self.backtests):
@@ -991,16 +1092,23 @@ class Service:
             raise ValueError("a slippage stress sweep runs two or more distinct tick levels")
         if not batch and not slippages and not names and len(symbols) < 2:
             raise ValueError("a sweep varies parameters, slippage or two or more symbols")
+        search_mode = request.search_mode or "grid"
+        if search_mode not in ("grid", "lhs", "bayes"):
+            raise ValueError(f"unknown sweep search_mode: {search_mode!r}")
+        if search_mode != "grid" and (batch or slippages or len(symbols) > 1 or not names):
+            raise ValueError(f"{search_mode} search requires parameter values on a single symbol set")
         symbol_items = symbols or [None]
         slippage_items = slippages or [None]
-        count = len(symbol_items) * len(slippage_items) * math.prod(len(item.values) for item in request.values)
-        if count > 10000:
-            raise ValueError(f"a sweep runs at most 10000 combinations, not {count}")
-        combinations = (
-            list(itertools.product(*[list(item.values) for item in request.values]))
-            if names
-            else [()]
-        )
+        axis_values = [list(item.values) for item in request.values]
+        axis_lengths = [len(vals) for vals in axis_values]
+        total_space = len(symbol_items) * len(slippage_items) * math.prod(axis_lengths)
+        if search_mode == "grid":
+            if total_space > 10000:
+                raise ValueError(f"a sweep runs at most 10000 combinations, not {total_space}")
+        else:
+            max_trials = min(request.max_trials or 32, total_space)
+            if max_trials < 2 or max_trials > 10000:
+                raise ValueError("lhs and bayes sweeps require 2 to 10000 trials")
         if request.HasField("walk_forward") and len(symbols) > 1:
             raise ValueError("rolling validation compares parameter values on the same symbols")
         backtest.config_of(AdmittedRun(backtest=request.base))
@@ -1019,70 +1127,113 @@ class Service:
             )
         base = await asyncio.to_thread(self.with_source, base, f"sweep-{request.id}",
                                        [item.strategy for item in batch])
+        limit = min(request.processes, os.cpu_count() or 1) if request.processes else self.processes
+        seed = int(request.seed) if request.seed else optimize.DEFAULT_SEED
+        bayes_state = None
         runs, planned = [], []
-        for symbol in symbol_items:
-            span = (
-                stored_span(found, [symbol], is_minutes)
-                if symbol and found is not None
-                else None
-            )
-            for values, choice, slip in itertools.product(combinations, batch or [None], slippage_items):
-                n = len(runs)
-                run = AdmittedRun()
-                run.CopyFrom(base)
-                run.backtest.id = f"{request.id}-{n}"
-                if symbol is not None:
-                    del run.backtest.symbols[:]
-                    run.backtest.symbols.append(symbol)
-                    if span is not None:
-                        if not run.backtest.first_day:
-                            run.backtest.first_day = span[0]
-                        if not run.backtest.last_day:
-                            run.backtest.last_day = span[1]
-                for name, value in zip(names, values):
-                    run.backtest.params[name].CopyFrom(value)
-                swept = {name: getattr(value, value.WhichOneof("value"))
-                         for name, value in zip(names, values)}
-                if choice:
-                    run.backtest.strategy = choice.strategy
-                    run.backtest.params.clear()
-                    for name, value in choice.params.items():
+        if search_mode == "grid":
+            combinations = list(itertools.product(*axis_values)) if names else [()]
+            for symbol in symbol_items:
+                span = (
+                    stored_span(found, [symbol], is_minutes)
+                    if symbol and found is not None
+                    else None
+                )
+                for values, choice, slip in itertools.product(combinations, batch or [None], slippage_items):
+                    n = len(runs)
+                    run = AdmittedRun()
+                    run.CopyFrom(base)
+                    run.backtest.id = f"{request.id}-{n}"
+                    if symbol is not None:
+                        del run.backtest.symbols[:]
+                        run.backtest.symbols.append(symbol)
+                        if span is not None:
+                            if not run.backtest.first_day:
+                                run.backtest.first_day = span[0]
+                            if not run.backtest.last_day:
+                                run.backtest.last_day = span[1]
+                    for name, value in zip(names, values):
                         run.backtest.params[name].CopyFrom(value)
-                    swept[BATCH_STRATEGY] = choice.strategy
-                if slip is not None:
-                    run.backtest.slippage_ticks = slip
-                    swept[SLIPPAGE_STRESS] = slip
+                    swept = {name: getattr(value, value.WhichOneof("value"))
+                             for name, value in zip(names, values)}
+                    if choice:
+                        run.backtest.strategy = choice.strategy
+                        run.backtest.params.clear()
+                        for name, value in choice.params.items():
+                            run.backtest.params[name].CopyFrom(value)
+                        swept[BATCH_STRATEGY] = choice.strategy
+                    if slip is not None:
+                        run.backtest.slippage_ticks = slip
+                        swept[SLIPPAGE_STRESS] = slip
+                    runs.append(run)
+                    planned.append((run.backtest.id, swept))
+        elif search_mode == "lhs":
+            sampled = optimize.lhs_sample(axis_lengths, max_trials, seed=seed)
+            for idx, combo in enumerate(sampled):
+                run, planned_item = self._materialize_combo(base, request.id, idx, names, axis_values, combo)
                 runs.append(run)
-                planned.append((run.backtest.id, swept))
+                planned.append(planned_item)
+        else:
+            init_n = min(max_trials, max(4, min(limit * 2, len(names) * 2 + 2)))
+            initial_combos = optimize.lhs_sample(axis_lengths, init_n, seed=seed)
+            planned_combos = {}
+            for idx, combo in enumerate(initial_combos):
+                run, planned_item = self._materialize_combo(base, request.id, idx, names, axis_values, combo)
+                runs.append(run)
+                planned.append(planned_item)
+                planned_combos[run.backtest.id] = combo
+            axis_coords = [
+                optimize.encode_axis([getattr(v, v.WhichOneof("value")) for v in vals])
+                for vals in axis_values
+            ]
+            target_metric = "development_sharpe" if request.base.holdout_day else "sharpe"
+            bayes_state = BayesSweep(
+                sweep_id=request.id,
+                base=base,
+                names=names,
+                axis_values=axis_values,
+                axis_coords=axis_coords,
+                max_trials=max_trials,
+                seed=seed,
+                limit=limit,
+                next_index=len(runs),
+                target_metric=target_metric,
+                planned_combos=planned_combos,
+                observed={},
+                tried=set(initial_combos),
+            )
         await self.checked_run(runs[0].backtest)
         for run in runs[1:]:
             self.check_run_id(run.backtest.id)
             backtest.config_of(run)
-        rolling = None
+        rolling_run = None
         if request.HasField("walk_forward"):
-            if request.base.holdout_day or len(runs) < 2:
+            if request.base.holdout_day or (len(runs) < 2 and not bayes_state):
                 raise ValueError("rolling validation compares two or more candidates and takes no holdout")
             if not request.base.periods_per_year or not request.base.zero_risk_free_rate:
                 raise ValueError("rolling validation requires periods_per_year and zero_risk_free_rate")
             if request.walk_forward.training_days < 20 or request.walk_forward.validation_days < 1:
                 raise ValueError("rolling validation needs at least 20 training days and one validation day")
-            rolling = RollingRun(id=f"{request.id}-rolling", sweep_id=request.id, base=base,
-                                 walk_forward=request.walk_forward)
-            self.check_run_id(rolling.id)
+            rolling.normalize_objective(request.walk_forward.objective)
+            rolling_run = RollingRun(id=f"{request.id}-rolling", sweep_id=request.id, base=base,
+                                     walk_forward=request.walk_forward)
+            self.check_run_id(rolling_run.id)
         await asyncio.to_thread(self.runs.plan_sweep, request.id, planned)
-        limit = min(request.processes, os.cpu_count() or 1) if request.processes else self.processes
         kind = "batch" if batch else ("slippage" if slippages else "sweep")
+        total_planned = bayes_state.max_trials if bayes_state else len(runs)
         self.activity[request.id] = dict(
             id=request.id, kind=kind, strategy="" if batch else request.base.strategy,
             symbols=list(symbols or request.base.symbols),
-            total=len(runs) + (1 if rolling else 0),
-            started_ms=int(time.time() * 1000), has_rolling=bool(rolling),
+            total=total_planned + (1 if rolling_run else 0),
+            started_ms=int(time.time() * 1000), has_rolling=bool(rolling_run),
         )
         for run in runs:
             self.run_task[run.backtest.id] = request.id
-        if rolling:
-            self.run_task[rolling.id] = request.id
-            self.rolling[request.id] = Rolling(rolling, len(runs))
+        if bayes_state:
+            self.bayes[request.id] = bayes_state
+        if rolling_run:
+            self.run_task[rolling_run.id] = request.id
+            self.rolling[request.id] = Rolling(rolling_run, total_planned)
         self.waiting.extend((request.id, run, limit) for run in runs)
         await self.start_waiting()
 
@@ -1090,6 +1241,7 @@ class Service:
         members = {row["id"] for row in await self.read(self.runs.sweep, request.id)}
         members.add(f"{request.id}-rolling")
         self.waiting = collections.deque(item for item in self.waiting if item[0] != request.id)
+        self.bayes.pop(request.id, None)
         self.rolling.pop(request.id, None)
         running_members = members & set(self.backtests)
         for identity in members - running_members:
@@ -1129,7 +1281,9 @@ class Service:
         if rolling:
             summary(reply.rolling, rolling)
         members = {row["id"] for row in rows} | {f"{request.id}-rolling"}
-        reply.active = bool(waiting or members & set(self.backtests) or request.id in self.rolling)
+        reply.active = bool(
+            waiting or members & set(self.backtests) or request.id in self.rolling or request.id in self.bayes
+        )
         if not reply.active:
             pbo_res = await self.read(self._sweep_pbo, rows)
             if pbo_res is not None:
@@ -1283,7 +1437,11 @@ class Service:
             ))
             return
         still_running = any(self.run_task.get(r) == sweep_id for r in self.backtests)
-        still_queued = any(item[0] == sweep_id for item in self.waiting) or sweep_id in self.rolling
+        still_queued = (
+            any(item[0] == sweep_id for item in self.waiting)
+            or sweep_id in self.rolling
+            or sweep_id in self.bayes
+        )
         if still_running or still_queued:
             return
         meta = self.activity.pop(sweep_id, None)
@@ -1324,8 +1482,16 @@ class Service:
                 )
             else:
                 running = sum(1 for r in self.backtests if self.run_task.get(r) == task_id)
-                queued = sum(1 for item in self.waiting if item[0] == task_id) \
+                bayes_rem = (
+                    max(0, self.bayes[task_id].max_trials - len(self.bayes[task_id].tried))
+                    if task_id in self.bayes
+                    else 0
+                )
+                queued = (
+                    sum(1 for item in self.waiting if item[0] == task_id)
+                    + bayes_rem
                     + (1 if task_id in self.rolling else 0)
+                )
                 info = await self.read(self._sweep_info, task_id, meta, running, queued)
             self._write_task(reply.active.add(), info)
         for info in list(self.recent_tasks):
@@ -1360,7 +1526,7 @@ class Service:
                 members = [item["id"] for item in await self.read(self.runs.sweep, sweep)]
                 members.append(f"{sweep}-rolling")
             if set(members) & set(self.backtests) or sweep and (
-                    sweep in self.rolling or any(item[0] == sweep for item in self.waiting)):
+                    sweep in self.rolling or sweep in self.bayes or any(item[0] == sweep for item in self.waiting)):
                 raise ValueError("a running or waiting run cannot be deleted")
             await asyncio.to_thread(self.runs.delete, members)
             await asyncio.to_thread(self.remove_sources, *[f"run-{item}" for item in members],
@@ -1440,5 +1606,6 @@ class Service:
         result.strategies.extend(strategies)
         for row in rows:
             row["sweep_running"] = row.get("sweep_running", False) or any(
-                item[0] == row["sweep"] for item in self.waiting) or row["sweep"] in self.rolling
+                item[0] == row["sweep"] for item in self.waiting
+            ) or row["sweep"] in self.rolling or row["sweep"] in self.bayes
             summary(result.runs.add(), row)

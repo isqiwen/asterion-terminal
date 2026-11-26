@@ -64,6 +64,10 @@ export type RunForm = {
   holdoutDay: string;
   trainingDays: string;
   validationDays: string;
+  embargoDays?: string;
+  rollingObjective?: "sharpe" | "dsr" | "calmar" | "total_return";
+  sweepMode?: "grid" | "lhs" | "bayes";
+  maxTrials?: string;
   processes: string;
 };
 
@@ -93,6 +97,10 @@ export function defaultForm(): RunForm {
     holdoutDay: "",
     trainingDays: "60",
     validationDays: "20",
+    embargoDays: "0",
+    rollingObjective: "sharpe",
+    sweepMode: "grid",
+    maxTrials: "24",
     processes: defaultProcesses(),
   };
 }
@@ -365,7 +373,13 @@ export function formFromRun(detail: RunDetail): { strategy: string; form: RunFor
   };
   const holdoutDay = String(record.statistics?.holdout_day ?? "");
   const rolling = record.statistics?.rolling as
-    { training_days?: number; validation_days?: number } | undefined;
+    | {
+        training_days?: number;
+        validation_days?: number;
+        embargo_days?: number;
+        objective?: "sharpe" | "dsr" | "calmar" | "total_return";
+      }
+    | undefined;
   const symbolList = (record.data?.symbols as string[] | undefined) ?? summary?.symbols ?? [];
   return {
     strategy,
@@ -404,6 +418,9 @@ export function formFromRun(detail: RunDetail): { strategy: string; form: RunFor
         rolling?.validation_days !== undefined
           ? String(rolling.validation_days)
           : base.validationDays,
+      embargoDays:
+        rolling?.embargo_days !== undefined ? String(rolling.embargo_days) : base.embargoDays,
+      rollingObjective: rolling?.objective ?? base.rollingObjective,
     },
   };
 }

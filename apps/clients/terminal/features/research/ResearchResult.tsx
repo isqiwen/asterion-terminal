@@ -2287,7 +2287,10 @@ export function SweepResult({
   const [measure, setMeasure] = useState<string>(
     runs.some(run => "development_sharpe" in run.metrics) ? "development_sharpe" : "sharpe",
   );
-  const rows = runs.map(run => ({
+  const [sortBy, setSortBy] = useState<"metric" | "plateau">("metric");
+  const [rowAxisChoice, setRowAxisChoice] = useState("");
+  const [colAxisChoice, setColAxisChoice] = useState("");
+  const baseRows = runs.map(run => ({
     id: run.id,
     state: runState(run.state),
     symbols: formatSymbols(run.symbols),
@@ -2301,14 +2304,10 @@ export function SweepResult({
       ]),
     ]),
     metric: run.metrics[measure] ?? null,
+    plateau: null as number | null,
   }));
   const lowerBetter = /drawdown|volatility|ulcer/.test(measure);
-  const ranked = [...rows].sort((a, b) => {
-    if (a.metric === null) return 1;
-    if (b.metric === null) return -1;
-    return lowerBetter ? a.metric - b.metric : b.metric - a.metric;
-  });
-  const sweptParams = names.filter(name => new Set(rows.map(row => row.params[name])).size > 1);
+  const sweptParams = names.filter(name => new Set(baseRows.map(row => row.params[name])).size > 1);
   const sweptAxes = [...(hasSymbols ? [symbolAxis] : []), ...sweptParams];
   const axisLabel = (axis: string) =>
     axis === symbolAxis
@@ -2319,15 +2318,106 @@ export function SweepResult({
           ? t("滑点（跳）")
           : axis;
   const isSlippage = names.length === 1 && names[0] === slippageKey;
-  const grid = sweptAxes.length === 2 ? heatmap(rows, sweptAxes[0]!, sweptAxes[1]!) : null;
-  const cellRuns = grid
-    ? new Map(rows.map(row => [`${row.params[sweptAxes[0]!]}\0${row.params[sweptAxes[1]!]}`, row]))
-    : null;
+  const pureMultiSymbol = (hasSymbols && names.length === 0) || names[0] === batchKey || isSlippage;
+  const hasPlateau = !pureMultiSymbol && !isSlippage && sweptAxes.length >= 1;
+
+  // Compute N-D immediate grid neighborhood median (Chebyshev distance 1) per candidate.
+  const axisOrder = new Map(
+    sweptAxes.map(axis => {
+      const sortedVals = [...new Set(baseRows.map(row => row.params[axis]))].sort(
+        (a, b) => Number(a) - Number(b) || a.localeCompare(b),
+      );
+      return [axis, new Map(sortedVals.map((val, idx) => [val, idx]))];
+    }),
+  );
+  const coords = hasPlateau
+    ? baseRows.map(row => sweptAxes.map(axis => axisOrder.get(axis)?.get(row.params[axis]) ?? 0))
+    : [];
+  const neighborMetricsOf = (
+    idx: number,
+    valueAt: (rowIndex: number) => number | null | undefined,
+  ) => {
+    const ci = coords[idx]!;
+    const axial: number[] = [];
+    const diagonal: number[] = [];
+    for (let j = 0; j < baseRows.length; j++) {
+      if (idx === j) continue;
+      const val = valueAt(j);
+      if (val === null || val === undefined || !Number.isFinite(val)) continue;
+      const cj = coords[j]!;
+      let manhattan = 0;
+      let maxDiff = 0;
+      for (let d = 0; d < ci.length; d++) {
+        const diff = Math.abs(ci[d]! - cj[d]!);
+        manhattan += diff;
+        if (diff > maxDiff) maxDiff = diff;
+      }
+      if (manhattan === 1) axial.push(val);
+      else if (maxDiff <= 1) diagonal.push(val);
+    }
+    return axial.length > 0 ? axial : diagonal;
+  };
+  const rows = baseRows.map((row, i) => {
+    if (!hasPlateau) return row;
+    return { ...row, plateau: medianValue(neighborMetricsOf(i, j => baseRows[j]!.metric)) };
+  });
+
+  const plateauRankScore = (row: (typeof rows)[number]) => {
+    if (row.metric === null) return null;
+    if (row.plateau === null) return row.metric;
+    return lowerBetter ? Math.max(row.metric, row.plateau) : Math.min(row.metric, row.plateau);
+  };
+  const ranked = [...rows].sort((a, b) => {
+    const va = sortBy === "plateau" && hasPlateau ? plateauRankScore(a) : a.metric;
+    const vb = sortBy === "plateau" && hasPlateau ? plateauRankScore(b) : b.metric;
+    if (va === null) return 1;
+    if (vb === null) return -1;
+    if (va !== vb) return lowerBetter ? va - vb : vb - va;
+    if (a.metric === null) return 1;
+    if (b.metric === null) return -1;
+    return lowerBetter ? a.metric - b.metric : b.metric - a.metric;
+  });
+
+  // Selectable 2D projection heatmap for 2D or higher-dimensional sweeps.
+  const rowAxis =
+    sweptAxes.length >= 2
+      ? sweptAxes.includes(rowAxisChoice)
+        ? rowAxisChoice
+        : sweptAxes[0]!
+      : "";
+  const colAxis =
+    sweptAxes.length >= 2
+      ? sweptAxes.includes(colAxisChoice) && colAxisChoice !== rowAxis
+        ? colAxisChoice
+        : (sweptAxes.find(axis => axis !== rowAxis) ?? "")
+      : "";
+  const heatmapProjection = (() => {
+    if (!rowAxis || !colAxis) return null;
+    const bestByCell = new Map<string, (typeof rows)[number]>();
+    for (const row of rows) {
+      const key = `${row.params[rowAxis]}\0${row.params[colAxis]}`;
+      const existing = bestByCell.get(key);
+      if (!existing) {
+        bestByCell.set(key, row);
+        continue;
+      }
+      if (
+        row.metric !== null &&
+        (existing.metric === null ||
+          (lowerBetter ? row.metric < existing.metric : row.metric > existing.metric))
+      ) {
+        bestByCell.set(key, row);
+      }
+    }
+    const projected = [...bestByCell.values()];
+    return { grid: heatmap(projected, rowAxis, colAxis), cellRuns: bestByCell };
+  })();
+  const grid = heatmapProjection?.grid ?? null;
+  const cellRuns = heatmapProjection?.cellRuns ?? null;
   const values = rows.flatMap(row => (row.metric === null ? [] : [row.metric]));
   const low = Math.min(...values),
     high = Math.max(...values);
   const percent = percentMetric(measure);
-  const pureMultiSymbol = (hasSymbols && names.length === 0) || names[0] === batchKey || isSlippage;
   const extraMeasure = !["total_return", "sharpe", "max_drawdown"].includes(measure);
 
   const slippageSummary = isSlippage
@@ -2342,7 +2432,7 @@ export function SweepResult({
       )
     : null;
 
-  // Parameter sweep overfitting check: Deflated Sharpe Ratio & immediate grid neighbor median.
+  // Parameter sweep overfitting check: Deflated Sharpe Ratio & N-D grid neighbor median around best Sharpe.
   const sweepCheck = (() => {
     if (pureMultiSymbol || isSlippage) return null;
     const sharpeKey = runs.some(r => "development_sharpe" in r.metrics)
@@ -2365,56 +2455,21 @@ export function SweepResult({
       : 252;
     const dsr = deflatedSharpeRatio(bestSharpe, sharpes, daysEstimate);
 
-    // Plateau robustness: median Sharpe of immediate grid neighbors around the best parameter cell.
     let neighborMedian: number | null = null;
-    if (sweptAxes.length === 2) {
-      const sGrid = heatmap(
-        rows.map(row => ({ params: row.params, metric: row.metrics[sharpeKey] ?? null })),
-        sweptAxes[0]!,
-        sweptAxes[1]!,
-      );
-      let bestRow = -1;
-      let bestCol = -1;
-      let bestVal = -Infinity;
-      sGrid.cells.forEach((rowCells, r) =>
-        rowCells.forEach((val, c) => {
-          if (val !== null && val > bestVal) {
-            bestVal = val;
-            bestRow = r;
-            bestCol = c;
-          }
-        }),
-      );
-      if (bestRow >= 0 && bestCol >= 0) {
-        const neighbors: number[] = [];
-        for (let dr = -1; dr <= 1; dr++) {
-          for (let dc = -1; dc <= 1; dc++) {
-            if (dr === 0 && dc === 0) continue;
-            const v = sGrid.cells[bestRow + dr]?.[bestCol + dc];
-            if (v !== null && v !== undefined && Number.isFinite(v)) neighbors.push(v);
-          }
-        }
-        neighborMedian = medianValue(neighbors);
-      }
-    } else if (sweptAxes.length === 1) {
-      const axis = sweptAxes[0]!;
-      const ordered = [...rows]
-        .filter(row => row.metrics[sharpeKey] !== undefined)
-        .sort((a, b) => Number(a.params[axis]) - Number(b.params[axis]));
+    if (sweptAxes.length >= 1) {
       let bestIdx = -1;
       let bestVal = -Infinity;
-      ordered.forEach((row, idx) => {
-        const v = row.metrics[sharpeKey]!;
-        if (v > bestVal) {
+      baseRows.forEach((row, idx) => {
+        const v = row.metrics[sharpeKey];
+        if (v !== undefined && Number.isFinite(v) && v > bestVal) {
           bestVal = v;
           bestIdx = idx;
         }
       });
       if (bestIdx >= 0) {
-        const neighbors = [ordered[bestIdx - 1], ordered[bestIdx + 1]]
-          .filter((item): item is (typeof ordered)[number] => Boolean(item))
-          .map(item => item.metrics[sharpeKey]!);
-        neighborMedian = medianValue(neighbors);
+        neighborMedian = medianValue(
+          neighborMetricsOf(bestIdx, j => baseRows[j]!.metrics[sharpeKey]),
+        );
       }
     }
     const plateauRatio =
@@ -2502,6 +2557,56 @@ export function SweepResult({
             ))}
           </select>
         </label>
+        {hasPlateau && (
+          <label className="lab-inline">
+            {t("排序依据")}
+            <select
+              value={sortBy}
+              onChange={event => setSortBy(event.target.value as "metric" | "plateau")}
+            >
+              <option value="metric">{t("当前指标")}</option>
+              <option value="plateau">{t("邻域高原")}</option>
+            </select>
+          </label>
+        )}
+        {sweptAxes.length >= 3 && (
+          <>
+            <label className="lab-inline">
+              {t("行轴")}
+              <select
+                value={rowAxis}
+                onChange={event => {
+                  const next = event.target.value;
+                  setRowAxisChoice(next);
+                  if (next === colAxis) setColAxisChoice(rowAxis);
+                }}
+              >
+                {sweptAxes.map(axis => (
+                  <option key={axis} value={axis}>
+                    {axisLabel(axis)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="lab-inline">
+              {t("列轴")}
+              <select
+                value={colAxis}
+                onChange={event => {
+                  const next = event.target.value;
+                  setColAxisChoice(next);
+                  if (next === rowAxis) setRowAxisChoice(colAxis);
+                }}
+              >
+                {sweptAxes.map(axis => (
+                  <option key={axis} value={axis}>
+                    {axisLabel(axis)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        )}
         {rolling && (
           <button type="button" className="lab-link" onClick={rolling}>
             {t("查看滚动验证的账户")}
@@ -2514,7 +2619,7 @@ export function SweepResult({
             <thead>
               <tr>
                 <th scope="col">
-                  {axisLabel(sweptAxes[0]!)} \ {axisLabel(sweptAxes[1]!)}
+                  {axisLabel(rowAxis)} \ {axisLabel(colAxis)}
                 </th>
                 {grid.columns.map(column => (
                   <th scope="col" key={column}>
@@ -2553,7 +2658,7 @@ export function SweepResult({
                           <button
                             type="button"
                             className="lab-heatmap-cell"
-                            title={`${axisLabel(sweptAxes[0]!)}=${row}, ${axisLabel(sweptAxes[1]!)}=${column} · ${metricLabel(measure)}: ${text}`}
+                            title={`${axisLabel(rowAxis)}=${row}, ${axisLabel(colAxis)}=${column} · ${metricLabel(measure)}: ${text}`}
                             onClick={() => open(match.id)}
                           >
                             {text}
@@ -2579,6 +2684,7 @@ export function SweepResult({
           (pureMultiSymbol ? 1 : 0) +
           3 +
           (extraMeasure ? 1 : 0) +
+          (hasPlateau ? 1 : 0) +
           1
         }
         headers={
@@ -2605,6 +2711,11 @@ export function SweepResult({
                 {metricLabel(measure)}
               </th>
             )}
+            {hasPlateau && (
+              <th scope="col" className="numeric">
+                {t("邻域中位")}
+              </th>
+            )}
             <th scope="col">{t("状态")}</th>
           </tr>
         }
@@ -2629,6 +2740,11 @@ export function SweepResult({
             <td className="numeric">{metric(row.metrics.max_drawdown, true)}</td>
             {extraMeasure && (
               <td className="numeric">{row.metric === null ? "—" : metric(row.metric, percent)}</td>
+            )}
+            {hasPlateau && (
+              <td className="numeric">
+                {row.plateau === null ? "—" : metric(row.plateau, percent)}
+              </td>
             )}
             <td>
               {row.state === "succeeded" ? (

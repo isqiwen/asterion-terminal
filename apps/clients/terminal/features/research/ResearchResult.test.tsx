@@ -652,6 +652,55 @@ test("sweep result renders slippage break-even summary and parameter overfitting
   expect(screen.getByText("0.620")).toBeTruthy();
 });
 
+test("3D sweep renders selectable 2D heatmap axes and plateau-robustness sorting", () => {
+  // 2x2x2 sweep where (a=1, b=1, c=1) is a fragile spike (2.5 with poor neighbors 0.1)
+  // while (a=2, b=2, c=2) sits on a strong plateau (2.0 with neighbors ~1.8).
+  const cases = [
+    ["r0", 1, 1, 1, 2.5],
+    ["r1", 1, 1, 2, 0.1],
+    ["r2", 1, 2, 1, 0.1],
+    ["r3", 2, 1, 1, 0.1],
+    ["r4", 1, 2, 2, 1.8],
+    ["r5", 2, 1, 2, 1.8],
+    ["r6", 2, 2, 1, 1.8],
+    ["r7", 2, 2, 2, 2.0],
+  ] as const;
+  render(
+    <SweepResult
+      runs={cases.map(([id, a, b, c, sharpe]) =>
+        create(RunSummarySchema, {
+          id,
+          state: RunState.SUCCEEDED,
+          firstDay: "2024-01-02",
+          lastDay: "2026-01-02",
+          params: {
+            a: { value: { case: "integer", value: BigInt(a) } },
+            b: { value: { case: "integer", value: BigInt(b) } },
+            c: { value: { case: "integer", value: BigInt(c) } },
+          },
+          metrics: { sharpe, total_return: sharpe * 0.1, max_drawdown: 0.05 },
+        }),
+      )}
+      selected=""
+      open={vi.fn()}
+    />,
+  );
+  // 3D sweep shows selectable heatmap axis pickers and renders the 2D projection heatmap.
+  expect(screen.getByLabelText("行轴")).toBeTruthy();
+  expect(screen.getByLabelText("列轴")).toBeTruthy();
+  expect(screen.getByRole("table", { name: "参数热力图" })).toBeTruthy();
+
+  // Switch column axis to c and sort by plateau robustness -> plateau candidate r7 rises above spike r0.
+  fireEvent.change(screen.getByLabelText("列轴"), { target: { value: "c" } });
+  expect(
+    within(screen.getByRole("table", { name: "参数热力图" })).getByText("a \\ c"),
+  ).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("排序依据"), { target: { value: "plateau" } });
+  const ranking = screen.getByRole("region", { name: "排名" });
+  const firstRow = within(ranking).getAllByRole("row")[1]!;
+  expect(firstRow.textContent).toContain("2.000");
+});
+
 test("run comparison computes correlation matrix, portfolio simulation, and generates a CombinedStrategy", async () => {
   const saved: Array<{ path?: string; content?: string }> = [];
   const onGenerated = vi.fn();

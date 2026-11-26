@@ -511,6 +511,12 @@ message Sweep {
   repeated SweepStrategy strategies = 7;
   // A slippage stress test: one base run across distinct tick levels.
   repeated uint32 slippage_ticks = 8;
+  // Parameter search mode: "" or "grid", "lhs" (Latin Hypercube), or "bayes" (GP Expected Improvement).
+  string search_mode = 9;
+  // Maximum trials for "lhs" / "bayes" search (0 uses min(32, total combinations)).
+  uint32 max_trials = 10;
+  // Deterministic RNG seed for "lhs" / "bayes" search (0 uses default).
+  uint32 seed = 11;
 }
 
 message SweepStrategy {
@@ -524,10 +530,14 @@ message ParameterValues {
   repeated strategy.ParameterValue values = 2;
 }
 
-// Each round picks by the Sharpe ratio of training_days, then follows it.
+// Each round picks by the training objective over training_days (optionally separated by embargo_days), then follows it.
 message WalkForward {
   uint32 training_days = 1;
   uint32 validation_days = 2;
+  // Trading-day gap between training end and validation start (purging/embargo); 0 disables.
+  uint32 embargo_days = 3;
+  // Selection objective: "" or "sharpe", "dsr", "calmar", or "total_return".
+  string objective = 4;
 }
 
 message SweepRuns {
