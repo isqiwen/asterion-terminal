@@ -2176,6 +2176,76 @@ TEST_F(Acquisition, AnUpdateBackfillsInteriorGapsAndFollowsRolledDominantMinutes
         std::vector<std::string>{"SHFE/rb/2027-05"});
 }
 
+TEST_F(Acquisition, AnUpdateFollowsDominantIndependentlyOfCollectedMonths)
+{
+    wh::Store research(wh::source_directory(root, "research"), "research");
+    const std::vector<std::string>
+        days{"2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30"};
+    const std::map<std::string, std::vector<std::string>> interests{
+        {"2027-01", {"2000", "2000", "2000", "1200", "1200"}},
+        {"2027-03", {"9000", "100", "100", "100", "9000"}},
+        {"2027-05", {"1500", "1500", "1500", "2500", "2500"}},
+        {"2027-10", {"10", "10", "10", "10", "10"}},
+    };
+    {
+        auto writer = research.writer();
+        std::vector<wh::CalendarDay> calendar;
+        std::vector<wh::Contract> contracts;
+        for (const auto& [month, _] : interests)
+            contracts.push_back(
+                {.exchange = "SHFE",
+                    .contract = "SHFE/rb/" + month,
+                    .product = "rb",
+                    .delivery_month = month,
+                    .list_date = "2026-01-01",
+                    .delist_date = month + "-15"});
+        writer.put("contracts/SHFE", wh::rows(contracts));
+        for (std::size_t i = 0; i < days.size(); ++i) {
+            const auto& day = days[i];
+            calendar.push_back({"SHFE", day, true, {}});
+            std::vector<wh::DailyBar> daily;
+            for (const auto& [month, values] : interests)
+                daily.push_back(
+                    {.exchange = "SHFE",
+                        .product = "rb",
+                        .contract = "SHFE/rb/" + month,
+                        .day = day,
+                        .settlement = std::string("3000"),
+                        .open_interest = values[i]});
+            writer.put("daily/SHFE/" + day, wh::rows(daily), {day});
+            writer.put(
+                "settlement/SHFE/" + day,
+                wh::rows(std::vector<wh::Settlement>{{"SHFE", "rb", "SHFE/rb/2027-01", day}}));
+            if (day >= "2026-10-28")
+                writer.put(
+                    "minutes/SHFE/" + day + "/rb/2027-10",
+                    wh::rows(std::vector<wh::MinuteBar>{{"SHFE", "rb", "SHFE/rb/2027-10", day}}));
+        }
+        writer.put("calendar/SHFE/2026", wh::rows(calendar));
+        writer.commit();
+    }
+    auto requests = market_requests(root, days.back(), "far-collected");
+    ASSERT_EQ(requests.size(), 1);
+    EXPECT_EQ(requests[0].table(), ac::wire::TABLE_MINUTES);
+    ASSERT_EQ(requests[0].first_days_size(), 2);
+    EXPECT_EQ(requests[0].first_days().at("SHFE/rb/2027-01"), "2026-10-28");
+    EXPECT_EQ(requests[0].first_days().at("SHFE/rb/2027-05"), "2026-10-29");
+    {
+        auto writer = research.writer();
+        for (const auto& day : days)
+            if (day >= "2026-10-28")
+                writer.put(
+                    "minutes/SHFE/" + day + "/rb/2027-01",
+                    wh::rows(std::vector<wh::MinuteBar>{{"SHFE", "rb", "SHFE/rb/2027-01", day}}));
+        writer.commit();
+    }
+    requests = market_requests(root, days.back(), "near-and-far-collected");
+    ASSERT_EQ(requests.size(), 1);
+    EXPECT_EQ(requests[0].instruments_size(), 1);
+    EXPECT_EQ(requests[0].instruments(0), "SHFE/rb/2027-05");
+    EXPECT_EQ(requests[0].first_day(), "2026-10-29");
+}
+
 TEST_F(Acquisition, RemoteTasksAreSharedByRegisteredClientsAndSurviveDisconnect)
 {
     testing_support::WarehouseHost host(root);

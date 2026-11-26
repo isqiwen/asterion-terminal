@@ -135,7 +135,6 @@ std::map<std::string, std::string> rolled_dominant_minutes(
     const std::string& through)
 {
     std::set<std::string> held_contracts;
-    std::map<std::string, std::string> latest_contract;
     std::map<std::string, std::string> first_minute;
     for (auto at = version.partitions.lower_bound("minutes/");
         at != version.partitions.end() && at->first.starts_with("minutes/");
@@ -155,22 +154,18 @@ std::map<std::string, std::string> rolled_dominant_minutes(
         const auto contract = exchange + '/' + product + '/' + delivery;
         const auto prod_key = exchange + '/' + product;
         held_contracts.insert(contract);
-        auto& latest = latest_contract[prod_key];
-        if (latest.empty() || contract > latest)
-            latest = contract;
-        auto& earliest = first_minute[contract];
+        auto& earliest = first_minute[prod_key];
         if (earliest.empty() || day < earliest)
             earliest = day;
     }
-    if (latest_contract.empty())
+    if (first_minute.empty())
         return {};
     std::map<std::string, std::string> exchange_floor;
-    for (const auto& [prod, contract] : latest_contract) {
+    for (const auto& [prod, first] : first_minute) {
         const auto exchange = prod.substr(0, prod.find('/'));
         const auto lookback = format_trading_date(
             std::chrono::year_month_day{
-                std::chrono::sys_days{parse_trading_date(first_minute.at(contract))}
-                - std::chrono::days{15}
+                std::chrono::sys_days{parse_trading_date(first)} - std::chrono::days{15}
             });
         auto [it, inserted] = exchange_floor.emplace(exchange, lookback);
         if (!inserted && lookback < it->second)
@@ -225,12 +220,9 @@ std::map<std::string, std::string> rolled_dominant_minutes(
         + "' AND open_interest IS NOT NULL ORDER BY 1, 3, 2");
     for (duckdb::idx_t r = 0; r < rows->RowCount(); ++r) {
         const auto prod = rows->GetValue(0, r).ToString();
-        const auto latest = latest_contract.find(prod);
-        if (latest == latest_contract.end())
+        if (!first_minute.contains(prod))
             continue;
         const auto contract = rows->GetValue(1, r).ToString();
-        if (contract < latest->second)
-            continue;
         by_product[prod][rows->GetValue(2, r).ToString()][contract] = {
             rows->GetValue(3, r).GetValue<double>(),
             rows->GetValue(4, r).GetValue<bool>()
@@ -238,8 +230,7 @@ std::map<std::string, std::string> rolled_dominant_minutes(
     }
     std::map<std::string, std::string> rolled;
     for (const auto& [prod, days_map] : by_product) {
-        const auto& anchor_contract = latest_contract.at(prod);
-        const auto& start_day = first_minute.at(anchor_contract);
+        const auto& start_day = first_minute.at(prod);
         std::vector<std::string> days;
         std::string previous;
         std::set<std::string> all_contracts;
@@ -265,7 +256,7 @@ std::map<std::string, std::string> rolled_dominant_minutes(
                     return true;
             return false;
         };
-        std::string current = anchor_contract;
+        std::string current;
         for (std::size_t i = 1; i < days.size(); ++i) {
             const auto& day = days[i];
             const auto& prev = days[i - 1];
@@ -289,7 +280,7 @@ std::map<std::string, std::string> rolled_dominant_minutes(
             if (!chosen.empty() && chosen > current) {
                 current = chosen;
                 if (!held_contracts.contains(current))
-                    rolled.try_emplace(current, prev);
+                    rolled.try_emplace(current, std::max(prev, start_day));
             }
         }
         // Check the latest stored day too so a crossover on yesterday brings
