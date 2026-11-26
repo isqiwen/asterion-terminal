@@ -1,7 +1,9 @@
 import type { CommandCall } from "./bridge/commands";
 import { Icon } from "./ui/Icon";
 import { openSettings, closeSettings, settingsPage, type SettingsPage } from "./settings/window";
+import { LabHeaderActivity } from "./host/components/LabActivityPopover";
 import { StatusIndicators } from "./host/components/StatusIndicators";
+import { LabActivityProvider } from "./host/lab-activity";
 import { NotificationCenter, notify, useErrorNotification } from "./host/notifications";
 import { BackendError, asDisplayError, type DisplayError } from "./i18n/errors";
 import { translate, useLocale, type MessageValues } from "./i18n";
@@ -118,6 +120,13 @@ export function ModuleHeader({
           </button>
         ))}
       </nav>
+      {module.id === "research" && (
+        <LabHeaderActivity
+          openRun={id => navigate("workspace.lab-runs", { params: { run: id } })}
+          openSweep={id => navigate("workspace.lab-runs", { params: { sweep: id } })}
+          openFactors={() => navigate("workspace.lab-factors")}
+        />
+      )}
     </div>
   );
 }
@@ -399,100 +408,114 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                   : ""
               }
             >
-              <Workbench
-                showToolbar={!current?.hideToolbar && !!WorkspaceToolbar}
-                navigation={modules.map((item, index) => ({
-                  id: item.id,
-                  title: t(item.title),
-                  icon: <Icon name={item.icon} />,
-                  active: item.id === navigation.module,
-                  shortcut: `⌘${index + 1} / Ctrl+${index + 1}`,
-                  select: () => {
-                    setUserNavigated(true);
-                    setNavigation(previous => selectModule(previous, item.id));
-                  },
-                }))}
-                rail={
-                  <button
-                    type="button"
-                    aria-label={t("设置")}
-                    title={`${t("设置")} · ⌘, / Ctrl+,`}
-                    onClick={() => showSettings()}
-                  >
-                    <Icon name="settings" />
-                  </button>
-                }
-                toolbar={WorkspaceToolbar && <WorkspaceToolbar {...panelContext} />}
-                notices={
-                  !snapshot && !error ? (
-                    <div className="notice" role="status">
-                      {t("正在启动本机 C++ 核心…")}
+              <LabActivityProvider
+                ready={snapshot?.lab?.state === "ready"}
+                currentModule={navigation.module}
+                openRun={id => context.navigate("workspace.lab-runs", { params: { run: id } })}
+                openSweep={id => context.navigate("workspace.lab-runs", { params: { sweep: id } })}
+              >
+                <Workbench
+                  showToolbar={!current?.hideToolbar && !!WorkspaceToolbar}
+                  navigation={modules.map((item, index) => ({
+                    id: item.id,
+                    title: t(item.title),
+                    icon: <Icon name={item.icon} />,
+                    active: item.id === navigation.module,
+                    shortcut: `⌘${index + 1} / Ctrl+${index + 1}`,
+                    select: () => {
+                      setUserNavigated(true);
+                      setNavigation(previous => selectModule(previous, item.id));
+                    },
+                  }))}
+                  rail={
+                    <button
+                      type="button"
+                      aria-label={t("设置")}
+                      title={`${t("设置")} · ⌘, / Ctrl+,`}
+                      onClick={() => showSettings()}
+                    >
+                      <Icon name="settings" />
+                    </button>
+                  }
+                  toolbar={WorkspaceToolbar && <WorkspaceToolbar {...panelContext} />}
+                  notices={
+                    !snapshot && !error ? (
+                      <div className="notice" role="status">
+                        {t("正在启动本机 C++ 核心…")}
+                      </div>
+                    ) : null
+                  }
+                  body={
+                    <div className="module-workspace">
+                      <ModuleHeader
+                        module={route.module}
+                        view={view}
+                        warehouseConfigured={!!(warehouseEndpoint && "host" in warehouseEndpoint)}
+                        tradingConnections={tradingConnections}
+                        navigate={context.navigate}
+                      />
+                      <main className="terminal-business">
+                        <h1 className="sr-only">{t(route.module.title)}</h1>
+                        {mountedViews.map(id => {
+                          const feature = terminalFeatures.find(item =>
+                            item.workspaces.some(workspace => workspace.id === id),
+                          );
+                          const workspace = feature?.workspaces.find(item => item.id === id);
+                          if (!feature || !workspace) return null;
+                          const ViewPanel = workspace.component;
+                          const isActive = id === view;
+                          return (
+                            <div key={id} className="workspace-panel" hidden={!isActive}>
+                              <WorkspaceActiveContext.Provider value={isActive}>
+                                <WorkspaceDraftScope store={drafts} namespace={feature.id}>
+                                  <Suspense fallback={null}>
+                                    <ViewPanel {...(isActive ? panelContext : baseContext)} />
+                                  </Suspense>
+                                </WorkspaceDraftScope>
+                              </WorkspaceActiveContext.Provider>
+                            </div>
+                          );
+                        })}
+                      </main>
                     </div>
-                  ) : null
-                }
-                body={
-                  <div className="module-workspace">
-                    <ModuleHeader
-                      module={route.module}
-                      view={view}
-                      warehouseConfigured={!!(warehouseEndpoint && "host" in warehouseEndpoint)}
-                      tradingConnections={tradingConnections}
-                      navigate={context.navigate}
-                    />
-                    <main className="terminal-business">
-                      <h1 className="sr-only">{t(route.module.title)}</h1>
-                      {mountedViews.map(id => {
-                        const feature = terminalFeatures.find(item =>
-                          item.workspaces.some(workspace => workspace.id === id),
-                        );
-                        const workspace = feature?.workspaces.find(item => item.id === id);
-                        if (!feature || !workspace) return null;
-                        const ViewPanel = workspace.component;
-                        const isActive = id === view;
-                        return (
-                          <div key={id} className="workspace-panel" hidden={!isActive}>
-                            <WorkspaceActiveContext.Provider value={isActive}>
-                              <WorkspaceDraftScope store={drafts} namespace={feature.id}>
-                                <Suspense fallback={null}>
-                                  <ViewPanel {...(isActive ? panelContext : baseContext)} />
-                                </Suspense>
-                              </WorkspaceDraftScope>
-                            </WorkspaceActiveContext.Provider>
-                          </div>
-                        );
-                      })}
-                    </main>
-                  </div>
-                }
+                  }
 
-                status={
-                  <>
-                    <StatusIndicators
-                      snapshot={snapshot}
-                      openMarketSettings={() => showSettings("market")}
-                      openMarket={() => context.navigate("workspace.market")}
-                      openResearch={() => context.navigate("workspace.lab-strategies")}
-                      openWarehouseSettings={() => showSettings("warehouse")}
-                      openDataset={() => context.navigate("workspace.data-dataset")}
-                      openTradingSettings={() => showSettings("trading")}
-                      openTrading={account =>
-                        context.navigate(
-                          "workspace.trading",
-                          account ? { params: { account } } : undefined,
-                        )
-                      }
-                    />
-                    <div className="status-actions">
-                      <NotificationCenter />
-                      {error && (
-                        <button type="button" disabled={busy} onClick={() => void refresh()}>
-                          {t("重试连接")}
-                        </button>
-                      )}
-                    </div>
-                  </>
-                }
-              />
+                  status={
+                    <>
+                      <StatusIndicators
+                        snapshot={snapshot}
+                        openMarketSettings={() => showSettings("market")}
+                        openMarket={() => context.navigate("workspace.market")}
+                        openResearch={() => context.navigate("workspace.lab-strategies")}
+                        openRun={id =>
+                          context.navigate("workspace.lab-runs", { params: { run: id } })
+                        }
+                        openSweep={id =>
+                          context.navigate("workspace.lab-runs", { params: { sweep: id } })
+                        }
+                        openFactors={() => context.navigate("workspace.lab-factors")}
+                        openWarehouseSettings={() => showSettings("warehouse")}
+                        openDataset={() => context.navigate("workspace.data-dataset")}
+                        openTradingSettings={() => showSettings("trading")}
+                        openTrading={account =>
+                          context.navigate(
+                            "workspace.trading",
+                            account ? { params: { account } } : undefined,
+                          )
+                        }
+                      />
+                      <div className="status-actions">
+                        <NotificationCenter />
+                        {error && (
+                          <button type="button" disabled={busy} onClick={() => void refresh()}>
+                            {t("重试连接")}
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  }
+                />
+              </LabActivityProvider>
             </WarehouseProvider>
           </MarketProvider>
         </TradingAccountsProvider>

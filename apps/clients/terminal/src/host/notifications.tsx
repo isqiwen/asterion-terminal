@@ -12,7 +12,7 @@ import { Icon } from "../ui/Icon";
 import { LocalLogsButton } from "./components/LocalLogsButton";
 import "./notifications.css";
 
-type Severity = "error" | "warning";
+type Severity = "error" | "warning" | "info";
 type ForwardedNotification = {
   message: string;
   code?: string;
@@ -27,6 +27,7 @@ type Entry = {
   severity: Severity;
   error: DisplayError;
   namespace: string;
+  onClick?: () => void;
   // The same message repeated in a row is one entry.
   count: number;
 };
@@ -59,7 +60,10 @@ const publish = () => {
 
 // Reports an error or a warning of this Terminal run to the notification
 // centre in the status bar. Nothing is kept beyond the run.
-export function notify(error: unknown, options: { namespace?: string; severity?: Severity } = {}) {
+export function notify(
+  error: unknown,
+  options: { namespace?: string; severity?: Severity; onClick?: () => void } = {},
+) {
   const namespace = options.namespace ?? "host";
   const severity = options.severity ?? "error";
   const shown = asDisplayError(error);
@@ -81,7 +85,13 @@ export function notify(error: unknown, options: { namespace?: string; severity?:
     last.severity === severity &&
     identity(last.error) === identity(shown)
   )
-    entries[entries.length - 1] = { ...last, id: ++next, at: new Date(), count: last.count + 1 };
+    entries[entries.length - 1] = {
+      ...last,
+      id: ++next,
+      at: new Date(),
+      onClick: options.onClick ?? last.onClick,
+      count: last.count + 1,
+    };
   else
     entries.push({
       id: ++next,
@@ -90,6 +100,7 @@ export function notify(error: unknown, options: { namespace?: string; severity?:
       severity,
       error: shown,
       namespace,
+      onClick: options.onClick,
       count: 1,
     });
   entries.splice(0, Math.max(0, entries.length - KEPT));
@@ -139,6 +150,7 @@ export function NotificationCenter() {
   const panelId = useId();
   const anchor = `--notifications-${panelId.replace(/:/g, "")}`;
   const trigger = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLElement>(null);
   const all = useEntries();
   const [open, setOpen] = useState(false);
   const latest = all.at(-1);
@@ -150,10 +162,13 @@ export function NotificationCenter() {
   const latestUnread = !open ? unread.at(-1) : undefined;
   const urgent = unread.some(entry => entry.source === "交易" && entry.severity === "error");
   const errors = all.filter(entry => entry.severity === "error").length;
-  const tone = errors ? "error" : "warning";
+  const warnings = all.filter(entry => entry.severity === "warning").length;
+  const tone = errors ? "error" : warnings ? "warning" : "info";
+  const unreadTone = latestUnread?.severity ?? tone;
   return (
     <div className="notification-center">
       <section
+        ref={panel}
         id={panelId}
         popover="auto"
         className="notification-panel"
@@ -202,10 +217,24 @@ export function NotificationCenter() {
                       })}
                     </time>
                   </div>
-                  <span className="notification-text">
-                    <ErrorNotice error={entry.error} namespace={entry.namespace} />
-                    {entry.count > 1 && ` ×${entry.count}`}
-                  </span>
+                  {entry.onClick ? (
+                    <button
+                      type="button"
+                      className="notification-text notification-link"
+                      onClick={() => {
+                        panel.current?.hidePopover?.();
+                        entry.onClick?.();
+                      }}
+                    >
+                      <ErrorNotice error={entry.error} namespace={entry.namespace} />
+                      {entry.count > 1 && ` ×${entry.count}`}
+                    </button>
+                  ) : (
+                    <span className="notification-text">
+                      <ErrorNotice error={entry.error} namespace={entry.namespace} />
+                      {entry.count > 1 && ` ×${entry.count}`}
+                    </span>
+                  )}
                 </li>
               ))}
             </ol>
@@ -218,8 +247,8 @@ export function NotificationCenter() {
         type="button"
         className={
           latestUnread
-            ? `notification-latest ${tone}${urgent ? " urgent" : ""}`
-            : all.length
+            ? `notification-latest ${unreadTone}${urgent ? " urgent" : ""}`
+            : errors || warnings
               ? `notification-kept ${tone}`
               : "notification-none"
         }
@@ -237,7 +266,9 @@ export function NotificationCenter() {
         ) : (
           <>
             {translate("host", "通知")}
-            {all.length > 0 && <span className="notification-count">{errors || all.length}</span>}
+            {(errors || warnings) > 0 && (
+              <span className="notification-count">{errors || warnings}</span>
+            )}
           </>
         )}
       </button>

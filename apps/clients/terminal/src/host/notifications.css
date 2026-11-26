@@ -32,6 +32,9 @@
 .notification-center > .warning > .notification-count {
   background: var(--warning);
 }
+.notification-center > .info > .notification-count {
+  background: var(--accent);
+}
 .notification-latest::before {
   content: "";
   flex-shrink: 0;
@@ -42,6 +45,9 @@
 }
 .notification-latest.warning::before {
   background: var(--warning);
+}
+.notification-latest.info::before {
+  background: var(--accent);
 }
 .notification-latest.urgent {
   background: var(--danger-surface);
@@ -124,6 +130,20 @@
 }
 .notification-panel li.warning .notification-meta::before {
   background: var(--warning);
+}
+.notification-panel li.info .notification-meta::before {
+  background: var(--accent);
+}
+.notification-panel .notification-link {
+  justify-content: flex-start;
+  padding: 0;
+  min-height: 0;
+  text-align: left;
+  color: var(--text);
+}
+.notification-panel .notification-link:hover {
+  background: transparent;
+  color: var(--accent);
 }
 .notification-meta time {
   margin-left: auto;

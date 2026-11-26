@@ -2,6 +2,7 @@ const {
   app,
   crashReporter,
   BrowserWindow,
+  dialog,
   ipcMain,
   Menu,
   protocol,
@@ -76,6 +77,7 @@ crashReporter.start({
 });
 let main, settings, native, lab;
 let quitting = false;
+let forceQuit = false;
 let hostStopped = false;
 function shutdownHost() {
   if (hostStopped) return;
@@ -113,10 +115,19 @@ app.on("child-process-gone", (_event, details) =>
 // Quitting ends the Terminal's process; every local service watches it and
 // stops by itself.
 if (!app.isPackaged) {
-  process.on("SIGINT", () => app.quit());
-  process.on("SIGTERM", () => app.quit());
+  process.on("SIGINT", () => {
+    forceQuit = true;
+    app.quit();
+  });
+  process.on("SIGTERM", () => {
+    forceQuit = true;
+    app.quit();
+  });
   process.on("message", message => {
-    if (message?.type === "asterion:development-quit") app.quit();
+    if (message?.type === "asterion:development-quit") {
+      forceQuit = true;
+      app.quit();
+    }
   });
 }
 const owned = new Set();
@@ -398,6 +409,24 @@ app
       webPreferences: preferences(),
     });
     configure(main);
+    main.webContents.on("will-prevent-unload", event => {
+      if (forceQuit) {
+        event.preventDefault();
+        return;
+      }
+      const zh = /^zh/i.test(app.getLocale());
+      const choice = dialog.showMessageBoxSync(main, {
+        type: "warning",
+        buttons: zh ? ["继续运行", "关闭并中断"] : ["Keep running", "Close and interrupt"],
+        defaultId: 0,
+        cancelId: 0,
+        title: "Asterion Terminal",
+        message: zh
+          ? "仍有研究任务正在运行，关闭窗口会中断这些任务。"
+          : "Research tasks are still running. Closing the window will interrupt them.",
+      });
+      if (choice === 1) event.preventDefault();
+    });
     main.on("close", () => {
       quitting = true;
       settings?.destroy();

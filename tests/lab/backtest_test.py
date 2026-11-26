@@ -2430,6 +2430,56 @@ class BacktestSweeps(BacktestCase):
 
         asyncio.run(exercise())
 
+    def test_get_activity_tracks_active_sweeps_and_session_recent_tasks(self):
+        async def exercise():
+            async with self.service() as service:
+                idle = (await service.reply(Request(id=1, get_activity={}))).get_activity
+                self.assertEqual(len(idle.active), 0)
+                self.assertEqual(len(idle.recent), 0)
+                self.assertGreaterEqual(idle.max_processes, 1)
+
+                request = Request(id=2)
+                sweep = request.start_sweep
+                sweep.id, sweep.processes = "act-1", 1
+                sweep.slippage_ticks.extend([0, 1])
+                run = sweep.base
+                run.repository, run.strategy = str(self.repository), "ma_cross.MaCross"
+                run.symbols.append("SHFE/rb/2026-05")
+                self.fill(run)
+                run.params["fast"].integer = 2
+                run.params["slow"].integer = 4
+
+                reply = await service.reply(request)
+                self.assertEqual(reply.WhichOneof("result"), "start_sweep", reply.error.message)
+
+                live = (await service.reply(Request(id=3, get_activity={}))).get_activity
+                self.assertEqual(len(live.active), 1)
+                self.assertEqual(live.active[0].id, "act-1")
+                self.assertEqual(live.active[0].total, 2)
+                self.assertGreaterEqual(live.active[0].running + live.active[0].queued, 1)
+
+                deadline = time.monotonic() + 60
+                while time.monotonic() < deadline:
+                    state = (await service.reply(Request(id=4, get_activity={}))).get_activity
+                    if not state.active:
+                        break
+                    await asyncio.sleep(0.1)
+                self.assertEqual(len(state.active), 0)
+                self.assertEqual(len(state.recent), 1)
+                finished = state.recent[0]
+                self.assertEqual(finished.id, "act-1")
+                self.assertEqual(finished.succeeded, 2)
+                self.assertEqual(finished.failed, 0)
+                self.assertEqual(finished.state, RunState.RUN_STATE_SUCCEEDED)
+                self.assertGreater(finished.finished_ms, 0)
+
+                # Deleting the sweep removes it from recent session tasks too.
+                await service.reply(Request(id=5, delete_run={"id": "act-1-0"}))
+                after = (await service.reply(Request(id=6, get_activity={}))).get_activity
+                self.assertEqual(len(after.recent), 0)
+
+        asyncio.run(exercise())
+
 
 if __name__ == "__main__":
     unittest.main()

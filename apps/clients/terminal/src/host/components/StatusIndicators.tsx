@@ -6,6 +6,7 @@ import { stalled, useTradingAccounts } from "../trading-accounts";
 import { useWarehouse } from "../warehouse";
 import { FeedState, Subscription } from "../../generated/asterion/market_pb";
 import { BrokerState } from "../../generated/asterion/trading_pb";
+import { LabStatusTask } from "./LabActivityPopover";
 
 const th = (key: string, values?: MessageValues) => translate("host", key, values);
 const label = (name: string, state: string) => (
@@ -25,6 +26,9 @@ export function StatusIndicators({
   openMarketSettings,
   openMarket,
   openResearch,
+  openRun,
+  openSweep,
+  openFactors,
   openWarehouseSettings,
   openDataset,
   openTradingSettings,
@@ -34,6 +38,9 @@ export function StatusIndicators({
   openMarketSettings: () => void;
   openMarket: () => void;
   openResearch?: () => void;
+  openRun?: (id: string) => void;
+  openSweep?: (id: string) => void;
+  openFactors?: () => void;
   openWarehouseSettings: () => void;
   openDataset?: () => void;
   openTradingSettings: () => void;
@@ -277,6 +284,9 @@ export function StatusIndicators({
             {taskProgress}
           </span>
         ))}
+      {openRun && openSweep && openFactors && (
+        <LabStatusTask openRun={openRun} openSweep={openSweep} openFactors={openFactors} />
+      )}
     </>
   );
 }

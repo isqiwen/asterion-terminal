@@ -15,10 +15,11 @@ import re
 import shutil
 from pathlib import Path
 import tempfile
+import time
 
 from asterion.common_pb2 import ErrorCode, Period, Side, Offset
 from asterion.lab_pb2 import (AdmittedFactor, AdmittedRun, FactorResult, ReconcileLive, Request,
-                              Response, RollingRun, RunState)
+                              Response, RollingRun, RunState, TaskKind)
 from asterion.strategy_pb2 import Bar, Warmup
 
 from asterion_lab import backtest, chart, dominant, pit, repository, package, rolling, worker
@@ -51,6 +52,9 @@ PERIODS = {Period.PERIOD_MINUTES_1: 1, Period.PERIOD_MINUTES_5: 5, Period.PERIOD
 STATES = {"running": RunState.RUN_STATE_RUNNING, "succeeded": RunState.RUN_STATE_SUCCEEDED,
           "failed": RunState.RUN_STATE_FAILED, "stopped": RunState.RUN_STATE_STOPPED,
           "interrupted": RunState.RUN_STATE_INTERRUPTED}
+TASK_KINDS = {"backtest": TaskKind.TASK_KIND_BACKTEST, "sweep": TaskKind.TASK_KIND_SWEEP,
+              "batch": TaskKind.TASK_KIND_BATCH, "slippage": TaskKind.TASK_KIND_SLIPPAGE_STRESS,
+              "rolling": TaskKind.TASK_KIND_ROLLING}
 
 
 def error_code(name: str) -> int:
@@ -189,6 +193,9 @@ class Service:
         self.waiting = collections.deque()  # (sweep, AdmittedRun) not started yet
         self.processes = max(1, (os.cpu_count() or 2) - 1)
         self.rolling = {}  # sweep -> its RollingRun, until every candidate has ended
+        self.activity = {}  # run or sweep id -> metadata while active
+        self.run_task = {}  # child run id -> owning sweep id
+        self.recent_tasks = collections.deque(maxlen=12)  # session-completed tasks, newest first
         # Checks, version selection and child startup form one admission. Reads
         # stay independent while filesystem/process work awaits.
         self.admission = asyncio.Lock()
@@ -941,8 +948,18 @@ class Service:
         await self.checked_run(request)
         admitted = await self.read(self.pin_backtest, request)
         admitted = await asyncio.to_thread(self.with_source, admitted, f"run-{request.id}")
+        self.activity[request.id] = dict(
+            id=request.id, kind="backtest", strategy=request.strategy,
+            symbols=list(admitted.backtest.symbols), total=1,
+            started_ms=int(time.time() * 1000), has_rolling=False,
+        )
         # Accepted once recorded: whoever asked can read the run at once.
-        error = await asyncio.shield(await self.launch(admitted))
+        try:
+            started = await self.launch(admitted)
+        except Exception:
+            self.activity.pop(request.id, None)
+            raise
+        error = await asyncio.shield(started)
         if error:
             raise ValueError(error)
 
@@ -1047,7 +1064,17 @@ class Service:
             self.check_run_id(rolling.id)
         await asyncio.to_thread(self.runs.plan_sweep, request.id, planned)
         limit = min(request.processes, os.cpu_count() or 1) if request.processes else self.processes
+        kind = "batch" if batch else ("slippage" if slippages else "sweep")
+        self.activity[request.id] = dict(
+            id=request.id, kind=kind, strategy="" if batch else request.base.strategy,
+            symbols=list(symbols or request.base.symbols),
+            total=len(runs) + (1 if rolling else 0),
+            started_ms=int(time.time() * 1000), has_rolling=bool(rolling),
+        )
+        for run in runs:
+            self.run_task[run.backtest.id] = request.id
         if rolling:
+            self.run_task[rolling.id] = request.id
             self.rolling[request.id] = Rolling(rolling, len(runs))
         self.waiting.extend((request.id, run, limit) for run in runs)
         await self.start_waiting()
@@ -1057,8 +1084,19 @@ class Service:
         members.add(f"{request.id}-rolling")
         self.waiting = collections.deque(item for item in self.waiting if item[0] != request.id)
         self.rolling.pop(request.id, None)
-        for identity in members & set(self.backtests):
+        running_members = members & set(self.backtests)
+        for identity in members - running_members:
+            self.run_task.pop(identity, None)
+        for identity in running_members:
             self.backtests[identity].terminate()
+        if not running_members:
+            meta = self.activity.pop(request.id, None)
+            if meta is not None:
+                info = await self.read(self._sweep_info, request.id, meta, 0, 0)
+                if info["state"] == "running":
+                    info["state"] = "interrupted"
+                info["finished_ms"] = int(time.time() * 1000)
+                self._record_recent(info)
 
     async def on_get_sweep(self, request, reply):
         rows = await self.read(self.runs.sweep, request.id)
@@ -1118,8 +1156,11 @@ class Service:
         await process.wait()
         code = process.returncode
         message = "cancelled" if code < 0 else error or f"exited with {code} before completing its run"
+        final_state, final_error = "failed", message
         try:
             state = self.finish_child(identity, plan, "interrupted" if code < 0 else "failed", message)
+            final_state = state
+            final_error = "" if state == "succeeded" else message
             if state == "succeeded":
                 self.log.write("info", MODULE, "backtest.finished", run=identity)
             else:
@@ -1127,12 +1168,111 @@ class Service:
                                stack=error)
         except Exception as failure:
             message = str(failure)
+            final_state, final_error = "failed", message
             self.log.write("error", MODULE, "backtest.record_failed", run=identity, message=message)
         finally:
             if not started.done():
                 started.set_result(message.splitlines()[-1])
             del self.backtests[identity]
             await self.pump()
+            await self._complete_activity(identity, final_state, final_error)
+
+    def _record_recent(self, info: dict):
+        self.recent_tasks = collections.deque(
+            (item for item in self.recent_tasks if item["id"] != info["id"]),
+            maxlen=self.recent_tasks.maxlen,
+        )
+        self.recent_tasks.appendleft(info)
+
+    def _sweep_info(self, sweep_id: str, meta: dict, running: int, queued: int) -> dict:
+        rows = list(self.runs.sweep(sweep_id))
+        if meta["has_rolling"]:
+            rolling_row = self.runs.get(f"{sweep_id}-rolling")
+            if rolling_row is not None:
+                rows.append(rolling_row)
+        succeeded = sum(1 for row in rows if row["state"] == "succeeded")
+        failed_rows = [row for row in rows if row["state"] in ("failed", "interrupted", "stopped")]
+        failed = len(failed_rows)
+        first_error = next((row["error"] for row in failed_rows if row.get("error")), "")
+        total = max(meta["total"], len(rows))
+        done = succeeded + failed
+        if running or queued:
+            state = "running"
+        elif succeeded == total and total > 0:
+            state = "succeeded"
+        elif any(row["state"] == "interrupted" for row in failed_rows) or done < total:
+            state = "interrupted"
+        else:
+            state = "failed"
+        return dict(
+            id=sweep_id, kind=meta["kind"], strategy=meta["strategy"], symbols=meta["symbols"],
+            total=total, done=done, succeeded=succeeded, failed=failed,
+            running=running, queued=queued, started_ms=meta["started_ms"],
+            finished_ms=0, state=state, error="" if state == "succeeded" else first_error,
+        )
+
+    async def _complete_activity(self, identity: str, state: str, error: str):
+        sweep_id = self.run_task.pop(identity, None)
+        if sweep_id is None:
+            meta = self.activity.pop(identity, None)
+            if meta is None:
+                return
+            self._record_recent(dict(
+                id=identity, kind=meta["kind"], strategy=meta["strategy"], symbols=meta["symbols"],
+                total=1, done=1, succeeded=1 if state == "succeeded" else 0,
+                failed=0 if state == "succeeded" else 1, running=0, queued=0,
+                started_ms=meta["started_ms"], finished_ms=int(time.time() * 1000),
+                state=state, error=error,
+            ))
+            return
+        still_running = any(self.run_task.get(r) == sweep_id for r in self.backtests)
+        still_queued = any(item[0] == sweep_id for item in self.waiting) or sweep_id in self.rolling
+        if still_running or still_queued:
+            return
+        meta = self.activity.pop(sweep_id, None)
+        if meta is None:
+            return
+        info = await self.read(self._sweep_info, sweep_id, meta, 0, 0)
+        info["finished_ms"] = int(time.time() * 1000)
+        self._record_recent(info)
+
+    @staticmethod
+    def _write_task(target, info: dict):
+        target.id = info["id"]
+        target.kind = TASK_KINDS[info["kind"]]
+        target.strategy = info["strategy"]
+        target.symbols.extend(info["symbols"])
+        target.total = info["total"]
+        target.done = info["done"]
+        target.succeeded = info["succeeded"]
+        target.failed = info["failed"]
+        target.running = info["running"]
+        target.queued = info["queued"]
+        target.started_ms = info["started_ms"]
+        target.finished_ms = info["finished_ms"]
+        target.state = STATES[info["state"]]
+        target.error = info["error"]
+
+    async def on_get_activity(self, _, reply):
+        reply.running_processes = len(self.backtests)
+        reply.max_processes = self.processes
+        reply.queued_runs = len(self.waiting)
+        for task_id, meta in list(self.activity.items()):
+            if meta["kind"] == "backtest":
+                running = 1 if task_id in self.backtests else 0
+                info = dict(
+                    id=task_id, kind="backtest", strategy=meta["strategy"], symbols=meta["symbols"],
+                    total=1, done=0, succeeded=0, failed=0, running=running, queued=0,
+                    started_ms=meta["started_ms"], finished_ms=0, state="running", error="",
+                )
+            else:
+                running = sum(1 for r in self.backtests if self.run_task.get(r) == task_id)
+                queued = sum(1 for item in self.waiting if item[0] == task_id) \
+                    + (1 if task_id in self.rolling else 0)
+                info = await self.read(self._sweep_info, task_id, meta, running, queued)
+            self._write_task(reply.active.add(), info)
+        for info in list(self.recent_tasks):
+            self._write_task(reply.recent.add(), info)
 
     def prune_sources(self):
         """Removes code copies no record refers to: those of deleted records, and
@@ -1168,6 +1308,11 @@ class Service:
             await asyncio.to_thread(self.runs.delete, members)
             await asyncio.to_thread(self.remove_sources, *[f"run-{item}" for item in members],
                                     *([f"sweep-{sweep}"] if sweep else []))
+            removed = set(members) | ({sweep} if sweep else set())
+            self.recent_tasks = collections.deque(
+                (item for item in self.recent_tasks if item["id"] not in removed),
+                maxlen=self.recent_tasks.maxlen,
+            )
 
     async def on_delete_factor_result(self, request, _):
         path = self.factor_path(request.id)

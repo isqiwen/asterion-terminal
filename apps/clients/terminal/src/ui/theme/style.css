@@ -481,7 +481,7 @@ tbody tr:hover {
   min-width: 88px;
 }
 :is(.status-services, .status-actions) > :where(button, .status-item),
-.status-bar > :where(.status-task),
+.status-bar :where(.status-task),
 .notification-center > :where(button) {
   display: inline-flex;
   align-items: center;
@@ -499,7 +499,7 @@ tbody tr:hover {
 :root[data-density="comfortable"]
   :is(
     :is(.status-services, .status-actions) > :where(button, .status-item),
-    .status-bar > :where(.status-task),
+    .status-bar :where(.status-task),
     .notification-center > :where(button)
   ) {
   min-block-size: 24px;
@@ -523,7 +523,7 @@ tbody tr:hover {
 .status-dot {
   margin-right: var(--space-1);
 }
-.status-bar > :where(.status-task) {
+.status-bar :where(.status-task) {
   gap: var(--space-2);
   min-width: 0;
   max-width: min(420px, 44vw);

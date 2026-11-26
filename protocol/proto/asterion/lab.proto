@@ -40,6 +40,7 @@ message Request {
     RunId get_run_summary = 54;
     common.Empty list_recent_runs = 55;
     ReconcileLive reconcile_live = 56;
+    common.Empty get_activity = 57;
   }
 }
 
@@ -77,6 +78,7 @@ message Response {
     RunSummary get_run_summary = 54;
     Runs list_recent_runs = 55;
     ReconcileResult reconcile_live = 56;
+    LabActivity get_activity = 57;
   }
 }
 
@@ -581,4 +583,40 @@ message ReconcileFill {
 message ReconcileResult {
   bool ok = 1;
   string report = 2;
+}
+
+// ---- Activity
+
+enum TaskKind {
+  TASK_KIND_UNSPECIFIED = 0;
+  TASK_KIND_BACKTEST = 1;
+  TASK_KIND_SWEEP = 2;
+  TASK_KIND_BATCH = 3;
+  TASK_KIND_SLIPPAGE_STRESS = 4;
+  TASK_KIND_ROLLING = 5;
+}
+
+message LabTask {
+  string id = 1;
+  TaskKind kind = 2;
+  string strategy = 3;
+  repeated string symbols = 4;
+  uint32 total = 5;
+  uint32 done = 6;
+  uint32 succeeded = 7;
+  uint32 failed = 8;
+  uint32 running = 9;
+  uint32 queued = 10;
+  int64 started_ms = 11;
+  int64 finished_ms = 12;
+  RunState state = 13;
+  string error = 14;
+}
+
+message LabActivity {
+  uint32 running_processes = 1;
+  uint32 max_processes = 2;
+  uint32 queued_runs = 3;
+  repeated LabTask active = 4;
+  repeated LabTask recent = 5;
 }

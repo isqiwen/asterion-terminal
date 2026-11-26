@@ -10,6 +10,21 @@ type Call = NonNullable<MessageInitShape<typeof RequestSchema>["call"]>;
 type Result = Response["result"];
 type Reply<C> = Extract<Result, { case: C }> extends { value: infer V } ? V : never;
 let sequence = 0n;
+const mutationCases = new Set<Call["case"]>([
+  "startBacktest",
+  "startSweep",
+  "cancelRun",
+  "cancelSweep",
+  "deleteRun",
+]);
+const mutationListeners = new Set<() => void>();
+
+export function onLabMutation(listener: () => void) {
+  mutationListeners.add(listener);
+  return () => {
+    mutationListeners.delete(listener);
+  };
+}
 
 async function carry(payload: Uint8Array): Promise<Uint8Array> {
   if (nativeDesktop) return await desktop().lab(payload);
@@ -44,5 +59,7 @@ export async function lab<C extends NonNullable<Call["case"]>>(
   if (reply.result.case === "error") throw remoteError(reply.result.value);
   if (reply.result.case !== (operation as { case: C }).case)
     throw new BackendError("operation_failed", "Lab service replied with another operation");
+  if (mutationCases.has(reply.result.case as Call["case"]))
+    mutationListeners.forEach(listener => listener());
   return reply.result.value as Reply<C>;
 }

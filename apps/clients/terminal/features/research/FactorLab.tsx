@@ -9,6 +9,7 @@ import {
 import { lab } from "../../src/bridge/lab";
 import type { FactorResult } from "../../src/generated/asterion/lab_pb";
 import { ActionError, useActionError } from "../../src/host/action-error";
+import { useLabActivity } from "../../src/host/lab-activity";
 import { notify, useErrorNotification } from "../../src/host/notifications";
 import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
 import type { TerminalContext } from "../../src/host/feature-registry";
@@ -186,6 +187,7 @@ export function FactorLab(context: TerminalContext) {
     });
     setBusy(false);
   };
+  const labActivity = useLabActivity();
   const activeSelected = selected.filter(id => modules?.factors.some(item => item.id === id));
   const evaluateBatch = async () => {
     const targets = activeSelected
@@ -196,7 +198,20 @@ export function FactorLab(context: TerminalContext) {
     setSaved([]);
     batchCancelledRef.current = false;
     setCancellingBatch(false);
+    const startedMs = Date.now();
+    const batchId = `factors-${startedMs}`;
+    const cancelBatch = () => {
+      batchCancelledRef.current = true;
+      setCancellingBatch(true);
+    };
     setBatchProgress({ done: 0, total: targets.length });
+    labActivity?.setFactorBatch({
+      id: batchId,
+      done: 0,
+      total: targets.length,
+      startedMs,
+      cancel: cancelBatch,
+    });
     await attempt(async () => {
       const requests = targets.map((entry, index) => ({
         id: identity(entry.id, String(index + 1)),
@@ -211,6 +226,13 @@ export function FactorLab(context: TerminalContext) {
           const item = requests[i]!;
           await lab({ case: "evaluateFactor", value: { ...item.request, id: item.id } });
           setBatchProgress({ done: i + 1, total: requests.length });
+          labActivity?.setFactorBatch({
+            id: batchId,
+            done: i + 1,
+            total: requests.length,
+            startedMs,
+            cancel: cancelBatch,
+          });
         }
       } finally {
         batchCancelledRef.current = false;
@@ -219,6 +241,7 @@ export function FactorLab(context: TerminalContext) {
       }
     });
     setBatchProgress(null);
+    labActivity?.setFactorBatch(null);
     setBusy(false);
   };
   const evaluateComposite = async () => {
