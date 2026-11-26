@@ -180,6 +180,28 @@ TEST_F(StrategyTarget, StaleQuotesAndMissingOppositeBookCannotProduceOrders)
     EXPECT_TRUE(session.strategy_failure(owner).empty());
 }
 
+TEST_F(StrategyTarget, MissingExchangePriceLimitsRejectOrdersWithoutStoppingTheInstance)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    auto owner = session.register_strategy().get();
+    for (std::uint64_t sequence = 1; sequence <= 3; ++sequence) {
+        auto incomplete = quote();
+        if (sequence & 1)
+            incomplete.upper_limit.reset();
+        if (sequence & 2)
+            incomplete.lower_limit.reset();
+        session.accept_target(owner, lots(1, sequence), {incomplete});
+        session.advance_target(owner).get();
+        EXPECT_EQ(session.orders().orders_size(), 0);
+        EXPECT_TRUE(session.strategy_failure(owner).empty());
+    }
+    session.accept_target(owner, lots(1, 4), {quote()});
+    session.advance_target(owner).get();
+    EXPECT_EQ(session.orders().orders_size(), 1);
+}
+
 TEST_F(StrategyTarget, PartialFillWaitsAndOriginalBatchExpiryCancelsWithoutResending)
 {
     LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());

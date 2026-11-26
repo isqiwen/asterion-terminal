@@ -679,8 +679,9 @@ void LiveAccountState::check_price(
     if (!reference || *reference <= Decimal{})
         throw std::invalid_argument(
             "no current market price for this contract; the order was not sent");
-    if ((quote->upper_limit && order.limit_price > *quote->upper_limit)
-        || (quote->lower_limit && order.limit_price < *quote->lower_limit))
+    if (!quote->upper_limit || !quote->lower_limit)
+        throw Error(ErrorCode::unavailable, "current exchange price limits are unavailable");
+    if (order.limit_price > *quote->upper_limit || order.limit_price < *quote->lower_limit)
         throw std::invalid_argument("limit price is outside the exchange price limits");
     const auto distance = order.limit_price > *reference ? order.limit_price - *reference
                                                          : *reference - order.limit_price;
