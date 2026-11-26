@@ -1537,6 +1537,60 @@ TEST_F(Live, FillsAreRecordedOnceAndRemainReadableAfterRestartAndRollover)
     EXPECT_EQ(day.close().positions(0).today_lots().text(), "2");
 }
 
+TEST_F(Live, ExternalCancellationCountRemainsStableWhilePositionsReconcile)
+{
+    {
+        Directory seed_directory, seed_owners;
+        LiveSession seed(
+            seed_directory.path,
+            ASTERION_TEST_CTP_TRADER,
+            seed_owners.path,
+            manifest());
+        ASSERT_EQ(ready(seed).at("phase"), "ready");
+        act(seed, authorize());
+        act(seed, submit("outside", "3"));
+        ASSERT_TRUE(order_has_status(
+            wait_for(
+                seed,
+                [](const Json& state) {
+                    return order_has_status(state, "outside", "accepted");
+                }),
+            "outside",
+            "accepted"));
+        act(seed,
+            {{"request_id", "cancel.outside"}, {"action", "cancel"}, {"order_id", "outside"}});
+        ASSERT_TRUE(order_has_status(
+            wait_for(
+                seed,
+                [](const Json& state) {
+                    return order_has_status(state, "outside", "cancelled");
+                }),
+            "outside",
+            "cancelled"));
+    }
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    const auto orders = session.orders();
+    ASSERT_EQ(orders.orders_size(), 1);
+    ASSERT_TRUE(orders.orders(0).id().empty());
+    act(session, authorize());
+    exchange.call<void (*)(int)>("asterion_fake_trader_hold_positions", 1);
+    act(session, submit("new.fill", "1"));
+    wait_for(session, [&](const Json& state) {
+        return state.at("positions_reconciled") == false
+            && session.day("2026-09-28").trades_size() == 1;
+    });
+    const auto reconciled = session.wire_snapshot().positions_reconciled();
+    const auto today = session.day("");
+    const auto exported = session.day("2026-09-28", 0, 200, true);
+    exchange.call<void (*)(int)>("asterion_fake_trader_hold_positions", 0);
+    EXPECT_FALSE(reconciled);
+    for (const auto* day : {&today, &exported}) {
+        ASSERT_EQ(day->close().cancels_size(), 1);
+        EXPECT_EQ(day->close().cancels(0).cancels(), 1U);
+    }
+}
+
 TEST_F(Live, SameDayCloseAndCrossDayOfflineRestartPreserveCloseAndCancels)
 {
     {

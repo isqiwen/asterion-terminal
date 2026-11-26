@@ -1447,17 +1447,8 @@ std::vector<::trading::Trade> LiveAccountState::unrecorded() const
 void LiveAccountState::attach_cancels(::trading::DayClose& close, const BrokerSnapshot* state) const
 {
     std::map<InstrumentId, CancelCount> counts;
-    for (const auto& item : close.cancels()) {
-        auto& row = counts[{item.instrument().exchange(), item.instrument().symbol()}];
-        row.cancels = std::max(row.cancels, item.cancels());
-        row.rejected_cancels = std::max(row.rejected_cancels, item.rejected_cancels());
-    }
     if (const auto recorded = cancels_.find(close.trading_day()); recorded != cancels_.end())
-        for (const auto& [instrument, item] : recorded->second) {
-            auto& row = counts[instrument];
-            row.cancels = std::max(row.cancels, item.cancels);
-            row.rejected_cancels = std::max(row.rejected_cancels, item.rejected_cancels);
-        }
+        counts = recorded->second;
     if (state && dashed(state->trading_day) == close.trading_day()) {
         for (const auto& order : state->orders) {
             if (order.order_id.empty() && order.status == BrokerOrderStatus::cancelled)
@@ -1466,6 +1457,11 @@ void LiveAccountState::attach_cancels(::trading::DayClose& close, const BrokerSn
                 && working(order.status) && order.error_code != 0)
                 ++counts[order.instrument].rejected_cancels;
         }
+    }
+    for (const auto& item : close.cancels()) {
+        auto& row = counts[{item.instrument().exchange(), item.instrument().symbol()}];
+        row.cancels = std::max(row.cancels, item.cancels());
+        row.rejected_cancels = std::max(row.rejected_cancels, item.rejected_cancels());
     }
     close.clear_cancels();
     for (const auto& [instrument, item] : counts) {
