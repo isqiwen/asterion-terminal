@@ -185,6 +185,17 @@ const API_COMPLETIONS = completeFromList([
     type: "function",
     detail: "(equity_curve, soft_dd=0.05, hard_dd=0.15) -> float",
   },
+  {
+    label: "ledoit_wolf_cov",
+    type: "function",
+    detail: "(returns) -> ndarray",
+  },
+  {
+    label: "hrp_weights",
+    type: "function",
+    detail: "(returns, shrinkage=True, linkage_method='single') -> dict | ndarray",
+  },
+  { label: "history_limit", type: "property", detail: "int | None" },
   { label: "winsorize_mad", type: "function", detail: "(scores, n=5.0) -> dict" },
   { label: "sector_neutralize", type: "function", detail: "(scores, sectors=None) -> dict" },
   { label: "orthogonalize", type: "function", detail: "(target, controls) -> dict" },

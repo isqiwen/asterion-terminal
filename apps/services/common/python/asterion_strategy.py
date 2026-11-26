@@ -917,6 +917,155 @@ def combine_weights(allocations: list, symbols) -> dict:
     return combined
 
 
+def ledoit_wolf_cov(returns) -> np.ndarray:
+    """Linear shrinkage covariance estimator toward the scaled identity matrix.
+
+    Reference:
+        Ledoit, O., & Wolf, M. (2004). A well-conditioned estimator for
+        large-dimensional covariance matrices. Journal of Multivariate Analysis,
+        88(2), 365-411. https://doi.org/10.1016/S0047-259X(03)00096-4
+
+    Equations:
+        S = (1 / T) * Y^T Y,  m = tr(S) / N,  d^2 = ||S - m I||_F^2 / N,
+        b_bar^2 = (1 / (N T^2)) * sum_t ||y_t y_t^T - S||_F^2,
+        b^2 = min(b_bar^2, d^2),  delta = b^2 / d^2,
+        Sigma_hat = delta * m * I + (1 - delta) * S.
+
+    Project adaptation:
+        Rows with non-finite entries are dropped before estimation; strictly
+        causal when fed trailing return history through ctx.time.
+    """
+    arr = np.asarray(returns, dtype=float)
+    if arr.ndim != 2:
+        raise ValueError("returns must be a 2D array of shape (observations, assets)")
+    arr = arr[np.all(np.isfinite(arr), axis=1)]
+    t_obs, n_assets = arr.shape
+    if n_assets < 1 or t_obs < 2:
+        raise ValueError("ledoit_wolf_cov requires at least 2 finite observations and 1 asset")
+    centered = arr - np.mean(arr, axis=0, keepdims=True)
+    sample = (centered.T @ centered) / float(t_obs)
+    if n_assets == 1:
+        return sample
+    mu = float(np.trace(sample)) / float(n_assets)
+    target = mu * np.eye(n_assets, dtype=float)
+    diff = sample - target
+    d2 = float(np.sum(diff * diff)) / float(n_assets)
+    if d2 <= 1e-24:
+        return 0.5 * (sample + sample.T)
+    row_norm_sq = np.sum(centered * centered, axis=1)
+    sample_frob_sq = float(np.sum(sample * sample))
+    b_bar2 = max(0.0, float(np.sum(row_norm_sq * row_norm_sq)) - float(t_obs) * sample_frob_sq) / (
+        float(n_assets) * float(t_obs * t_obs)
+    )
+    delta = min(b_bar2, d2) / d2
+    shrunk = delta * target + (1.0 - delta) * sample
+    return 0.5 * (shrunk + shrunk.T)
+
+
+def _ivp_cluster_var(cov: np.ndarray, indices: list[int]) -> float:
+    sub = cov[np.ix_(indices, indices)]
+    diag = np.maximum(np.diag(sub), 1e-18)
+    inv = 1.0 / diag
+    w = inv / float(np.sum(inv))
+    return float(w @ sub @ w)
+
+
+def hrp_weights(
+    returns,
+    *,
+    shrinkage: bool = True,
+    linkage_method: str = "single",
+):
+    """Hierarchical Risk Parity (HRP) long-only allocation weights summing to 1.
+
+    Reference:
+        López de Prado, M. (2016). Building Diversified Portfolios that
+        Outperform Out-of-Sample. The Journal of Portfolio Management, 42(4),
+        59-69. https://doi.org/10.3905/jpm.2016.42.4.059
+
+    Equations:
+        1. Correlation distance: d_{i,j} = sqrt(0.5 * (1 - rho_{i,j})).
+        2. Hierarchical clustering & quasi-diagonalization via dendrogram leaves.
+        3. Recursive bisection with inverse-variance cluster risk:
+           alpha = 1 - V_left / (V_left + V_right).
+
+    Project adaptation:
+        Optionally estimates the covariance matrix with Ledoit-Wolf (2004)
+        linear shrinkage (`shrinkage=True` by default) to stabilize small-window
+        futures cross-sections; accepts either a `{name: series}` dict or a 2D
+        `(observations, assets)` array.
+    """
+    from scipy.cluster.hierarchy import leaves_list, linkage
+    from scipy.spatial.distance import squareform
+
+    names = None
+    if isinstance(returns, dict):
+        names = list(returns.keys())
+        if not names:
+            return {}
+        arr = np.column_stack([np.asarray(returns[name], dtype=float) for name in names])
+    else:
+        arr = np.asarray(returns, dtype=float)
+        if arr.ndim != 2:
+            raise ValueError("returns must be a {name: series} dict or 2D (T, N) array")
+    n_assets = arr.shape[1]
+    if n_assets == 0:
+        return {} if names is not None else np.empty(0, dtype=float)
+    if n_assets == 1:
+        return {names[0]: 1.0} if names is not None else np.array([1.0], dtype=float)
+
+    finite_rows = arr[np.all(np.isfinite(arr), axis=1)]
+    if len(finite_rows) < 2:
+        eq = np.full(n_assets, 1.0 / n_assets, dtype=float)
+        return {name: float(eq[i]) for i, name in enumerate(names)} if names is not None else eq
+
+    cov = ledoit_wolf_cov(finite_rows) if shrinkage else np.cov(finite_rows, rowvar=False, ddof=1)
+    cov = 0.5 * (np.asarray(cov, dtype=float) + np.asarray(cov, dtype=float).T)
+    diag = np.diag(cov)
+    if not np.all(np.isfinite(cov)) or np.any(diag <= 1e-18):
+        eq = np.full(n_assets, 1.0 / n_assets, dtype=float)
+        return {name: float(eq[i]) for i, name in enumerate(names)} if names is not None else eq
+
+    std = np.sqrt(diag)
+    corr = np.clip(cov / np.outer(std, std), -1.0, 1.0)
+    np.fill_diagonal(corr, 1.0)
+    dist = np.sqrt(np.maximum(0.0, 0.5 * (1.0 - corr)))
+    dist = 0.5 * (dist + dist.T)
+    np.fill_diagonal(dist, 0.0)
+    if n_assets == 2:
+        order = [0, 1]
+    else:
+        condensed = squareform(dist, checks=False)
+        order = [int(idx) for idx in leaves_list(linkage(condensed, method=linkage_method))]
+
+    weights = np.ones(n_assets, dtype=float)
+    clusters = [order]
+    while clusters:
+        next_clusters = []
+        for cluster in clusters:
+            if len(cluster) <= 1:
+                continue
+            mid = len(cluster) // 2
+            left, right = cluster[:mid], cluster[mid:]
+            v_left = _ivp_cluster_var(cov, left)
+            v_right = _ivp_cluster_var(cov, right)
+            denom = v_left + v_right
+            alpha = 0.5 if denom <= 0.0 or not math.isfinite(denom) else (1.0 - v_left / denom)
+            weights[left] *= alpha
+            weights[right] *= (1.0 - alpha)
+            if len(left) > 1:
+                next_clusters.append(left)
+            if len(right) > 1:
+                next_clusters.append(right)
+        clusters = next_clusters
+
+    total = float(np.sum(weights))
+    weights = weights / total if total > 0.0 and math.isfinite(total) else np.full(n_assets, 1.0 / n_assets)
+    if names is not None:
+        return {name: float(weights[i]) for i, name in enumerate(names)}
+    return weights
+
+
 class _SubView:
     def __init__(self, parent: Context):
         self.parent = parent
@@ -962,11 +1111,14 @@ class _SubView:
 class CombinedStrategy(Strategy):
     """Standard single-instance combiner merging target weights of sub-strategies.
 
-    Subclasses may set `vol_balance=True` for inverse-volatility risk budgeting across
-    components, `max_sector_gross` / `max_sector_net` for sector exposure caps, and
-    `smooth_alpha` / `deadband` for portfolio-level turnover control.
+    Subclasses may set `allocation` to `"fixed"`, `"vol_balance"` (or
+    `vol_balance=True`), or `"hrp"` (causal Hierarchical Risk Parity with
+    Ledoit-Wolf shrinkage across component proxy returns), `max_sector_gross` /
+    `max_sector_net` for sector exposure caps, and `smooth_alpha` / `deadband`
+    for portfolio-level turnover control.
     """
 
+    allocation: str = "fixed"
     vol_balance: bool = False
     vol_window: int = 20
     max_sector_gross: float = 0.0
@@ -979,6 +1131,11 @@ class CombinedStrategy(Strategy):
 
     def __init__(self, **values):
         super().__init__(**values)
+        if self.allocation not in ("fixed", "vol_balance", "hrp"):
+            raise ValueError("CombinedStrategy allocation must be 'fixed', 'vol_balance', or 'hrp'")
+        self._alloc_mode = "hrp" if self.allocation == "hrp" else (
+            "vol_balance" if (self.vol_balance or self.allocation == "vol_balance") else "fixed"
+        )
         items = list(self.components())
         if not items:
             raise ValueError("CombinedStrategy requires at least one component strategy")
@@ -1006,12 +1163,32 @@ class CombinedStrategy(Strategy):
 
     def _effective_shares(self) -> list[float]:
         base = [share for _, share in self._subs]
-        if not self.vol_balance:
+        if self._alloc_mode == "fixed":
             return base
         window = max(2, int(self.vol_window))
         total_share = sum(base)
         if total_share <= 0:
             return base
+        active = [idx for idx, share in enumerate(base) if share > 0]
+        if self._alloc_mode == "hrp":
+            if len(active) < 2:
+                return base
+            hrp_window = max(5, window)
+            if any(len(self._comp_returns[idx]) < hrp_window for idx in active):
+                return base
+            matrix = np.column_stack([
+                np.asarray(self._comp_returns[idx][-hrp_window:], dtype=float)
+                for idx in active
+            ])
+            raw_hrp = hrp_weights(matrix, shrinkage=True)
+            tilted = [base[idx] * float(raw_hrp[pos]) for pos, idx in enumerate(active)]
+            denom = sum(tilted)
+            if denom <= 0 or not math.isfinite(denom):
+                return base
+            out = [0.0 for _ in base]
+            for pos, idx in enumerate(active):
+                out[idx] = total_share * tilted[pos] / denom
+            return out
         inv_vols = []
         for idx, share in enumerate(base):
             if share <= 0:
@@ -1031,13 +1208,14 @@ class CombinedStrategy(Strategy):
 
     def on_bars(self, ctx: Context, bars: dict):
         # Update strictly causal component return proxies from roll-adjusted closes before stepping.
-        if self.vol_balance:
+        if self._alloc_mode != "fixed":
             bar_returns = {}
             for sym in bars:
                 closes = ctx.history(sym, "close", 2)
                 if len(closes) == 2 and closes[0] > 0 and math.isfinite(closes[0]) and math.isfinite(closes[1]):
                     bar_returns[sym] = float(closes[1] / closes[0] - 1.0)
             if bar_returns:
+                max_keep = max(256, 4 * max(2, int(self.vol_window)))
                 for idx in range(len(self._subs)):
                     if self._was_ready[idx] and self._standing[idx]:
                         ret = sum(
@@ -1045,7 +1223,10 @@ class CombinedStrategy(Strategy):
                             for s, w in self._standing[idx].items()
                             if s in bar_returns
                         )
-                        self._comp_returns[idx].append(ret)
+                        hist = self._comp_returns[idx]
+                        hist.append(ret)
+                        if len(hist) > max_keep:
+                            del hist[:-max_keep]
 
         changed = False
         ready_flags = []
@@ -1079,7 +1260,7 @@ class CombinedStrategy(Strategy):
             }
             for idx, (sub, _) in enumerate(self._subs)
         ]
-        if self._all_ready and (changed or self.vol_balance):
+        if self._all_ready and (changed or self._alloc_mode != "fixed"):
             combined = combine_weights(
                 [(self._standing[i], shares[i]) for i in range(len(self._subs))],
                 ctx.symbols,

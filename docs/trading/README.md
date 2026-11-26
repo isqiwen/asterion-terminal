@@ -37,7 +37,7 @@ stateDiagram-v2
 ```
 
 - **实例配置**：包含实例 ID、包名与版本、固定合约或主力连续品种（如固定月份 `SHFE.rb2610`，或主力连续 `SHFE.rb` 及其升序在市交割月列表，共 1–64 项）、周期（1/5/10/15/30/60 分钟或日线）与参数覆盖；权重策略另填总/净权重预算及可选的保证金占用率上限（`max_margin_ratio`）和最小调仓偏离（`min_rebalance_weight`）。从回测包启动时自动带入周期、参数与预算，实际合约须由使用者核对选择。
-- **录制与实盘回测对账**：`data/<账户>/strategies/runs/<实例>.sqlite` 记录配置、每批交付 K 线、每次就绪状态与决策目标及行情断连事件；`data/<账户>/strategies/bars.sqlite` 持久保存本地聚合的实时 K 线并提供只读查询。收盘后可用 Lab Python 运行时执行 `build/electron-resources/python/bin/python3 -I -B -m asterion_lab.reconcile --trading-account <data/账户> --lab-dir <lab数据目录>`，将 `bars.sqlite`、`runs/<实例>.sqlite` 与 `journal.sqlite`（含 `archives/`）成交明细和同固定版本 Lab 回测逐根比对，输出 K 线、目标仓位（标明是否源于 K 线差异）与成交差异报告。
+- **录制与实盘回测对账**：`data/<账户>/strategies/runs/<实例>.sqlite` 记录配置、每批交付 K 线、每次就绪状态与决策目标及行情断连事件；`data/<账户>/strategies/bars.sqlite` 持久保存本地聚合的实时 K 线并提供只读查询。收盘后可用 Lab Python 运行时执行 `build/electron-resources/python/bin/python3 -I -B -m asterion_lab.reconcile --trading-account <data/账户> --lab-dir <lab数据目录>`，将 `bars.sqlite`、`runs/<实例>.sqlite` 与 `journal.sqlite`（含 `archives/`）成交明细和同固定版本 Lab 回测逐根比对，输出 K 线、目标仓位（标明是否源于 K 线差异）与成交差异报告；亦可通过 `asterion_lab.post_close` 串联 Warehouse 数据自检、多账户对账与去重 Webhook 告警供盘后定时巡检。
 - **主力连续与自动换月**：策略侧看到的 `bar.symbol` 为 `EXCHANGE/product`，`bar.contract` 为当前主力交割月 `EXCHANGE/product/YYYY-MM`。每日按前一交易日持仓量选定主力且只向后换月；换月首根新合约 K 线附带前一交易日新旧结算价比值 `roll_ratio`（四舍五入 8 位，取自换月当日柜台行情，缺失则停实例告警），驱动层即时对 `ctx.history` 执行当时比值复权（与[Lab 主力连续](../lab/README.md#主力连续)一致），并经同一条下单路径先平旧月、再开新月。同时在当前主力之后的在市月份中按前一交易日持仓量选定次主力，按同根收盘价计算年化对数展期收益率 `roll_yield`（四舍五入 8 位，纳入预热 SHA-256 摘要，不随换月缩放）。若账户白名单仅授权具体月份且下一主力不在白名单中，换月前立即终止实例并告警。
 - **热重启与历史预热**：使用新实例 ID、相同包名/合约/周期启动时，可按以下方式预热（允许同时切换包版本、参数或权重预算；预热回放仅更新策略内部状态，绝不下单；缺失持仓量在策略侧表示为 `NaN`）：
 

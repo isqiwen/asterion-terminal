@@ -1059,6 +1059,98 @@ class Records(unittest.TestCase):
 
         self.assertEqual(BothBounded().history_limit, 30)
 
+    def test_ledoit_wolf_cov_hrp_weights_and_combined_hrp_allocation(self):
+        import math
+        import numpy as np
+        from asterion_strategy import (
+            CombinedStrategy,
+            Context,
+            Strategy,
+            hrp_weights,
+            ledoit_wolf_cov,
+            step,
+        )
+
+        # Ledoit-Wolf shrinkage yields a symmetric strictly PD matrix even when T < N.
+        rng = np.random.default_rng(7)
+        small_sample = rng.normal(0.0, 0.02, size=(8, 12))
+        sample_cov = np.cov(small_sample, rowvar=False, ddof=0)
+        self.assertLessEqual(float(np.min(np.linalg.eigvalsh(sample_cov))), 1e-14)
+        shrunk = ledoit_wolf_cov(small_sample)
+        self.assertEqual(shrunk.shape, (12, 12))
+        np.testing.assert_allclose(shrunk, shrunk.T, atol=1e-15)
+        self.assertGreater(float(np.min(np.linalg.eigvalsh(shrunk))), 1e-8)
+        with_nan = np.vstack([small_sample, np.full((1, 12), np.nan)])
+        np.testing.assert_allclose(ledoit_wolf_cov(with_nan), shrunk, atol=1e-15)
+
+        # HRP splits cluster risk between correlated duplicates (a1, a2) and uncorrelated b.
+        t = np.arange(120, dtype=float)
+        f1 = 0.015 * np.sin(t * 0.35)
+        f2 = 0.015 * np.cos(t * 0.35)
+        a1 = f1 + 0.0005 * np.sin(t * 1.7)
+        a2 = f1 - 0.0005 * np.sin(t * 1.7)
+        b = f2
+        w_dict = hrp_weights({"a1": a1, "a2": a2, "b": b})
+        w_arr = hrp_weights(np.column_stack([a1, a2, b]))
+        np.testing.assert_allclose([w_dict["a1"], w_dict["a2"], w_dict["b"]], w_arr, atol=1e-12)
+        self.assertAlmostEqual(sum(w_dict.values()), 1.0, places=12)
+        self.assertTrue(all(v > 0.0 for v in w_dict.values()))
+        self.assertGreater(w_dict["b"], 0.42)
+        self.assertGreater(w_dict["b"], w_dict["a1"] * 1.4)
+        self.assertGreater(w_dict["b"], w_dict["a2"] * 1.4)
+        self.assertEqual(hrp_weights({"only": a1}), {"only": 1.0})
+        w_raw = hrp_weights({"a1": a1, "a2": a2, "b": b}, shrinkage=False)
+        self.assertGreater(w_raw["b"], w_raw["a1"] * 1.4)
+
+        # CombinedStrategy with allocation="hrp" tilts away from correlated duplicate sub-strategies.
+        class ConstSub(Strategy):
+            params = {"symbol": "SHFE/rb"}
+
+            def ready(self, ctx):
+                return True
+
+            def on_bars(self, ctx, bars):
+                ctx.weights({self.params["symbol"]: 0.3})
+
+        class HrpPortfolio(CombinedStrategy):
+            allocation = "hrp"
+            vol_window = 12
+
+            def components(self):
+                return [
+                    (ConstSub(symbol="SHFE/rb"), 1.0 / 3.0),
+                    (ConstSub(symbol="SHFE/hc"), 1.0 / 3.0),
+                    (ConstSub(symbol="SHFE/au"), 1.0 / 3.0),
+                ]
+
+        ctx = Context(["SHFE/rb", "SHFE/hc", "SHFE/au"])
+        comb = HrpPortfolio()
+        rb, hc, au = 3000.0, 3100.0, 500.0
+        for idx in range(30):
+            r_black = 0.015 * math.sin(idx * 0.5)
+            r_gold = 0.015 * math.cos(idx * 0.5)
+            rb *= 1.0 + r_black + 0.0004 * math.sin(idx * 1.9)
+            hc *= 1.0 + r_black - 0.0004 * math.sin(idx * 1.9)
+            au *= 1.0 + r_gold
+            step(comb, ctx, [
+                bar("SHFE/rb", idx, rb),
+                bar("SHFE/hc", idx, hc),
+                bar("SHFE/au", idx, au),
+            ])
+        shares = [item["share"] for item in comb.last_components]
+        self.assertAlmostEqual(sum(shares), 1.0, places=9)
+        self.assertGreater(shares[2], shares[0] * 1.3)
+        self.assertGreater(shares[2], shares[1] * 1.3)
+
+        with self.assertRaisesRegex(ValueError, "allocation"):
+            class BadAlloc(CombinedStrategy):
+                allocation = "unknown"
+
+                def components(self):
+                    return [(ConstSub(symbol="SHFE/rb"), 1.0)]
+
+            BadAlloc()
+
 
 if __name__ == "__main__":
     unittest.main()
