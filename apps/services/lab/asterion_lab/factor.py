@@ -528,9 +528,7 @@ def evaluate(frame: pl.DataFrame, horizons: list, groups: int, holdout_day: str 
                 if prev_top is None:
                     one_way = 2.0
                 else:
-                    t_top = len(top_set - prev_top) / len(top_set) if top_set else 0.0
-                    t_bot = len(bot_set - prev_bot) / len(bot_set) if bot_set else 0.0
-                    one_way = 2.0 * (t_top + t_bot)
+                    one_way = weight_turnover(prev_top, top_set) + weight_turnover(prev_bot, bot_set)
                 prev_top, prev_bot = top_set, bot_set
                 net_long_short *= max(0.0, 1.0 + gross_r - one_way * cost_rate)
                 net_val = net_long_short
@@ -609,9 +607,16 @@ def mean(values) -> float | None:
     return float(np.mean(values)) if len(values) else None
 
 
+def weight_turnover(before: set, today: set) -> float:
+    """Total weight traded when an equal-weight group's membership changes."""
+    previous = {symbol: 1.0 / len(before) for symbol in before}
+    current = {symbol: 1.0 / len(today) for symbol in today}
+    return sum(abs(current.get(symbol, 0.0) - previous.get(symbol, 0.0)) for symbol in before | today)
+
+
 def turnover(sets: list) -> float | None:
-    """The mean share of a group's members that were not in it the day before."""
-    changes = [len(today - before) / len(today) for before, today in zip(sets, sets[1:]) if today]
+    """Mean one-way turnover of an equal-weight group."""
+    changes = [weight_turnover(before, today) / 2 for before, today in zip(sets, sets[1:])]
     return mean(changes)
 
 

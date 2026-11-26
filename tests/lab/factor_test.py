@@ -124,6 +124,18 @@ class Evaluation(unittest.TestCase):
         # Two group days (the last bar has no return): half of each group is new.
         self.assertEqual([group["turnover"] for group in result["groups"]], [0.5, 0.5])
 
+    def test_group_costs_include_rebalancing_when_the_symbol_pool_shrinks_and_expands(self):
+        rows = frame([1, 2, 3, 4], [0.0] * 4, bars=4).with_columns(
+            pl.when((pl.col("bar") == 1) & pl.col("symbol").is_in(["s2", "s3"]))
+            .then(None).otherwise(pl.col("value")).alias("value")
+        )
+        result = factor.evaluate(rows, [1], 2, cost_bps=10)
+        expected = [0.998, 0.996004, 0.994011992, 0.994011992]
+        for day, net in zip(result["days"], expected):
+            self.assertEqual(day["long_short"], 1.0)
+            self.assertAlmostEqual(day["net_long_short"], net)
+        self.assertEqual([group["turnover"] for group in result["groups"]], [0.5, 0.5])
+
     def test_a_factor_returns_one_value_per_bar(self):
         symbols = {"a": {"day": ["2026-01-01", "2026-01-02"], "close": np.array([1.0, 2.0])}}
         with self.assertRaisesRegex(ValueError, r"gave \(1,\) values for the 2 bars of a"):
