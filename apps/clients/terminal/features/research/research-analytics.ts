@@ -24,7 +24,7 @@ export function monthlyReturns(deposit: string, days: readonly RunDay[]) {
     if (i + 1 < days.length && days[i + 1].tradingDay.slice(0, 7) === month) continue;
     const closing = Number(days[i].equity?.text);
     if (opening > 0 && Number.isFinite(closing)) {
-      months.push({ month, value: Math.max(-1, closing / opening - 1) });
+      months.push({ month, value: closing / opening - 1 });
     }
     opening = closing;
   }

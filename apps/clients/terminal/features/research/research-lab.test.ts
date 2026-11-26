@@ -91,7 +91,7 @@ test("monthly returns compound from the deposit, and a sweep grid fills by its t
     ["2026-01-30", "-50000"],
     ["2026-02-27", "-80000"],
   ].map(([tradingDay, equity]) => create(RunDaySchema, { tradingDay, equity: { text: equity } }));
-  expect(monthlyReturns("1000000", blownUp)).toEqual([{ month: "2026-01", value: -1 }]);
+  expect(monthlyReturns("1000000", blownUp)).toEqual([{ month: "2026-01", value: -1.05 }]);
   const grid = heatmap(
     [
       { params: { fast: "10", slow: "20" }, metric: 1 },

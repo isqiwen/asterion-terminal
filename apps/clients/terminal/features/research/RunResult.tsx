@@ -530,7 +530,7 @@ export function RunResult({
     let peak = Number.isFinite(deposit) && deposit > 0 ? deposit : -Infinity;
     const drawdown = equity.map(value => {
       peak = Math.max(peak, value);
-      return peak > 0 ? Math.max(-1, value / peak - 1) : 0;
+      return peak > 0 ? value / peak - 1 : 0;
     });
     const timeAt = (index: number) => String(detail.days[index].settledMs * 1_000_000n);
     return {

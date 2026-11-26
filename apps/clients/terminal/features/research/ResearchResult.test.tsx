@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 import { expect, test, vi } from "vitest";
+import { PriceChart } from "@asterion/terminal/charts/PriceChart";
 import { lab } from "../../src/bridge/lab";
 import { Offset, Period } from "../../src/generated/asterion/common_pb";
 import { registerTerminalFeatures } from "../../src/host/feature-registry";
@@ -19,7 +20,7 @@ import { BackendError } from "../../src/i18n/errors";
 vi.mock("../../src/bridge/lab", () => ({
   lab: vi.fn(),
 }));
-vi.mock("@asterion/terminal/charts/PriceChart", () => ({ PriceChart: () => null }));
+vi.mock("@asterion/terminal/charts/PriceChart", () => ({ PriceChart: vi.fn(() => null) }));
 registerTerminalFeatures([feature]);
 
 test("status refreshes preserve a pending comparison of the same two runs", async () => {
@@ -246,6 +247,30 @@ test("a run whose targets were refused shows how often and why", async () => {
   ).not.toBeNull();
   expect(screen.getByRole("cell", { name: "超过总持仓上限" })).not.toBeNull();
   expect(screen.getByRole("cell", { name: "14" })).not.toBeNull();
+});
+
+test("negative equity shows losses beyond the deposit in monthly returns and drawdown", async () => {
+  vi.mocked(PriceChart).mockClear();
+  vi.mocked(lab).mockImplementation(async operation => {
+    if (operation.case !== "getRun") throw new Error("Unexpected operation");
+    return create(RunDetailSchema, {
+      summary: { id: "negative-equity", state: RunState.SUCCEEDED },
+      record: JSON.stringify({
+        strategy: { id: "example.Strategy" },
+        costs: { deposit: "100" },
+        data: {},
+      }),
+      days: [{ tradingDay: "2026-01-30", equity: { text: "-50" }, settledMs: 1n }],
+    }) as never;
+  });
+  render(<RunResult id="negative-equity" state="succeeded" />);
+  const months = await screen.findByRole("table", { name: "月度收益" });
+  expect(within(months).getAllByText("-150.00%")).toHaveLength(2);
+  const drawdown = vi
+    .mocked(PriceChart)
+    .mock.calls.find(([props]) => props.label === "回撤（%）")![0];
+  expect(drawdown.series).toMatchObject({ kind: "line", points: [{ price: "-150.00" }] });
+  expect(drawdown.describe(0)).toContain("-150.00%");
 });
 
 test("a failed historical chart request leaves the stored run metrics and fills usable", async () => {
