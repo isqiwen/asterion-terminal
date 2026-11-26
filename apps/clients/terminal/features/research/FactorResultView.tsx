@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { PriceChart } from "@asterion/terminal/charts/PriceChart";
+import { Period } from "../../src/generated/asterion/common_pb";
 import type { FactorResult } from "../../src/generated/asterion/lab_pb";
 import { type MessageValues, translate } from "../../src/i18n";
 import { CopySummaryButton, ExperimentNoteBar, useAnnotations } from "./LabParts";
@@ -9,10 +10,33 @@ import { metric, signed } from "./ResearchResult";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
 
-// Bars are labelled at 15:00 Beijing time, the close of their trading day.
-const closeOf = (day: string) => String(BigInt(Date.parse(`${day}T07:00:00Z`)) * 1_000_000n);
-const dayOf = (ns: string) =>
-  new Date(Number(BigInt(ns) / 1_000_000n) + 8 * 3600_000).toISOString().slice(0, 10);
+// Daily bars are labelled at 15:00 Beijing time; minute bars carry YYYY-MM-DD HH:MM Beijing time.
+const closeOf = (day: string) =>
+  day.includes(" ")
+    ? String(BigInt(Date.parse(`${day.replace(" ", "T")}:00+08:00`)) * 1_000_000n)
+    : String(BigInt(Date.parse(`${day}T07:00:00Z`)) * 1_000_000n);
+const formatTimeStamp = (ns: string, intraday: boolean) => {
+  const iso = new Date(Number(BigInt(ns) / 1_000_000n) + 8 * 3600_000).toISOString();
+  return intraday ? `${iso.slice(5, 10)} ${iso.slice(11, 16)}` : iso.slice(0, 10);
+};
+const periodTag = (period: Period | undefined): string => {
+  switch (period) {
+    case Period.MINUTES_1:
+      return "1m";
+    case Period.MINUTES_5:
+      return "5m";
+    case Period.MINUTES_10:
+      return "10m";
+    case Period.MINUTES_15:
+      return "15m";
+    case Period.MINUTES_30:
+      return "30m";
+    case Period.MINUTES_60:
+      return "60m";
+    default:
+      return "";
+  }
+};
 
 // Groups from the lowest values (cool cyan-blue) to the highest (warm amber).
 const groupColor = (group: number, count: number) =>
@@ -106,7 +130,15 @@ export function FactorResultView({ result }: { result: FactorResult }) {
   const combinationLabel =
     result.evaluation?.combination === "ic_weighted" ? t("IC 加权合成") : t("等权合成");
   const evaluation = result.evaluation;
+  const intraday = useMemo(
+    () =>
+      Boolean(periodTag(evaluation?.period)) || result.days.some(d => d.tradingDay.includes(" ")),
+    [evaluation?.period, result.days],
+  );
+  const dayOf = (ns: string) => formatTimeStamp(ns, intraday);
+  const pTag = periodTag(evaluation?.period);
   const hygieneTags = [
+    ...(pTag ? [pTag] : []),
     ...(evaluation?.returnMode === "open" ? [t("次根开盘")] : []),
     ...(evaluation?.winsorize ? [t("MAD 去极值")] : []),
     ...(evaluation?.neutralize === "sector" ? [t("板块中性")] : []),
@@ -193,6 +225,18 @@ export function FactorResultView({ result }: { result: FactorResult }) {
                 ? [[t("HAC t 值"), metric(first.tHac, false), first.tHac] as const]
                 : []),
               [t("IC 为正"), metric(first.positiveShare, true), undefined],
+              ...(result.autocorr !== undefined
+                ? [[t("信号自相关"), metric(result.autocorr, false), undefined] as const]
+                : []),
+              ...(result.halfLife !== undefined
+                ? [
+                    [
+                      t("信号半衰期"),
+                      t("{bars} 根", { bars: result.halfLife.toFixed(1) }),
+                      undefined,
+                    ] as const,
+                  ]
+                : []),
               [
                 t("多空累计"),
                 longShort === undefined ? "—" : metric(longShort - 1, true),

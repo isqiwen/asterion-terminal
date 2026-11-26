@@ -37,9 +37,20 @@ const store: ConditionStore<FactorScope> = {
   same: sameFactorScope,
 };
 
+const FACTOR_PERIODS = [
+  ["0", "日线"],
+  ["60", "60m"],
+  ["30", "30m"],
+  ["15", "15m"],
+  ["10", "10m"],
+  ["5", "5m"],
+  ["1", "1m"],
+] as const;
+
 function summary(form: FactorForm, begin: string, end: string) {
   return [
     dayRange(form.begin, form.end, begin, end),
+    ...(form.minutes && form.minutes !== "0" ? [`${form.minutes}m`] : []),
     t("持有 {horizons} 根", { horizons: symbolsOf(form.horizons).join(", ") }),
     t("{count} 组", { count: form.groups }),
     ...(form.winsorize ? [t("MAD 去极值")] : []),
@@ -102,6 +113,23 @@ export function FactorScopeBar({
             <>
               <select
                 className="lab-scope-quick"
+                aria-label={t("快速切换周期")}
+                value={current.minutes}
+                onChange={event =>
+                  conditions.update({
+                    ...current,
+                    minutes: event.target.value,
+                  })
+                }
+              >
+                {FACTOR_PERIODS.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {value === "0" ? t(label) : label}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="lab-scope-quick"
                 aria-label={t("快速切换收益口径")}
                 value={current.returnMode}
                 onChange={event =>
@@ -150,9 +178,10 @@ function FactorFields({
   change: (patch: Partial<FactorScope>) => void;
   providedCatalog?: StoredCatalog;
 }) {
-  const loadedCatalog = useStoredCatalog(context, false, true, !providedCatalog);
+  const isMinutes = form.minutes !== "0";
+  const loadedCatalog = useStoredCatalog(context, isMinutes, true, !providedCatalog);
   const catalog = providedCatalog ?? loadedCatalog;
-  const [begin, end] = datePlaceholders(catalog, symbolsOf(form.symbols), false);
+  const [begin, end] = datePlaceholders(catalog, symbolsOf(form.symbols), isMinutes);
   return (
     <>
       <section>
@@ -165,6 +194,19 @@ function FactorFields({
             catalog={catalog}
             onChange={symbols => change({ symbols })}
           />
+          <label>
+            <span>{t("周期")}</span>
+            <select
+              value={form.minutes}
+              onChange={event => change({ minutes: event.target.value })}
+            >
+              {FACTOR_PERIODS.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {value === "0" ? t(label) : label}
+                </option>
+              ))}
+            </select>
+          </label>
           <label>
             <span>{t("开始日")}</span>
             <DateInput

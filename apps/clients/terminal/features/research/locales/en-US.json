@@ -538,5 +538,15 @@
   "最大回撤 95% 区间": "Max DD 95% CI",
   "PBO 过拟合概率": "PBO overfit prob.",
   "CSCV 秩相关": "CSCV rank corr",
-  "HAC t 值": "HAC t"
+  "HAC t 值": "HAC t",
+  "信号自相关": "Signal autocorr",
+  "信号半衰期": "Signal half-life",
+  "{bars} 根": "{bars} bars",
+  "日内分时段归因": "Intraday session attribution",
+  "时段": "Session",
+  "夜盘": "Night",
+  "早盘一": "Morning 1",
+  "早盘二": "Morning 2",
+  "午盘": "Afternoon",
+  "开盘 15m": "Open 15m"
 }

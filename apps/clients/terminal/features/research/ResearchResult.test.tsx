@@ -518,6 +518,30 @@ test("diagnostics tab renders trade quality, symbol/sector attribution, and comb
                 fills: 8,
               },
             ],
+            by_session: [
+              {
+                session: "night",
+                trades: 4,
+                wins: 3,
+                win_rate: 0.75,
+                gross_pnl: 12000,
+                fees: 400,
+                slippage_cost: 300,
+                net_pnl: 11600,
+                fills: 8,
+              },
+              {
+                session: "opening_15m",
+                trades: 2,
+                wins: 1,
+                win_rate: 0.5,
+                gross_pnl: 4000,
+                fees: 200,
+                slippage_cost: 150,
+                net_pnl: 3800,
+                fills: 4,
+              },
+            ],
             components: [
               {
                 name: "MultiFactorRank",
@@ -542,6 +566,9 @@ test("diagnostics tab renders trade quality, symbol/sector attribution, and comb
   expect(screen.getByText("14 天")).toBeTruthy();
   expect(screen.getByRole("table", { name: "分品种归因" })).toBeTruthy();
   expect(screen.getByRole("table", { name: "分板块归因" })).toBeTruthy();
+  const sess = screen.getByRole("table", { name: "日内分时段归因" });
+  expect(within(sess).getByRole("rowheader", { name: "夜盘" })).toBeTruthy();
+  expect(within(sess).getByRole("rowheader", { name: "开盘 15m" })).toBeTruthy();
   const comp = screen.getByRole("table", { name: "子策略过程与贡献" });
   expect(within(comp).getByRole("rowheader", { name: "MultiFactorRank" })).toBeTruthy();
   expect(screen.getByText("统计显著性与稳健性")).toBeTruthy();

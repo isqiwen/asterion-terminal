@@ -502,6 +502,8 @@ export type FactorForm = {
   symbols: string;
   begin: string;
   end: string;
+  // Daily bars ("0") or bars of this many minutes.
+  minutes?: string;
   params: Record<string, string>;
   horizons: string;
   groups: string;
@@ -524,6 +526,7 @@ export function defaultFactorForm(): FactorForm {
     symbols: "",
     begin: "",
     end: "",
+    minutes: "0",
     params: {},
     horizons: "1, 2, 3, 5, 10, 20",
     groups: "5",
@@ -547,6 +550,7 @@ type FactorScopeField =
   | "symbols"
   | "begin"
   | "end"
+  | "minutes"
   | "horizons"
   | "groups"
   | "standardize"
@@ -566,6 +570,7 @@ export const factorScopeOf = (form: FactorForm): FactorScope => {
     symbols: form.symbols ?? defaults.symbols,
     begin: form.begin ?? defaults.begin,
     end: form.end ?? defaults.end,
+    minutes: form.minutes ?? defaults.minutes!,
     horizons: form.horizons ?? defaults.horizons,
     groups: form.groups ?? defaults.groups,
     standardize: form.standardize ?? defaults.standardize!,
@@ -605,6 +610,7 @@ export function sameFactorScope(a: FactorScope, b: FactorScope) {
     sameSymbolList(a.symbols, b.symbols) &&
     a.begin.trim() === b.begin.trim() &&
     a.end.trim() === b.end.trim() &&
+    sameNum(a.minutes, b.minutes) &&
     sameList(a.horizons, b.horizons) &&
     sameNum(a.groups, b.groups) &&
     a.standardize === b.standardize &&
@@ -811,11 +817,16 @@ export function onFactorScope(form: FactorForm, result: FactorResult, begin: str
   const horizons = symbolsOf(form.horizons).map(Number);
   const sameNumber = (text: string | undefined, value: number) =>
     Number((text ?? "").trim() || 0) === (value || 0);
+  const formPeriod = protocolPeriod(
+    !form.minutes || form.minutes === "0" ? "day" : Number(form.minutes),
+  );
+  const evalPeriod = evaluation.period || Period.DAY;
   return (
     symbols.length === evaluation.symbols.length &&
     symbols.every(symbol => evaluation.symbols.includes(symbol)) &&
     sameDay(form.begin, begin, evaluation.firstDay) &&
     sameDay(form.end, end, evaluation.lastDay) &&
+    formPeriod === evalPeriod &&
     horizons.length === evaluation.horizons.length &&
     horizons.every((horizon, index) => horizon === evaluation.horizons[index]) &&
     Number(form.groups) === evaluation.groups &&
@@ -939,6 +950,7 @@ export function factorRequest(
     volAdjust: Boolean(form.volAdjust),
     costBps,
     orthogonalizeAgainst: controls.map(id => ({ factor: id, params: {} })),
+    period: protocolPeriod(!form.minutes || form.minutes === "0" ? "day" : Number(form.minutes)),
   };
   return request;
 }

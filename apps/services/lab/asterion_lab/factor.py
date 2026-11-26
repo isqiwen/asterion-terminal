@@ -50,9 +50,27 @@ from asterion_strategy import (
 MINIMUM = 3  # symbols a day's IC needs
 
 
-def symbols_of(data: Data, symbols, prepared: dict | None = None) -> tuple:
+def period_minutes(period: int) -> int:
+    from asterion.common_pb2 import Period
+
+    mapping = {
+        Period.PERIOD_UNSPECIFIED: 0,
+        Period.PERIOD_DAY: 0,
+        Period.PERIOD_MINUTES_1: 1,
+        Period.PERIOD_MINUTES_5: 5,
+        Period.PERIOD_MINUTES_10: 10,
+        Period.PERIOD_MINUTES_15: 15,
+        Period.PERIOD_MINUTES_30: 30,
+        Period.PERIOD_MINUTES_60: 60,
+    }
+    if period not in mapping:
+        raise ValueError("factor evaluation supports daily or 1 to 60 minute bars")
+    return mapping[period]
+
+
+def symbols_of(data: Data, symbols, prepared: dict | None = None, minutes: int = 0) -> tuple:
     """The symbols to evaluate: an exchange stands for each of its products
-    with daily bars in the range. Returns them and the products left out,
+    with bars in the range. Returns them and the products left out,
     each with why: those that cannot form a series."""
     chosen, skipped = [], []
     with data.warehouse:
@@ -72,7 +90,7 @@ def symbols_of(data: Data, symbols, prepared: dict | None = None) -> tuple:
             for product in data.load_exchange(symbol):
                 name = f"{symbol}/{product}"
                 try:
-                    ready = prepare(data, config(data, (name,)))
+                    ready = prepare(data, config(data, (name,), minutes))
                     if prepared is not None:
                         prepared[name] = ready
                     chosen.append(name)
@@ -83,11 +101,11 @@ def symbols_of(data: Data, symbols, prepared: dict | None = None) -> tuple:
         if prepared is not None:
             for symbol in chosen:
                 if symbol not in prepared:
-                    prepared[symbol] = prepare(data, config(data, (symbol,)))
+                    prepared[symbol] = prepare(data, config(data, (symbol,), minutes))
     return tuple(chosen), skipped
 
 
-def config(data: Data, symbols) -> Config:
+def config(data: Data, symbols, minutes: int = 0) -> Config:
     """A replay that trades nothing: costs and limits play no part, but the
     account accepts only valid ones."""
     costs = [Decimal(1) if name == "margin_per_lot" else Decimal(0) for name in COSTS]
@@ -95,16 +113,16 @@ def config(data: Data, symbols) -> Config:
                   begin_day=data.begin, end_day=data.end, deposit=Decimal(1),
                   costs=costs,
                   slippage_ticks=0, max_order_lots=Decimal(0), max_gross_lots=Decimal(0),
-                  max_contract_lots=Decimal(0), max_working_orders=0)
+                  max_contract_lots=Decimal(0), max_working_orders=0, minutes=minutes)
 
 
-def bars(data: Data, symbol: str, prepared=None) -> dict:
-    """A symbol's bars as a strategy sees them: its days and an array of each
+def bars(data: Data, symbol: str, prepared=None, minutes: int = 0) -> dict:
+    """A symbol's bars as a strategy sees them: its timestamps and an array of each
     field. Each symbol is replayed alone, so a contract and the series it is a
     month of can both be evaluated."""
     import asterion_engine
 
-    contracts, series, _ = prepared or prepare(data, config(data, (symbol,)))
+    contracts, series, _ = prepared or prepare(data, config(data, (symbol,), minutes))
     limit = raw(Decimal(1))
     engine = asterion_engine.Replay(limit, contracts, series, (limit, limit, 1, limit))
     context, days, segments, start = Context([symbol], rolls(contracts)), [], [], 0
@@ -115,7 +133,10 @@ def bars(data: Data, symbol: str, prepared=None) -> dict:
                                          for field in FIELDS}))
                 start = len(days)
             observe(context, completed)
-            days.extend(bar.time.date().isoformat() for bar in completed)
+            if minutes:
+                days.extend(bar.time.strftime("%Y-%m-%d %H:%M") for bar in completed)
+            else:
+                days.extend(bar.time.date().isoformat() for bar in completed)
     snapshot = {field: context.history(symbol, field, len(days)) for field in FIELDS}
     segments.append((start, snapshot))
     return {"day": days, "segments": segments, **snapshot}
@@ -515,10 +536,29 @@ def evaluate(frame: pl.DataFrame, horizons: list, groups: int, holdout_day: str 
             state = (total, long_short, net_val)
         history.append(state)
     counts = dict(frame.filter(pl.col("value").is_not_null()).group_by("day").len().iter_rows())
+    # Lag-1 cross-sectional Spearman rank autocorrelation & implied signal half-life in bars.
+    prev_val = frame.select("symbol", (pl.col("day_index") + 1).alias("day_index"),
+                            pl.col("value").alias("prev_value"))
+    ac_daily = (
+        frame.select("symbol", "day", "day_index", "value")
+        .join(prev_val, on=["symbol", "day_index"], how="inner")
+        .filter(pl.col("value").is_not_null() & pl.col("prev_value").is_not_null())
+        .group_by("day")
+        .agg(pl.len().alias("count"), pl.corr("value", "prev_value", method="spearman").alias("ac"))
+        .filter((pl.col("count") >= MINIMUM) & pl.col("ac").is_finite())
+    )
+    autocorr = float(ac_daily["ac"].mean()) if ac_daily.height else None
+    half_life = (
+        -math.log(2.0) / math.log(autocorr)
+        if autocorr is not None and 0.0 < autocorr < 1.0
+        else None
+    )
     return {
         "horizons": summary,
         "development_horizons": dev_summary,
         "holdout_horizons": holdout_summary,
+        "autocorr": autocorr,
+        "half_life": half_life,
         "days": [{"day": day, "symbols": counts.get(day, 0), "ic": first_ic.get(day),
                   "groups": state[0] if state else [], "long_short": state[1] if state else None,
                   "net_long_short": state[2] if state else None}
@@ -617,13 +657,15 @@ def run(directory: Path, admitted, reply):
         c_settings = settings_of(item, c_defaults)
         verify_factor_causality(c_fn, c_inputs, c_settings, item.factor)
         controls.append((item.factor, c_fn, c_inputs, c_settings))
+    minutes = period_minutes(request.period)
     data = Data(Dataset(directory), request.first_day, request.last_day,
                 version=admitted.pinned.dataset_version)
     prepared = {}
-    symbols, skipped = symbols_of(data, list(request.symbols), prepared)
+    symbols, skipped = symbols_of(data, list(request.symbols), prepared, minutes=minutes)
     if not symbols:
-        raise ValueError("no symbol has daily bars in the range")
-    symbol_bars = {symbol: bars(data, symbol, prepared[symbol]) for symbol in symbols}
+        kind = f"{minutes}m" if minutes else "daily"
+        raise ValueError(f"no symbol has {kind} bars in the range")
+    symbol_bars = {symbol: bars(data, symbol, prepared[symbol], minutes=minutes) for symbol in symbols}
     primary = filter_liquidity(
         values(function, inputs, settings, symbol_bars),
         request.min_volume,
@@ -690,6 +732,10 @@ def run(directory: Path, admitted, reply):
     fill_horizons(reply.horizons, result["horizons"])
     fill_horizons(reply.development_horizons, result["development_horizons"])
     fill_horizons(reply.holdout_horizons, result["holdout_horizons"])
+    if result["autocorr"] is not None:
+        reply.autocorr = result["autocorr"]
+    if result["half_life"] is not None:
+        reply.half_life = result["half_life"]
     reply.factor_names.extend(factor_names)
     for correlation in corr_matrix:
         reply.correlations.add(**correlation)

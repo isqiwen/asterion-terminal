@@ -613,17 +613,21 @@ class Service:
         copy of the repository's code."""
         if not IDENTITY.fullmatch(request.id) or self.factor_path(request.id).exists():
             raise ValueError("factor result id is invalid or already used")
+        is_minutes = request.period not in (Period.PERIOD_UNSPECIFIED, Period.PERIOD_DAY)
+        if is_minutes and PERIODS.get(request.period) not in chart.MINUTES:
+            raise ValueError("factor evaluation supports daily or 1 to 60 minute bars")
         admitted = AdmittedFactor(evaluation=request)
-        admitted.pinned.dataset_version = self.data_version("", ("daily",))
+        tables = ("daily", "minutes") if is_minutes else ("daily",)
+        admitted.pinned.dataset_version = self.data_version("", tables)
         if request.symbols and (not request.first_day or not request.last_day):
             exchanges = {s.split("/")[0] for s in request.symbols if s}
             _, found, _ = self.stored_contracts(
                 pinned=admitted.pinned.dataset_version,
                 exchanges=exchanges,
-                include_daily=True,
+                include_daily=not is_minutes,
                 include_names=False,
             )
-            first, last = stored_span(found, request.symbols, False)
+            first, last = stored_span(found, request.symbols, is_minutes)
             if not admitted.evaluation.first_day:
                 admitted.evaluation.first_day = first
             if not admitted.evaluation.last_day:
@@ -789,13 +793,15 @@ class Service:
         """Evaluates a factor in a child process, keeps its result and replies
         with it, within the time the Terminal waits for a reply."""
         admitted = await self.read(self.pin_factor, request)
+        is_minutes = admitted.evaluation.period not in (Period.PERIOD_UNSPECIFIED, Period.PERIOD_DAY)
+        timeout = REPORT_SECONDS if is_minutes else FACTOR_SECONDS
         try:
             try:
                 output = await worker.output(
                     "asterion_lab.factor", str(self.directory), cwd=admitted.source,
-                    input=admitted.SerializeToString(), timeout=FACTOR_SECONDS)
+                    input=admitted.SerializeToString(), timeout=timeout)
             except TimeoutError:
-                raise ValueError(f"the factor took longer than {FACTOR_SECONDS} s; "
+                raise ValueError(f"the factor took longer than {timeout} s; "
                                  "evaluate fewer symbols or a shorter range")
             result.ParseFromString(output)
             await self.read(self.save_factor, admitted, result)

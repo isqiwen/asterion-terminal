@@ -840,6 +840,15 @@ const sectorLabels: Record<string, string> = {
   other: "其他",
 };
 
+const sessionLabels: Record<string, string> = {
+  night: "夜盘",
+  morning_1: "早盘一",
+  morning_2: "早盘二",
+  afternoon: "午盘",
+  opening_15m: "开盘 15m",
+  other: "其他",
+};
+
 type BenchmarkData = {
   days: string[];
   nav: number[];
@@ -933,6 +942,17 @@ type DiagnosticsData = {
     net_pnl: number;
     long_pnl: number;
     short_pnl: number;
+    fills: number;
+  }>;
+  by_session?: Array<{
+    session: string;
+    trades: number;
+    wins: number;
+    win_rate?: number | null;
+    gross_pnl: number;
+    fees: number;
+    slippage_cost: number;
+    net_pnl: number;
     fills: number;
   }>;
   components?: Array<{
@@ -1063,6 +1083,7 @@ function RunDiagnostics({
   const significance = diag.significance;
   const bySymbol = diag.by_symbol ?? [];
   const bySector = diag.by_sector ?? [];
+  const bySession = diag.by_session ?? [];
   const components = diag.components ?? [];
   const drawdowns = useMemo(
     () => (diag.drawdowns?.length ? diag.drawdowns : computeDrawdowns(detail.days, deposit)),
@@ -1148,8 +1169,10 @@ function RunDiagnostics({
   );
   const maxSymAbs = Math.max(...bySymbol.map(row => Math.abs(row.net_pnl)), 1e-9);
   const maxSecAbs = Math.max(...bySector.map(row => Math.abs(row.net_pnl)), 1e-9);
+  const maxSessAbs = Math.max(...bySession.map(row => Math.abs(row.net_pnl)), 1e-9);
 
   const sectorName = (code: string) => t(sectorLabels[code] ?? "其他");
+  const sessionName = (code: string) => t(sessionLabels[code] ?? "其他");
   const symbolLabel = (symbol: string) => {
     const name = warehouseName(symbol);
     return name ? `${name} ${symbol}` : symbol;
@@ -1506,6 +1529,59 @@ function RunDiagnostics({
                     <td className="numeric">{money(row.fees)}</td>
                     <td className={`numeric ${signed(row.long_pnl)}`}>{money(row.long_pnl)}</td>
                     <td className={`numeric ${signed(row.short_pnl)}`}>{money(row.short_pnl)}</td>
+                    <td className="numeric">{row.fills}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {bySession.length > 0 && (
+        <>
+          <h3>{t("日内分时段归因")}</h3>
+          <div className="lab-scroll">
+            <table className="lab-table" aria-label={t("日内分时段归因")}>
+              <thead>
+                <tr>
+                  <th scope="col">{t("时段")}</th>
+                  <th scope="col" className="numeric">
+                    {t("净盈亏")}
+                  </th>
+                  <td aria-hidden="true" />
+                  <th scope="col" className="numeric">
+                    {t("毛盈亏")}
+                  </th>
+                  <th scope="col" className="numeric">
+                    {t("手续费")}
+                  </th>
+                  <th scope="col" className="numeric">
+                    {t("回合数")}
+                  </th>
+                  <th scope="col" className="numeric">
+                    {t("胜率")}
+                  </th>
+                  <th scope="col" className="numeric">
+                    {t("成交笔数")}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {bySession.map(row => (
+                  <tr key={row.session}>
+                    <th scope="row">{sessionName(row.session)}</th>
+                    <td className={`numeric ${signed(row.net_pnl)}`}>{money(row.net_pnl)}</td>
+                    <td className="lab-bar-cell" aria-hidden="true">
+                      <span
+                        className={`lab-bar ${signed(row.net_pnl)}`}
+                        style={{ width: `${(100 * Math.abs(row.net_pnl)) / maxSessAbs}%` }}
+                      />
+                    </td>
+                    <td className={`numeric ${signed(row.gross_pnl)}`}>{money(row.gross_pnl)}</td>
+                    <td className="numeric">{money(row.fees)}</td>
+                    <td className="numeric">{row.trades}</td>
+                    <td className="numeric">{metric(row.win_rate ?? undefined, true)}</td>
                     <td className="numeric">{row.fills}</td>
                   </tr>
                 ))}

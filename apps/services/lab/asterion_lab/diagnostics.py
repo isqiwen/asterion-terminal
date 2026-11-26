@@ -1,11 +1,36 @@
 """Backtest attribution, trade diagnostics, and CombinedStrategy observability."""
 from collections import deque
+import datetime
 import math
 
 from asterion_lab import statistics as lab_stats
+from asterion_lab.chart import BEIJING
 from asterion_strategy import CombinedStrategy, product_sector
 
 R = 10 ** 8
+SESSION_ORDER = ("night", "morning_1", "morning_2", "afternoon", "other", "opening_15m")
+
+
+def _intraday_session(time_ns: int, contract: str) -> tuple[str, bool]:
+    """Classify a fill timestamp (UTC ns) into China futures trading session & opening 15m flag."""
+    dt = datetime.datetime.fromtimestamp(time_ns / 1e9, tz=BEIJING)
+    hhmm = dt.hour * 60 + dt.minute
+    exchange = contract.split("/", 1)[0]
+    if hhmm >= 21 * 60 or hhmm <= 2 * 60 + 30:
+        session = "night"
+    elif 8 * 60 + 55 <= hhmm <= 10 * 60 + 15:
+        session = "morning_1"
+    elif 10 * 60 + 16 <= hhmm <= 11 * 60 + 35:
+        session = "morning_2"
+    elif 13 * 60 <= hhmm <= 15 * 60 + 20:
+        session = "afternoon"
+    else:
+        session = "other"
+    if exchange == "CFFEX":
+        is_open15 = 9 * 60 + 30 <= hhmm <= 9 * 60 + 45
+    else:
+        is_open15 = (9 * 60 <= hhmm <= 9 * 60 + 15) or (21 * 60 <= hhmm <= 21 * 60 + 15)
+    return session, is_open15
 
 
 def _effective_tick(contract: dict, day: str) -> float:
@@ -287,6 +312,24 @@ def compute(
     total_fees = 0.0
     total_slippage = 0.0
     total_notional = 0.0
+    track_sessions = int(getattr(config, "minutes", 0) or 0) > 0
+    session_acc: dict[str, dict] = {}
+
+    def sess_for(name: str) -> dict:
+        entry = session_acc.get(name)
+        if entry is None:
+            entry = {
+                "session": name,
+                "trades": 0,
+                "wins": 0,
+                "gross_pnl": 0.0,
+                "fees": 0.0,
+                "slippage_cost": 0.0,
+                "net_pnl": 0.0,
+                "fills": 0,
+            }
+            session_acc[name] = entry
+        return entry
 
     def acc_for(symbol: str) -> dict:
         entry = symbol_acc.get(symbol)
@@ -333,10 +376,19 @@ def compute(
         acc["slippage_cost"] += slip
         acc["traded_notional"] += notional
 
+        fill_session, fill_open15 = ("", False)
+        if track_sessions and row.get("time_ns"):
+            fill_session, fill_open15 = _intraday_session(int(row["time_ns"]), contract)
+            for key in (fill_session, *(["opening_15m"] if fill_open15 else [])):
+                s_entry = sess_for(key)
+                s_entry["fills"] += 1
+                s_entry["fees"] += fee
+                s_entry["slippage_cost"] += slip
+
         if offset == "open":
             direction = "long" if side == "buy" else "short"
             queues.setdefault((contract, direction), deque()).append(
-                [qty, price, fee, day]
+                [qty, price, fee, day, fill_session, fill_open15]
             )
         else:
             direction = "long" if side == "sell" else "short"
@@ -356,6 +408,14 @@ def compute(
                     acc["long_pnl"] += net
                 else:
                     acc["short_pnl"] += net
+                if track_sessions and open_lot[4]:
+                    for key in (open_lot[4], *(["opening_15m"] if open_lot[5] else [])):
+                        s_entry = sess_for(key)
+                        s_entry["trades"] += 1
+                        if net > 0:
+                            s_entry["wins"] += 1
+                        s_entry["gross_pnl"] += gross
+                        s_entry["net_pnl"] += net
                 round_trips.append({
                     "symbol": symbol,
                     "direction": direction,
@@ -380,7 +440,7 @@ def compute(
             continue
         sign = 1.0 if direction == "long" else -1.0
         acc = acc_for(symbol)
-        for qty, entry_price, open_fee, _ in q:
+        for qty, entry_price, open_fee, *_ in q:
             if qty <= 1e-12:
                 continue
             gross = sign * (mark - entry_price) * qty * mult
@@ -561,6 +621,18 @@ def compute(
         "components": list(components or []),
         "uses_pit_fundamentals": bool(uses_pit_fundamentals),
     }
+    by_session = []
+    if track_sessions and session_acc:
+        for name in SESSION_ORDER:
+            entry = session_acc.get(name)
+            if entry is not None and (entry["fills"] > 0 or entry["trades"] > 0):
+                by_session.append({
+                    **entry,
+                    "win_rate": _finite(entry["wins"] / entry["trades"]) if entry["trades"] else None,
+                })
+
+    if by_session:
+        result["by_session"] = by_session
     if significance is not None:
         result["significance"] = significance
     if trials is not None:

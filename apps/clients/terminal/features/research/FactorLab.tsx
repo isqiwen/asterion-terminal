@@ -116,9 +116,10 @@ export function FactorLab(context: TerminalContext) {
       ),
     [readKept],
   );
-  const catalog = useStoredCatalog(context, false, true);
+  const isMinutes = Boolean(form.minutes && form.minutes !== "0");
+  const catalog = useStoredCatalog(context, isMinutes, true);
   const enteredSymbols = symbolsOf(form.symbols);
-  const [scopeBegin, scopeEnd] = datePlaceholders(catalog, enteredSymbols, false);
+  const [scopeBegin, scopeEnd] = datePlaceholders(catalog, enteredSymbols, isMinutes);
   const inScope = enteredSymbols.length
     ? (result: FactorResult) => onFactorScope(form, result, scopeBegin, scopeEnd)
     : undefined;

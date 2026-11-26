@@ -264,6 +264,8 @@ message EvaluateFactor {
   double cost_bps = 20;
   // Cross-sectional OLS controls removed before IC and group evaluation.
   repeated ExtraFactor orthogonalize_against = 21;
+  // Bar period: unspecified or day for daily bars, or 1 to 60 minutes.
+  common.Period period = 22;
 }
 
 // An evaluation as it was asked for and evaluated; kept by Lab.
@@ -284,6 +286,10 @@ message FactorResult {
   repeated string factor_names = 13;
   // Row-major matrix in factor_names order.
   repeated FactorCorrelation correlations = 15;
+  // Mean lag-1 cross-sectional Spearman rank autocorrelation of factor values.
+  optional double autocorr = 16;
+  // Implied signal half-life in bars: -ln(2) / ln(autocorr) when 0 < autocorr < 1.
+  optional double half_life = 17;
 }
 
 message FactorCorrelation {

@@ -46,6 +46,49 @@ test("correlations distinguish unavailable estimates from zero and show sample c
   expect(zero.title).toContain("5 个有效交易日，20 个品种日样本");
 });
 
+test("factor result view shows intraday period tag, signal autocorr, half-life, and HAC t", () => {
+  render(
+    <FactorResultView
+      result={create(FactorResultSchema, {
+        evaluation: {
+          factor: "price.momentum",
+          firstDay: "2026-01-05",
+          lastDay: "2026-01-06",
+          period: 2, // PERIOD_MINUTES_5
+        },
+        symbols: ["SHFE/rb", "SHFE/cu", "SHFE/al"],
+        autocorr: 0.85,
+        halfLife: 4.265,
+        horizons: [
+          { horizon: 1, days: 40, mean: 0.08, ir: 0.5, t: 3.1, tHac: 2.7, positiveShare: 0.65 },
+        ],
+        days: [
+          {
+            tradingDay: "2026-01-05 09:05",
+            symbols: 3,
+            ic: 0.1,
+            groups: [1.0, 1.01],
+            longShort: 1.01,
+          },
+          {
+            tradingDay: "2026-01-05 09:10",
+            symbols: 3,
+            ic: 0.05,
+            groups: [1.0, 1.02],
+            longShort: 1.02,
+          },
+        ],
+      })}
+    />,
+  );
+  expect(screen.getByText("5m")).toBeTruthy();
+  expect(screen.getByText("信号自相关")).toBeTruthy();
+  expect(screen.getByText("0.850")).toBeTruthy();
+  expect(screen.getByText("信号半衰期")).toBeTruthy();
+  expect(screen.getByText("4.3 根")).toBeTruthy();
+  expect(screen.getAllByText("HAC t 值").length).toBeGreaterThanOrEqual(1);
+});
+
 test("the factor library comes first, ranks, filters, and opens a factor", async () => {
   vi.mocked(lab).mockImplementation(async operation => {
     switch (operation?.case) {

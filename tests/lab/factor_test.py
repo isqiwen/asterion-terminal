@@ -212,6 +212,40 @@ class Evaluation(unittest.TestCase):
         vol_res = factor.evaluate(pl.DataFrame(vol_rows), [1], 2, return_mode="close", vol_adjust=True)
         self.assertGreater(vol_res["horizons"][0]["days"], 5)
 
+    def test_signal_autocorrelation_half_life_and_intraday_timestamp_split(self):
+        import math
+        from asterion.common_pb2 import Period
+
+        # Slowly decaying ranks produce 0 < autocorr < 1 and finite half_life = -ln(2)/ln(autocorr).
+        rng = np.random.default_rng(7)
+        rows = []
+        state = {f"s{k}": float(k) for k in range(1, 7)}
+        stamps = [
+            f"2026-01-{day:02d} {hour:02d}:{minute:02d}"
+            for day in range(5, 9)
+            for hour, minute in ((9, 5), (9, 10), (9, 15), (9, 20), (9, 25))
+        ]
+        for idx, stamp in enumerate(stamps):
+            for sym in state:
+                state[sym] = 0.85 * state[sym] + float(rng.normal(0.0, 0.8))
+                rows.append(dict(
+                    symbol=sym, day=stamp, bar=idx,
+                    open=100.0 + idx * 0.2, close=100.0 + idx * 0.2 + 0.05 * state[sym],
+                    volume=500.0, open_interest=1000.0, value=state[sym],
+                ))
+        res = factor.evaluate(pl.DataFrame(rows), [1, 3], 2, holdout_day="2026-01-07")
+        self.assertIsNotNone(res["autocorr"])
+        self.assertGreater(res["autocorr"], 0.2)
+        self.assertLess(res["autocorr"], 1.0)
+        self.assertAlmostEqual(res["half_life"], -math.log(2.0) / math.log(res["autocorr"]), places=10)
+        self.assertGreater(res["development_horizons"][0]["days"], 0)
+        self.assertGreater(res["holdout_horizons"][0]["days"], 0)
+        self.assertEqual(factor.period_minutes(Period.PERIOD_UNSPECIFIED), 0)
+        self.assertEqual(factor.period_minutes(Period.PERIOD_DAY), 0)
+        self.assertEqual(factor.period_minutes(Period.PERIOD_MINUTES_5), 5)
+        with self.assertRaises(ValueError):
+            factor.period_minutes(Period.PERIOD_WEEK)
+
 
 class Repository(unittest.TestCase):
     def setUp(self):
@@ -760,6 +794,71 @@ class Repository(unittest.TestCase):
             reply2 = await service.reply(req2)
             self.assertEqual(reply2.WhichOneof("result"), "evaluate_factor", reply2)
             self.assertAlmostEqual(reply2.evaluate_factor.horizons[0].mean, 1.0, places=5)
+
+        asyncio.run(scenario())
+
+    def test_minute_factor_evaluation_through_service(self):
+        import datetime
+        from asterion.common_pb2 import Period
+        from asterion_lab import chart
+        from warehouse_fixture import contract_row, daily, price_tick, settlement
+
+        class Log:
+            def write(self, *args, **kwargs):
+                pass
+
+        # Seed 3 contracts with 5-minute bars across 2 days so cross-sectional minute IC is computable.
+        products = [("rb", 3000, 1), ("cu", 70000, 3), ("al", 20000, 2)]
+        contracts = [f"SHFE/{p}/2026-05" for p, _, _ in products]
+        writer = Warehouse(self.directory).writer()
+        writer.put_rows("contracts/SHFE", "contracts", [contract_row(c) for c in contracts])
+        writer.put_rows("price_ticks/SHFE", "price_ticks", [price_tick(c) for c in contracts])
+        daily_rows = []
+        for day in DAYS[:4]:
+            d_iso = day.isoformat()
+            writer.put_rows(f"settlement/SHFE/{d_iso}", "settlement", [settlement(c, day) for c in contracts])
+            for p, base, _ in products:
+                daily_rows.append(daily(f"SHFE/{p}/2026-05", day, base, 5000))
+            start = int(datetime.datetime.combine(day, datetime.time(9), chart.BEIJING).timestamp()) * 1000
+            for p, base, slope in products:
+                c = f"SHFE/{p}/2026-05"
+                writer.put_rows(
+                    f"minutes/SHFE/{d_iso}/{p}/2026-05",
+                    "minutes",
+                    [
+                        dict(
+                            exchange="SHFE", product=p, contract=c, day=d_iso,
+                            start_ms=start + m * 60_000, partial=False,
+                            open=Decimal(base + slope * m), high=Decimal(base + slope * m + slope + 2),
+                            low=Decimal(base + slope * m - 2), close=Decimal(base + slope * m + slope),
+                            volume=Decimal(100), average_price=None, open_interest=Decimal(5000),
+                        )
+                        for m in range(40)
+                    ],
+                    days=[d_iso],
+                )
+        writer.add_days("SHFE", "2026-01", daily_rows, [d.isoformat() for d in DAYS[:4]])
+        writer.commit()
+
+        async def scenario():
+            service = Service("lab", self.directory, Log())
+            req = Request(id=1)
+            ev = req.evaluate_factor
+            ev.id = "min-5m-1"
+            ev.repository = str(self.repository)
+            ev.factor = "price.momentum"
+            ev.params["lookback"].integer = 2
+            ev.symbols.extend(contracts)
+            ev.first_day, ev.last_day = DAYS[0].isoformat(), DAYS[2].isoformat()
+            ev.period = Period.PERIOD_MINUTES_5
+            ev.horizons.extend([1, 2])
+            ev.groups = 2
+            reply = await service.reply(req)
+            self.assertEqual(reply.WhichOneof("result"), "evaluate_factor", reply)
+            res = reply.evaluate_factor
+            self.assertGreater(res.horizons[0].days, 10)
+            self.assertTrue(any(" " in d.trading_day for d in res.days))
+            self.assertTrue(res.HasField("autocorr"))
 
         asyncio.run(scenario())
 

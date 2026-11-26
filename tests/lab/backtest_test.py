@@ -2534,6 +2534,55 @@ class BacktestSweeps(BacktestCase):
         # Margin stays identical because fee_multiplier affects commissions only.
         self.assertEqual(list(base["positions"]["margin"]), list(scaled["positions"]["margin"]))
 
+    def test_intraday_diagnostics_attribute_china_futures_sessions(self):
+        import polars as pl
+        from asterion_lab import chart, diagnostics
+        from asterion_lab.runs import TABLES
+
+        def ns(local_iso: str) -> int:
+            dt = datetime.datetime.fromisoformat(local_iso).replace(tzinfo=chart.BEIJING)
+            return int(dt.timestamp() * 1_000_000_000)
+
+        contract = "SHFE/rb/2026-05"
+        r = backtest.R
+        config = self.config((contract,), minutes=5, slippage_ticks=1)
+        contracts = [dict(
+            symbol=contract, run_symbol=contract, price_increment=r, multiplier=10 * r,
+            increments=[], settlements=[("2026-01-05", 3000 * r)],
+        )]
+        d = datetime.date(2026, 1, 5)
+        fills = pl.DataFrame([
+            # Night opening 15m (21:05) open -> winning close at 22:00.
+            dict(fill="1", order="1", time_ns=ns("2026-01-04 21:05"), trading_day=d, contract=contract,
+                 side="buy", offset="open", quantity=Decimal(1), price=Decimal(3000), fee=Decimal(5)),
+            dict(fill="2", order="2", time_ns=ns("2026-01-04 22:00"), trading_day=d, contract=contract,
+                 side="sell", offset="close", quantity=Decimal(1), price=Decimal(3020), fee=Decimal(5)),
+            # Afternoon (14:00) open -> losing close at 14:45.
+            dict(fill="3", order="3", time_ns=ns("2026-01-05 14:00"), trading_day=d, contract=contract,
+                 side="buy", offset="open", quantity=Decimal(1), price=Decimal(3010), fee=Decimal(5)),
+            dict(fill="4", order="4", time_ns=ns("2026-01-05 14:45"), trading_day=d, contract=contract,
+                 side="sell", offset="close", quantity=Decimal(1), price=Decimal(3005), fee=Decimal(5)),
+        ], schema=TABLES["fills"])
+        settlements = pl.DataFrame([
+            dict(trading_day=d, time_ns=ns("2026-01-05 15:00"), balance=Decimal(1000130),
+                 equity=Decimal(1000130), realized=Decimal(150), fees=Decimal(20),
+                 margin=Decimal(0), available=Decimal(1000130)),
+        ], schema=TABLES["settlements"])
+        positions = pl.DataFrame(schema=TABLES["positions"])
+        diag = diagnostics.compute(config, contracts, {
+            "fills": fills, "settlements": settlements, "positions": positions,
+        })
+        by_sess = {row["session"]: row for row in diag["by_session"]}
+        self.assertEqual(set(by_sess), {"night", "afternoon", "opening_15m"})
+        self.assertEqual(by_sess["night"]["trades"], 1)
+        self.assertAlmostEqual(by_sess["night"]["win_rate"], 1.0)
+        self.assertAlmostEqual(by_sess["night"]["net_pnl"], 190.0)
+        self.assertEqual(by_sess["afternoon"]["trades"], 1)
+        self.assertAlmostEqual(by_sess["afternoon"]["win_rate"], 0.0)
+        self.assertAlmostEqual(by_sess["afternoon"]["net_pnl"], -60.0)
+        self.assertEqual(by_sess["opening_15m"]["trades"], 1)
+        self.assertEqual(by_sess["opening_15m"]["fills"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
