@@ -88,16 +88,25 @@ std::string table_filter_sql(std::string_view table, std::string_view product, s
             if (has_contract) {
                 const auto yymm = match[2].str();
                 const auto month = "%/20" + yymm.substr(0, 2) + "-" + yymm.substr(2, 2);
-                append(
-                    "(lower(product) = " + prod + " AND lower(contract) LIKE " + sql_literal(month)
-                    + ")");
+                auto clause = "lower(contract) LIKE " + sql_literal(month);
+                if (table == "price_ticks")
+                    clause += " OR contract IS NULL";
+                append("(lower(product) = " + prod + " AND (" + clause + "))");
             } else {
                 append("lower(product) = " + prod);
             }
         } else if (const auto first = product.find('/'); first != std::string_view::npos) {
             const auto second = product.find('/', first + 1);
             if (has_contract && second != std::string_view::npos) {
-                append("lower(contract) = " + sql_literal(lower_ascii(product)));
+                auto clause = "lower(contract) = " + sql_literal(lower_ascii(product));
+                if (table == "price_ticks") {
+                    const auto exchange = sql_literal(lower_ascii(product.substr(0, first)));
+                    const auto prod =
+                        sql_literal(lower_ascii(product.substr(first + 1, second - first - 1)));
+                    clause += " OR (contract IS NULL AND lower(exchange) = " + exchange
+                        + " AND lower(product) = " + prod + ")";
+                }
+                append("(" + clause + ")");
             } else {
                 const auto prod = second == std::string_view::npos
                     ? product.substr(first + 1)

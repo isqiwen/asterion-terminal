@@ -603,6 +603,49 @@ TEST_F(Warehouse, ReferenceTableFiltersByProductContractAndDay)
     }
 }
 
+TEST_F(Warehouse, ContractTickFiltersIncludeProductRules)
+{
+    wh::Store store(wh::source_directory(root, "research"), "research");
+    auto generic = row("price_ticks");
+    generic[0] = std::string("SHFE");
+    generic[1] = std::string("rb");
+    generic[2] = std::monostate{};
+    generic[3] = std::string("2026-01-01");
+    generic[4] = std::monostate{};
+    auto specific = generic;
+    specific[2] = std::string("SHFE/rb/2026-10");
+    auto other = generic;
+    other[1] = std::string("ag");
+    {
+        auto writer = store.writer();
+        writer.put("price_ticks/SHFE", std::vector<wh::Row>{generic, specific, other});
+        writer.commit();
+    }
+    wh::Reader reader(root);
+    wire::GetTableRows query;
+    query.set_table(wire::TABLE_PRICE_TICKS);
+    query.set_exchange("SHFE");
+    query.set_day("2026-01-01");
+    for (const auto* contract : {"rb2610", "SHFE/rb/2026-10"}) {
+        SCOPED_TRACE(contract);
+        query.set_product(contract);
+        const auto result = reader.rows(query);
+        ASSERT_EQ(result.total(), 2);
+        for (const auto& entry : result.rows())
+            EXPECT_EQ(entry.values(1), "rb");
+    }
+    for (const auto* contract : {"rb2701", "SHFE/rb/2027-01"}) {
+        SCOPED_TRACE(contract);
+        query.set_product(contract);
+        const auto result = reader.rows(query);
+        ASSERT_EQ(result.total(), 1);
+        EXPECT_EQ(result.rows(0).values(1), "rb");
+        EXPECT_TRUE(result.rows(0).values(2).empty());
+    }
+    query.set_product("DCE/rb/2026-10");
+    EXPECT_EQ(reader.rows(query).total(), 0);
+}
+
 TEST_F(Warehouse, ReadingAPartitionLoadsOnlyTheShardsItNeeds)
 {
     wh::Store store(wh::source_directory(root, "research"), "research");
