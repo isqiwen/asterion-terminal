@@ -6,6 +6,9 @@ const t = (key: string, values?: MessageValues) =>
 import zh from "./locales/zh-CN.json";
 import en from "./locales/en-US.json";
 import "./research.css";
+import "./research-editor.css";
+import "./research-picker.css";
+import "./research-results.css";
 const StrategyLab = lazy(() =>
   import("./StrategyLab").then(module => ({ default: module.StrategyLab })),
 );

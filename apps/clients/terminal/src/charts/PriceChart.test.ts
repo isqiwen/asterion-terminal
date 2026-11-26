@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { chartRuns, defaultVisibleCount, minimumTickSpan, numberText } from "./PriceChart";
+import { chartRuns, defaultVisibleCount, minimumTickSpan, numberText } from "./price-chart-math";
 
 test("gaps remain separate line segments and retain their observation positions", () => {
   expect(chartRuns([null, 10, 12, null, 15, null])).toEqual([

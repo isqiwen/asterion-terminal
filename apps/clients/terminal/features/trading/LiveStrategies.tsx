@@ -14,8 +14,10 @@ import { AccountList } from "./LivePanel";
 import { t, type Run } from "./live-shared";
 import { StrategyInstance } from "./StrategyInstance";
 import { StrategyMonitor } from "./StrategyMonitor";
-// Both trading views share one stylesheet; each loads it itself.
+// Both trading views share these stylesheets; each loads them itself.
 import "./trading.css";
+import "./trading-strategies.css";
+import "./trading-account.css";
 import { StrategyPackages } from "./StrategyPackages";
 
 // Strategies on the Trading hosts, apart from manual trading, as vn.py's CTA

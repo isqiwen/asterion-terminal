@@ -10,8 +10,10 @@ import { useTradingAccounts, type TradingView } from "../../src/host/trading-acc
 import { t, phases, type Run } from "./live-shared";
 import { CreateLive } from "./CreateLive";
 import { EmergencyControls } from "./EmergencyControls";
-// Both trading views share one stylesheet; each loads it itself.
+// Both trading views share these stylesheets; each loads them itself.
 import "./trading.css";
+import "./trading-strategies.css";
+import "./trading-account.css";
 import { LiveAccount } from "./LiveAccount";
 
 export function accountState(view: TradingView | undefined) {

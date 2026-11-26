@@ -1,0 +1,461 @@
+/* Whether this account may send orders: the first thing an operator reads. */
+.trading-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 3px var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: var(--font-size-body);
+}
+.trading-switch::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.trading-switch[data-state="on"] {
+  border-color: color-mix(in oklab, var(--success) 55%, transparent);
+  background: color-mix(in oklab, var(--success) 10%, transparent);
+  color: var(--text-strong);
+}
+.trading-switch[data-state="on"]::before {
+  background: var(--success);
+}
+.trading-switch[data-state="waiting"] {
+  border-color: color-mix(in oklab, var(--warning) 55%, transparent);
+  color: var(--warning);
+}
+
+/* Structured two-zone account bar: 4 capital KPIs beside compact risk meters. */
+.account-summary {
+  padding: var(--space-2) var(--space-page);
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in oklab, var(--pane) 65%, var(--canvas));
+}
+.account-summary-primary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-2) var(--space-5);
+}
+.account-headline {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(max-content, 1fr));
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+  padding-right: var(--space-4);
+  border-right: 1px solid var(--line);
+}
+.account-headline > div {
+  display: grid;
+  gap: 2px;
+  align-content: center;
+}
+.account-headline dt,
+.account-details dt,
+.risk-usage li {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+.account-headline dd {
+  margin: 0;
+  color: var(--text-strong);
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-lg);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.account-pnl-value {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+.account-pnl-value small {
+  font-size: var(--font-size-aux);
+  font-weight: 500;
+}
+.account-risk-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+}
+.account-details[open] {
+  flex-basis: 100%;
+  padding-top: var(--space-1);
+  border-top: 1px dashed var(--line);
+}
+.account-details summary {
+  width: fit-content;
+  padding: 2px var(--space-2);
+  border-radius: var(--control-radius);
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.account-details summary:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.account-details > dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: var(--space-2) 0 0;
+}
+.account-details > dl > div {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+.account-details dd,
+.risk-value {
+  margin: 0;
+  color: var(--text);
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+.risk-usage {
+  display: grid;
+  flex: 1 1 280px;
+  grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.risk-usage li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px var(--space-2);
+  padding: 4px var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--panel);
+}
+.risk-bar {
+  grid-column: 1 / -1;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--grid);
+}
+.risk-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--success);
+}
+.risk-usage li[data-tone="attention"] {
+  border-color: color-mix(in oklab, var(--warning) 45%, var(--line));
+}
+.risk-usage li[data-tone="attention"] .risk-bar > span {
+  background: var(--warning);
+}
+.risk-usage li[data-tone="danger"] {
+  border-color: color-mix(in oklab, var(--danger) 55%, var(--line));
+  background: color-mix(in oklab, var(--danger) 8%, var(--panel));
+}
+.risk-usage li[data-tone="danger"] .risk-bar > span {
+  background: var(--danger);
+}
+.risk-usage li[data-tone="danger"] .risk-value {
+  color: var(--danger);
+}
+@media (max-width: 1200px) {
+  .account-summary-primary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .account-headline {
+    padding-right: 0;
+    padding-bottom: var(--space-2);
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+}
+@media (max-width: 720px) {
+  .account-headline {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+/* A limit's unit sits inside its field. */
+.unit-input {
+  position: relative;
+  display: block;
+}
+.unit-input input {
+  width: 100%;
+  padding-right: 4.5em;
+}
+.unit-input > span {
+  position: absolute;
+  top: 50%;
+  right: var(--space-2);
+  transform: translateY(-50%);
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+  pointer-events: none;
+}
+.account-field-group-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: safe center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.account-field-group-header h3,
+.ctp-account-panel .account-field-group-header h3 {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.account-field-group h3 small {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+  font-weight: normal;
+}
+.catalog-load-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: safe center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+}
+.ctp-account-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  margin: 0;
+  font-size: var(--font-size-body);
+}
+.ctp-account-facts div {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.ctp-account-facts dt {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+.ctp-account-facts dd {
+  margin: 0;
+  color: var(--text-strong);
+}
+.ctp-account-facts dd code {
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-body);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-strong);
+}
+
+.ticket-capacity {
+  margin: 0;
+  color: var(--muted);
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-aux);
+}
+
+/* The risk settings: limits, contracts, then the one action that applies them. */
+.policy-editor .workflow-heading {
+  justify-content: flex-start;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+.policy-editor .workflow-heading code {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+.ctp-account-panel .policy-editor form {
+  display: grid;
+  gap: var(--space-4);
+  max-width: 1240px;
+  padding: 0;
+}
+.policy-editor fieldset {
+  display: grid;
+  gap: var(--space-4);
+}
+.policy-limits {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: var(--space-4) var(--space-5);
+}
+.policy-limits .futures-fields {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-block: var(--space-2) 0;
+}
+.limit-label {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.limit-label small {
+  color: var(--warning);
+  font-size: var(--font-size-aux);
+  white-space: nowrap;
+}
+.policy-contracts ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+.policy-contracts li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-left: var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  color: var(--text);
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-body);
+}
+.policy-contracts li button {
+  min-height: 24px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+}
+.policy-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+.policy-add label {
+  width: 260px;
+}
+.policy-add p {
+  margin: 0 0 var(--space-1);
+}
+.policy-apply {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
+}
+.policy-apply p {
+  flex: 1;
+  min-width: 180px;
+  margin: 0;
+}
+@media (max-width: 1100px) {
+  .policy-limits {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.limit-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: safe center;
+  gap: var(--space-2);
+}
+.limit-source {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: safe center;
+  gap: var(--space-2);
+  width: fit-content;
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+  white-space: nowrap;
+}
+.limit-source select {
+  width: auto;
+  max-width: 220px;
+}
+.limit-field input:is(:user-invalid, [aria-invalid="true"]) {
+  border-color: var(--danger);
+  background: color-mix(in oklab, var(--danger) 8%, var(--canvas));
+}
+.field-error {
+  display: block;
+  margin-top: 2px;
+  color: var(--danger);
+  font-size: var(--font-size-aux);
+}
+.contract-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.contract-picker-input {
+  position: relative;
+  flex: 1 1 260px;
+  max-width: 380px;
+}
+.contract-picker-input input {
+  width: 100%;
+}
+.contract-picker-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  z-index: 10;
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 0;
+  padding: var(--space-1);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--panel-radius);
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
+  list-style: none;
+}
+.contract-picker-menu li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 5px var(--space-2);
+  border-radius: var(--control-radius);
+  cursor: pointer;
+}
+.contract-picker-menu li[aria-selected="true"] {
+  background: var(--accent-surface);
+  color: var(--text-strong);
+}
+.contract-picker-id {
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-body);
+}
+.contract-picker-menu li small {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+.contract-picker-empty {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+  cursor: default;
+}
+.account-performance {
+  display: grid;
+  gap: var(--space-3);
+}
+.performance-charts {
+  display: grid;
+  gap: var(--space-3);
+}
+.performance-day-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}

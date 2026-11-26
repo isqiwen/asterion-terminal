@@ -1,0 +1,142 @@
+.lab-center:has(> .lab-source) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+.lab-source {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.lab-source > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  min-height: 40px;
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--line);
+  background: var(--pane);
+}
+.lab-source > header > code {
+  margin-right: auto;
+  color: var(--text-strong);
+}
+.lab-unsaved {
+  color: var(--warning);
+  font-size: var(--font-size-aux);
+}
+.lab-readonly {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+.lab-source > header > button:not(.lab-link) {
+  min-height: 24px;
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-body);
+}
+.lab-source > .action-error {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.lab-library-table tbody tr[data-context] :is(td, th),
+.lab-module-error summary[data-context="true"] {
+  background: var(--hover);
+}
+.lab-context-menu {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-width: 116px;
+  max-width: calc(100vw - 16px);
+  padding: var(--space-1);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--pressed) 94%, var(--canvas));
+  backdrop-filter: blur(16px);
+  box-shadow: var(--surface-highlight), var(--shadow-popover);
+}
+.lab-context-menu button {
+  justify-content: flex-start;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-strong);
+  font-size: var(--font-size-body);
+  text-align: left;
+}
+.lab-context-menu button .ui-icon {
+  color: var(--muted);
+}
+.lab-context-menu button:enabled:not([aria-disabled="true"]):is(:hover, :active) {
+  background: color-mix(in oklab, white 9%, var(--hover));
+  border-color: transparent;
+  color: var(--text-strong);
+}
+.lab-context-menu button:enabled:not([aria-disabled="true"]):is(:hover, :active) .ui-icon {
+  color: var(--text-strong);
+}
+.lab-context-menu button.danger-item,
+.lab-context-menu button.danger-item .ui-icon {
+  color: var(--danger);
+}
+.lab-context-menu button.danger-item:enabled:not([aria-disabled="true"]):is(:hover, :active) {
+  background: var(--danger-surface);
+  color: var(--danger);
+}
+.lab-context-menu hr {
+  width: 100%;
+  margin: var(--space-1) 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.lab-source-editor {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--field);
+}
+.lab-module-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  width: min(400px, calc(100vw - 32px));
+  padding: var(--space-5);
+}
+.lab-module-dialog h2 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-lg);
+}
+.lab-module-dialog form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.lab-module-dialog label {
+  display: grid;
+  gap: var(--space-1);
+}
+.lab-module-dialog label > span {
+  color: var(--muted);
+  font-size: var(--font-size-body);
+}
+.lab-module-dialog input {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--font-terminal);
+}
+.lab-module-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.lab-module-dialog .action-error {
+  margin: 0;
+}

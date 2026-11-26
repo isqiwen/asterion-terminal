@@ -1,0 +1,400 @@
+.strategy-instance,
+.strategy-monitor {
+  border-top: 1px solid var(--line);
+  margin-top: var(--space-5);
+  padding-top: var(--space-3);
+}
+.ctp-account-panel > .ctp-identity + .strategy-instance {
+  margin-top: 0;
+  border-top: 0;
+}
+.ctp-strategy-body .strategy-instance form {
+  max-width: 1240px;
+  padding: 0;
+}
+.strategy-instance form > fieldset {
+  display: grid;
+  gap: var(--space-3);
+}
+.strategy-instance form > fieldset > button {
+  justify-self: start;
+}
+.strategy-instance .futures-fields {
+  margin-block: 0;
+}
+/* A published version's name and stamp need the widest field. */
+.strategy-instance form > fieldset > .futures-fields:first-child {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
+}
+.strategy-instance .futures-fields > .checkbox {
+  grid-column: 1 / -1;
+}
+.strategy-instance fieldset legend {
+  margin-bottom: var(--space-2);
+  padding: 0;
+  color: var(--muted);
+  font-size: var(--font-size-body);
+}
+.strategy-instance select {
+  min-width: 0;
+  width: 100%;
+}
+.strategy-instance > p {
+  margin: 0 0 var(--space-3);
+}
+.account-setup .strategy-instance .checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+}
+.account-setup .strategy-instance input[type="checkbox"] {
+  width: auto;
+}
+.strategy-contracts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.strategy-contracts-bar {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.strategy-contracts-bar input {
+  width: 180px;
+}
+.strategy-contracts > p {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--muted);
+}
+.strategy-monitor-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.strategy-monitor-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+.strategy-monitor-header h2 {
+  margin: 0;
+}
+.strategy-paused-note {
+  margin: 0 0 var(--space-2);
+}
+.strategy-heartbeat {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+}
+.strategy-heartbeat > div {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--panel);
+}
+.strategy-heartbeat dt {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+.strategy-heartbeat dd {
+  margin: 0;
+  color: var(--text-strong);
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-body);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.strategy-monitor-table {
+  margin-bottom: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+}
+.strategy-events-section {
+  margin-bottom: var(--space-3);
+}
+.strategy-events-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+.strategy-events-header h3 {
+  margin: 0;
+}
+.strategy-config-details {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: color-mix(in oklab, var(--pane) 60%, var(--canvas));
+}
+.strategy-config-details > summary {
+  color: var(--muted);
+  font-size: var(--font-size-body);
+  cursor: pointer;
+}
+.strategy-config-details > summary:hover {
+  color: var(--text);
+}
+.strategy-config-details > dl {
+  display: grid;
+  grid-template-columns: minmax(140px, max-content) 1fr;
+  gap: var(--space-2) var(--space-5);
+  margin: var(--space-3) 0 0;
+}
+.strategy-config-details dt {
+  color: var(--muted);
+}
+.strategy-config-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.strategy-resume-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--panel);
+}
+.strategy-research-match {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.strategy-research-match p {
+  margin: 0;
+  color: var(--muted);
+}
+.strategy-package-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.strategy-package-picker > label {
+  flex: 1 1 200px;
+}
+.strategy-monitor table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.strategy-monitor th,
+.strategy-monitor td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+.strategy-monitor tbody tr:last-child td {
+  border-bottom: 0;
+}
+.strategy-instance dd {
+  overflow-wrap: anywhere;
+}
+.ctp-strategies table {
+  width: 100%;
+  table-layout: fixed;
+}
+.ctp-strategies th:first-child {
+  width: 42%;
+}
+.ctp-strategies th:nth-child(2) {
+  width: 140px;
+}
+.ctp-strategies td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ctp-strategies td > :is(span, small) {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ctp-strategies td small {
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+}
+.ctp-strategies td button {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.strategy-package-source {
+  overflow: hidden;
+  margin: 0 0 var(--space-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.strategy-package-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.strategy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.strategy-events {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+.strategy-events li {
+  padding: 3px var(--space-2);
+  border-left: 2px solid var(--line-strong);
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--canvas) 55%, var(--panel));
+  overflow-wrap: anywhere;
+}
+.strategy-events li[data-tone="ok"] {
+  border-left-color: var(--success);
+}
+.strategy-events li[data-tone="attention"] {
+  border-left-color: var(--warning);
+  background: color-mix(in oklab, var(--warning) 8%, var(--panel));
+}
+.strategy-events li[data-tone="danger"] {
+  border-left-color: var(--danger);
+  background: color-mix(in oklab, var(--danger) 10%, var(--panel));
+  color: var(--text-strong);
+}
+.ctp-strategy-unauthorized {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+}
+
+/* An account's strategies: its running instance and setup beside the deployed versions. */
+.ctp-strategy-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 460px);
+  flex: 1;
+}
+.ctp-strategy-body > .ctp-account-panel {
+  display: flex;
+  flex-direction: column;
+}
+.ctp-strategy-versions {
+  background: var(--pane);
+  border-left: 1px solid var(--line);
+}
+.ctp-strategy-body > .ctp-account-panel > * {
+  padding: var(--space-3) var(--space-4);
+}
+.ctp-strategy-body > .ctp-account-panel > .workspace-empty {
+  flex: 1;
+  padding: var(--space-5);
+  border-bottom: 0;
+}
+@media (max-width: 1100px) {
+  .ctp-strategy-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ctp-strategy-versions {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+}
+/* The running strategy inside the workbench right rail. */
+.strategy-card {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+  background: var(--panel);
+}
+.strategy-card-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.strategy-card-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.strategy-card-title strong {
+  color: var(--text-strong);
+  font-size: var(--font-size-md);
+}
+.strategy-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  color: var(--muted);
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-aux);
+  font-variant-numeric: tabular-nums;
+}
+.strategy-card-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+.strategy-card-actions > button:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+.strategy-card-table {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+}
+.strategy-card table {
+  width: 100%;
+  min-width: 0;
+  border-collapse: collapse;
+  font-size: var(--font-size-xs);
+}
+.strategy-card th,
+.strategy-card td {
+  padding: 5px var(--space-2);
+  border-bottom: 1px solid var(--line);
+}
+.strategy-card tbody tr:last-child td {
+  border-bottom: 0;
+}
+.strategy-card tr[data-off] td.strategy-delta,
+.strategy-monitor tr[data-off] td.strategy-delta {
+  color: var(--warning);
+  font-weight: 600;
+}
+.strategy-card-note {
+  margin: 0;
+  font-size: var(--font-size-aux);
+  line-height: 1.45;
+}
