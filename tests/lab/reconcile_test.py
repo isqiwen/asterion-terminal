@@ -27,7 +27,14 @@ from asterion.strategy_pb2 import (  # noqa: E402
     Instance,
     SeriesContract,
 )
-from asterion_lab import backtest, log as lab_log, package, reconcile, repository  # noqa: E402
+from asterion_lab import (  # noqa: E402
+    backtest,
+    log as lab_log,
+    package,
+    reconcile,
+    reconcile_diff,
+    repository,
+)
 from asterion_strategy import Strategy  # noqa: E402
 from service_fixture import Service  # noqa: E402
 from warehouse_fixture import DAYS, warehouse  # noqa: E402
@@ -152,7 +159,7 @@ class ReconcileTest(unittest.TestCase):
         )
         backtest.run(self.lab_dir, run_id, cfg)
         strat = repository.load(self.repo, cfg.strategy, cfg.params)
-        replayed = reconcile._replay_backtest(Warehouse(self.lab_dir), cfg, strat)
+        replayed = reconcile_diff.replay_backtest(Warehouse(self.lab_dir), cfg, strat)
         return cfg, replayed
 
     def _build_matching_live(self, cfg, replayed, instance_id="inst-1"):
@@ -321,7 +328,7 @@ class ReconcileTest(unittest.TestCase):
 
         config = replace(cfg, dataset_version=Warehouse(self.lab_dir).current().identity)
         with self.assertRaisesRegex(ValueError, "prices of SHFE/rb/2026-05 are missing on .*while it is held"):
-            reconcile._replay_backtest(Warehouse(self.lab_dir), config, Pause())
+            reconcile_diff.replay_backtest(Warehouse(self.lab_dir), config, Pause())
 
     def test_detects_bar_decision_and_fill_discrepancies_and_respects_tolerances(self):
         cfg, replayed = self._run_reference_backtest("bt-diff")
@@ -401,11 +408,11 @@ class ReconcileTest(unittest.TestCase):
 
         full_cfg = backtest.Config(**{**early_cfg.__dict__, "end_day": DAYS[-1].isoformat()})
         strat = repository.load(self.repo, full_cfg.strategy, full_cfg.params)
-        probe = reconcile._replay_backtest(Warehouse(self.lab_dir), full_cfg, strat)
+        probe = reconcile_diff.replay_backtest(Warehouse(self.lab_dir), full_cfg, strat)
         sorted_times = sorted(probe["decisions"])
         # Treat first 12 steps as warmup (execute=false), remaining steps as live (in bars.sqlite).
         live_start_ms = sorted_times[12]
-        replayed = reconcile._replay_backtest(
+        replayed = reconcile_diff.replay_backtest(
             Warehouse(self.lab_dir), full_cfg,
             repository.load(self.repo, full_cfg.strategy, full_cfg.params),
             execute_from_ms=live_start_ms,
@@ -434,7 +441,7 @@ class ReconcileTest(unittest.TestCase):
             "trading_day": "2026-09-28", "contract": "DCE/m/2026-09",
             "side": "sell", "offset": "close_yesterday", "quantity": Decimal("2"), "price": Decimal("3000"),
         }]
-        fill_sum, fill_diffs = reconcile._compare_fills(live_dce, bt_dce, Decimal(0))
+        fill_sum, fill_diffs = reconcile_diff.compare_fills(live_dce, bt_dce, Decimal(0))
         self.assertTrue(fill_sum["ok"], fill_diffs)
 
     def test_realized_slippage_ticks_accounts_for_side_and_percentiles(self):
@@ -460,7 +467,7 @@ class ReconcileTest(unittest.TestCase):
             {"trading_day": "2026-01-08", "contract": "SHFE/rb/2026-05", "side": "sell", "offset": "close",
              "quantity": Decimal("1"), "price": Decimal("3510")},
         ]
-        summary, diffs = reconcile._compare_fills(live, bt, Decimal(0), tick_lookup=lambda _c, _d: Decimal("2"))
+        summary, diffs = reconcile_diff.compare_fills(live, bt, Decimal(0), tick_lookup=lambda _c, _d: Decimal("2"))
         self.assertFalse(summary["ok"])
         self.assertEqual(summary["slippage_samples"], 4)
         self.assertAlmostEqual(summary["mean_slippage_ticks"], 0.5)

@@ -26,7 +26,7 @@ from asterion.strategy_pb2 import (  # noqa: E402
     Instance,
     SeriesContract,
 )
-from asterion_lab import backtest, package, post_close, reconcile, repository  # noqa: E402
+from asterion_lab import backtest, package, post_close, reconcile_diff, repository  # noqa: E402
 from warehouse_fixture import DAYS, warehouse  # noqa: E402
 from warehouse_writer import Warehouse  # noqa: E402
 
@@ -149,7 +149,7 @@ class PostCloseTest(unittest.TestCase):
         )
         backtest.run(self.lab_dir, "bt-1", cfg)
         strat = repository.load(self.repo, cfg.strategy, cfg.params)
-        replayed = reconcile._replay_backtest(Warehouse(self.lab_dir), cfg, strat)
+        replayed = reconcile_diff.replay_backtest(Warehouse(self.lab_dir), cfg, strat)
 
         pkg = package.build(self.repo, cfg.strategy)
         pkg_dir = self.account_dir / "strategies" / "packages" / pkg.manifest.name / pkg.manifest.version
