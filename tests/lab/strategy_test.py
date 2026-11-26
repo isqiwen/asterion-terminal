@@ -1151,6 +1151,49 @@ class Records(unittest.TestCase):
 
             BadAlloc()
 
+    def test_covariance_allocations_use_common_bar_returns_after_a_component_pauses(self):
+        import numpy as np
+        from asterion_strategy import CombinedStrategy, erc_weights, hrp_weights
+
+        class Component(Strategy):
+            params = {"symbol": "SHFE/rb", "pause_minute": -1}
+
+            def ready(self, ctx):
+                return ctx.time.minute != self.params["pause_minute"]
+
+            def on_bars(self, ctx, bars):
+                ctx.weights({self.params["symbol"]: 0.5})
+
+        returns = np.array([
+            [0.0, 0.0], [0.01, 0.04], [0.08, -0.03], [-0.04, 0.06],
+            [0.15, -0.12], [0.02, -0.01], [-0.09, 0.03], [0.12, -0.05],
+        ])
+        for mode, allocate in (("hrp", hrp_weights), ("erc", erc_weights)):
+            with self.subTest(allocation=mode):
+                class Portfolio(CombinedStrategy):
+                    allocation = mode
+                    vol_window = 5
+
+                    def components(self):
+                        return [(Component(), 0.5), (Component(symbol="SHFE/au", pause_minute=3), 0.5)]
+
+                strategy = Portfolio()
+                context = Context(["SHFE/rb", "SHFE/au"])
+                prices = np.array([100.0, 100.0])
+                common = []
+                for index, row in enumerate(returns):
+                    prices *= 1 + row
+                    step(strategy, context, [bar(symbol, index, price)
+                                             for symbol, price in zip(context.symbols, prices)])
+                    # The minute-3 pause leaves no second-component target for minute 4.
+                    if index and index != 4:
+                        common.append(row * 0.5)
+                    expected = allocate(np.array(common[-5:]), shrinkage=True) \
+                        if len(common) >= 5 else [0.5, 0.5]
+                    np.testing.assert_allclose(
+                        [item["share"] for item in strategy.last_components], expected, atol=1e-10,
+                    )
+
     def test_causal_timeseries_kalman_and_microstructure_primitives(self):
         import math
         import numpy as np

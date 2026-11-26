@@ -127,11 +127,12 @@ class CombinedStrategy(Strategy):
             if len(active) < 2:
                 return base
             cov_window = max(5, window)
-            if any(len(self._comp_returns[idx]) < cov_window for idx in active):
-                return base
             matrix = np.column_stack(
-                [np.asarray(self._comp_returns[idx][-cov_window:], dtype=float) for idx in active]
+                [np.asarray(self._comp_returns[idx], dtype=float) for idx in active]
             )
+            matrix = matrix[np.all(np.isfinite(matrix), axis=1)][-cov_window:]
+            if len(matrix) < cov_window:
+                return base
             raw_alloc = (
                 hrp_weights(matrix, shrinkage=True)
                 if self._alloc_mode == "hrp"
@@ -178,16 +179,19 @@ class CombinedStrategy(Strategy):
             if bar_returns:
                 max_keep = max(256, 4 * max(2, int(self.vol_window)))
                 for idx in range(len(self._subs)):
+                    ret = math.nan
                     if self._was_ready[idx] and self._standing[idx]:
                         ret = sum(
                             w * bar_returns[s]
                             for s, w in self._standing[idx].items()
                             if s in bar_returns
                         )
-                        hist = self._comp_returns[idx]
-                        hist.append(ret)
-                        if len(hist) > max_keep:
-                            del hist[:-max_keep]
+                    elif self._alloc_mode == "vol_balance":
+                        continue
+                    hist = self._comp_returns[idx]
+                    hist.append(ret)
+                    if len(hist) > max_keep:
+                        del hist[:-max_keep]
 
         changed = False
         ready_flags = []
