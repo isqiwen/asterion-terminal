@@ -133,8 +133,8 @@ sequenceDiagram
 | 顺序 | 入口 | 阅读目标 |
 | --- | --- | --- |
 | 1 | [main.cpp](../../apps/services/warehouse/main.cpp)、[settings.cpp](../../apps/services/warehouse/settings.cpp) | 启动参数、GC 子命令、数据目录锁、TLS 身份与优雅停止 |
-| 2 | [service.cpp](../../apps/services/warehouse/service.cpp)、[reader.cpp](../../apps/services/warehouse/reader.cpp) | 请求路由通道、定时任务调度与固定版本缓存读取 |
-| 3 | [manager.cpp](../../apps/services/warehouse/acquisition/manager.cpp)、[source.hpp](../../apps/services/warehouse/acquisition/source.hpp) | 来源适配接口、任务优先级调度与批量提交 |
+| 2 | [service.cpp](../../apps/services/warehouse/service.cpp)、[reader.cpp](../../apps/services/warehouse/reader.cpp)、[reader_coverage.cpp](../../apps/services/warehouse/reader_coverage.cpp) | 请求路由通道、定时任务调度、固定版本缓存读取与覆盖统计 |
+| 3 | [manager.cpp](../../apps/services/warehouse/acquisition/manager.cpp)、[source.hpp](../../apps/services/warehouse/acquisition/source.hpp)、[exchanges.cpp](../../apps/services/warehouse/acquisition/exchanges.cpp) | 来源适配接口、任务优先级调度、批量提交与交易所原报解析 |
 | 4 | [records.hpp](../../apps/services/warehouse/records.hpp)、[store.cpp](../../apps/services/warehouse/store.cpp)、[composition.cpp](../../apps/services/warehouse/composition.cpp)、[composer.cpp](../../apps/services/warehouse/composer.cpp) | 表结构、不可变版本、月度分片与增量来源合成 |
 | 5 | [通信协议](../protocol.md)、[warehouse.proto](../../protocol/proto/asterion/warehouse.proto) | 客户端契约与固定版本读取协议 |
 
