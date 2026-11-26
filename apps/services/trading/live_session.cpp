@@ -1787,25 +1787,16 @@ std::optional<::trading::DayClose> LiveAccountState::unclosed() const
     for (const auto& day : days)
         result.add_trading_days(day);
     if (trading_day.empty()) {
-        std::optional<::trading::DayClose> to_save;
         trader_->observe([&](const BrokerSnapshot& state) {
             result.set_total(state.trades.size());
             const auto end = std::min(state.trades.size(), std::size_t{offset} + limit);
             for (std::size_t index = offset; index < end; ++index)
                 *result.add_trades() = wire_trade(state.trades[state.trades.size() - index - 1]);
             const auto today = dashed(state.trading_day);
-            const auto basis =
-                std::tuple{state.connection_generation, state.sequence, close_state_revision_};
-            if (last_close_basis_ != basis && state.funds && state.positions_reconciled
-                && !today.empty() && today >= latest_.trading_day()) {
-                const auto prev_day = latest_.trading_day();
-                latest_ = close_with_valuation(state);
-                attach_cancels(latest_, &state);
-                to_save = latest_;
-                if (prev_day.empty() || today <= prev_day || closes_.contains(prev_day))
-                    last_close_basis_ = basis;
-            }
-            if (!today.empty() && latest_.trading_day() == today) {
+            if (!today.empty() && state.funds && state.positions_reconciled) {
+                *result.mutable_close() = close_with_valuation(state);
+                attach_cancels(*result.mutable_close(), &state);
+            } else if (!today.empty() && latest_.trading_day() == today) {
                 *result.mutable_close() = latest_;
                 attach_cancels(*result.mutable_close(), &state);
             } else if (!today.empty() && cancels_.contains(today)) {
@@ -1813,8 +1804,6 @@ std::optional<::trading::DayClose> LiveAccountState::unclosed() const
                 attach_cancels(*result.mutable_close(), &state);
             }
         });
-        if (to_save)
-            save_latest_close(*to_save);
     } else {
         if (const auto found = trades_.find(trading_day); found != trades_.end()) {
             const auto& trades = found->second;

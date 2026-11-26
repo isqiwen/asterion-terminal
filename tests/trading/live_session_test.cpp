@@ -1384,6 +1384,31 @@ TEST_F(Live, TradingDayRolloverRebuildsReportsAndRatesWithoutResending)
     }
 }
 
+TEST_F(Live, ReadingTheNewDayPreservesThePreviousCloseWhileJournalWritesArePending)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    ASSERT_EQ(session.day("").close().trading_day(), "2026-09-28");
+    const auto state = session.wire_snapshot();
+    std::future<void> pending;
+    HeldCommit held;
+    pending = session.execute("fixture-account", state.policy_revision(), authorize());
+    ASSERT_TRUE(held.waiting());
+    exchange.call<void (*)(const char*)>("asterion_fake_trader_next_day", "20260929");
+    wait_for(session, [&](const Json&) {
+        const auto next = session.wire_snapshot();
+        return next.trading_day() == "2026-09-29" && next.has_funds()
+            && next.positions_reconciled();
+    });
+    ASSERT_EQ(session.day("").close().trading_day(), "2026-09-29");
+    held.release();
+    EXPECT_THROW(pending.get(), std::exception);
+    wait_for(session, [&](const Json&) {
+        return session.day("2026-09-28").has_close();
+    });
+    EXPECT_TRUE(session.day("2026-09-28").has_close());
+}
+
 TEST_F(Live, TerminalEvidenceSurvivesSegmentsAndRestoresCurrentDayAttribution)
 {
     test::SmallJournalSegments budget(1);
