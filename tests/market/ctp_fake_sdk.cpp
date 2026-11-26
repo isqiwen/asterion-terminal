@@ -257,6 +257,8 @@ public:
             if (scripted)
                 continue;
             if (strategy_stream) {
+                tick.UpperLimitPrice = 3800;
+                tick.LowerLimitPrice = 3200;
                 // A resubscription after a reconnect keeps the day's cumulative volume.
                 if (!publication_tick)
                     publication_tick = tick;
