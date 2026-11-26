@@ -1,4 +1,5 @@
 {
+  "暂不支持从 IC 加权合成报告生成策略，请先用等权合成重新评价": "Strategy generation is not yet supported for IC-weighted composites. Re-evaluate with equal weighting first.",
   "交易日": "Trading day",
   "初始资金": "Initial Capital",
   "状态": "Status",

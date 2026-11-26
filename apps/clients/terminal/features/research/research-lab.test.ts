@@ -347,6 +347,16 @@ test("factorStrategyTemplate generates deployable Python strategy code preservin
       factor: "price.momentum",
       params: { lookback: { value: { case: "integer", value: 30n } } },
       extraFactors: [{ factor: "positions.interest_change", params: {} }],
+      orthogonalizeAgainst: [
+        {
+          factor: "controls.momentum",
+          params: { lookback: { value: { case: "integer", value: 40n } } },
+        },
+        {
+          factor: "controls.orthogonalize",
+          params: { window: { value: { case: "integer", value: 25n } } },
+        },
+      ],
       horizons: [5, 10],
       groups: 3,
       winsorize: true,
@@ -365,6 +375,16 @@ test("factorStrategyTemplate generates deployable Python strategy code preservin
   expect(built.id).toBe("momentum_interest_change_strategy.MomentumInterestChangeStrategy");
   expect(built.content).toContain("from factors.price import momentum");
   expect(built.content).toContain("from factors.positions import interest_change");
+  expect(built.content).toContain(
+    "from factors.controls import momentum as controls_momentum, orthogonalize as controls_orthogonalize",
+  );
+  expect(built.content).toContain("ctx.factor(controls_momentum, s, self.need, lookback=40)");
+  expect(built.content).toContain("ctx.factor(controls_orthogonalize, s, self.need, window=25)");
+  expect(built.content).toContain("scores = orthogonalize(scores, controls)");
+  expect(built.content.indexOf("scores = orthogonalize(scores, controls)")).toBeGreaterThan(
+    built.content.indexOf("scores = sector_neutralize(scores)"),
+  );
+  expect(built.content.match(/components.append\(/g)).toHaveLength(2);
   expect(built.content).toContain("winsorize_mad");
   expect(built.content).toContain("cross_section_rank");
   expect(built.content).toContain("sector_neutralize");

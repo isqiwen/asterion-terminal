@@ -48,10 +48,11 @@ export function factorStrategyTemplate(result: FactorResult, moduleName: string)
   const pushSpec = (
     id: string,
     params: Record<string, { value: { case?: string; value?: unknown } }> = {},
+    target = specs,
   ) => {
     const [module, fn] = id.split(".");
     if (!module || !fn) return;
-    specs.push({ id, module, fn, params });
+    target.push({ id, module, fn, params });
   };
   pushSpec(primaryId, evaluation?.params ?? {});
   for (const extra of evaluation?.extraFactors ?? []) {
@@ -60,10 +61,18 @@ export function factorStrategyTemplate(result: FactorResult, moduleName: string)
   if (specs.length === 1 && result.factorNames.length >= 2) {
     for (const id of result.factorNames.slice(1)) pushSpec(id, {});
   }
+  if (specs.length >= 2 && evaluation?.combination === "ic_weighted") {
+    throw new Error("暂不支持从 IC 加权合成报告生成策略，请先用等权合成重新评价");
+  }
+  const controls: typeof specs = [];
+  for (const control of evaluation?.orthogonalizeAgainst ?? []) {
+    pushSpec(control.factor, control.params ?? {}, controls);
+  }
+  const allSpecs = [...specs, ...controls];
 
   // Resolve unique local aliases for imported factor functions.
-  const usedNames = new Set<string>(["_volatility"]);
-  const aliases = specs.map(spec => {
+  const usedNames = new Set<string>(["_volatility", "orthogonalize"]);
+  const aliases = allSpecs.map(spec => {
     let alias = spec.fn;
     if (usedNames.has(alias)) alias = `${spec.module}_${spec.fn}`;
     while (usedNames.has(alias)) alias = `${alias}_f`;
@@ -71,7 +80,7 @@ export function factorStrategyTemplate(result: FactorResult, moduleName: string)
     return alias;
   });
   const factorImports = new Map<string, string[]>();
-  specs.forEach((spec, idx) => {
+  allSpecs.forEach((spec, idx) => {
     const alias = aliases[idx]!;
     const clause = alias === spec.fn ? spec.fn : `${spec.fn} as ${alias}`;
     const list = factorImports.get(spec.module) ?? [];
@@ -88,10 +97,11 @@ export function factorStrategyTemplate(result: FactorResult, moduleName: string)
   if (standardize === "zscore") strategyImports.push("cross_section_zscore");
   if (standardize === "rank") strategyImports.push("cross_section_rank");
   if (sectorNeutral) strategyImports.push("sector_neutralize");
+  if (controls.length) strategyImports.push("orthogonalize");
   strategyImports.push("cap_sector_weights", "smooth_weights");
 
   let maxWindow = 20;
-  for (const spec of specs) {
+  for (const spec of allSpecs) {
     for (const val of Object.values(spec.params)) {
       if (val.value.case === "integer") {
         const n = Number(val.value.value);
@@ -155,6 +165,19 @@ export function factorStrategyTemplate(result: FactorResult, moduleName: string)
     if (standardize === "zscore") scoreLines.push("        scores = cross_section_zscore(scores)");
     if (standardize === "rank") scoreLines.push("        scores = cross_section_rank(scores)");
     if (sectorNeutral) scoreLines.push("        scores = sector_neutralize(scores)");
+  }
+  if (controls.length) {
+    scoreLines.push("        controls = [");
+    controls.forEach((spec, idx) => {
+      const alias = aliases[specs.length + idx]!;
+      const kwargs = Object.entries(spec.params)
+        .map(([k, v]) => `, ${k}=${pythonLiteral(v)}`)
+        .join("");
+      scoreLines.push(
+        `            {s: float(ctx.factor(${alias}, s, self.need${kwargs})) for s in eligible},`,
+      );
+    });
+    scoreLines.push("        ]", "        scores = orthogonalize(scores, controls)");
   }
 
   const sourceLine = result.id ? `\n    source_evaluation = ${JSON.stringify(result.id)}` : "";

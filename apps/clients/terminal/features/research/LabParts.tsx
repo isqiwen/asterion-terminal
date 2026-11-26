@@ -187,15 +187,15 @@ function NewModuleDialog({
         onSubmit={event => {
           event.preventDefault();
           const path = `${folder}/${name}.py`;
-          const result = generated
-            ? generated.build(name)
-            : copying
-              ? copiedModule(folder, copying.content, copying.symbol, name)
-              : {
-                  content: moduleTemplate(folder, name),
-                  id: `${name}.${folder === "strategies" ? strategyClassName(name) : name}`,
-                };
           void attempt(async () => {
+            const result = generated
+              ? generated.build(name)
+              : copying
+                ? copiedModule(folder, copying.content, copying.symbol, name)
+                : {
+                    content: moduleTemplate(folder, name),
+                    id: `${name}.${folder === "strategies" ? strategyClassName(name) : name}`,
+                  };
             await lab({
               case: "saveSource",
               value: {

@@ -4,16 +4,52 @@ import { expect, test, vi } from "vitest";
 import { registerTerminalFeatures } from "../../src/host/feature-registry";
 import { lab } from "../../src/bridge/lab";
 import type { TerminalContext } from "../../src/host/feature-registry";
-import { StoredContractsSchema } from "../../src/generated/asterion/lab_pb";
+import { FactorResultSchema, StoredContractsSchema } from "../../src/generated/asterion/lab_pb";
+import { setLocale } from "../../src/i18n";
 import { feature } from "./feature";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "../../src/host/workspace/drafts";
 import { filterModuleItems, NewModule, useSource, type ModuleItem } from "./LabParts";
 import { readUniverses } from "./research-storage";
-import { copiedModule, copyStem } from "./research-templates";
+import { copiedModule, copyStem, factorStrategyTemplate } from "./research-templates";
 import { datePlaceholders, SymbolField, SymbolPopover, useStoredCatalog } from "./SymbolPicker";
 
 vi.mock("../../src/bridge/lab", () => ({ lab: vi.fn() }));
 registerTerminalFeatures([feature]);
+
+test("IC-weighted strategy generation reports its unsupported mode before saving in both languages", async () => {
+  const result = create(FactorResultSchema, {
+    evaluation: {
+      factor: "price.momentum",
+      extraFactors: [{ factor: "positions.interest_change" }],
+      combination: "ic_weighted",
+    },
+  });
+  const created = vi.fn();
+  render(
+    <NewModule
+      hideTrigger
+      folder="strategies"
+      repository="/research"
+      generated={{
+        title: "从因子生成策略",
+        name: "ic_strategy",
+        build: name => factorStrategyTemplate(result, name),
+      }}
+      created={created}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "创建" }));
+  expect((await screen.findByRole("alert")).textContent).toContain(
+    "暂不支持从 IC 加权合成报告生成策略，请先用等权合成重新评价",
+  );
+  act(() => setLocale("en-US"));
+  expect(screen.getByRole("alert").textContent).toContain(
+    "Strategy generation is not yet supported for IC-weighted composites.",
+  );
+  expect(lab).not.toHaveBeenCalled();
+  expect(created).not.toHaveBeenCalled();
+  act(() => setLocale("zh-CN"));
+});
 
 test("copying pre-fills and selects the module name, renames the target symbol, and Escape cancels", () => {
   expect(copyStem("CompositePortfolio", "strategies/composite.py")).toBe(
