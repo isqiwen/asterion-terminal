@@ -129,7 +129,7 @@ sequenceDiagram
 | 2 | [live_session.hpp](../../apps/services/trading/live_session.hpp)、[account_loop.cpp](../../apps/services/trading/account_loop.cpp) | 账户入口与单线程状态所有权 |
 | 3 | [live_session.cpp](../../apps/services/trading/live_session.cpp)、[account_journal.cpp](../../apps/services/trading/account_journal.cpp) | 风控检查、先记录后发送与账本持久化 |
 | 4 | [ctp_trader.cpp](../../apps/services/trading/ctp/ctp_trader.cpp)、[ctp_reconciliation.cpp](../../apps/services/trading/ctp/ctp_reconciliation.cpp) | CTP SDK 适配、请求流控与柜台对账 |
-| 5 | [strategy_host.cpp](../../apps/services/trading/strategy_host.cpp)、[strategy_bars.cpp](../../apps/services/trading/strategy_bars.cpp)、[strategy_runner.py](../../apps/services/trading/python/strategy_runner.py) | 策略子进程、实时 K 线聚合与预热回放 |
+| 5 | [strategy_host.cpp](../../apps/services/trading/strategy_host.cpp)、[strategy_validation.cpp](../../apps/services/trading/strategy_validation.cpp)、[strategy_local_bars.cpp](../../apps/services/trading/strategy_local_bars.cpp)、[dominant_series.cpp](../../apps/services/trading/dominant_series.cpp)、[strategy_bars.cpp](../../apps/services/trading/strategy_bars.cpp)、[strategy_runner.py](../../apps/services/trading/python/strategy_runner.py) | 策略子进程、配置与预热校验、本地 K 线留存、主力换月与实时聚合 |
 | 6 | [strategy_execution.cpp](../../apps/services/trading/strategy_execution.cpp)、[strategy_orders.cpp](../../apps/services/trading/strategy_orders.cpp) | 目标换算、拆单并发与批次撤单 |
 
 隔离测试位于 [tests/trading](../../tests/trading)，真实柜台验收按[CTP 仿真验收](../acceptance/ctp-simulation.md)执行。

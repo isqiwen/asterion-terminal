@@ -1,30 +1,28 @@
 #include "strategy_host.hpp"
 #include "alert_webhook.hpp"
-#include "strategy_bars.hpp"
+#include "dominant_series.hpp"
 #include "live_session.hpp"
-#include <asterion/database/sqlite/sqlite_database.hpp>
-#include <asterion/futures/futures.hpp>
-#include <asterion/futures/history_identity.hpp>
-#include <asterion/protocol/common.hpp>
+#include "strategy_bars.hpp"
+#include "strategy_local_bars.hpp"
+#include "strategy_validation.hpp"
 #include <asterion/base/error.hpp>
 #include <asterion/base/id.hpp>
 #include <asterion/base/serialization.hpp>
-#include <algorithm>
-#include <atomic>
+#include <asterion/database/sqlite/sqlite_database.hpp>
+#include <asterion/futures/futures.hpp>
+#include <asterion/protocol/common.hpp>
 #include <asterion/system/durable_file.hpp>
+#include <asterion/system/ipc/local_channel.hpp>
+#include <asterion/system/log.hpp>
 #include <asterion/system/process/artifact.hpp>
 #include <asterion/system/process/child.hpp>
 #include <asterion/system/process/file_lock.hpp>
-#include <asterion/system/ipc/local_channel.hpp>
-#include <asterion/system/log.hpp>
 #include <google/protobuf/util/json_util.h>
-#include <google/protobuf/util/message_differencer.h>
-#include <cmath>
+#include <algorithm>
+#include <atomic>
 #include <fstream>
-#include <limits>
-#include <optional>
-#include <regex>
 #include <map>
+#include <optional>
 #include <set>
 #include <tuple>
 #include <unistd.h>
@@ -35,649 +33,8 @@ namespace wire = ::strategy;
 namespace pb = ::trading;
 using namespace std::chrono_literals;
 
-namespace {
-
-std::string read(const fs::path& path, std::size_t limit)
-{
-    if (!fs::is_regular_file(path) || fs::is_symlink(path) || fs::file_size(path) > limit)
-        throw std::invalid_argument("missing or invalid strategy file: " + path.string());
-    std::ifstream input(path, std::ios::binary);
-    return {std::istreambuf_iterator<char>(input), {}};
-}
-
-std::string json(const google::protobuf::Message& message)
-{
-    std::string result;
-    if (!google::protobuf::util::MessageToJsonString(message, &result).ok())
-        throw std::runtime_error("cannot encode strategy description");
-    return result;
-}
-
-void package_identity(const std::string& name, const std::string& version)
-{
-    const std::regex component("[A-Za-z0-9][A-Za-z0-9._-]{0,63}");
-    if (!std::regex_match(name, component) || !std::regex_match(version, component))
-        throw std::invalid_argument(
-            "package name and version must be 1-64 letters, digits, dots, underscores or hyphens, beginning with a letter or digit");
-}
-
-void validate(const wire::Package& package)
-{
-    const auto& m = package.manifest();
-    package_identity(m.name(), m.version());
-    if (m.runtime() != "python3.12-numpy2.3.5-scipy1.17.1")
-        throw std::invalid_argument("unsupported strategy runtime: " + m.runtime());
-    const std::regex entry(
-        "[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*:[A-Za-z_][A-Za-z0-9_]*");
-    if (!std::regex_match(m.entry(), entry))
-        throw std::invalid_argument("strategy entry must be module:Class");
-    if (m.files_size() < 1 || m.files_size() > 64 || m.files_size() != package.files_size()
-        || package.ByteSizeLong() > 600 * 1024)
-        throw std::invalid_argument(
-            "a strategy package has 1-64 Python files, at most 512 KiB of code");
-    const std::regex path("([A-Za-z_][A-Za-z0-9_]*/)*[A-Za-z_][A-Za-z0-9_]*\\.py");
-    std::set<std::string> names;
-    std::size_t bytes = 0;
-    for (int i = 0; i < m.files_size(); ++i) {
-        const auto& name = m.files(i);
-        if (!std::regex_match(name, path) || name.starts_with("asterion")
-            || !names.insert(name).second || package.files(i).path() != name)
-            throw std::invalid_argument("invalid or duplicate strategy source path: " + name);
-        bytes += package.files(i).content().size();
-    }
-    if (bytes > 512 * 1024)
-        throw std::invalid_argument("strategy source exceeds 512 KiB");
-    auto module = m.entry().substr(0, m.entry().find(':'));
-    std::replace(module.begin(), module.end(), '.', '/');
-    if (!names.contains(module + ".py"))
-        throw std::invalid_argument("strategy entry is not included in package files");
-}
-
-int delivery_months(const std::string& month)
-{
-    const auto dash = month.find('-');
-    return std::stoi(month.substr(0, dash)) * 12 + std::stoi(month.substr(dash + 1));
-}
-
-// Annualized log roll yield 12 * ln(near / far) / delta_months, matching dominant.py.
-std::optional<Decimal> annualized_roll_yield(
-    Decimal near_price,
-    Decimal far_price,
-    const std::string& near_month,
-    const std::string& far_month)
-{
-    const int gap = delivery_months(far_month) - delivery_months(near_month);
-    if (gap <= 0 || near_price <= Decimal{} || far_price <= Decimal{})
-        return std::nullopt;
-    const double value = 12.0
-        * std::log(static_cast<double>(near_price.raw()) / static_cast<double>(far_price.raw()))
-        / static_cast<double>(gap);
-    if (!std::isfinite(value))
-        return std::nullopt;
-    const double scaled = value * 1e8;
-    if (scaled < static_cast<double>(std::numeric_limits<std::int64_t>::min())
-        || scaled > static_cast<double>(std::numeric_limits<std::int64_t>::max()))
-        return std::nullopt;
-    return Decimal::from_raw(std::llround(scaled));
-}
-
-std::optional<Decimal> simple_return(Decimal current, Decimal previous)
-{
-    if (current <= Decimal{} || previous <= Decimal{})
-        return std::nullopt;
-    return divide(current - previous, previous, Rounding::half_up);
-}
-
-std::string warmup_digest(const wire::Warmup& warmup)
-{
-    std::string canonical;
-    for (const auto& batch : warmup.bars()) {
-        canonical += "batch\n";
-        for (const auto& bar : batch.bars()) {
-            canonical += bar.trading_day() + "|" + std::to_string(bar.end_ms()) + "|"
-                + bar.instrument().exchange() + "/" + bar.instrument().symbol() + "|"
-                + bar.open().text() + "|" + bar.high().text() + "|" + bar.low().text() + "|"
-                + bar.close().text() + "|" + std::to_string(bar.volume()) + "|"
-                + bar.open_interest().text()
-                + (bar.has_roll_ratio() ? "|" + bar.roll_ratio().text() : "")
-                + (bar.has_roll_yield() ? "|ry=" + bar.roll_yield().text() : "")
-                + (bar.has_far_close() ? "|fc=" + bar.far_close().text() : "")
-                + (bar.has_near_return() ? "|nr=" + bar.near_return().text() : "")
-                + (bar.has_far_return() ? "|fr=" + bar.far_return().text() : "")
-                + (bar.has_receipt_volume() ? "|rv=" + bar.receipt_volume().text() : "")
-                + (bar.has_member_long() ? "|ml=" + bar.member_long().text() : "")
-                + (bar.has_member_short() ? "|ms=" + bar.member_short().text() : "")
-                + (bar.has_inventory_total() ? "|inv=" + bar.inventory_total().text() : "") + "\n";
-        }
-    }
-    return sha256_bytes(canonical);
-}
-
-std::string series_symbol(const wire::DominantSeries& series)
-{
-    std::string lower = series.product();
-    std::ranges::transform(lower, lower.begin(), [](unsigned char c) {
-        return static_cast<char>(std::tolower(c));
-    });
-    return series.exchange() + "/" + lower;
-}
-
-int instance_slot(const wire::Instance& instance, const ::common::Instrument& id)
-{
-    for (int i = 0; i < instance.instruments_size(); ++i)
-        if (instance.instruments(i).exchange() == id.exchange()
-            && instance.instruments(i).symbol() == id.symbol())
-            return i;
-    for (int s = 0; s < instance.series_size(); ++s)
-        for (const auto& candidate : instance.series(s).contracts())
-            if (candidate.instrument().exchange() == id.exchange()
-                && candidate.instrument().symbol() == id.symbol())
-                return instance.instruments_size() + s;
-    return -1;
-}
-
-void validate(const wire::Instance& instance)
-{
-    package_identity(instance.id(), "instance");
-    package_identity(instance.package_name(), instance.package_version());
-    const auto total_symbols = instance.instruments_size() + instance.series_size();
-    if (total_symbols < 1 || static_cast<std::size_t>(total_symbols) > max_portfolio_contracts)
-        throw std::invalid_argument("a strategy instance selects 1-64 native contracts");
-    std::set<std::string> contracts, series_keys;
-    const std::regex exchange("SHFE|INE|DCE|CZCE|CFFEX|GFEX"), symbol("[A-Za-z]+[0-9]{3,4}");
-    for (const auto& value : instance.instruments()) {
-        const auto name = value.exchange() + "/" + value.symbol();
-        if (!std::regex_match(value.exchange(), exchange)
-            || !std::regex_match(value.symbol(), symbol) || !contracts.insert(name).second)
-            throw std::invalid_argument("invalid or duplicate native contract: " + name);
-    }
-    for (const auto& series : instance.series()) {
-        if (!std::regex_match(series.exchange(), exchange) || series.product().empty()
-            || series.contracts_size() < 2)
-            throw std::invalid_argument(
-                "dominant series requires an exchange, product and at least 2 contracts");
-        const auto key = series_symbol(series);
-        if (!series_keys.insert(key).second)
-            throw std::invalid_argument("duplicate dominant series: " + key);
-        std::string previous_month;
-        for (const auto& entry : series.contracts()) {
-            const auto& id = entry.instrument();
-            const auto name = id.exchange() + "/" + id.symbol();
-            if (id.exchange() != series.exchange() || !contracts.insert(name).second)
-                throw std::invalid_argument("invalid or duplicate series contract: " + name);
-            FuturesContract{
-                {{id.exchange(), id.symbol()},
-                    "CNY",
-                    Decimal::parse("1"),
-                    Decimal::parse("1"),
-                    Decimal::parse("1")},
-                series.product(),
-                entry.delivery_month()
-            }
-                .validate();
-            if (!previous_month.empty() && entry.delivery_month() <= previous_month)
-                throw std::invalid_argument(
-                    "dominant series contracts must be in ascending delivery-month order");
-            previous_month = entry.delivery_month();
-        }
-    }
-    if (instance.period() == ::common::PERIOD_UNSPECIFIED
-        || instance.period() > ::common::PERIOD_DAY)
-        throw std::invalid_argument("strategy bars are daily or of 1 to 60 minutes");
-    if (instance.has_weight_limits()
-        && (!instance.weight_limits().has_gross() || !instance.weight_limits().has_net()))
-        throw std::invalid_argument(
-            "strategy weight budget requires explicit gross and net limits");
-    if (instance.has_execution()) {
-        (void)normalize_execution_options(
-            {instance.execution().aggressive_ticks(),
-                instance.execution().max_reprices(),
-                instance.execution().reprice_interval_ms(),
-                instance.execution().twap_slices(),
-                instance.execution().twap_interval_ms()});
-    }
-    auto stripped = instance;
-    if (stripped.has_warmup())
-        stripped.mutable_warmup()->clear_bars();
-    if (stripped.ByteSizeLong() > 65536 || instance.ByteSizeLong() > 2 * 1024 * 1024)
-        throw std::invalid_argument("strategy instance configuration exceeds 64 KiB");
-    if (!instance.resume_from().empty()) {
-        package_identity(instance.resume_from(), "instance");
-        if (instance.resume_from() == instance.id())
-            throw std::invalid_argument("a strategy instance cannot resume from itself");
-        if (instance.local_bars())
-            throw std::invalid_argument(
-                "a strategy instance resumes from a record or from local bars, not both");
-    }
-    if (instance.has_warmup()) {
-        const auto& warmup = instance.warmup();
-        if (warmup.dataset_version().empty() || warmup.bars_size() == 0)
-            throw std::invalid_argument("strategy warmup requires dataset_version and bars");
-        package_identity(warmup.dataset_version(), "version");
-        std::int64_t previous_end_ms = 0;
-        for (const auto& batch : warmup.bars()) {
-            if (batch.bars_size() == 0)
-                throw std::invalid_argument("strategy warmup contains an empty bar batch");
-            const auto end_ms = batch.bars(0).end_ms();
-            if (end_ms <= previous_end_ms)
-                throw std::invalid_argument(
-                    "strategy warmup bars must be in strictly ascending time order");
-            previous_end_ms = end_ms;
-            int previous_index = -1;
-            for (const auto& bar : batch.bars()) {
-                if (bar.end_ms() != end_ms || bar.trading_day().empty())
-                    throw std::invalid_argument(
-                        "strategy warmup bar batch has inconsistent timestamps");
-                if (bar.has_roll_ratio() && Decimal::parse(bar.roll_ratio().text()) <= Decimal{})
-                    throw std::invalid_argument("strategy warmup roll_ratio must be positive");
-                if (bar.has_roll_yield())
-                    (void)Decimal::parse(bar.roll_yield().text());
-                if (bar.has_far_close())
-                    (void)Decimal::parse(bar.far_close().text());
-                if (bar.has_near_return())
-                    (void)Decimal::parse(bar.near_return().text());
-                if (bar.has_far_return())
-                    (void)Decimal::parse(bar.far_return().text());
-                if (bar.has_receipt_volume())
-                    (void)Decimal::parse(bar.receipt_volume().text());
-                if (bar.has_member_long())
-                    (void)Decimal::parse(bar.member_long().text());
-                if (bar.has_member_short())
-                    (void)Decimal::parse(bar.member_short().text());
-                if (bar.has_inventory_total())
-                    (void)Decimal::parse(bar.inventory_total().text());
-                const int index = instance_slot(instance, bar.instrument());
-                if (index <= previous_index)
-                    throw std::invalid_argument(
-                        "strategy warmup bars must match instance instruments in order");
-                previous_index = index;
-            }
-        }
-        if (warmup.sha256() != warmup_digest(warmup))
-            throw std::invalid_argument("strategy warmup sha256 digest does not match bars");
-    }
-}
-
-// The bars an ended instance received, in order. Its package, contracts and
-// period must match; parameters, package version and weight limits may be updated.
-std::vector<wire::Bars> recorded_inputs(const fs::path& run, const wire::Instance& configuration)
-{
-    if (!fs::is_regular_file(run))
-        throw std::invalid_argument("no recorded strategy instance: " + run.stem().string());
-    sqlite::Database previous(run, sqlite::Database::Access::read_only);
-    sqlite::Database::Statement stored(previous, "SELECT value FROM configuration");
-    wire::Instance recorded;
-    if (!stored.step() || !recorded.ParseFromString(stored.blob(0)))
-        throw std::invalid_argument("invalid strategy record: " + run.string());
-    auto wanted = configuration;
-    for (auto* item : {&recorded, &wanted}) {
-        item->clear_id();
-        item->clear_resume_from();
-        item->clear_local_bars();
-        item->clear_package_version();
-        item->mutable_params()->clear();
-        item->clear_weight_limits();
-        item->clear_warmup();
-        item->clear_execution();
-    }
-    if (!google::protobuf::util::MessageDifferencer::Equals(recorded, wanted))
-        throw std::invalid_argument(
-            "a resumed instance needs the same package, contracts and period");
-    std::vector<wire::Bars> inputs;
-    sqlite::Database::Statement steps(previous, "SELECT input FROM steps ORDER BY sequence");
-    while (steps.step()) {
-        auto& input = inputs.emplace_back();
-        if (!input.ParseFromString(steps.blob(0)))
-            throw std::invalid_argument("invalid strategy record: " + run.string());
-    }
-    return inputs;
-}
-
-std::int64_t local_bar_retention(::common::Period period)
-{
-    switch (period) {
-        case ::common::PERIOD_MINUTES_1:
-            return 20000;
-        case ::common::PERIOD_MINUTES_5:
-            return 5000;
-        case ::common::PERIOD_MINUTES_10:
-        case ::common::PERIOD_MINUTES_15:
-            return 3000;
-        case ::common::PERIOD_MINUTES_30:
-        case ::common::PERIOD_MINUTES_60:
-            return 1500;
-        default:
-            return 1000;
-    }
-}
-
-std::map<InstrumentId, std::string> cached_expiries(const fs::path& root)
-{
-    std::map<InstrumentId, std::string> out;
-    const auto cache = root / "catalog.pb";
-    if (!fs::is_regular_file(cache) || fs::is_symlink(cache)
-        || fs::file_size(cache) > 64 * 1024 * 1024)
-        return out;
-    std::ifstream input(cache, std::ios::binary);
-    pb::ContractCatalog catalog;
-    if (!catalog.ParseFromIstream(&input) || catalog.contracts_size() > 20000)
-        return out;
-    for (const auto& entry : catalog.contracts())
-        if (!entry.expiry_day().empty())
-            out.emplace(
-                InstrumentId{entry.instrument().exchange(), entry.instrument().symbol()},
-                entry.expiry_day());
-    return out;
-}
-
-bool candidate_expiring(
-    const std::vector<std::string>& expiries,
-    std::size_t index,
-    const std::string& day)
-{
-    if (index >= expiries.size() || expiries[index].empty() || day < expiries[index])
-        return false;
-    for (std::size_t later = index + 1; later < expiries.size(); ++later)
-        if (expiries[later].empty() || expiries[later] > day)
-            return true;
-    return false;
-}
-
-std::vector<wire::Bars> load_local_bars(
-    sqlite::Database& db,
-    const wire::Instance& configuration,
-    bool allow_empty,
-    const std::map<InstrumentId, std::string>& expiries = {})
-{
-    std::map<std::pair<std::string, std::string>, int> fixed_order;
-    for (int i = 0; i < configuration.instruments_size(); ++i) {
-        const auto& id = configuration.instruments(i);
-        fixed_order.emplace(std::pair{id.exchange(), id.symbol()}, i);
-    }
-
-    struct LocalSeries
-    {
-        int slot = 0;
-        std::size_t active = 0;
-        std::string decided_day;
-        std::optional<Decimal> pending_roll_ratio;
-        std::vector<std::pair<std::string, std::string>> candidates;
-        std::vector<std::string> months;
-        std::vector<std::string> expiries;
-    };
-
-    std::string warmup_last_day;
-    if (configuration.has_warmup() && configuration.warmup().bars_size() > 0) {
-        const auto& last_batch =
-            configuration.warmup().bars(configuration.warmup().bars_size() - 1);
-        if (last_batch.bars_size() > 0)
-            warmup_last_day = last_batch.bars(0).trading_day();
-    }
-
-    std::vector<LocalSeries> series_list;
-    std::map<std::pair<std::string, std::string>, std::pair<std::size_t, std::size_t>>
-        series_lookup;
-    for (int s = 0; s < configuration.series_size(); ++s) {
-        const auto& series = configuration.series(s);
-        std::size_t active = 0;
-        if (configuration.has_warmup()) {
-            for (int b = configuration.warmup().bars_size() - 1; b >= 0; --b) {
-                bool matched = false;
-                for (const auto& bar : configuration.warmup().bars(b).bars())
-                    for (int c = 0; c < series.contracts_size(); ++c)
-                        if (series.contracts(c).instrument().exchange()
-                                == bar.instrument().exchange()
-                            && series.contracts(c).instrument().symbol()
-                                == bar.instrument().symbol()) {
-                            active = static_cast<std::size_t>(c);
-                            matched = true;
-                        }
-                if (matched)
-                    break;
-            }
-        }
-        LocalSeries local;
-        local.slot = configuration.instruments_size() + s;
-        local.active = active;
-        local.decided_day = warmup_last_day;
-        for (int c = 0; c < series.contracts_size(); ++c) {
-            const auto& entry = series.contracts(c);
-            const std::pair key{entry.instrument().exchange(), entry.instrument().symbol()};
-            local.candidates.push_back(key);
-            local.months.push_back(entry.delivery_month());
-            const auto exp = expiries.find(InstrumentId{key.first, key.second});
-            local.expiries.push_back(exp == expiries.end() ? std::string{} : exp->second);
-            if (static_cast<std::size_t>(c) >= active)
-                series_lookup.emplace(
-                    key,
-                    std::pair{series_list.size(), static_cast<std::size_t>(c)});
-        }
-        series_list.push_back(std::move(local));
-    }
-    std::map<std::int64_t, std::map<int, wire::Bar>> grouped;
-    std::map<std::int64_t, std::map<std::pair<std::size_t, std::size_t>, wire::Bar>> series_bars;
-    std::vector<std::vector<std::map<std::string, Decimal>>> series_oi(series_list.size());
-    std::vector<std::vector<std::map<std::string, Decimal>>> series_close(series_list.size());
-    std::vector<std::vector<std::optional<Decimal>>> prev_bar_close(series_list.size());
-    for (std::size_t i = 0; i < series_list.size(); ++i) {
-        series_oi[i].resize(series_list[i].candidates.size());
-        series_close[i].resize(series_list[i].candidates.size());
-        prev_bar_close[i].resize(series_list[i].candidates.size());
-    }
-    if (configuration.has_warmup()) {
-        for (const auto& batch : configuration.warmup().bars()) {
-            for (const auto& bar : batch.bars()) {
-                const std::pair key{bar.instrument().exchange(), bar.instrument().symbol()};
-                if (const auto found = series_lookup.find(key); found != series_lookup.end()) {
-                    if (bar.has_open_interest() && !bar.open_interest().text().empty())
-                        series_oi[found->second.first][found->second.second][bar.trading_day()] =
-                            Decimal::parse(bar.open_interest().text());
-                    if (bar.has_close() && !bar.close().text().empty()) {
-                        const auto close = Decimal::parse(bar.close().text());
-                        series_close[found->second.first][found->second.second][bar.trading_day()] =
-                            close;
-                        prev_bar_close[found->second.first][found->second.second] = close;
-                    }
-                }
-            }
-        }
-    }
-    std::set<std::int64_t> timestamps;
-    sqlite::Database::Statement query(
-        db,
-        "SELECT end_ms, exchange, symbol, bar FROM bars WHERE period=? ORDER BY end_ms ASC");
-    query.bind(1, static_cast<std::int64_t>(configuration.period()));
-    while (query.step()) {
-        const auto end_ms = query.integer(0);
-        const std::pair key{query.text(1), query.text(2)};
-        const auto found = fixed_order.find(key);
-        const auto sfound = series_lookup.find(key);
-        if (found == fixed_order.end() && sfound == series_lookup.end())
-            continue;
-        wire::Bar bar;
-        if (!bar.ParseFromString(query.blob(3)))
-            throw std::runtime_error("invalid locally persisted strategy bar");
-        timestamps.insert(end_ms);
-        if (sfound != series_lookup.end()) {
-            if (bar.has_open_interest() && !bar.open_interest().text().empty())
-                series_oi[sfound->second.first][sfound->second.second][bar.trading_day()] =
-                    Decimal::parse(bar.open_interest().text());
-            if (bar.has_close() && !bar.close().text().empty())
-                series_close[sfound->second.first][sfound->second.second][bar.trading_day()] =
-                    Decimal::parse(bar.close().text());
-            series_bars[end_ms][sfound->second] = std::move(bar);
-        } else {
-            grouped[end_ms][found->second] = std::move(bar);
-        }
-    }
-    std::vector<wire::Bars> inputs;
-    for (const auto end_ms : timestamps) {
-        std::map<int, wire::Bar> items;
-        if (const auto fixed_at = grouped.find(end_ms); fixed_at != grouped.end())
-            items = std::move(fixed_at->second);
-        if (const auto sat = series_bars.find(end_ms); sat != series_bars.end()) {
-            for (std::size_t s = 0; s < series_list.size(); ++s) {
-                auto& series = series_list[s];
-                std::string day;
-                for (std::size_t c = series.active; c < series.candidates.size(); ++c) {
-                    if (const auto it = sat->second.find({s, c}); it != sat->second.end()) {
-                        day = it->second.trading_day();
-                        break;
-                    }
-                }
-                if (day.empty())
-                    continue;
-                auto prev_val = [](const std::map<std::string, Decimal>& table,
-                                    const std::string& target_day) -> std::optional<Decimal> {
-                    auto it = table.lower_bound(target_day);
-                    if (it != table.begin()) {
-                        --it;
-                        return it->second;
-                    }
-                    return std::nullopt;
-                };
-                if (day > series.decided_day) {
-                    const bool had_history = !series.decided_day.empty();
-                    std::optional<std::size_t> chosen;
-                    Decimal best_oi;
-                    for (std::size_t c = series.active; c < series.candidates.size(); ++c) {
-                        if (!sat->second.contains({s, c})
-                            || candidate_expiring(series.expiries, c, day))
-                            continue;
-                        auto oi = prev_val(series_oi[s][c], day);
-                        if (!oi && !had_history) {
-                            const auto& b = sat->second.at({s, c});
-                            if (b.has_open_interest() && !b.open_interest().text().empty())
-                                oi = Decimal::parse(b.open_interest().text());
-                        }
-                        if (!oi)
-                            continue;
-                        if (!chosen || *oi > best_oi) {
-                            chosen = c;
-                            best_oi = *oi;
-                        }
-                    }
-                    if (chosen && *chosen > series.active) {
-                        if (had_history) {
-                            const auto old_px = prev_val(series_close[s][series.active], day);
-                            const auto new_px = prev_val(series_close[s][*chosen], day);
-                            if (old_px && new_px && *old_px > Decimal{} && *new_px > Decimal{})
-                                series.pending_roll_ratio =
-                                    divide(*new_px, *old_px, Rounding::half_up);
-                        }
-                        series.active = *chosen;
-                    }
-                    series.decided_day = day;
-                }
-                const auto active_it = sat->second.find({s, series.active});
-                if (active_it == sat->second.end())
-                    continue;
-                wire::Bar dom = active_it->second;
-                if (series.pending_roll_ratio && !dom.has_roll_ratio()) {
-                    *dom.mutable_roll_ratio() = protocol::decimal(*series.pending_roll_ratio);
-                    series.pending_roll_ratio.reset();
-                }
-                if (!dom.has_near_return() && dom.has_close() && !dom.close().text().empty()
-                    && prev_bar_close[s][series.active]) {
-                    if (const auto nr = simple_return(
-                            Decimal::parse(dom.close().text()),
-                            *prev_bar_close[s][series.active]))
-                        *dom.mutable_near_return() = protocol::decimal(*nr);
-                }
-                if (!dom.has_roll_yield() || !dom.has_far_close() || !dom.has_far_return()) {
-                    bool any_prev = false;
-                    for (std::size_t c = series.active + 1; c < series.candidates.size(); ++c) {
-                        if (sat->second.contains({s, c}) && prev_val(series_oi[s][c], day)) {
-                            any_prev = true;
-                            break;
-                        }
-                    }
-                    std::optional<std::size_t> sub;
-                    Decimal best_oi;
-                    for (std::size_t c = series.active + 1; c < series.candidates.size(); ++c) {
-                        const auto fb = sat->second.find({s, c});
-                        if (fb == sat->second.end())
-                            continue;
-                        auto oi = prev_val(series_oi[s][c], day);
-                        if (!oi && !any_prev && fb->second.has_open_interest()
-                            && !fb->second.open_interest().text().empty())
-                            oi = Decimal::parse(fb->second.open_interest().text());
-                        if (!oi)
-                            continue;
-                        if (!sub || *oi > best_oi) {
-                            sub = c;
-                            best_oi = *oi;
-                        }
-                    }
-                    if (sub) {
-                        const auto& far_bar = sat->second.at({s, *sub});
-                        if (dom.has_close() && !dom.close().text().empty() && far_bar.has_close()
-                            && !far_bar.close().text().empty()) {
-                            const auto far_px = Decimal::parse(far_bar.close().text());
-                            if (!dom.has_far_close())
-                                *dom.mutable_far_close() = far_bar.close();
-                            if (!dom.has_roll_yield()) {
-                                if (const auto ry = annualized_roll_yield(
-                                        Decimal::parse(dom.close().text()),
-                                        far_px,
-                                        series.months[series.active],
-                                        series.months[*sub])) {
-                                    *dom.mutable_roll_yield() = protocol::decimal(*ry);
-                                }
-                            }
-                            if (!dom.has_far_return() && prev_bar_close[s][*sub]) {
-                                if (const auto fr = simple_return(far_px, *prev_bar_close[s][*sub]))
-                                    *dom.mutable_far_return() = protocol::decimal(*fr);
-                            }
-                        }
-                    }
-                }
-                items.emplace(series.slot, std::move(dom));
-            }
-            for (const auto& [sc, bar] : sat->second) {
-                if (bar.has_close() && !bar.close().text().empty())
-                    prev_bar_close[sc.first][sc.second] = Decimal::parse(bar.close().text());
-            }
-        }
-        if (items.empty())
-            continue;
-        auto& batch = inputs.emplace_back();
-        for (auto& [__, bar] : items)
-            *batch.add_bars() = std::move(bar);
-    }
-    if (inputs.empty()) {
-        if (allow_empty)
-            return {};
-        throw std::invalid_argument(
-            "no locally recorded bars for the selected contracts and period");
-    }
-    return inputs;
-}
-
-} // namespace
-
 struct StrategyHost::State
 {
-    struct LiveSeries
-    {
-        struct DayStats
-        {
-            std::optional<Decimal> open_interest;
-            std::optional<Decimal> prev_open_interest;
-            std::optional<Decimal> prev_settlement;
-        };
-
-        std::string symbol;
-        std::vector<InstrumentId> candidates;
-        std::vector<std::string> delivery_months;
-        std::vector<std::string> expiry_days;
-        std::size_t active_index = 0;
-        std::string decided_day;
-        std::optional<Decimal> pending_roll_ratio;
-        std::vector<std::map<std::string, DayStats>> history;
-        std::vector<std::optional<Decimal>> prev_bar_close;
-    };
-
     State(
         fs::path installed,
         fs::path account,
@@ -700,7 +57,7 @@ struct StrategyHost::State
         local_bars->execute(
             "CREATE INDEX IF NOT EXISTS bars_contract_end ON bars(period, exchange, symbol, end_ms DESC)");
         if (fs::exists(root / "instance.pb")) {
-            if (!instance.ParseFromString(read(root / "instance.pb", 131072)))
+            if (!instance.ParseFromString(read_strategy_file(root / "instance.pb", 131072)))
                 throw std::invalid_argument(
                     "invalid strategy instance: " + (root / "instance.pb").string());
             if (instance.state() == pb::INSTANCE_STATE_WARMING
@@ -840,331 +197,13 @@ struct StrategyHost::State
         return result;
     }
 
-    void store_local_bars(::common::Period period, const wire::Bars& input)
-    {
-        const auto keep = local_bar_retention(period);
-        const auto period_value = static_cast<std::int64_t>(period);
-        sqlite::Database::Transaction transaction(*local_bars);
-        sqlite::Database::Statement insert(
-            *local_bars,
-            "INSERT OR REPLACE INTO bars(period, end_ms, exchange, symbol, bar) VALUES(?,?,?,?,?)");
-        std::optional<sqlite::Database::Statement> prune;
-        for (const auto& bar : input.bars()) {
-            const auto& exchange = bar.instrument().exchange();
-            const auto& symbol = bar.instrument().symbol();
-            insert.reset();
-            insert.bind(1, period_value)
-                .bind(2, bar.end_ms())
-                .bind(3, exchange)
-                .bind(4, symbol)
-                .bind_blob(5, bar.SerializeAsString())
-                .step();
-            if (++bar_write_counts[{static_cast<int>(period), exchange, symbol}] % 64 == 0) {
-                if (!prune)
-                    prune.emplace(
-                        *local_bars,
-                        "DELETE FROM bars WHERE period=? AND exchange=? AND symbol=? AND end_ms < (" "SELECT end_ms FROM bars WHERE period=? AND exchange=? AND symbol=? " "ORDER BY end_ms DESC LIMIT 1 OFFSET ?)");
-                else
-                    prune->reset();
-                prune->bind(1, period_value)
-                    .bind(2, exchange)
-                    .bind(3, symbol)
-                    .bind(4, period_value)
-                    .bind(5, exchange)
-                    .bind(6, symbol)
-                    .bind(7, keep - 1)
-                    .step();
-            }
-        }
-        transaction.commit();
-    }
-
-    std::set<std::string> awaited_contracts(const std::string& day = {}) const
-    {
-        std::set<std::string> out;
-        for (const auto& id : instance.instance().instruments())
-            out.insert(id.exchange() + "/" + id.symbol());
-        for (const auto& series : live_series) {
-            const auto& active = series.candidates[series.active_index];
-            out.insert(active.venue + "/" + active.symbol);
-            if (!day.empty()) {
-                if (const auto sub = choose_sub_dominant(series, day))
-                    out.insert(
-                        series.candidates[*sub].venue + "/" + series.candidates[*sub].symbol);
-            }
-            if (!day.empty() && day > series.decided_day) {
-                const bool expiring =
-                    candidate_expiring(series.expiry_days, series.active_index, day);
-                const auto active_oi = prev_open_interest(series, series.active_index, day);
-                for (std::size_t m = series.active_index + 1; m < series.candidates.size(); ++m) {
-                    const auto oi = prev_open_interest(series, m, day);
-                    if (expiring || (oi && (!active_oi || *oi > *active_oi)))
-                        out.insert(series.candidates[m].venue + "/" + series.candidates[m].symbol);
-                }
-            }
-        }
-        return out;
-    }
-
-    void observe_series_quote(const MarketQuote& observed)
-    {
-        if (observed.trading_day.size() != 8)
-            return;
-        const auto day = observed.trading_day.substr(0, 4) + "-" + observed.trading_day.substr(4, 2)
-            + "-" + observed.trading_day.substr(6, 2);
-        bool matched = false;
-        bool awaited_changed = day != last_awaited_day;
-        for (auto& series : live_series) {
-            const auto found = std::ranges::find(series.candidates, observed.instrument);
-            if (found == series.candidates.end())
-                continue;
-            matched = true;
-            auto [it, inserted] =
-                series.history[static_cast<std::size_t>(found - series.candidates.begin())]
-                    .try_emplace(day);
-            auto& stats = it->second;
-            if (inserted)
-                awaited_changed = true;
-            if (observed.previous_settlement && *observed.previous_settlement > Decimal{})
-                stats.prev_settlement = observed.previous_settlement;
-            if (observed.open_interest && observed.open_interest_change) {
-                const auto prev_oi = *observed.open_interest - *observed.open_interest_change;
-                if (stats.prev_open_interest != prev_oi) {
-                    stats.prev_open_interest = prev_oi;
-                    awaited_changed = true;
-                }
-            }
-            if (observed.open_interest) {
-                if (!stats.prev_open_interest && stats.open_interest != observed.open_interest)
-                    awaited_changed = true;
-                stats.open_interest = observed.open_interest;
-            }
-        }
-        if (matched && bars && awaited_changed) {
-            last_awaited_day = day;
-            bars->set_awaited(awaited_contracts(day));
-        }
-    }
-
-    static std::optional<Decimal>
-    prev_open_interest(const LiveSeries& series, std::size_t index, const std::string& day)
-    {
-        const auto& map = series.history[index];
-        if (const auto today = map.find(day);
-            today != map.end() && today->second.prev_open_interest)
-            return today->second.prev_open_interest;
-        auto before = map.lower_bound(day);
-        if (before != map.begin()) {
-            --before;
-            return before->second.open_interest;
-        }
-        return std::nullopt;
-    }
-
-    static Decimal roll_ratio(const LiveSeries& series, std::size_t next, const std::string& day)
-    {
-        const auto settlement = [&](std::size_t index) {
-            const auto it = series.history[index].find(day);
-            if (it == series.history[index].end() || !it->second.prev_settlement)
-                throw std::runtime_error("dominant roll lacks previous settlement price on " + day);
-            return *it->second.prev_settlement;
-        };
-        return divide(settlement(next), settlement(series.active_index), Rounding::half_up);
-    }
-
-    static std::optional<std::size_t> choose_dominant(
-        const LiveSeries& series,
-        const std::string& day,
-        bool had_history,
-        const wire::Bars* raw = nullptr)
-    {
-        std::optional<std::size_t> chosen;
-        Decimal best_oi;
-        for (std::size_t m = series.active_index; m < series.candidates.size(); ++m) {
-            if (candidate_expiring(series.expiry_days, m, day))
-                continue;
-            const bool active_today = series.history[m].contains(day)
-                || (raw && std::ranges::any_of(raw->bars(), [&](const auto& bar) {
-                       return bar.instrument().exchange() == series.candidates[m].venue
-                           && bar.instrument().symbol() == series.candidates[m].symbol;
-                   }));
-            if (!active_today)
-                continue;
-            auto oi = prev_open_interest(series, m, day);
-            if (!oi && !had_history && series.history[m].contains(day))
-                oi = series.history[m].at(day).open_interest;
-            if (!oi)
-                continue;
-            if (!chosen || *oi > best_oi) {
-                chosen = m;
-                best_oi = *oi;
-            }
-        }
-        return chosen;
-    }
-
-    static std::optional<std::size_t> choose_sub_dominant(
-        const LiveSeries& series,
-        const std::string& day,
-        const wire::Bars* raw = nullptr)
-    {
-        auto is_active = [&](std::size_t m) {
-            return series.history[m].contains(day)
-                || (raw && std::ranges::any_of(raw->bars(), [&](const auto& bar) {
-                       return bar.instrument().exchange() == series.candidates[m].venue
-                           && bar.instrument().symbol() == series.candidates[m].symbol;
-                   }));
-        };
-        bool any_prev = false;
-        for (std::size_t m = series.active_index + 1; m < series.candidates.size(); ++m)
-            if (is_active(m) && prev_open_interest(series, m, day)) {
-                any_prev = true;
-                break;
-            }
-        std::optional<std::size_t> chosen;
-        Decimal best_oi;
-        for (std::size_t m = series.active_index + 1; m < series.candidates.size(); ++m) {
-            if (!is_active(m))
-                continue;
-            auto oi = prev_open_interest(series, m, day);
-            if (!oi && !any_prev && series.history[m].contains(day))
-                oi = series.history[m].at(day).open_interest;
-            if (!oi)
-                continue;
-            if (!chosen || *oi > best_oi) {
-                chosen = m;
-                best_oi = *oi;
-            }
-        }
-        return chosen;
-    }
-
-    wire::Bars filter_and_roll_bars(const wire::Bars& raw)
-    {
-        for (std::size_t s = 0; s < live_series.size(); ++s) {
-            auto& series = live_series[s];
-            std::string day;
-            for (const auto& bar : raw.bars()) {
-                const InstrumentId id{bar.instrument().exchange(), bar.instrument().symbol()};
-                const auto found = std::ranges::find(series.candidates, id);
-                if (found != series.candidates.end()
-                    && static_cast<std::size_t>(found - series.candidates.begin())
-                        >= series.active_index) {
-                    day = bar.trading_day();
-                    break;
-                }
-            }
-            if (day.empty() || day <= series.decided_day)
-                continue;
-            const bool had_history = !series.decided_day.empty();
-            const auto chosen = choose_dominant(series, day, had_history, &raw);
-            if (chosen && *chosen > series.active_index) {
-                std::optional<Decimal> ratio;
-                if (had_history)
-                    ratio = roll_ratio(series, *chosen, day);
-                account->roll_strategy_series(authority, s, series.candidates[*chosen]).get();
-                const auto old_symbol = series.candidates[series.active_index].symbol;
-                series.active_index = *chosen;
-                series.pending_roll_ratio = ratio;
-                bars->set_awaited(awaited_contracts(day));
-                if (ratio)
-                    record_event(
-                        pb::INSTANCE_EVENT_KIND_UNSPECIFIED,
-                        "rolled " + series.symbol + " from " + old_symbol + " to "
-                            + series.candidates[*chosen].symbol + " ratio=" + ratio->str());
-            }
-            series.decided_day = day;
-        }
-        wire::Bars out;
-        for (const auto& fixed : instance.instance().instruments()) {
-            for (const auto& bar : raw.bars())
-                if (bar.instrument().exchange() == fixed.exchange()
-                    && bar.instrument().symbol() == fixed.symbol())
-                    *out.add_bars() = bar;
-        }
-        for (auto& series : live_series) {
-            const auto& active = series.candidates[series.active_index];
-            for (const auto& bar : raw.bars()) {
-                if (bar.instrument().exchange() == active.venue
-                    && bar.instrument().symbol() == active.symbol) {
-                    auto* added = out.add_bars();
-                    *added = bar;
-                    if (series.pending_roll_ratio) {
-                        *added->mutable_roll_ratio() =
-                            protocol::decimal(*series.pending_roll_ratio);
-                        series.pending_roll_ratio.reset();
-                    }
-                    if (bar.has_close() && !bar.close().text().empty()
-                        && series.prev_bar_close[series.active_index]) {
-                        if (const auto nr = simple_return(
-                                Decimal::parse(bar.close().text()),
-                                *series.prev_bar_close[series.active_index]))
-                            *added->mutable_near_return() = protocol::decimal(*nr);
-                    }
-                    if (const auto sub = choose_sub_dominant(series, bar.trading_day(), &raw)) {
-                        const auto& far = series.candidates[*sub];
-                        for (const auto& far_bar : raw.bars()) {
-                            if (far_bar.instrument().exchange() == far.venue
-                                && far_bar.instrument().symbol() == far.symbol
-                                && far_bar.has_close() && !far_bar.close().text().empty()
-                                && bar.has_close() && !bar.close().text().empty()) {
-                                const auto far_px = Decimal::parse(far_bar.close().text());
-                                *added->mutable_far_close() = far_bar.close();
-                                if (const auto ry = annualized_roll_yield(
-                                        Decimal::parse(bar.close().text()),
-                                        far_px,
-                                        series.delivery_months[series.active_index],
-                                        series.delivery_months[*sub])) {
-                                    *added->mutable_roll_yield() = protocol::decimal(*ry);
-                                }
-                                if (series.prev_bar_close[*sub]) {
-                                    if (const auto fr =
-                                            simple_return(far_px, *series.prev_bar_close[*sub]))
-                                        *added->mutable_far_return() = protocol::decimal(*fr);
-                                }
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            for (const auto& bar : raw.bars()) {
-                if (!bar.has_close() || bar.close().text().empty())
-                    continue;
-                const InstrumentId id{bar.instrument().exchange(), bar.instrument().symbol()};
-                const auto found = std::ranges::find(series.candidates, id);
-                if (found != series.candidates.end()) {
-                    series.prev_bar_close[static_cast<std::size_t>(
-                        found - series.candidates.begin())] = Decimal::parse(bar.close().text());
-                }
-            }
-        }
-        return out;
-    }
-
     // `execute` false replays a recorded input: state only, no targets reach the account.
     void decide(
         const wire::Bars& input,
         bool execute = true,
         sqlite::Database::Statement* warmup_insert = nullptr)
     {
-        for (const auto& bar : input.bars()) {
-            const InstrumentId id{bar.instrument().exchange(), bar.instrument().symbol()};
-            for (auto& series : live_series) {
-                const auto found = std::ranges::find(series.candidates, id);
-                if (found != series.candidates.end()) {
-                    series.active_index =
-                        static_cast<std::size_t>(found - series.candidates.begin());
-                    series.decided_day = bar.trading_day();
-                    auto& stats = series.history[series.active_index][bar.trading_day()];
-                    if (bar.has_open_interest() && !bar.open_interest().text().empty())
-                        stats.open_interest = Decimal::parse(bar.open_interest().text());
-                    if (bar.has_close() && !bar.close().text().empty())
-                        series.prev_bar_close[series.active_index] =
-                            Decimal::parse(bar.close().text());
-                }
-            }
-        }
+        record_series_step_bars(live_series, input);
         const auto expires_at = steady_now(*clock) + strategy_execution_window(execution_options);
         const auto input_bytes = input.SerializeAsString();
         // Commit live inputs before delivering them. A missing reply remains
@@ -1227,28 +266,7 @@ struct StrategyHost::State
         if (!execute)
             return;
         auto exec_decision = decision;
-        for (std::size_t s = 0; s < live_series.size(); ++s) {
-            const auto& series = live_series[s];
-            std::string live_day;
-            for (std::size_t m = series.active_index; m < series.history.size(); ++m)
-                if (!series.history[m].empty() && series.history[m].rbegin()->first > live_day)
-                    live_day = series.history[m].rbegin()->first;
-            if (live_day.empty() || live_day <= series.decided_day)
-                continue;
-            const auto chosen = choose_dominant(series, live_day, true);
-            if (!chosen || *chosen <= series.active_index)
-                continue;
-            const auto& from = series.candidates[series.active_index];
-            const auto& to = series.candidates[*chosen];
-            (void)roll_ratio(series, *chosen, live_day);
-            account->roll_strategy_series(authority, s, to).get();
-            for (auto& target : *exec_decision.mutable_targets())
-                if (target.instrument().exchange() == from.venue
-                    && target.instrument().symbol() == from.symbol) {
-                    target.mutable_instrument()->set_exchange(to.venue);
-                    target.mutable_instrument()->set_symbol(to.symbol);
-                }
-        }
+        roll_decision_for_live_day(live_series, account, authority, exec_decision);
         account->accept_strategy_target(authority, exec_decision, latest_quotes(), expires_at)
             .get();
         save();
@@ -1339,15 +357,33 @@ struct StrategyHost::State
                         && (held == quotes.end() || observed.source_ms >= held->second.source_ms)) {
                         quotes.insert_or_assign(observed.instrument, observed);
                         quotes_changed = true;
-                        observe_series_quote(observed);
+                        observe_series_quote(
+                            instance.instance(),
+                            live_series,
+                            bars.get(),
+                            last_awaited_day,
+                            observed);
                     }
                     for (const auto& input : bars->observe(observed)) {
-                        store_local_bars(instance.instance().period(), input);
+                        store_local_bars(
+                            *local_bars,
+                            bar_write_counts,
+                            instance.instance().period(),
+                            input);
                         if (live_series.empty()) {
                             decide(input);
                             quotes_changed = true;
                         } else {
-                            auto filtered = filter_and_roll_bars(input);
+                            auto filtered = filter_and_roll_bars(
+                                instance.instance(),
+                                live_series,
+                                account,
+                                authority,
+                                bars.get(),
+                                input,
+                                [this](const std::string& message) {
+                                    record_event(pb::INSTANCE_EVENT_KIND_UNSPECIFIED, message);
+                                });
                             if (filtered.bars_size() > 0) {
                                 filtered.set_sequence(++live_sequence);
                                 decide(filtered);
@@ -1410,7 +446,7 @@ struct StrategyHost::State
                     continue;
                 auto* manifest = result.add_packages();
                 if (!google::protobuf::util::JsonStringToMessage(
-                        read(version.path() / "strategy.json", 16384),
+                        read_strategy_file(version.path() / "strategy.json", 16384),
                         manifest)
                         .ok())
                     throw std::invalid_argument(
@@ -1424,30 +460,7 @@ struct StrategyHost::State
 
     pb::RecordedBars recorded_bars(const pb::GetRecordedBars& query)
     {
-        if (query.period() == ::common::PERIOD_UNSPECIFIED || query.period() > ::common::PERIOD_DAY)
-            throw std::invalid_argument("recorded bars require a valid period");
-        const auto limit = query.limit() ? query.limit() : 500U;
-        if (limit > 500U)
-            throw std::invalid_argument("recorded bar pages contain 1 to 500 bars");
-        const auto& exchange = query.instrument().exchange();
-        const auto& symbol = query.instrument().symbol();
-        sqlite::Database::Statement statement(
-            *local_bars,
-            "SELECT bar FROM bars WHERE period=? AND (? = '' OR exchange=?) " "AND (? = '' OR symbol=?) AND end_ms > ? " "ORDER BY end_ms ASC, exchange ASC, symbol ASC LIMIT ?");
-        statement.bind(1, static_cast<std::int64_t>(query.period()))
-            .bind(2, exchange)
-            .bind(3, exchange)
-            .bind(4, symbol)
-            .bind(5, symbol)
-            .bind(6, query.after_end_ms())
-            .bind(7, static_cast<std::int64_t>(limit));
-        pb::RecordedBars out;
-        while (statement.step()) {
-            auto* bar = out.add_bars();
-            if (!bar->ParseFromString(statement.blob(0)))
-                throw std::runtime_error("invalid locally persisted strategy bar");
-        }
-        return out;
+        return query_recorded_bars(*local_bars, query);
     }
 
     pb::StrategyRun strategy_run(const pb::GetStrategyRun& query)
@@ -1457,7 +470,7 @@ struct StrategyHost::State
                                             : std::string{};
         if (id.empty())
             throw std::invalid_argument("no strategy instance run is recorded");
-        package_identity(id, "instance");
+        validate_package_identity(id, "instance");
         const auto limit = query.limit() ? query.limit() : 200U;
         if (limit > 500U)
             throw std::invalid_argument("strategy run pages contain 1 to 500 steps");
@@ -1508,7 +521,7 @@ struct StrategyHost::State
 
     void publish(const wire::Package& package)
     {
-        validate(package);
+        validate_strategy_package(package);
         const auto& manifest = package.manifest();
         const auto parent = root / "packages" / manifest.name();
         create_directories_durably(parent);
@@ -1525,7 +538,7 @@ struct StrategyHost::State
                 create_directories_durably(path.parent_path());
                 write_file_durably(path, file.content());
             }
-            write_file_durably(temporary / "strategy.json", json(manifest));
+            write_file_durably(temporary / "strategy.json", proto_to_json(manifest));
             fs::rename(temporary, destination);
             sync_directory(parent);
         } catch (...) {
@@ -1539,14 +552,14 @@ struct StrategyHost::State
         observe();
         if (child)
             throw Error(ErrorCode::conflict, "stop the loaded strategy before starting another");
-        validate(configuration);
+        validate_strategy_instance(configuration);
         if (!execution)
             throw Error(
                 ErrorCode::unavailable,
                 "initialize and synchronize the account before starting a strategy");
         const auto package =
             root / "packages" / configuration.package_name() / configuration.package_version();
-        (void)read(package / "strategy.json", 16384);
+        (void)read_strategy_file(package / "strategy.json", 16384);
         const auto run = root / "runs" / (configuration.id() + ".sqlite");
         if (fs::exists(run))
             throw Error(ErrorCode::conflict, "strategy instance id already has a recorded run");
@@ -1742,7 +755,7 @@ struct StrategyHost::State
                 clock,
                 sequence,
                 replay.empty() ? 0 : replay.back().bars(0).end_ms());
-            bars->set_awaited(awaited_contracts());
+            bars->set_awaited(awaited_series_contracts(instance.instance(), live_series));
             feed = std::make_unique<ctp::Feed>(
                 sdk_owner,
                 installation / "lib/ctp-md.so",

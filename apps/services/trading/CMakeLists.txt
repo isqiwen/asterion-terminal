@@ -7,6 +7,9 @@ add_library(asterion_trading_session STATIC
   account_records.cpp
   settings.cpp
   strategy_host.cpp
+  strategy_validation.cpp
+  strategy_local_bars.cpp
+  dominant_series.cpp
   strategy_bars.cpp
   strategy_orders.cpp
   strategy_execution.cpp
