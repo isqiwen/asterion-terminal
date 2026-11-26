@@ -228,7 +228,8 @@ def observe_bayes_rows(rows: list, bayes: BayesSweep):
             continue
         score = row["metrics"].get(bayes.target_metric)
         if score is None:
-            score = row["metrics"].get("total_return")
+            fallback = "development_total_return" if bayes.target_metric == "development_sharpe" else "total_return"
+            score = row["metrics"].get(fallback)
         if score is None or not math.isfinite(float(score)):
             score = -10.0
         bayes.observed[combo] = float(score)

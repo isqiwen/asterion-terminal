@@ -2586,6 +2586,39 @@ class BacktestSweeps(BacktestCase):
 
 
 class BacktestSearch(BacktestCase):
+    def test_bayesian_search_without_development_sharpe_keeps_holdout_returns_out_of_next_wave(self):
+        from asterion_lab import optimize, sweeps
+
+        request = self.sweep_request("held-out", [2, 3, 4], [5, 6, 7], 2).start_sweep
+        request.search_mode = "bayes"
+        request.max_trials = 6
+        request.seed = 77
+        parsed = sweeps.validate_sweep(request, [])
+        for development_return, expected in ((0.0, 0.0), (None, -10.0)):
+            with self.subTest(development_return=development_return):
+                outcomes = []
+                for direction in (1, -1):
+                    runs, _, bayes = sweeps.plan_runs(
+                        request, AdmittedRun(backtest=request.base), None, 2, parsed,
+                    )
+                    rows = [
+                        {"id": run.backtest.id, "state": "succeeded", "metrics": {
+                            "development_sharpe": None,
+                            "development_total_return": development_return,
+                            "total_return": direction * (index + 1) * 0.1,
+                        }}
+                        for index, run in enumerate(runs)
+                    ]
+                    sweeps.observe_bayes_rows(rows, bayes)
+                    self.assertEqual(set(bayes.observed.values()), {expected})
+                    next_combos = optimize.gp_suggest(
+                        bayes.axis_coords, list(bayes.observed.items()), bayes.limit,
+                        tried=bayes.tried, seed=bayes.seed + len(bayes.tried),
+                    )
+                    self.assertEqual(len(next_combos), 2)
+                    outcomes.append((bayes.observed, next_combos))
+                self.assertEqual(outcomes[0], outcomes[1])
+
     def test_embargoed_walk_forward_and_lhs_bayes_parameter_sweeps(self):
         # Embargo inserts a clean gap between training_last_day and validation first_day.
         self.assertEqual(rolling.rounds(30, 20, 4, embargo=2), [(22, 26), (26, 30)])
