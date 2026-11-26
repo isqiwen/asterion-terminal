@@ -27,7 +27,10 @@ if sys.platform == 'linux':
     # Hard limits apply before NumPy or any package code is imported. No
     # lifetime CPU limit: a healthy strategy may run for months; Trading owns
     # the 10 s load and 2 s per-input deadlines instead.
-    for kind, limit in ((resource.RLIMIT_AS, 1024 ** 3),
+    memory_limit_mb = int(sys.argv[4]) if len(sys.argv) > 4 else 4096
+    if not 512 <= memory_limit_mb <= 65536:
+        raise ValueError(f'strategy memory limit out of range (512-65536 MiB): {memory_limit_mb}')
+    for kind, limit in ((resource.RLIMIT_AS, memory_limit_mb * 1024 ** 2),
                         (resource.RLIMIT_NOFILE, 64),
                         (resource.RLIMIT_FSIZE, 16 * 1024 ** 2),
                         (resource.RLIMIT_CORE, 0), (resource.RLIMIT_NPROC, 0)):
@@ -35,6 +38,13 @@ if sys.platform == 'linux':
         if inherited != resource.RLIM_INFINITY:
             limit = min(limit, inherited)
         resource.setrlimit(kind, (limit, limit))
+    try:
+        # Prefer terminating the strategy child before the Trading parent if cgroup MemoryMax triggers OOM.
+        current_oom = int(Path('/proc/self/oom_score_adj').read_text().strip())
+        if current_oom < 500:
+            Path('/proc/self/oom_score_adj').write_text('500')
+    except OSError:
+        pass
     os.nice(10)
 os.environ.pop('CREDENTIALS_DIRECTORY', None)
 # Numeric kernels must not create a CPU-sized thread pool in an account child.

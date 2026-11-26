@@ -61,11 +61,13 @@ class Installation:
         self.server, self.terminal, self.stranger = (found[n] for n in ("server", "terminal", "stranger"))
         self.ports = {}
 
-    def account(self, name, port=None, terminals=None, environment="simulation", user="000001"):
+    def account(self, name, port=None, terminals=None, environment="simulation", user="000001",
+                strategy_memory_limit_mb=4096):
         self.ports[name] = port or free_port()
         (self.root / f"config/accounts/{name}.json").write_text(json.dumps({
             "bind": "127.0.0.1", "port": self.ports[name],
             "market_front": "tcp://127.0.0.1:41213",
+            "strategy_memory_limit_mb": strategy_memory_limit_mb,
             "terminals": [self.terminal] if terminals is None else terminals,
             "environment": environment, "broker": {"front": "tcp://127.0.0.1:41205", "broker_id": "9999", "user_id": user, "app_id": "client_app"}}))
         credentials = self.root / "test-credentials" / name

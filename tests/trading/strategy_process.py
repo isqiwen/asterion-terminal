@@ -174,7 +174,7 @@ class TestStrategy(Strategy):
             while True:
                 pass
         if self.params["lots"] == -3:
-            bytearray(2 * 1024 ** 3)
+            bytearray(5 * 1024 ** 3)
     def on_bar(self, ctx, bar):
         if self.params["lots"] == 10:
             ctx.weights({bar.symbol: 1e-7})
@@ -324,7 +324,7 @@ class TestStrategy(Strategy):
                         return int(result.stdout.split()[0]) if result.stdout.strip() else 0
                     hung = until(child_pid, bool)
                     arguments = Path(f'/proc/{hung}/cmdline').read_bytes().split(b'\0')
-                    endpoint = Path(os.fsdecode(arguments[-4]))
+                    endpoint = Path(os.fsdecode(arguments[-5]))
                     until(lambda: endpoint.with_name('constructor').exists(), bool)
                     for i in range(12):
                         queued = connections.enter_context(host.client('account'))

@@ -40,7 +40,7 @@ build/electron-resources/python/bin/python3 -I -B tests/acceptance/research_minu
 
 ## 历史容量夹具
 
-在 Linux 开发机上使用合成 K 线单独测量共享策略上下文（沿用 Trading 的地址空间限制），输出历史数组规模、峰值内存、回放、因子计算与换月耗时。复测须在同一台机器执行，期间暂停构建与其他重计算任务：
+在 Linux 开发机上使用合成 K 线单独测量共享策略上下文（默认沿用 Trading 的 4 GiB 上限，可通过 `--memory-limit-mb` 调整），输出历史数组规模、峰值内存、回放、因子计算与换月耗时。复测须在同一台机器执行，期间暂停构建与其他重计算任务：
 
 ```sh
 build/electron-resources/python/bin/python3 -I -B tests/lab/strategy_capacity.py --symbols 64 --bars 65536

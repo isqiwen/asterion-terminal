@@ -124,7 +124,12 @@ int main(int argc, char** argv)
 
         const auto alerts =
             std::make_shared<asterion::trading::AlertWebhook>(account_name, settings.alert_webhook);
-        asterion::trading::StrategyHost strategies(installation, journal, settings.market, alerts);
+        asterion::trading::StrategyHost strategies(
+            installation,
+            journal,
+            settings.market,
+            alerts,
+            settings.strategy_memory_limit_mb);
 
         // The result of a call is the field of the same number in Response.
         const auto result = [](wire::Response& response, int call_case) {

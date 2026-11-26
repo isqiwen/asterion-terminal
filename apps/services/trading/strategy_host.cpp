@@ -683,12 +683,14 @@ struct StrategyHost::State
         fs::path account,
         ctp::Configuration configuration,
         std::shared_ptr<AlertWebhook> webhook,
+        std::uint64_t memory_limit_mb,
         std::shared_ptr<const Clock> injected_clock)
         : installation(std::move(installed)),
           root(std::move(account) / "strategies"),
           market(std::move(configuration)),
           alerts(std::move(webhook)),
-          clock(injected_clock ? std::move(injected_clock) : default_clock())
+          clock(injected_clock ? std::move(injected_clock) : default_clock()),
+          strategy_memory_limit_mb(memory_limit_mb)
     {
         create_directories_durably(root / "packages");
         lock = std::make_unique<FileLock>(root, "owner");
@@ -1697,7 +1699,8 @@ struct StrategyHost::State
                     bootstrap,
                     endpoint.string(),
                     package.string(),
-                    std::to_string(::getpid())
+                    std::to_string(::getpid()),
+                    std::to_string(strategy_memory_limit_mb)
                 },
                 true,
                 diagnostics,
@@ -1808,6 +1811,7 @@ struct StrategyHost::State
     std::vector<InstrumentId> subscribed_contracts;
     std::chrono::steady_clock::time_point next_subscription_retry{}, next_feed_reconnect{};
     std::shared_ptr<const Clock> clock;
+    std::uint64_t strategy_memory_limit_mb = 4096;
     std::map<std::tuple<int, std::string, std::string>, std::uint64_t> bar_write_counts;
     std::atomic<bool> running{false};
     std::string last_awaited_day;
@@ -1820,6 +1824,7 @@ StrategyHost::StrategyHost(
     fs::path account,
     ctp::Configuration market,
     std::shared_ptr<AlertWebhook> alerts,
+    std::uint64_t strategy_memory_limit_mb,
     std::shared_ptr<const Clock> clock)
     : state_(
           std::make_unique<State>(
@@ -1827,6 +1832,7 @@ StrategyHost::StrategyHost(
               std::move(account),
               std::move(market),
               std::move(alerts),
+              strategy_memory_limit_mb,
               std::move(clock)))
 {}
 

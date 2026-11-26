@@ -58,8 +58,24 @@ Settings load_settings(const fs::path& root, const std::string& account)
     } catch (const std::exception&) {
         throw invalid("cannot parse trading account configuration: " + where);
     }
-    exact(document, {"bind", "port", "terminals", "broker", "environment", "market_front"}, where);
+    exact(
+        document,
+        {"bind",
+            "port",
+            "terminals",
+            "broker",
+            "environment",
+            "market_front",
+            "strategy_memory_limit_mb"},
+        where);
     Settings result;
+    const auto& memory_limit = document.at("strategy_memory_limit_mb");
+    if (!memory_limit.is_number_unsigned()
+        || memory_limit.get<std::uint64_t>() < min_strategy_memory_limit_mb
+        || memory_limit.get<std::uint64_t>() > max_strategy_memory_limit_mb)
+        throw invalid(
+            "trading configuration " + where + " needs strategy_memory_limit_mb in 512-65536");
+    result.strategy_memory_limit_mb = memory_limit.get<std::uint64_t>();
     result.account = account;
     result.identity = {
         {"account_id", account},

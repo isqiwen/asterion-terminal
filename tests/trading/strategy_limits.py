@@ -22,17 +22,20 @@ def probe(source, build):
         (package / 'strategy.json').write_text(json.dumps({'entry': 'strategy:Test'}))
         (package / 'strategy.py').write_text('''from asterion_strategy import Strategy
 import os, resource
+from pathlib import Path
 class Test(Strategy):
-    params = {"memory": False}
+    params = {"memory": False, "expected_mb": 4096}
     def __init__(self, **params):
         super().__init__(**params)
         assert 'CREDENTIALS_DIRECTORY' not in os.environ
-        assert resource.getrlimit(resource.RLIMIT_AS) == (1024 ** 3,) * 2
+        expected_bytes = self.params['expected_mb'] * 1024 ** 2
+        assert resource.getrlimit(resource.RLIMIT_AS) == (expected_bytes,) * 2
         assert os.getpriority(os.PRIO_PROCESS, 0) >= 10
+        assert int(Path('/proc/self/oom_score_adj').read_text().strip()) >= 500
         if self.params['memory']:
-            bytearray(2 * 1024 ** 3)
+            bytearray(expected_bytes + 1024 ** 3)
         try:
-            resource.setrlimit(resource.RLIMIT_AS, (2 * 1024 ** 3,) * 2)
+            resource.setrlimit(resource.RLIMIT_AS, (expected_bytes + 1024 ** 3,) * 2)
         except ValueError:
             pass
         else:
@@ -76,12 +79,16 @@ class Test(Strategy):
     def on_bar(self, ctx, bar):
         ctx.target(bar.symbol, 3)
 ''')
-        for memory in (False, True):
+        for limit_arg, expected_mb, memory in ((None, 4096, False), (None, 4096, True),
+                                               ('1024', 1024, False), ('1024', 1024, True)):
             endpoint = folder / 'child.sock'
             endpoint.unlink(missing_ok=True)
             bootstrap = f'import sys; sys.path[:0] = {paths!r}; import strategy_runner; strategy_runner.main()'
-            child = subprocess.Popen([sys.executable, '-I', '-B', '-c', bootstrap,
-                str(endpoint), str(package), str(os.getpid())],
+            argv = [sys.executable, '-I', '-B', '-c', bootstrap,
+                    str(endpoint), str(package), str(os.getpid())]
+            if limit_arg is not None:
+                argv.append(limit_arg)
+            child = subprocess.Popen(argv,
                 env=dict(os.environ, CREDENTIALS_DIRECTORY='test-only-removed', OPENBLAS_NUM_THREADS='64'))
             try:
                 deadline = time.monotonic() + 5
@@ -105,7 +112,8 @@ class Test(Strategy):
                         size, = struct.unpack('!I', exact(4))
                         return wire.Response.FromString(exact(size))
                     config = wire.Instance(instruments=[dict(exchange='SHFE', symbol='rb2610')],
-                        params={'memory': wire.ParameterValue(flag=memory)})
+                        params={'memory': wire.ParameterValue(flag=memory),
+                                'expected_mb': wire.ParameterValue(integer=expected_mb)})
                     reply = exchange(wire.Request(load=wire.Load(instance=config,
                                                                  symbols=['SHFE/rb/2026-10'])))
                     if memory:

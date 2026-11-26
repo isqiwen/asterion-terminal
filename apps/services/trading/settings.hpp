@@ -22,13 +22,18 @@ namespace asterion::trading {
 // Terminals may connect, by their certificate fingerprints:
 //
 //   {"bind": "0.0.0.0", "port": 7460, "terminals": ["<64 hex digits>"],
-//    "market_front": "tcp://host:port", "environment": "simulation", "broker": {"front": "tcp://host:port",
+//    "market_front": "tcp://host:port", "environment": "simulation",
+//    "strategy_memory_limit_mb": 4096, "broker": {"front": "tcp://host:port",
 //    "broker_id": "9999", "user_id": "account", "app_id": "application"}}
 //
 // Connections are TLS with this host's certificate; only the listed Terminals
 // are accepted (tcp_channel.hpp). A missing file, directory or key is refused
 // with its path. Password and auth_code come only from CREDENTIALS_DIRECTORY,
 // populated by systemd from each instance's encrypted credentials.
+inline constexpr std::uint64_t default_strategy_memory_limit_mb = 4096;
+inline constexpr std::uint64_t min_strategy_memory_limit_mb = 512;
+inline constexpr std::uint64_t max_strategy_memory_limit_mb = 65536;
+
 struct Settings
 {
     std::string account;
@@ -39,6 +44,7 @@ struct Settings
     service::Transport transport;
     std::filesystem::path journal, owners, ctp_library;
     std::optional<std::string> alert_webhook;
+    std::uint64_t strategy_memory_limit_mb = default_strategy_memory_limit_mb;
 };
 
 Settings load_settings(const std::filesystem::path& root, const std::string& account);

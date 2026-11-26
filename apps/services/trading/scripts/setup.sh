@@ -22,6 +22,7 @@ declare -Ar DEFAULTS=(
     [broker.app_id]='simnow_client_test'
     [broker.front]='tcp://182.254.243.31:40001'
     [market_front]='tcp://182.254.243.31:40011'
+    [strategy_memory_limit_mb]='4096'
 )
 
 ACCOUNT_NAME='^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$'
@@ -83,19 +84,31 @@ ask_free_port() {
 write_account() {
     python -I -c '
 import json, sys
-path, bind, port, terminals, environment, broker, user, app, front, market_front = sys.argv[1:]
+path, bind, port, terminals, environment, broker, user, app, front, market_front, memory_limit = sys.argv[1:]
 identity = {"environment": environment, "broker": {"broker_id": broker, "user_id": user, "app_id": app, "front": front}}
 with open(path, "w") as output:
-    json.dump({"bind": bind, "port": int(port), "terminals": terminals.split(), "market_front": market_front, **identity}, output, indent=2)
-    output.write("\n")' "$1" "$bind" "$port" "$terminals" "$environment" "$broker" "$user" "$app" "$front" "$market_front"
+    json.dump({"bind": bind, "port": int(port), "terminals": terminals.split(), "market_front": market_front, "strategy_memory_limit_mb": int(memory_limit), **identity}, output, indent=2)
+    output.write("\n")' "$1" "$bind" "$port" "$terminals" "$environment" "$broker" "$user" "$app" "$front" "$market_front" "$strategy_memory_limit_mb"
 }
 
 current_account() {
-    local bind port terminals environment broker user app front market_front
+    local bind port terminals environment broker user app front market_front strategy_memory_limit_mb
     bind=$(current bind) port=$(current port) terminals=$(current terminals)
     environment=$(current environment) broker=$(current broker.broker_id) user=$(current broker.user_id)
     app=$(current broker.app_id) front=$(current broker.front) market_front=$(current market_front)
+    strategy_memory_limit_mb=$(current strategy_memory_limit_mb)
     write_account "$1"
+}
+
+write_memory_dropin() {
+    local name=$1 limit_mb=$2 dir dropin
+    dir=$UNITS/asterion-trading@$name.service.d
+    mkdir -p "$dir"
+    stage dropin "$dir/memory.conf"
+    printf '[Service]\nMemoryMax=%sM\n' "$limit_mb" >"$dropin"
+    chmod 0644 "$dropin"
+    mv -f "$dropin" "$dir/memory.conf"
+    systemctl daemon-reload
 }
 
 commit_account_settings() {
@@ -122,6 +135,7 @@ commit_account_settings() {
     chmod 0700 "$ROOT/data/$INSTANCE" "$ROOT/data/owners"
     chown "$ACCOUNT:" "$ROOT/data/$INSTANCE" "$ROOT/data/owners"
     mv -f "$config" "$file"
+    write_memory_dropin "$INSTANCE" "$strategy_memory_limit_mb"
     CHANGED=1
     echo "已保存 $file"
 }
@@ -151,7 +165,7 @@ ask_webhook_value() {
 }
 
 configure_account() {
-    local file credentials bind port terminals environment broker user app front market_front
+    local file credentials bind port terminals environment broker user app front market_front strategy_memory_limit_mb
     local identity saved_identity password='' auth_code=''
     local webhook_file=$CREDENTIALS/asterion.trading.$INSTANCE.webhook webhook='' clear_webhook='' raw_hook=''
     file=$(account_file)
@@ -166,6 +180,7 @@ configure_account() {
     field app "CTP AppID" broker.app_id '^[A-Za-z0-9_.-]{1,32}$'
     field front "CTP 交易前置" broker.front '^tcp://[^[:space:]]+:[0-9]+$'
     field market_front "CTP 行情前置" market_front '^tcp://[A-Za-z0-9.-]+:[0-9]+$'
+    number_field strategy_memory_limit_mb "策略内存上限 (MiB)" strategy_memory_limit_mb 512 65536
     identity="$environment $broker $user"
     saved_identity="$(current environment) $(current broker.broker_id) $(current broker.user_id)"
     if [[ -f $file && -f $ROOT/data/$INSTANCE/journal.sqlite && $identity != "$saved_identity" ]]; then
@@ -228,7 +243,7 @@ check_account_login() {
 
 account_settings_menu() {
     local file credentials webhook_file choice
-    local bind port terminals environment broker user app front market_front
+    local bind port terminals environment broker user app front market_front strategy_memory_limit_mb
     local password auth_code raw_hook encrypted_password encrypted_auth_code encrypted_webhook
     file=$(account_file)
     credentials=$CREDENTIALS/asterion-trading-$INSTANCE
@@ -237,15 +252,17 @@ account_settings_menu() {
         bind=$(current bind) port=$(current port) terminals=$(current terminals)
         environment=$(current environment) broker=$(current broker.broker_id) user=$(current broker.user_id)
         app=$(current broker.app_id) front=$(current broker.front) market_front=$(current market_front)
+        strategy_memory_limit_mb=$(current strategy_memory_limit_mb)
         echo
         hr_single
         echo " ${C_BOLD}账户配置与凭据（$INSTANCE）${C_RESET}"
         hr_single
         echo " 1) 监听地址与端口        $bind:$port"
         echo " 2) 柜台前置与 AppID      $app / $front / $market_front"
-        echo " 3) ${C_YELLOW}更新 CTP 密码与授权码${C_RESET} $([[ -f $credentials/password ]] && echo 已加密保存 || echo 未设置)"
-        echo " 4) ${C_YELLOW}脱机告警 Webhook URL${C_RESET}  $([[ -f $webhook_file ]] && echo 已配置 || echo 未配置)"
-        echo " 5) ${C_CYAN}逐项向导修改全部${C_RESET}"
+        echo " 3) 策略内存上限          ${strategy_memory_limit_mb} MiB"
+        echo " 4) ${C_YELLOW}更新 CTP 密码与授权码${C_RESET} $([[ -f $credentials/password ]] && echo 已加密保存 || echo 未设置)"
+        echo " 5) ${C_YELLOW}脱机告警 Webhook URL${C_RESET}  $([[ -f $webhook_file ]] && echo 已配置 || echo 未配置)"
+        echo " 6) ${C_CYAN}逐项向导修改全部${C_RESET}"
         echo " 0) 返回上级菜单"
         hr_single
         read -r -p "请输入对应数字 [0]> " choice || break
@@ -265,6 +282,9 @@ account_settings_menu() {
                     if confirm "是否立即单次验证 CTP 凭据连通性？" y; then check_account_login || true; fi
                 fi ;;
             3)
+                number_field strategy_memory_limit_mb "策略内存上限 (MiB)" strategy_memory_limit_mb 512 65536
+                review && commit_account_settings "$file" "$credentials" "" "" "$webhook_file" "" "" ;;
+            4)
                 password=$(secret "CTP 交易密码（输入不回显）")
                 auth_code=$(secret "CTP 授权码（输入不回显）")
                 CHANGES+=("CTP 密码与授权码: 已更新")
@@ -281,7 +301,7 @@ account_settings_menu() {
                     if confirm "是否立即单次验证 CTP 凭据连通性？" y; then check_account_login || true; fi
                 fi
                 password='' auth_code='' ;;
-            4)
+            5)
                 raw_hook=$(ask_webhook_value "$([[ -f $webhook_file ]] && echo 1 || echo 0)")
                 if [[ $raw_hook == - ]]; then
                     CHANGES+=("脱机告警 Webhook URL: 已清除")
@@ -303,7 +323,7 @@ account_settings_menu() {
                     fi
                 fi
                 raw_hook='' ;;
-            5)
+            6)
                 local before_changed=$CHANGED
                 CHANGED=''
                 configure_account
@@ -532,6 +552,10 @@ RestartSec=5
 WatchdogSec=60
 NotifyAccess=main
 TimeoutStopSec=30
+MemoryAccounting=yes
+MemoryMax=4096M
+MemorySwapMax=0
+OOMPolicy=continue
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
@@ -601,7 +625,10 @@ setup() {
             done
             place "$1"
             place_shortcut
-            for INSTANCE in $(accounts); do refresh_settings "$(account_file)" current_account; done
+            for INSTANCE in $(accounts); do
+                refresh_settings "$(account_file)" current_account
+                write_memory_dropin "$INSTANCE" "$(current strategy_memory_limit_mb)"
+            done
             INSTANCE=
             exec {program_lock}<&-
             echo "已完成程序与离线策略运行时升级：$ROOT（业务数据未改动；请显式启动账户并在 Terminal 重新允许下单）。"

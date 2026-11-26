@@ -9,5 +9,6 @@
     "app_id": "YOUR_APP_ID"
   },
   "market_front": "tcp://market.example.invalid:40011",
+  "strategy_memory_limit_mb": 4096,
   "terminals": ["0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"]
 }

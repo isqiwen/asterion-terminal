@@ -128,6 +128,11 @@ with tempfile.TemporaryDirectory(prefix="ast-trading-admission-", ignore_cleanup
     import json
     original = json.loads(config.read_text())
     for invalid in ({k: v for k, v in original.items() if k != "broker"},
+                    {k: v for k, v in original.items() if k != "strategy_memory_limit_mb"},
+                    dict(original, strategy_memory_limit_mb=0),
+                    dict(original, strategy_memory_limit_mb=256),
+                    dict(original, strategy_memory_limit_mb=65537),
+                    dict(original, strategy_memory_limit_mb="4096"),
                     dict(original, environment="unknown"),
                     dict(original, market_front="https://invalid"),
                     dict(original, market_front="tcp://host:99999"),

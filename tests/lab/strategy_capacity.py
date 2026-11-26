@@ -14,8 +14,10 @@ def main():
     parser.add_argument("--symbols", type=int, default=64)
     parser.add_argument("--bars", type=int, default=65536)
     parser.add_argument("--history-limit", type=int, default=0)
+    parser.add_argument("--memory-limit-mb", type=int, default=4096)
     args = parser.parse_args()
-    resource.setrlimit(resource.RLIMIT_AS, (1024 ** 3, 1024 ** 3))
+    limit_bytes = args.memory_limit_mb * 1024 ** 2
+    resource.setrlimit(resource.RLIMIT_AS, (limit_bytes, limit_bytes))
     for name in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS",
                  "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS"):
         os.environ[name] = "1"
@@ -32,7 +34,7 @@ def main():
     report = dict(symbols=args.symbols, requested_bars=args.bars, completed_bars=0,
                   history_limit=max_history,
                   python=sys.version.split()[0], numpy=numpy.__version__, scipy=scipy.__version__,
-                  address_space_mib=1024, status="complete", phase="replay")
+                  address_space_mib=args.memory_limit_mb, status="complete", phase="replay")
     stamp = datetime.datetime(2026, 1, 1)
 
     def bars(contract):
