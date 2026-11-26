@@ -22,7 +22,7 @@ declare -Ar DEFAULTS=(
     [broker.app_id]='simnow_client_test'
     [broker.front]='tcp://182.254.243.31:40001'
     [market_front]='tcp://182.254.243.31:40011'
-    [strategy_memory_limit_mb]='4096'
+    [strategy_memory_limit_mb]='2048'
 )
 
 ACCOUNT_NAME='^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$'
@@ -553,7 +553,7 @@ WatchdogSec=60
 NotifyAccess=main
 TimeoutStopSec=30
 MemoryAccounting=yes
-MemoryMax=4096M
+MemoryMax=2048M
 MemorySwapMax=0
 OOMPolicy=continue
 NoNewPrivileges=yes

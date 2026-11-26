@@ -174,7 +174,7 @@ class TestStrategy(Strategy):
             while True:
                 pass
         if self.params["lots"] == -3:
-            bytearray(5 * 1024 ** 3)
+            bytearray(3 * 1024 ** 3)
     def on_bar(self, ctx, bar):
         if self.params["lots"] == 10:
             ctx.weights({bar.symbol: 1e-7})

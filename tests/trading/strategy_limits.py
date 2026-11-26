@@ -24,7 +24,7 @@ def probe(source, build):
 import os, resource
 from pathlib import Path
 class Test(Strategy):
-    params = {"memory": False, "expected_mb": 4096}
+    params = {"memory": False, "expected_mb": 2048}
     def __init__(self, **params):
         super().__init__(**params)
         assert 'CREDENTIALS_DIRECTORY' not in os.environ
@@ -79,7 +79,7 @@ class Test(Strategy):
     def on_bar(self, ctx, bar):
         ctx.target(bar.symbol, 3)
 ''')
-        for limit_arg, expected_mb, memory in ((None, 4096, False), (None, 4096, True),
+        for limit_arg, expected_mb, memory in ((None, 2048, False), (None, 2048, True),
                                                ('1024', 1024, False), ('1024', 1024, True)):
             endpoint = folder / 'child.sock'
             endpoint.unlink(missing_ok=True)

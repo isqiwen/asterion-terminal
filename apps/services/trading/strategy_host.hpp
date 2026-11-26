@@ -22,7 +22,7 @@ public:
         std::filesystem::path account,
         ctp::Configuration market,
         std::shared_ptr<AlertWebhook> alerts = nullptr,
-        std::uint64_t strategy_memory_limit_mb = 4096,
+        std::uint64_t strategy_memory_limit_mb = 2048,
         std::shared_ptr<const Clock> clock = default_clock());
     ~StrategyHost();
     // One of the strategy calls of trading.proto; replies with the strategies after it.

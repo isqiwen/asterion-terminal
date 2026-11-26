@@ -62,7 +62,7 @@ class Installation:
         self.ports = {}
 
     def account(self, name, port=None, terminals=None, environment="simulation", user="000001",
-                strategy_memory_limit_mb=4096):
+                strategy_memory_limit_mb=2048):
         self.ports[name] = port or free_port()
         (self.root / f"config/accounts/{name}.json").write_text(json.dumps({
             "bind": "127.0.0.1", "port": self.ports[name],

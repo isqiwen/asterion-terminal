@@ -14,7 +14,7 @@ def main():
     parser.add_argument("--symbols", type=int, default=64)
     parser.add_argument("--bars", type=int, default=65536)
     parser.add_argument("--history-limit", type=int, default=0)
-    parser.add_argument("--memory-limit-mb", type=int, default=4096)
+    parser.add_argument("--memory-limit-mb", type=int, default=2048)
     args = parser.parse_args()
     limit_bytes = args.memory_limit_mb * 1024 ** 2
     resource.setrlimit(resource.RLIMIT_AS, (limit_bytes, limit_bytes))

@@ -1811,7 +1811,7 @@ struct StrategyHost::State
     std::vector<InstrumentId> subscribed_contracts;
     std::chrono::steady_clock::time_point next_subscription_retry{}, next_feed_reconnect{};
     std::shared_ptr<const Clock> clock;
-    std::uint64_t strategy_memory_limit_mb = 4096;
+    std::uint64_t strategy_memory_limit_mb = 2048;
     std::map<std::tuple<int, std::string, std::string>, std::uint64_t> bar_write_counts;
     std::atomic<bool> running{false};
     std::string last_awaited_day;

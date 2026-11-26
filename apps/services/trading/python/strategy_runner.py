@@ -27,7 +27,7 @@ if sys.platform == 'linux':
     # Hard limits apply before NumPy or any package code is imported. No
     # lifetime CPU limit: a healthy strategy may run for months; Trading owns
     # the 10 s load and 2 s per-input deadlines instead.
-    memory_limit_mb = int(sys.argv[4]) if len(sys.argv) > 4 else 4096
+    memory_limit_mb = int(sys.argv[4]) if len(sys.argv) > 4 else 2048
     if not 512 <= memory_limit_mb <= 65536:
         raise ValueError(f'strategy memory limit out of range (512-65536 MiB): {memory_limit_mb}')
     for kind, limit in ((resource.RLIMIT_AS, memory_limit_mb * 1024 ** 2),

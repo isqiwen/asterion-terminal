@@ -50,7 +50,7 @@ Warehouse 不连接柜台，不持有任何 CTP 凭据。开启 Tushare 时，�
 | `environment` | `simulation` 或 `real` |
 | `broker.front`、`broker_id`、`user_id`、`app_id` | CTP 交易前置、经纪商代码、投资者账号与应用标识 |
 | `market_front` | Trading 自身直连的行情前置地址 |
-| `strategy_memory_limit_mb` | 策略内存上限（MiB，范围 `512–65536`，默认 `4096`），同时作用于策略子进程与 systemd cgroup `MemoryMax` |
+| `strategy_memory_limit_mb` | 策略内存上限（MiB，范围 `512–65536`，默认 `2048`），同时作用于策略子进程与 systemd cgroup `MemoryMax` |
 | `terminals` | 允许连接的 Terminal 证书 SHA-256 指纹列表 |
 
 配置文件名决定 `--account` 的账户实例名。柜台密码与授权码由 systemd 分别以 `password`、`auth_code` 提供，可选脱机告警地址由加密凭据 `asterion.trading.<账户>.webhook` 提供；风控政策与交易授权通过 Terminal 管理，不写入账户配置文件。
