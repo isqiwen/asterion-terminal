@@ -153,21 +153,18 @@ function DatasetBody({ context, address }: { context: TerminalContext; address: 
   const update = useActionError();
   useErrorNotification(update.error, "asterion.terminal.data-workbench");
   const [updated, setUpdated] = useState("");
+  useEffect(() => {
+    if (!updated) return;
+    const timer = window.setTimeout(() => setUpdated(""), 3000);
+    return () => window.clearTimeout(timer);
+  }, [updated]);
   const startUpdate = () =>
     update.attempt(async () => {
       setUpdated("");
       const reply = await warehouseData({ case: "startUpdate", value: {} });
       const currentTasks = warehouse?.tasks ?? state.value?.tasks ?? [];
-      const hasGaps = state.value?.summary.tables.some(item => item.missing > 0n);
-      const hasActive = currentTasks.some(activeTask);
       const submitted = reply.tasks.filter(task => !automaticTask(task)).length;
-      setUpdated(
-        submitted
-          ? t("已提交 {count} 个更新任务", { count: submitted })
-          : hasGaps && !hasActive
-            ? t("各表末日已到最新；中间缺口请点击对应品种或合约的“采集”补齐")
-            : t("各表已是最新，或已有任务在进行"),
-      );
+      if (!submitted && !currentTasks.some(activeTask)) setUpdated(t("已是最新"));
       await refreshAll();
     });
 
@@ -378,6 +375,11 @@ function DatasetBody({ context, address }: { context: TerminalContext; address: 
                     );
                   }}
                 />
+                {updated && (
+                  <span className="data-update-hint" role="status">
+                    {updated}
+                  </span>
+                )}
                 {offered.length > 0 && (
                   <button type="button" onClick={() => void startUpdate()}>
                     {t("更新")}
@@ -386,11 +388,6 @@ function DatasetBody({ context, address }: { context: TerminalContext; address: 
               </div>
             )}
           </div>
-          {updated && (
-            <p className="data-feedback" role="status">
-              {updated}
-            </p>
-          )}
           <div className="data-coverage-main">
             {!rows.length ? (
               <p className="data-empty subtle">{t("暂无品种")}</p>

@@ -43,7 +43,6 @@
   font-variant-numeric: tabular-nums;
   font-size: var(--font-size-xs);
 }
-.data-feedback,
 .data-empty,
 .data-coverage-note {
   margin: 0;
@@ -51,12 +50,16 @@
   font-size: var(--font-size-aux);
   color: var(--muted);
 }
-.data-feedback,
 .data-coverage-body > .action-error {
   margin: 0;
   padding: var(--space-2) var(--space-page);
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
+}
+.data-update-hint {
+  font-size: var(--font-size-aux);
+  color: var(--muted);
+  white-space: nowrap;
 }
 .data-empty {
   padding: var(--space-4) var(--space-page);

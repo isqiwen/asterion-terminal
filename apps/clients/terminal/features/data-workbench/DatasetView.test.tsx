@@ -258,8 +258,8 @@ test("the summary shows freshness, acquisition defaults to canonical exchange or
   expect(minutes!.textContent).toBe("分钟线");
 
   fireEvent.click(screen.getByRole("button", { name: "更新" }));
-  await screen.findByText("已提交 2 个更新任务");
-  expect(request).toHaveBeenCalledWith({ case: "startUpdate", value: {} });
+  await waitFor(() => expect(request).toHaveBeenCalledWith({ case: "startUpdate", value: {} }));
+  expect(screen.queryByText("已是最新")).toBeNull();
 });
 
 test("acquired products come before unacquired ones, staying in exchange and code order within each group", async () => {
@@ -845,5 +845,5 @@ test("partial source-empty contracts stay acquirable while settled empty product
   expect(row.querySelector<HTMLElement>(".coverage-lane")!.title).toBe("未采集 · 来源无数据 2 天");
 
   fireEvent.click(screen.getByRole("button", { name: "更新" }));
-  await screen.findByText("各表末日已到最新；中间缺口请点击对应品种或合约的“采集”补齐");
+  await screen.findByText("已是最新");
 });
