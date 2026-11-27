@@ -215,5 +215,12 @@ class ParquetTables:
             else:
                 connection.close()
 
+    def scan(self, version: Version, table: str, **scope) -> pl.LazyFrame:
+        """Lazy Polars scan over the version's partitions selected by `scope`."""
+        files = version.files(self.root, table, **scope)
+        if not files:
+            return pl.DataFrame(schema=SCHEMAS[table]).lazy()
+        return pl.scan_parquet(files)
+
     def read(self, version: Version, key: str) -> pl.DataFrame:
         return pl.read_parquet(self.root / version.manifest["partitions"][key]["file"])

@@ -349,38 +349,46 @@ class Dataset(ParquetTables):
                 found[item.contract] = (item.daily.first_day, item.daily.last_day, item.daily.days)
         return found
 
+    def _ensure_tables(self, version, tables, **scope):
+        missing = []
+        seen = set()
+        partitions = version.manifest["partitions"]
+        for table in tables:
+            for key in version.keys(table, **scope):
+                if key in seen:
+                    continue
+                if not (self.root / partitions[key]["file"]).exists():
+                    seen.add(key)
+                    missing.append(key)
+        if len(missing) >= 16:
+            workers = min(4, len(missing))
+            slices = [missing[i::workers] for i in range(workers)]
+
+            def fetch_slice(keys):
+                with self:
+                    for key in keys:
+                        self.ensure(version, key)
+
+            with ThreadPoolExecutor(max_workers=workers - 1) as pool:
+                futures = [pool.submit(fetch_slice, batch) for batch in slices[1:]]
+                for key in slices[0]:
+                    self.ensure(version, key)
+                for future in futures:
+                    future.result()
+        else:
+            for key in missing:
+                self.ensure(version, key)
+
     def query(self, version, sql, tables, parameters=(), **scope):
         # Only the partitions this query reads are downloaded.
         with self:
-            missing = []
-            seen = set()
-            partitions = version.manifest["partitions"]
-            for table in tables:
-                for key in version.keys(table, **scope):
-                    if key in seen:
-                        continue
-                    if not (self.root / partitions[key]["file"]).exists():
-                        seen.add(key)
-                        missing.append(key)
-            if len(missing) >= 16:
-                workers = min(4, len(missing))
-                slices = [missing[i::workers] for i in range(workers)]
-
-                def fetch_slice(keys):
-                    with self:
-                        for key in keys:
-                            self.ensure(version, key)
-
-                with ThreadPoolExecutor(max_workers=workers - 1) as pool:
-                    futures = [pool.submit(fetch_slice, batch) for batch in slices[1:]]
-                    for key in slices[0]:
-                        self.ensure(version, key)
-                    for future in futures:
-                        future.result()
-            else:
-                for key in missing:
-                    self.ensure(version, key)
+            self._ensure_tables(version, tables, **scope)
             return super().query(version, sql, tables, parameters, **scope)
+
+    def scan(self, version, table, **scope):
+        with self:
+            self._ensure_tables(version, (table,), **scope)
+        return super().scan(version, table, **scope)
 
     def read(self, version, key):
         self.ensure(version, key)

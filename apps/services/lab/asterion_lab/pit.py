@@ -10,8 +10,10 @@ import datetime
 import functools
 import math
 
-_BEIJING = datetime.timezone(datetime.timedelta(hours=8))
-_SUMMARY_TOKENS = ("合计", "总计", "小计")
+import polars as pl
+
+_EPOCH_ORDINAL = 719163
+_SUMMARY_PATTERN = "合计|总计|小计"
 _DAILY_MAX_AGE_DAYS = 14
 _WEEKLY_MAX_AGE_DAYS = 21
 
@@ -22,7 +24,7 @@ def _day_ordinal(day: str) -> int:
 
 
 def _close_ms(day: datetime.date) -> int:
-    return int(datetime.datetime.combine(day, datetime.time(15), _BEIJING).timestamp()) * 1000
+    return (day.toordinal() - _EPOCH_ORDINAL) * 86_400_000 + 7 * 3_600_000
 
 
 def _available_ms(day: datetime.date, published_ms) -> int:
@@ -32,30 +34,49 @@ def _available_ms(day: datetime.date, published_ms) -> int:
     return max(int(published_ms), post_close)
 
 
-def _is_summary_label(*labels) -> bool:
-    for label in labels:
-        if label and any(token in label for token in _SUMMARY_TOKENS):
-            return True
-    return False
+def _is_summary_expr(*columns: str) -> pl.Expr:
+    expr = pl.lit(False)
+    for col in columns:
+        expr = expr | pl.col(col).str.contains(_SUMMARY_PATTERN).fill_null(False)
+    return expr
 
 
-def _aggregate_detail_or_summary(rows: list, value_idx: int, label_indices: tuple) -> float | None:
-    """Sum detail rows when present; fall back to summary rows only when a report publishes summaries alone."""
-    details = []
-    summaries = []
-    for row in rows:
-        value = row[value_idx]
-        if value is None:
-            continue
-        numeric = float(value)
-        if not math.isfinite(numeric):
-            continue
-        if _is_summary_label(*(row[i] for i in label_indices)):
-            summaries.append(numeric)
-        else:
-            details.append(numeric)
-    chosen = details if details else summaries
-    return float(sum(chosen)) if chosen else None
+def _load_detail_or_summary_timeline(
+    warehouse, version, table: str, exchange: str, lookback: str, end: str,
+    value_col: str, label_cols: tuple[str, ...],
+) -> dict:
+    if not any(version.keys(table, exchange=exchange, begin=lookback, end=end)):
+        return {}
+    begin_d, end_d = datetime.date.fromisoformat(lookback), datetime.date.fromisoformat(end)
+    val = pl.col(value_col).cast(pl.Float64)
+    valid = val.is_not_null() & val.is_finite()
+    is_sum = _is_summary_expr(*label_cols)
+    df = (
+        warehouse.scan(version, table, exchange=exchange, begin=lookback, end=end)
+        .filter((pl.col("exchange") == exchange) & pl.col("day").is_between(begin_d, end_d))
+        .select(
+            "product",
+            "day",
+            pl.col("published_ms"),
+            pl.when(valid & ~is_sum).then(val).alias("_detail"),
+            pl.when(valid & is_sum).then(val).alias("_summary"),
+        )
+        .group_by(["product", "day"])
+        .agg(
+            pl.col("_detail").count().alias("n_detail"),
+            pl.col("_detail").sum().alias("detail_sum"),
+            pl.col("_summary").count().alias("n_summary"),
+            pl.col("_summary").sum().alias("summary_sum"),
+            pl.col("published_ms").max().alias("pub_ms"),
+        )
+        .filter((pl.col("n_detail") > 0) | (pl.col("n_summary") > 0))
+        .collect()
+    )
+    records: dict[str, list] = {}
+    for product, day, n_detail, detail_sum, _n_summary, summary_sum, pub_ms in df.iter_rows():
+        total = float(detail_sum) if n_detail > 0 else float(summary_sum)
+        records.setdefault(product, []).append((_available_ms(day, pub_ms), day.toordinal(), total))
+    return _build_timeline(records)
 
 
 def _build_timeline(records: dict) -> dict:
@@ -131,89 +152,66 @@ def load_exchange_pit(warehouse, version, exchange: str, begin: str, end: str) -
     first = datetime.date.fromisoformat(begin)
     lookback = (first - min(datetime.timedelta(days=30), first - datetime.date.min)).isoformat()
 
-    receipts_raw: dict[str, list] = {}
-    if list(version.keys("warehouse_receipts", exchange=exchange, begin=lookback, end=end)):
-        rows = warehouse.query(
-            version,
-            """select product, day, warehouse, area, volume, published_ms
-               from warehouse_receipts
-               where exchange = ? and day between ?::date and ?::date""",
-            ("warehouse_receipts",),
-            (exchange, lookback, end),
-            exchange=exchange,
-            begin=lookback,
-            end=end,
-        )
-        grouped: dict[tuple, list] = {}
-        for row in rows:
-            grouped.setdefault((row[0], row[1]), []).append(row)
-        for (product, day), group in grouped.items():
-            total = _aggregate_detail_or_summary(group, 4, (2, 3))
-            if total is None:
-                continue
-            pubs = [r[5] for r in group if r[5] is not None]
-            avail = _available_ms(day, max(pubs) if pubs else None)
-            receipts_raw.setdefault(product, []).append((avail, day.toordinal(), total))
+    receipts = _load_detail_or_summary_timeline(
+        warehouse, version, "warehouse_receipts", exchange, lookback, end, "volume", ("warehouse", "area")
+    )
 
     members_raw: dict[str, list] = {}
-    if list(version.keys("member_positions", exchange=exchange, begin=lookback, end=end)):
-        rows = warehouse.query(
-            version,
-            """select product, contract, day, member, long_position, short_position, published_ms
-               from member_positions
-               where exchange = ? and day between ?::date and ?::date""",
-            ("member_positions",),
-            (exchange, lookback, end),
-            exchange=exchange,
-            begin=lookback,
-            end=end,
+    if any(version.keys("member_positions", exchange=exchange, begin=lookback, end=end)):
+        begin_d, end_d = datetime.date.fromisoformat(lookback), datetime.date.fromisoformat(end)
+        lp = pl.col("long_position").cast(pl.Float64)
+        sp = pl.col("short_position").cast(pl.Float64)
+        lp_ok = pl.when(lp.is_not_null() & lp.is_finite()).then(lp)
+        sp_ok = pl.when(sp.is_not_null() & sp.is_finite()).then(sp)
+        is_prod = pl.col("contract").is_null() | (pl.col("contract") == "")
+        df = (
+            warehouse.scan(version, "member_positions", exchange=exchange, begin=lookback, end=end)
+            .filter(
+                (pl.col("exchange") == exchange)
+                & pl.col("day").is_between(begin_d, end_d)
+                & pl.col("member").is_not_null()
+                & (pl.col("member") != "")
+                & ~_is_summary_expr("member")
+            )
+            .select(
+                "product",
+                "day",
+                is_prod.alias("_is_prod"),
+                pl.col("published_ms"),
+                lp_ok.alias("_lp"),
+                sp_ok.alias("_sp"),
+            )
+            .group_by(["product", "day"])
+            .agg(
+                pl.col("_is_prod").any().alias("has_prod"),
+                pl.when(pl.col("_is_prod")).then(pl.col("_lp")).count().alias("p_nl"),
+                pl.when(pl.col("_is_prod")).then(pl.col("_lp")).sum().alias("p_l"),
+                pl.when(pl.col("_is_prod")).then(pl.col("_sp")).count().alias("p_ns"),
+                pl.when(pl.col("_is_prod")).then(pl.col("_sp")).sum().alias("p_s"),
+                pl.when(pl.col("_is_prod")).then(pl.col("published_ms")).max().alias("p_pub"),
+                pl.col("_lp").count().alias("a_nl"),
+                pl.col("_lp").sum().alias("a_l"),
+                pl.col("_sp").count().alias("a_ns"),
+                pl.col("_sp").sum().alias("a_s"),
+                pl.col("published_ms").max().alias("a_pub"),
+            )
+            .collect()
         )
-        grouped = {}
-        for row in rows:
-            if not row[3] or _is_summary_label(row[3]):
+        for product, day, has_prod, p_nl, p_l, p_ns, p_s, p_pub, a_nl, a_l, a_ns, a_s, a_pub in df.iter_rows():
+            nl, l_sum, ns, s_sum, pub = (
+                (p_nl, p_l, p_ns, p_s, p_pub) if has_prod else (a_nl, a_l, a_ns, a_s, a_pub)
+            )
+            if nl == 0 and ns == 0:
                 continue
-            grouped.setdefault((row[0], row[2]), []).append(row)
-        for (product, day), group in grouped.items():
-            product_rows = [r for r in group if not r[1]]
-            chosen = product_rows if product_rows else group
-            longs = [float(r[4]) for r in chosen if r[4] is not None and math.isfinite(float(r[4]))]
-            shorts = [float(r[5]) for r in chosen if r[5] is not None and math.isfinite(float(r[5]))]
-            if not longs and not shorts:
-                continue
-            pubs = [r[6] for r in chosen if r[6] is not None]
-            avail = _available_ms(day, max(pubs) if pubs else None)
+            avail = _available_ms(day, pub)
             members_raw.setdefault(product, []).append((
                 avail,
                 day.toordinal(),
-                (float(sum(longs)) if longs else math.nan, float(sum(shorts)) if shorts else math.nan),
+                (float(l_sum) if nl > 0 else math.nan, float(s_sum) if ns > 0 else math.nan),
             ))
 
-    inventory_raw: dict[str, list] = {}
-    if list(version.keys("inventory", exchange=exchange, begin=lookback, end=end)):
-        rows = warehouse.query(
-            version,
-            """select product, day, area, warehouse, total, published_ms
-               from inventory
-               where exchange = ? and day between ?::date and ?::date""",
-            ("inventory",),
-            (exchange, lookback, end),
-            exchange=exchange,
-            begin=lookback,
-            end=end,
-        )
-        grouped = {}
-        for row in rows:
-            grouped.setdefault((row[0], row[1]), []).append(row)
-        for (product, day), group in grouped.items():
-            total = _aggregate_detail_or_summary(group, 4, (2, 3))
-            if total is None:
-                continue
-            pubs = [r[5] for r in group if r[5] is not None]
-            avail = _available_ms(day, max(pubs) if pubs else None)
-            inventory_raw.setdefault(product, []).append((avail, day.toordinal(), total))
-
-    return ExchangePit(
-        _build_timeline(receipts_raw),
-        _build_timeline(members_raw),
-        _build_timeline(inventory_raw),
+    inventory = _load_detail_or_summary_timeline(
+        warehouse, version, "inventory", exchange, lookback, end, "total", ("area", "warehouse")
     )
+
+    return ExchangePit(receipts, _build_timeline(members_raw), inventory)

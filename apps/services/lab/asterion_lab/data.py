@@ -14,7 +14,6 @@ Shared by backtests, factor evaluation, rolling validation and live reconciliati
   paused positions can settle and roll after a new target.
 """
 from bisect import bisect_left
-from dataclasses import dataclass
 import datetime
 from decimal import Decimal, ROUND_HALF_UP
 import functools
@@ -23,11 +22,32 @@ import math
 from operator import itemgetter
 from pathlib import Path
 
+import polars as pl
+
 from asterion_lab import chart, dominant, pit
 from asterion_lab.warehouse_client import Dataset
 
 R = 10**8
 BEIJING = datetime.timezone(datetime.timedelta(hours=8))
+_DAILY_RAW_COLS = (
+    "open",
+    "high",
+    "low",
+    "close",
+    "settlement",
+    "volume",
+    "open_interest",
+    "lower_limit",
+    "upper_limit",
+)
+_SETTLEMENT_RAW_COLS = (
+    "long_margin_rate",
+    "short_margin_rate",
+    "fee_rate",
+    "fee_per_lot",
+    "close_today_fee_rate",
+    "close_today_fee_per_lot",
+)
 COSTS = (
     "margin_per_lot",
     "open_fee",
@@ -49,17 +69,30 @@ def raw(value) -> int:
     return int(units)
 
 
+def _dec(raw_value: int | None) -> Decimal | None:
+    return None if raw_value is None else Decimal(raw_value).scaleb(-8)
+
+
 def scale_fee(value, multiplier: Decimal) -> int:
     """Scale an exchange commission fee by `multiplier`, rounded to engine precision."""
     scaled = (Decimal(value) * multiplier).quantize(Decimal("0.00000001"), rounding=ROUND_HALF_UP)
     return raw(scaled)
 
 
-def limit_units(value, tick: int) -> int:
-    """Tushare stores 69 SHFE gold limits exactly 0.001 below their price tick."""
-    units = raw(value)
+def _scale_fee_raw(value_raw: int, multiplier: Decimal) -> int:
+    if multiplier == 1:
+        return value_raw
+    return scale_fee(Decimal(value_raw).scaleb(-8), multiplier)
+
+
+def _limit_units_raw(units: int, tick: int) -> int:
     above = units + R // 1000
     return above if above % tick == 0 and units % tick else units
+
+
+def limit_units(value, tick: int) -> int:
+    """Tushare stores 69 SHFE gold limits exactly 0.001 below their price tick."""
+    return _limit_units_raw(raw(value), tick)
 
 
 @functools.lru_cache(maxsize=8192)
@@ -68,20 +101,245 @@ def close_ns(day: str) -> int:
     return int(datetime.datetime.fromisoformat(f"{day}T07:00:00+00:00").timestamp()) * 10**9
 
 
-@dataclass
 class Daily:
     """What one contract did on each day read: auction prices, settlement,
     volume, turnover and open interest."""
 
-    contract: str
-    days: dict  # day -> row
+    def __init__(self, contract: str, days: dict | None = None, *, frame: pl.DataFrame | None = None):
+        self.contract = contract
+        self._days = days if days is not None else (None if frame is not None else {})
+        self._frame = frame
+        self._cols = None
+        self._index: dict[str, int] | None = None
+
+    def _ensure_cols(self):
+        if self._cols is None:
+            f = self._frame
+            day_col = f["day"].to_list()
+            self._cols = (
+                day_col,
+                f["open"].to_list(),
+                f["high"].to_list(),
+                f["low"].to_list(),
+                f["close"].to_list(),
+                f["settlement"].to_list(),
+                f["volume"].to_list(),
+                f["open_interest"].to_list(),
+                f["lower_limit"].to_list(),
+                f["upper_limit"].to_list(),
+                f["amount"].to_list(),
+            )
+            self._index = {d: i for i, d in enumerate(day_col)}
+        return self._cols
+
+    @property
+    def days(self) -> dict:
+        if self._days is None:
+            (
+                day_col,
+                open_c,
+                high_c,
+                low_c,
+                close_c,
+                settle_c,
+                vol_c,
+                oi_c,
+                lower_c,
+                upper_c,
+                amt_c,
+            ) = self._ensure_cols()
+            materialized = {}
+            for i, d in enumerate(day_col):
+                o, h, l = open_c[i], high_c[i], low_c[i]
+                materialized[d] = dict(
+                    auction=None not in (o, h, l),
+                    open=_dec(o),
+                    high=_dec(h),
+                    low=_dec(l),
+                    close=_dec(close_c[i]),
+                    settlement=_dec(settle_c[i]),
+                    volume=_dec(vol_c[i]),
+                    amount=amt_c[i],
+                    open_interest=_dec(oi_c[i]),
+                    lower_limit=_dec(lower_c[i]),
+                    upper_limit=_dec(upper_c[i]),
+                )
+            self._days = materialized
+        return self._days
+
+    def has_day_in(self, begin: str, end: str) -> bool:
+        if self._days is not None:
+            return any(begin <= day <= end for day in self._days)
+        day_col = self._ensure_cols()[0]
+        idx = bisect_left(day_col, begin)
+        return idx < len(day_col) and day_col[idx] <= end
 
     def bars(self, begin: str, end: str) -> list:
-        return [
-            day
-            for day, row in sorted(self.days.items())
-            if begin <= day <= end and row["auction"] and row["settlement"] is not None
-        ]
+        if self._days is not None:
+            return [
+                day
+                for day, row in sorted(self._days.items())
+                if begin <= day <= end and row["auction"] and row["settlement"] is not None
+            ]
+        day_col, open_c, high_c, low_c, _, settle_c, *_ = self._ensure_cols()
+        lo = bisect_left(day_col, begin)
+        out = []
+        for i in range(lo, len(day_col)):
+            d = day_col[i]
+            if d > end:
+                break
+            if open_c[i] is not None and high_c[i] is not None and low_c[i] is not None and settle_c[i] is not None:
+                out.append(d)
+        return out
+
+    def row_raw(self, day: str):
+        """Return `(auction, open, high, low, close, settlement, volume, oi_float, lower, upper)` in raw units."""
+        if self._days is not None:
+            row = self._days.get(day)
+            if row is None:
+                return None
+            return (
+                row["auction"],
+                None if row["open"] is None else raw(row["open"]),
+                None if row["high"] is None else raw(row["high"]),
+                None if row["low"] is None else raw(row["low"]),
+                None if row["close"] is None else raw(row["close"]),
+                None if row["settlement"] is None else raw(row["settlement"]),
+                None if row["volume"] is None else raw(row["volume"]),
+                math.nan if row["open_interest"] is None else float(row["open_interest"]),
+                None if row["lower_limit"] is None else raw(row["lower_limit"]),
+                None if row["upper_limit"] is None else raw(row["upper_limit"]),
+            )
+        cols = self._ensure_cols()
+        i = self._index.get(day)
+        if i is None:
+            return None
+        o, h, l = cols[1][i], cols[2][i], cols[3][i]
+        oi = cols[7][i]
+        return (
+            o is not None and h is not None and l is not None,
+            o,
+            h,
+            l,
+            cols[4][i],
+            cols[5][i],
+            cols[6][i],
+            math.nan if oi is None else oi / R,
+            cols[8][i],
+            cols[9][i],
+        )
+
+    def settlements_raw(self, begin: str, end: str) -> list[tuple[str, int]]:
+        if self._days is not None:
+            return [
+                (day, raw(row["settlement"]))
+                for day, row in sorted(self._days.items())
+                if begin <= day <= end and row["settlement"] is not None
+            ]
+        day_col, _, _, _, _, settle_c, *_ = self._ensure_cols()
+        lo = bisect_left(day_col, begin)
+        out = []
+        for i in range(lo, len(day_col)):
+            d = day_col[i]
+            if d > end:
+                break
+            s = settle_c[i]
+            if s is not None:
+                out.append((d, s))
+        return out
+
+    def anchor_before(self, begin: str) -> str | None:
+        if self._days is not None:
+            return max(
+                (day for day, row in self._days.items() if day < begin and row["settlement"] is not None),
+                default=None,
+            )
+        day_col, _, _, _, _, settle_c, *_ = self._ensure_cols()
+        idx = bisect_left(day_col, begin) - 1
+        while idx >= 0:
+            if settle_c[idx] is not None:
+                return day_col[idx]
+            idx -= 1
+        return None
+
+    def settlement_and_oi_raw(self, anchor: str, end: str) -> tuple[dict[str, int], dict[str, int]]:
+        if self._days is not None:
+            settlement, oi = {}, {}
+            for day, row in self._days.items():
+                if anchor <= day <= end:
+                    if row["settlement"] is not None:
+                        settlement[day] = raw(row["settlement"])
+                    if row["open_interest"] is not None:
+                        oi[day] = raw(row["open_interest"])
+            return settlement, oi
+        day_col, _, _, _, _, settle_c, _, oi_c, *_ = self._ensure_cols()
+        lo = bisect_left(day_col, anchor)
+        settlement, oi = {}, {}
+        for i in range(lo, len(day_col)):
+            d = day_col[i]
+            if d > end:
+                break
+            s = settle_c[i]
+            if s is not None:
+                settlement[d] = s
+            o = oi_c[i]
+            if o is not None:
+                oi[d] = o
+        return settlement, oi
+
+    def prev_auction_closes_raw(self) -> dict[str, int]:
+        if self._days is not None:
+            prev_map, last_close = {}, None
+            for d, row in sorted(self._days.items()):
+                if row["auction"] and row["close"] is not None:
+                    c_val = raw(row["close"])
+                    if last_close is not None and last_close > 0:
+                        prev_map[d] = last_close
+                    last_close = c_val
+            return prev_map
+        day_col, open_c, high_c, low_c, close_c, *_ = self._ensure_cols()
+        prev_map, last_close = {}, None
+        for i, d in enumerate(day_col):
+            if open_c[i] is not None and high_c[i] is not None and low_c[i] is not None:
+                c_val = close_c[i]
+                if c_val is not None:
+                    if last_close is not None and last_close > 0:
+                        prev_map[d] = last_close
+                    last_close = c_val
+        return prev_map
+
+    def auction_close_raw(self, day: str) -> int | None:
+        if self._days is not None:
+            row = self._days.get(day)
+            if row and row["auction"] and row["close"] is not None:
+                return raw(row["close"])
+            return None
+        cols = self._ensure_cols()
+        i = self._index.get(day)
+        if i is None:
+            return None
+        if cols[1][i] is not None and cols[2][i] is not None and cols[3][i] is not None:
+            return cols[4][i]
+        return None
+
+    def implied_multipliers(self, begin: str, end: str) -> list[Decimal]:
+        if self._days is not None:
+            return [
+                Decimal(row["amount"]) / Decimal(row["volume"]) / Decimal(row["settlement"])
+                for day, row in self._days.items()
+                if begin <= day <= end and row["amount"] and row["volume"] and row["settlement"]
+            ]
+        day_col, _, _, _, _, settle_c, vol_c, _, _, _, amt_c = self._ensure_cols()
+        lo = bisect_left(day_col, begin)
+        out = []
+        scale = Decimal(R) * Decimal(R)
+        for i in range(lo, len(day_col)):
+            if day_col[i] > end:
+                break
+            amt, vol, settle = amt_c[i], vol_c[i], settle_c[i]
+            if amt and vol and settle:
+                out.append(Decimal(amt) * scale / Decimal(vol) / Decimal(settle))
+        return out
 
 
 class Data:
@@ -98,6 +356,7 @@ class Data:
         self.calendars, self.checked = {}, set()
         self.lives, self.units, self.multipliers, self.ticks, self.settlements = {}, {}, {}, {}, {}
         self.products, self.loaded_exchanges, self.pit_cache = {}, set(), {}
+        self._exchange_active: dict[str, list[str]] = {}
 
     def pit_fundamentals(self, exchange: str) -> pit.ExchangePit:
         if exchange not in self.pit_cache:
@@ -108,15 +367,14 @@ class Data:
 
     def calendar(self, exchange: str) -> dict:
         if exchange not in self.calendars:
-            rows = self.warehouse.query(
-                self.version,
-                """
-                select day, open from calendar where exchange = ? order by day""",
-                ("calendar",),
-                (exchange,),
-                exchange=exchange,
+            df = (
+                self.warehouse.scan(self.version, "calendar", exchange=exchange)
+                .filter(pl.col("exchange") == exchange)
+                .select(pl.col("day").dt.strftime("%Y-%m-%d").alias("day"), pl.col("open"))
+                .sort("day")
+                .collect()
             )
-            self.calendars[exchange] = {day.isoformat(): opened for day, opened in rows}
+            self.calendars[exchange] = dict(zip(df["day"].to_list(), df["open"].to_list()))
         return self.calendars[exchange]
 
     def check_stored(self, exchange: str):
@@ -131,50 +389,50 @@ class Data:
             raise ValueError(f"daily bars of {exchange} are not stored on {', '.join(missing[:5])}")
         self.checked.add(exchange)
 
+    def _scan_daily(self, exchange: str, product: str | None = None) -> pl.DataFrame:
+        begin_d = datetime.date.fromisoformat(self.daily_begin)
+        end_d = datetime.date.fromisoformat(self.daily_end)
+        lf = self.warehouse.scan(
+            self.version, "daily", exchange=exchange, begin=self.daily_begin, end=self.daily_end
+        ).filter((pl.col("exchange") == exchange) & pl.col("day").is_between(begin_d, end_d))
+        if product is not None:
+            lf = lf.filter(pl.col("product") == product)
+        key_cols = ["product", "contract"] if product is None else ["contract"]
+        return (
+            lf.select(
+                *key_cols,
+                pl.col("day").dt.strftime("%Y-%m-%d").alias("day"),
+                *((pl.col(c) * R).cast(pl.Int64).alias(c) for c in _DAILY_RAW_COLS),
+                pl.col("amount"),
+            )
+            .sort([*key_cols, "day"])
+            .collect()
+        )
+
     def load_exchange(self, exchange: str) -> list:
         """All products of `exchange` around the range in one scan, returning
         those with daily bars inside [begin, end]."""
         if exchange not in self.loaded_exchanges:
-            rows = self.warehouse.query(
-                self.version,
-                """
-                select product, contract, day, open, high, low, close, settlement,
-                       volume, amount, open_interest, lower_limit, upper_limit from daily
-                where exchange = ? and day between ?::date and ?::date
-                order by product, contract, day""",
-                ("daily",),
-                (exchange, self.daily_begin, self.daily_end),
-                exchange=exchange,
-                begin=self.daily_begin,
-                end=self.daily_end,
-            )
-            by_product = {}
-            for product, contract, day, *values in rows:
-                open_, high, low, close, settlement, volume, amount, interest, lower, upper = values
-                months = by_product.setdefault(product, {})
-                months.setdefault(contract, Daily(contract, {}))
-                months[contract].days[day.isoformat()] = dict(
-                    auction=None not in (open_, high, low),
-                    open=open_,
-                    high=high,
-                    low=low,
-                    close=close,
-                    settlement=settlement,
-                    volume=volume,
-                    amount=amount,
-                    open_interest=interest,
-                    lower_limit=lower,
-                    upper_limit=upper,
+            df = self._scan_daily(exchange)
+            by_product: dict[str, dict[str, Daily]] = {}
+            if not df.is_empty():
+                active = (
+                    df.filter(pl.col("day").is_between(pl.lit(self.begin), pl.lit(self.end)))["product"]
+                    .unique()
+                    .sort()
+                    .to_list()
                 )
-            for product, months in by_product.items():
-                self.products[exchange, product] = months
+                for (prod, contract), sub in df.partition_by(
+                    ["product", "contract"], as_dict=True, maintain_order=True
+                ).items():
+                    by_product.setdefault(prod, {})[contract] = Daily(contract, frame=sub)
+            else:
+                active = []
+            for prod, months in by_product.items():
+                self.products[exchange, prod] = months
+            self._exchange_active[exchange] = active
             self.loaded_exchanges.add(exchange)
-        return sorted(
-            product
-            for (ex, product), months in self.products.items()
-            if ex == exchange
-            and any(self.begin <= day <= self.end for month in months.values() for day in month.days)
-        )
+        return list(self._exchange_active[exchange])
 
     def product(self, exchange: str, product: str) -> dict:
         """Every month of a product over the range and the windows around it."""
@@ -183,64 +441,51 @@ class Data:
             if exchange in self.loaded_exchanges:
                 self.products[key] = {}
                 return {}
-            rows = self.warehouse.query(
-                self.version,
-                """
-                select contract, day, open, high, low, close, settlement, volume, amount,
-                       open_interest, lower_limit, upper_limit from daily
-                where exchange = ? and product = ? and day between ?::date and ?::date
-                order by contract, day""",
-                ("daily",),
-                (exchange, product, self.daily_begin, self.daily_end),
-                exchange=exchange,
-                begin=self.daily_begin,
-                end=self.daily_end,
-            )
+            df = self._scan_daily(exchange, product)
             months = {}
-            for contract, day, *values in rows:
-                open_, high, low, close, settlement, volume, amount, interest, lower, upper = values
-                months.setdefault(contract, Daily(contract, {}))
-                months[contract].days[day.isoformat()] = dict(
-                    auction=None not in (open_, high, low),
-                    open=open_,
-                    high=high,
-                    low=low,
-                    close=close,
-                    settlement=settlement,
-                    volume=volume,
-                    amount=amount,
-                    open_interest=interest,
-                    lower_limit=lower,
-                    upper_limit=upper,
-                )
+            if not df.is_empty():
+                for (contract,), sub in df.partition_by(
+                    ["contract"], as_dict=True, maintain_order=True
+                ).items():
+                    months[contract] = Daily(contract, frame=sub)
             self.products[key] = months
         return self.products[key]
 
-    def minute_rows(self, contract: str, begin: str, end: str):
-        rows = self.warehouse.query(
-            self.version,
-            """
-            select day, start_ms, partial, open, high, low, close, volume, open_interest
-            from minutes where contract = ? and day between ?::date and ?::date
-            order by start_ms""",
-            ("minutes",),
-            (contract, begin, end),
-            contract=contract,
-            begin=begin,
-            end=end,
+    def minute_frame(self, contract: str, begin: str, end: str) -> pl.DataFrame:
+        begin_d, end_d = datetime.date.fromisoformat(begin), datetime.date.fromisoformat(end)
+        return (
+            self.warehouse.scan(
+                self.version, "minutes", contract=contract, begin=begin, end=end
+            )
+            .filter((pl.col("contract") == contract) & pl.col("day").is_between(begin_d, end_d))
+            .select(
+                pl.col("day").dt.strftime("%Y-%m-%d").alias("day"),
+                pl.col("start_ms"),
+                pl.col("partial"),
+                pl.col("open"),
+                pl.col("high"),
+                pl.col("low"),
+                pl.col("close"),
+                pl.col("volume"),
+                pl.col("open_interest"),
+            )
+            .sort("start_ms")
+            .collect()
         )
-        return ((day.isoformat(), *values) for day, *values in rows)
+
+    def minute_rows(self, contract: str, begin: str, end: str):
+        return self.minute_frame(contract, begin, end).iter_rows()
 
     def contract_life(self, exchange: str, contract: str) -> tuple[datetime.date, datetime.date] | None:
         if exchange not in self.lives:
+            df = (
+                self.warehouse.scan(self.version, "contracts", exchange=exchange)
+                .select("contract", "list_date", "delist_date")
+                .unique()
+                .collect()
+            )
             lives = {}
-            for name, listed, delisted in self.warehouse.query(
-                self.version,
-                """
-                    select distinct contract, list_date, delist_date from contracts""",
-                ("contracts",),
-                exchange=exchange,
-            ):
+            for name, listed, delisted in df.iter_rows():
                 lives.setdefault(name, []).append((listed, delisted))
             self.lives[exchange] = lives
         rows = self.lives[exchange].get(contract, ())
@@ -259,15 +504,13 @@ class Data:
 
     def price_increments(self, exchange: str, contract: str, days: list) -> dict:
         if exchange not in self.ticks:
-            self.ticks[exchange] = self.warehouse.query(
-                self.version,
-                """
-                select product, contract, effective_from, effective_until, price_tick
-                from price_ticks where exchange = ?""",
-                ("price_ticks",),
-                (exchange,),
-                exchange=exchange,
+            df = (
+                self.warehouse.scan(self.version, "price_ticks", exchange=exchange)
+                .filter(pl.col("exchange") == exchange)
+                .select("product", "contract", "effective_from", "effective_until", "price_tick")
+                .collect()
             )
+            self.ticks[exchange] = list(df.iter_rows())
         product = contract.split("/")[1]
         values = {day: set() for day in days}
         for item_product, item_contract, begin, end, tick in self.ticks[exchange]:
@@ -280,8 +523,9 @@ class Data:
                 continue
             if tick is None or tick <= 0:
                 raise ValueError(f"invalid price tick of {contract} on {covered[0]}")
+            tick_raw = raw(tick)
             for day in covered:
-                values[day].add(raw(tick))
+                values[day].add(tick_raw)
         result = {}
         for day, ticks in values.items():
             if len(ticks) != 1:
@@ -302,59 +546,67 @@ class Data:
         published for no source stops the run instead of being replaced."""
         if self.daily_begin <= days[0] and days[-1] <= self.daily_end:
             if exchange not in self.settlements:
-                rows = self.warehouse.query(
-                    self.version,
-                    """
-                    select contract, day, long_margin_rate, short_margin_rate, fee_rate, fee_per_lot,
-                           close_today_fee_rate, close_today_fee_per_lot
-                    from settlement where exchange = ? and day between ?::date and ?::date""",
-                    ("settlement",),
-                    (exchange, self.daily_begin, self.daily_end),
-                    exchange=exchange,
-                    begin=self.daily_begin,
-                    end=self.daily_end,
+                begin_d = datetime.date.fromisoformat(self.daily_begin)
+                end_d = datetime.date.fromisoformat(self.daily_end)
+                df = (
+                    self.warehouse.scan(
+                        self.version,
+                        "settlement",
+                        exchange=exchange,
+                        begin=self.daily_begin,
+                        end=self.daily_end,
+                    )
+                    .filter((pl.col("exchange") == exchange) & pl.col("day").is_between(begin_d, end_d))
+                    .select(
+                        "contract",
+                        pl.col("day").dt.strftime("%Y-%m-%d").alias("day"),
+                        *((pl.col(c) * R).cast(pl.Int64).alias(c) for c in _SETTLEMENT_RAW_COLS),
+                    )
+                    .collect()
                 )
-                by_contract = {}
-                for item_contract, day, *values in rows:
-                    by_contract.setdefault(item_contract, {})[day.isoformat()] = tuple(values)
+                by_contract: dict[str, dict[str, tuple]] = {}
+                if not df.is_empty():
+                    for item_contract, day, *values in df.iter_rows():
+                        by_contract.setdefault(item_contract, {})[day] = tuple(values)
                 self.settlements[exchange] = by_contract
             published = self.settlements[exchange].get(contract, {})
         else:
-            rows = self.warehouse.query(
-                self.version,
-                """
-                select day, long_margin_rate, short_margin_rate, fee_rate, fee_per_lot,
-                       close_today_fee_rate, close_today_fee_per_lot
-                from settlement where contract = ?""",
-                ("settlement",),
-                (contract,),
-                exchange=exchange,
-                begin=days[0],
-                end=days[-1],
+            df = (
+                self.warehouse.scan(
+                    self.version, "settlement", exchange=exchange, begin=days[0], end=days[-1]
+                )
+                .filter(pl.col("contract") == contract)
+                .select(
+                    pl.col("day").dt.strftime("%Y-%m-%d").alias("day"),
+                    *((pl.col(c) * R).cast(pl.Int64).alias(c) for c in _SETTLEMENT_RAW_COLS),
+                )
+                .collect()
             )
-            published = {day.isoformat(): values for day, *values in rows}
+            published = {day: tuple(values) for day, *values in df.iter_rows()}
         schedule = []
         for day in days:
             values = published.get(day)
             if values is None:
                 raise ValueError(f"no settlement parameters of {contract} on {day}")
-            long, short, rate, per_lot, today_rate, today_per_lot = values
-            if None in (long, short, rate, per_lot):
+            long_r, short_r, rate_r, per_lot_r, today_rate_r, today_per_lot_r = values
+            if None in (long_r, short_r, rate_r, per_lot_r):
                 raise ValueError(f"missing fees of {contract} on {day}")
-            has_today = today_rate is not None and today_per_lot is not None
+            has_today = today_rate_r is not None and today_per_lot_r is not None
             # As COSTS names them, plus short_margin_rate: closing yesterday costs what opening does;
             # missing close-today fees stay None and fail only if a close-today trade occurs.
             # fee_multiplier scales commission fees only; margin rates stay exact exchange rates.
+            fee_per = _scale_fee_raw(per_lot_r, fee_multiplier)
+            fee_rate = _scale_fee_raw(rate_r, fee_multiplier)
             costs = [
-                raw(Decimal(0)),
-                scale_fee(per_lot, fee_multiplier),
-                scale_fee(today_per_lot, fee_multiplier) if has_today else None,
-                scale_fee(per_lot, fee_multiplier),
-                raw(long),
-                scale_fee(rate, fee_multiplier),
-                scale_fee(today_rate, fee_multiplier) if has_today else None,
-                scale_fee(rate, fee_multiplier),
-                raw(short),
+                0,
+                fee_per,
+                _scale_fee_raw(today_per_lot_r, fee_multiplier) if has_today else None,
+                fee_per,
+                long_r,
+                fee_rate,
+                _scale_fee_raw(today_rate_r, fee_multiplier) if has_today else None,
+                fee_rate,
+                short_r,
             ]
             if not schedule or schedule[-1]["values"] != costs:
                 schedule.append(dict(effective_from=day, source="warehouse", values=costs))
@@ -368,16 +620,15 @@ class Data:
     def read_multiplier(self, exchange: str, contract: str) -> Decimal:
         product = contract.split("/")[1]
         if exchange not in self.units:
+            df = (
+                self.warehouse.scan(self.version, "contracts", exchange=exchange)
+                .filter(pl.col("exchange") == exchange)
+                .select("contract", "multiplier", "per_unit", "trade_unit", "quote_unit")
+                .unique()
+                .collect()
+            )
             units = {}
-            for name, *row in self.warehouse.query(
-                self.version,
-                """
-                    select distinct contract, multiplier, per_unit, trade_unit, quote_unit
-                    from contracts where exchange = ?""",
-                ("contracts",),
-                (exchange,),
-                exchange=exchange,
-            ):
+            for name, *row in df.iter_rows():
                 units.setdefault(name, []).append(tuple(row))
             self.units[exchange] = units
         rows = self.units[exchange].get(contract)
@@ -392,11 +643,7 @@ class Data:
         result = (Decimal(1) if scale is None else Decimal(scale)) * Decimal(per_unit) * lots
         # Turnover of a delivery month includes lots that changed hands away from the
         # day's prices, so a day agrees within a twentieth, and most days must.
-        implied = [
-            Decimal(row["amount"]) / Decimal(row["volume"]) / Decimal(row["settlement"])
-            for day, row in self.product(exchange, product)[contract].days.items()
-            if self.begin <= day <= self.end and row["amount"] and row["volume"] and row["settlement"]
-        ]
+        implied = self.product(exchange, product)[contract].implied_multipliers(self.begin, self.end)
         agree = sum(abs(value / result - 1) <= Decimal("0.05") for value in implied)
         if agree * 2 < len(implied):
             median = sorted(implied)[len(implied) // 2]
@@ -445,10 +692,11 @@ def contract_input(
     if life is None:
         raise ValueError(f"the contract table has no unique listed life of {contract}")
     days = data.contract_days(exchange, life, begin, end)
-    missing = [day for day in days if month is None or day not in month.days]
+    rows_by_day = {day: month.row_raw(day) for day in days} if month is not None else {}
+    missing = [day for day in days if rows_by_day.get(day) is None]
     if missing:
         raise ValueError(f"daily bars of {contract} are not stored on {spans(missing, days)}")
-    unsettled = [day for day in days if month.days[day]["settlement"] is None]
+    unsettled = [day for day in days if rows_by_day[day][5] is None]
     if unsettled:
         raise ValueError(f"settlement prices of {contract} are missing on {spans(unsettled, days)}")
     unpriced = []
@@ -456,17 +704,18 @@ def contract_input(
         missing = [
             day
             for day in days
-            if month.days[day]["volume"] != 0
-            and any(month.days[day][field] is None for field in ("open", "high", "low", "close"))
+            if rows_by_day[day][6] != 0
+            and None in rows_by_day[day][1:5]
         ]
         unpriced = [day for day in missing if day > (prices_until or end)]
         missing = [day for day in missing if day <= (prices_until or end)]
         if missing:
             raise ValueError(f"daily prices of {contract} are missing on {spans(missing, days)}")
+        unpriced_set = set(unpriced)
         days = [
             day
             for day in days
-            if day not in unpriced and month.days[day]["auction"] and month.days[day]["close"] is not None
+            if day not in unpriced_set and rows_by_day[day][0] and rows_by_day[day][4] is not None
         ]
     if not days:
         raise ValueError(f"no bars of {contract} fall inside the requested trading days")
@@ -493,7 +742,7 @@ def contract_input(
             if observed["unchecked"]:
                 coverage["unchecked_days"].append(day)
         stored = {bar["trading_day"] for bar in minutes}
-        missing = [day for day in days if day not in stored and month.days[day]["volume"] != 0]
+        missing = [day for day in days if day not in stored and rows_by_day[day][6] != 0]
         unpriced = [day for day in missing if day > (prices_until or end)]
         missing = [day for day in missing if day <= (prices_until or end)]
         if missing:
@@ -515,16 +764,16 @@ def contract_input(
             (
                 day,
                 close_ns(day),
-                *(raw(month.days[day][name]) for name in ("open", "high", "low", "close", "volume")),
-                interest(month.days[day]["open_interest"]),
+                rows_by_day[day][1],
+                rows_by_day[day][2],
+                rows_by_day[day][3],
+                rows_by_day[day][4],
+                rows_by_day[day][6],
+                rows_by_day[day][7],
             )
             for day in days
         ]
-    settlements = [
-        (day, raw(row["settlement"]))
-        for day, row in sorted(month.days.items())
-        if begin <= day <= end and row["settlement"] is not None
-    ]
+    settlements = month.settlements_raw(begin, end)
     if config.costs is None:
         tick_days = sorted({bar[0] for bar in bars} | {day for day, _ in settlements if day >= bars[0][0]})
         increments = data.price_increments(exchange, contract, tick_days)
@@ -547,14 +796,14 @@ def contract_input(
         ]
     price_limits = []
     for day in sorted({bar[0] for bar in bars}):
-        row = month.days[day]
-        lower, upper = row["lower_limit"], row["upper_limit"]
+        row = rows_by_day[day]
+        lower, upper = row[8], row[9]
         if lower is None and upper is None:
             continue
         if lower is None or upper is None:
             raise ValueError(f"incomplete price limits of {contract} on {day}")
         tick = increments[day] if config.costs is None else 1
-        price_limits.append((day, limit_units(lower, tick), limit_units(upper, tick)))
+        price_limits.append((day, _limit_units_raw(lower, tick), _limit_units_raw(upper, tick)))
     pit_exchange = data.pit_fundamentals(exchange)
     pit_map = {}
     if not pit_exchange.empty():
@@ -590,10 +839,9 @@ def series_input(data: Data, config, exchange: str, product: str, *, leading_onl
     product_months = data.product(exchange, product)
     anchor = max(
         (
-            day
+            found
             for month in product_months.values()
-            for day, row in month.days.items()
-            if day < config.begin_day and row["settlement"] is not None
+            if (found := month.anchor_before(config.begin_day)) is not None
         ),
         default=config.begin_day,
     )
@@ -607,31 +855,25 @@ def series_input(data: Data, config, exchange: str, product: str, *, leading_onl
     months = []
     for contract in sorted(traded):
         life = data.contract_life(exchange, contract)
-        item = dominant.Month(
-            contract,
-            contract.rsplit("/", 1)[1],
-            last_bar=traded[contract][-1],
-            delist_date=life[1].isoformat() if life else "",
+        settlement_map, oi_map = product_months[contract].settlement_and_oi_raw(anchor, config.end_day)
+        months.append(
+            dominant.Month(
+                contract,
+                contract.rsplit("/", 1)[1],
+                settlement=settlement_map,
+                open_interest=oi_map,
+                last_bar=traded[contract][-1],
+                delist_date=life[1].isoformat() if life else "",
+            )
         )
-        for day, row in product_months[contract].days.items():
-            if anchor <= day <= config.end_day:
-                if row["settlement"] is not None:
-                    item.settlement[day] = Decimal(row["settlement"])
-                if row["open_interest"] is not None:
-                    item.open_interest[day] = Decimal(row["open_interest"])
-        months.append(item)
     plan = dominant.plan(months, traded=True, end=config.end_day)
-    # Precompute previous auction close per contract so same-contract returns stay exact across rolls.
-    prev_daily_close = {}
-    for c_name, c_daily in product_months.items():
-        prev_map, last_close = {}, None
-        for d, row in sorted(c_daily.days.items()):
-            if row["auction"] and row["close"] is not None:
-                c_val = Decimal(row["close"])
-                if last_close is not None and last_close > 0:
-                    prev_map[d] = last_close
-                last_close = c_val
-        prev_daily_close[c_name] = prev_map
+    # Precompute previous auction close only for months used as dominant or next-dominant.
+    used_contracts = {months[seg.month].contract for seg in plan.segments} | {
+        months[sub_idx].contract for sub_idx in plan.second.values()
+    }
+    prev_daily_close = {
+        c_name: product_months[c_name].prev_auction_closes_raw() for c_name in used_contracts
+    }
     sub_minute_closes = {}
     sub_minute_prev = {}
     if config.minutes:
@@ -656,7 +898,7 @@ def series_input(data: Data, config, exchange: str, product: str, *, leading_onl
                 for bar in chart.minute_bars(list(group), config.minutes, sub_contract):
                     if not bar["partial"] and bar["close"] is not None:
                         t_ns = bar["time_ms"] * 10**6
-                        c_val = Decimal(bar["close"])
+                        c_val = raw(bar["close"])
                         closes[t_ns] = c_val
                         if last_sub is not None and last_sub > 0:
                             prevs[t_ns] = last_sub
@@ -680,14 +922,15 @@ def series_input(data: Data, config, exchange: str, product: str, *, leading_onl
         entry["roll_ratio"] = float(plan.ratios[i])
         ry_map, far_close_map, near_ret_map, far_ret_map = {}, {}, {}, {}
         prev_near_min = None
+        near_prev_daily = prev_daily_close.get(month.contract, {})
         for day, time_ns, _, _, _, close_raw, _ in entry["bars"]:
-            near_close = Decimal(close_raw).scaleb(-8) if close_raw > 0 else None
+            near_close = close_raw if close_raw > 0 else None
             if config.minutes:
                 prev_near = prev_near_min
                 if near_close is not None:
                     prev_near_min = near_close
             else:
-                prev_near = prev_daily_close.get(month.contract, {}).get(day)
+                prev_near = near_prev_daily.get(day)
             if day < segment.begin or (next_begin and day >= next_begin):
                 continue
             if near_close is not None and prev_near is not None:
@@ -702,15 +945,10 @@ def series_input(data: Data, config, exchange: str, product: str, *, leading_onl
                 sub_close = sub_minute_closes.get(sub_month.contract, {}).get(time_ns)
                 prev_sub = sub_minute_prev.get(sub_month.contract, {}).get(time_ns)
             else:
-                sub_row = product_months[sub_month.contract].days.get(day)
-                sub_close = (
-                    Decimal(sub_row["close"])
-                    if sub_row and sub_row["auction"] and sub_row["close"] is not None
-                    else None
-                )
+                sub_close = product_months[sub_month.contract].auction_close_raw(day)
                 prev_sub = prev_daily_close.get(sub_month.contract, {}).get(day)
             if sub_close is not None and sub_close > 0:
-                far_close_map[time_ns] = float(sub_close)
+                far_close_map[time_ns] = sub_close / R
                 ry_map[time_ns] = float(
                     dominant.annualized_roll_yield(
                         near_close, sub_close, month.delivery_month, sub_month.delivery_month

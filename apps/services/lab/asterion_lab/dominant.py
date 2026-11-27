@@ -31,8 +31,8 @@ def delivery_months(delivery_month: str) -> int:
 
 
 def annualized_roll_yield(
-    near_price: Decimal,
-    far_price: Decimal,
+    near_price: Decimal | int,
+    far_price: Decimal | int,
     near_month: str,
     far_month: str,
 ) -> Decimal:
@@ -44,11 +44,11 @@ def annualized_roll_yield(
     return rounded(Decimal(f"{value:.12f}"))
 
 
-def simple_return(current: Decimal, previous: Decimal) -> Decimal | None:
+def simple_return(current: Decimal | int, previous: Decimal | int) -> Decimal | None:
     """Single-bar simple return `(current - previous) / previous` in 8-decimal fixed point."""
     if previous <= 0 or current <= 0:
         return None
-    return rounded((current - previous) / previous)
+    return rounded(Decimal(current - previous) / Decimal(previous))
 
 
 @dataclass
@@ -127,7 +127,7 @@ def plan(months: list, traded: bool, end: str = "") -> Plan:
             if previous not in old.settlement or previous not in new.settlement:
                 raise ValueError(f"the roll lacks both settlement prices on the previous day: "
                                  f"{old.contract} on {day}")
-            ratio = rounded(new.settlement[previous] / old.settlement[previous])
+            ratio = rounded(Decimal(new.settlement[previous]) / Decimal(old.settlement[previous]))
             if ratio <= 0:
                 raise ValueError(f"invalid roll adjustment ratio on {day}")
         segments.append(Segment(chosen, day, previous))
