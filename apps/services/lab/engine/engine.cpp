@@ -117,18 +117,60 @@ ContractBars contract_of(const py::dict& item, std::vector<DaySettlement>& days)
         }
     }
     // (trading_day, timestamp_ns, open, high, low, close, volume)
-    for (const auto& bar : item["bars"].cast<py::list>()) {
-        const auto row = bar.cast<py::tuple>();
-        if (row.size() != 7)
-            throw std::invalid_argument("a bar has seven fields");
-        contract.bars.push_back(
-            {row[0].cast<std::string>(),
-                row[1].cast<std::int64_t>(),
-                raw(row[2]),
-                raw(row[3]),
-                raw(row[4]),
-                raw(row[5]),
-                raw(row[6])});
+    if (item.contains("bars_columns")) {
+        const auto cols = item["bars_columns"].cast<py::tuple>();
+        if (cols.size() != 7)
+            throw std::invalid_argument("bars_columns has seven fields");
+        const auto days_list = cols[0].cast<py::list>();
+        const auto ts =
+            cols[1].cast<py::array_t<std::int64_t, py::array::c_style | py::array::forcecast>>();
+        const auto op =
+            cols[2].cast<py::array_t<std::int64_t, py::array::c_style | py::array::forcecast>>();
+        const auto hi =
+            cols[3].cast<py::array_t<std::int64_t, py::array::c_style | py::array::forcecast>>();
+        const auto lo =
+            cols[4].cast<py::array_t<std::int64_t, py::array::c_style | py::array::forcecast>>();
+        const auto cl =
+            cols[5].cast<py::array_t<std::int64_t, py::array::c_style | py::array::forcecast>>();
+        const auto vo =
+            cols[6].cast<py::array_t<std::int64_t, py::array::c_style | py::array::forcecast>>();
+        const auto n = static_cast<py::ssize_t>(days_list.size());
+        if (ts.size() != n || op.size() != n || hi.size() != n || lo.size() != n || cl.size() != n
+            || vo.size() != n)
+            throw std::invalid_argument("bars_columns arrays must have equal length");
+        contract.bars.reserve(static_cast<std::size_t>(n));
+        const auto* ts_p = ts.data();
+        const auto* op_p = op.data();
+        const auto* hi_p = hi.data();
+        const auto* lo_p = lo.data();
+        const auto* cl_p = cl.data();
+        const auto* vo_p = vo.data();
+        for (py::ssize_t i = 0; i < n; ++i) {
+            contract.bars.push_back(
+                {days_list[i].cast<std::string>(),
+                    ts_p[i],
+                    Decimal::from_raw(op_p[i]),
+                    Decimal::from_raw(hi_p[i]),
+                    Decimal::from_raw(lo_p[i]),
+                    Decimal::from_raw(cl_p[i]),
+                    Decimal::from_raw(vo_p[i])});
+        }
+    } else {
+        const auto bars_list = item["bars"].cast<py::list>();
+        contract.bars.reserve(bars_list.size());
+        for (const auto& bar : bars_list) {
+            const auto row = bar.cast<py::tuple>();
+            if (row.size() != 7)
+                throw std::invalid_argument("a bar has seven fields");
+            contract.bars.push_back(
+                {row[0].cast<std::string>(),
+                    row[1].cast<std::int64_t>(),
+                    raw(row[2]),
+                    raw(row[3]),
+                    raw(row[4]),
+                    raw(row[5]),
+                    raw(row[6])});
+        }
     }
     for (const auto& day : item["settlements"].cast<py::list>())
         days.push_back({day[py::int_(0)].cast<std::string>(), raw(day[py::int_(1)])});
@@ -325,6 +367,27 @@ public:
         return result;
     }
 
+    py::list next_leading()
+    {
+        py::list result;
+        for (const auto& bar : replay_->next(record_)) {
+            if (!bar.leading)
+                continue;
+            const auto& prices = bar.bar;
+            result.append(
+                py::make_tuple(
+                    bar.contract,
+                    bar.unit,
+                    prices.timestamp_ns,
+                    prices.open.raw(),
+                    prices.high.raw(),
+                    prices.low.raw(),
+                    prices.close.raw(),
+                    prices.volume.raw()));
+        }
+        return result;
+    }
+
     void want(std::size_t unit, std::optional<std::int64_t> lots)
     {
         replay_->want(unit, lots ? std::optional{Decimal::from_raw(*lots)} : std::nullopt);
@@ -500,6 +563,166 @@ public:
                     row.price,
                     row.margin));
         return result;
+    }
+
+    py::dict table_columns() const
+    {
+        const auto& account = replay_->execution().account();
+        const auto make_i64 = [](std::size_t n) {
+            return py::array_t<std::int64_t>(static_cast<py::ssize_t>(n));
+        };
+
+        // equity
+        const auto n_eq = record_.equity.size();
+        auto eq_ts = make_i64(n_eq);
+        auto eq_val = make_i64(n_eq);
+        py::list eq_ev(n_eq);
+        auto* eq_ts_p = eq_ts.mutable_data();
+        auto* eq_val_p = eq_val.mutable_data();
+        for (std::size_t i = 0; i < n_eq; ++i) {
+            eq_ts_p[i] = record_.equity[i].time_ns;
+            eq_val_p[i] = record_.equity[i].equity;
+            eq_ev[i] = py::str(record_.equity[i].event);
+        }
+
+        // orders
+        const auto& ords = account.orders();
+        const auto n_ord = ords.size();
+        py::list ord_id(n_ord), ord_day(n_ord), ord_side(n_ord), ord_off(n_ord), ord_state(n_ord);
+        auto ord_ts = make_i64(n_ord);
+        auto ord_c = make_i64(n_ord);
+        auto ord_qty = make_i64(n_ord);
+        auto ord_px = make_i64(n_ord);
+        auto* ord_ts_p = ord_ts.mutable_data();
+        auto* ord_c_p = ord_c.mutable_data();
+        auto* ord_qty_p = ord_qty.mutable_data();
+        auto* ord_px_p = ord_px.mutable_data();
+        std::unordered_map<std::string, std::size_t> order_pos;
+        order_pos.reserve(n_ord);
+        for (std::size_t i = 0; i < n_ord; ++i) {
+            const auto& item = ords[i];
+            const auto& req = item.order.request();
+            order_pos.emplace(req.id, i);
+            ord_id[i] = py::str(req.id);
+            ord_ts_p[i] = record_.order_times.at(i);
+            ord_day[i] = py::str(record_.order_days.at(i));
+            ord_c_p[i] = static_cast<std::int64_t>(contract_index(req.instrument));
+            ord_side[i] = py::str(side_name(req.side));
+            ord_off[i] = py::str(offset_name(item.offset));
+            ord_qty_p[i] = req.quantity.raw();
+            ord_px_p[i] = req.limit_price.raw();
+            ord_state[i] = py::str(state_name(item.order.state()));
+        }
+
+        // fills
+        const auto& fls = account.fills();
+        const auto n_fl = fls.size();
+        py::list fl_id(n_fl), fl_ord(n_fl), fl_day(n_fl), fl_side(n_fl), fl_off(n_fl);
+        auto fl_ts = make_i64(n_fl);
+        auto fl_c = make_i64(n_fl);
+        auto fl_qty = make_i64(n_fl);
+        auto fl_px = make_i64(n_fl);
+        auto fl_fee = make_i64(n_fl);
+        auto* fl_ts_p = fl_ts.mutable_data();
+        auto* fl_c_p = fl_c.mutable_data();
+        auto* fl_qty_p = fl_qty.mutable_data();
+        auto* fl_px_p = fl_px.mutable_data();
+        auto* fl_fee_p = fl_fee.mutable_data();
+        for (std::size_t i = 0; i < n_fl; ++i) {
+            const auto& fill = fls[i];
+            const auto pos = order_pos.at(fill.execution.order_id);
+            const auto& ord_item = ords[pos];
+            fl_id[i] = py::str(fill.execution.execution_id);
+            fl_ord[i] = py::str(fill.execution.order_id);
+            fl_ts_p[i] = record_.fill_times.at(i);
+            fl_day[i] = py::str(record_.fill_days.at(i));
+            fl_c_p[i] = ord_c_p[pos];
+            fl_side[i] = py::str(side_name(ord_item.order.request().side));
+            fl_off[i] = py::str(offset_name(ord_item.offset));
+            fl_qty_p[i] = fill.execution.quantity.raw();
+            fl_px_p[i] = fill.execution.price.raw();
+            fl_fee_p[i] = fill.fee.raw();
+        }
+
+        // positions
+        const auto n_pos = record_.positions.size();
+        py::list pos_day(n_pos);
+        auto pos_c = make_i64(n_pos);
+        auto pos_long = make_i64(n_pos);
+        auto pos_short = make_i64(n_pos);
+        auto pos_px = make_i64(n_pos);
+        auto pos_mgn = make_i64(n_pos);
+        auto* pos_c_p = pos_c.mutable_data();
+        auto* pos_long_p = pos_long.mutable_data();
+        auto* pos_short_p = pos_short.mutable_data();
+        auto* pos_px_p = pos_px.mutable_data();
+        auto* pos_mgn_p = pos_mgn.mutable_data();
+        for (std::size_t i = 0; i < n_pos; ++i) {
+            const auto& row = record_.positions[i];
+            pos_day[i] = py::str(row.trading_day);
+            pos_c_p[i] = static_cast<std::int64_t>(row.contract);
+            pos_long_p[i] = row.held_long;
+            pos_short_p[i] = row.held_short;
+            pos_px_p[i] = row.price;
+            pos_mgn_p[i] = row.margin;
+        }
+
+        // settlements
+        const auto n_set = record_.settlements.size();
+        py::list set_day(n_set);
+        auto set_ts = make_i64(n_set);
+        auto set_bal = make_i64(n_set);
+        auto set_eq = make_i64(n_set);
+        auto set_real = make_i64(n_set);
+        auto set_fee = make_i64(n_set);
+        auto set_mgn = make_i64(n_set);
+        auto set_avail = make_i64(n_set);
+        auto* set_ts_p = set_ts.mutable_data();
+        auto* set_bal_p = set_bal.mutable_data();
+        auto* set_eq_p = set_eq.mutable_data();
+        auto* set_real_p = set_real.mutable_data();
+        auto* set_fee_p = set_fee.mutable_data();
+        auto* set_mgn_p = set_mgn.mutable_data();
+        auto* set_avail_p = set_avail.mutable_data();
+        for (std::size_t i = 0; i < n_set; ++i) {
+            const auto& row = record_.settlements[i];
+            set_day[i] = py::str(row.trading_day);
+            set_ts_p[i] = row.time_ns;
+            set_bal_p[i] = row.balance;
+            set_eq_p[i] = row.equity;
+            set_real_p[i] = row.realized;
+            set_fee_p[i] = row.fees;
+            set_mgn_p[i] = row.margin;
+            set_avail_p[i] = row.available;
+        }
+
+        py::dict out;
+        out["equity"] = py::make_tuple(eq_ts, eq_val, eq_ev);
+        out["orders"] = py::make_tuple(
+            ord_id,
+            ord_ts,
+            ord_day,
+            ord_c,
+            ord_side,
+            ord_off,
+            ord_qty,
+            ord_px,
+            ord_state);
+        out["fills"] = py::make_tuple(
+            fl_id,
+            fl_ord,
+            fl_ts,
+            fl_day,
+            fl_c,
+            fl_side,
+            fl_off,
+            fl_qty,
+            fl_px,
+            fl_fee);
+        out["positions"] = py::make_tuple(pos_day, pos_c, pos_long, pos_short, pos_px, pos_mgn);
+        out["settlements"] =
+            py::make_tuple(set_day, set_ts, set_bal, set_eq, set_real, set_fee, set_mgn, set_avail);
+        return out;
     }
 
     py::list rejections() const
@@ -852,6 +1075,7 @@ PYBIND11_MODULE(asterion_engine, module)
                 return e.replay().series(contract);
             })
         .def("next", &Engine::next)
+        .def("next_leading", &Engine::next_leading)
         .def("want", &Engine::want, py::arg("unit"), py::arg("lots"))
         .def("decide", &Engine::decide)
         .def(
@@ -866,6 +1090,7 @@ PYBIND11_MODULE(asterion_engine, module)
         .def("settle", &Engine::settle)
         .def("orders", &Engine::orders)
         .def("fills", &Engine::fills)
+        .def("table_columns", &Engine::table_columns)
         .def_property_readonly("equity", &Engine::equity)
         .def_property_readonly("settlements", &Engine::settlements)
         .def_property_readonly("positions", &Engine::positions)

@@ -19,16 +19,50 @@ reads its AdmittedRun (asterion/lab.proto) from standard input.
 from dataclasses import dataclass
 import datetime
 from decimal import Decimal
+import functools
 import math
 from pathlib import Path
 import sys
 
+import numpy as np
 import polars as pl
 
 from asterion_lab import chart, diagnostics, repository
 from asterion_lab.data import BEIJING, R, open_data, prepare, raw, spans
 from asterion_lab.runs import AMOUNT, TABLES, Plan, Runs
 from asterion_strategy import Bar, CombinedStrategy, Context, quantize_weight, step
+
+_EMPTY_DICT: dict = {}
+_NAN4 = (math.nan, math.nan, math.nan, math.nan)
+
+
+@functools.lru_cache(maxsize=8192)
+def _bar_time(time_ns: int) -> datetime.datetime:
+    return datetime.datetime.fromtimestamp(time_ns / 10**9, BEIJING)
+
+
+def _pack_bar_columns(contracts: list):
+    """Attach columnar NumPy bar arrays to each contract once so Replay avoids per-tuple unpacking."""
+    for item in contracts:
+        if "bars_columns" in item:
+            continue
+        raw_bars = item["bars"]
+        n = len(raw_bars)
+        if n == 0:
+            empty = np.empty(0, dtype=np.int64)
+            item["bars_columns"] = ([], empty, empty, empty, empty, empty, empty)
+        else:
+            days = [b[0] for b in raw_bars]
+            arr = np.asarray([(b[1], b[2], b[3], b[4], b[5], b[6]) for b in raw_bars], dtype=np.int64)
+            item["bars_columns"] = (
+                days,
+                np.ascontiguousarray(arr[:, 0]),
+                np.ascontiguousarray(arr[:, 1]),
+                np.ascontiguousarray(arr[:, 2]),
+                np.ascontiguousarray(arr[:, 3]),
+                np.ascontiguousarray(arr[:, 4]),
+                np.ascontiguousarray(arr[:, 5]),
+            )
 
 
 @dataclass
@@ -76,30 +110,54 @@ def rolls(contracts: list) -> dict:
     return {item["symbol"]: item["roll_ratio"] for item in contracts if "roll_ratio" in item}
 
 
+def _contract_views(contracts: list) -> list:
+    return [
+        (
+            item["symbol"],
+            item["open_interest"],
+            item.get("roll_yield") or _EMPTY_DICT,
+            item.get("far_close") or _EMPTY_DICT,
+            item.get("near_return") or _EMPTY_DICT,
+            item.get("far_return") or _EMPTY_DICT,
+            item.get("pit") or _EMPTY_DICT,
+        )
+        for item in contracts
+    ]
+
+
 def visible(replayed, symbols: dict, contracts: list) -> list:
     """What a strategy reads of one timestamp's bars: those of the months its
     symbols trade now."""
     bars = []
-    for _, contract, unit, leading, day, time_ns, *prices in replayed:
+    cached_ns = None
+    cached_dt = None
+    for _, contract, unit, leading, _, time_ns, o, h, lo, c, v in replayed:
         if leading:
-            open_, high, low, close, volume = (value / R for value in prices)
+            if time_ns != cached_ns:
+                cached_ns = time_ns
+                cached_dt = _bar_time(time_ns)
             item = contracts[contract]
-            rv, ml, ms, inv = item.get("pit", {}).get(time_ns, (math.nan, math.nan, math.nan, math.nan))
+            pit_map = item.get("pit")
+            rv, ml, ms, inv = pit_map.get(time_ns, _NAN4) if pit_map else _NAN4
+            ry_map = item.get("roll_yield")
+            fc_map = item.get("far_close")
+            nr_map = item.get("near_return")
+            fr_map = item.get("far_return")
             bars.append(
                 Bar(
                     symbols[unit],
                     item["symbol"],
-                    datetime.datetime.fromtimestamp(time_ns / 10**9, BEIJING),
-                    open_,
-                    high,
-                    low,
-                    close,
-                    volume,
+                    cached_dt,
+                    o / R,
+                    h / R,
+                    lo / R,
+                    c / R,
+                    v / R,
                     item["open_interest"][time_ns],
-                    item.get("roll_yield", {}).get(time_ns, math.nan),
-                    item.get("far_close", {}).get(time_ns, math.nan),
-                    item.get("near_return", {}).get(time_ns, math.nan),
-                    item.get("far_return", {}).get(time_ns, math.nan),
+                    ry_map.get(time_ns, math.nan) if ry_map else math.nan,
+                    fc_map.get(time_ns, math.nan) if fc_map else math.nan,
+                    nr_map.get(time_ns, math.nan) if nr_map else math.nan,
+                    fr_map.get(time_ns, math.nan) if fr_map else math.nan,
                     rv,
                     ml,
                     ms,
@@ -112,9 +170,51 @@ def visible(replayed, symbols: dict, contracts: list) -> list:
 def observations(engine, symbols: dict, contracts: list):
     """Replay the same visible bars for research and strategy warmup, without
     submitting targets. The caller decides whether a bar should trade."""
+    views = _contract_views(contracts)
+    has_fast = hasattr(engine, "next_leading")
+    nan = math.nan
+    nan4 = _NAN4
+    inv_r = 1.0 / R
     while not engine.finished:
         while not engine.day_done:
-            yield visible(engine.next(), symbols, contracts)
+            if not has_fast:
+                yield visible(engine.next(), symbols, contracts)
+                continue
+            replayed = engine.next_leading()
+            if not replayed:
+                yield []
+                continue
+            bars = []
+            cached_ns = None
+            cached_dt = None
+            for contract, unit, time_ns, o, h, lo, c, v in replayed:
+                if time_ns != cached_ns:
+                    cached_ns = time_ns
+                    cached_dt = _bar_time(time_ns)
+                sym, oi_map, ry_map, fc_map, nr_map, fr_map, pit_map = views[contract]
+                rv, ml, ms, inv = pit_map.get(time_ns, nan4) if pit_map else nan4
+                bars.append(
+                    Bar(
+                        symbols[unit],
+                        sym,
+                        cached_dt,
+                        o * inv_r,
+                        h * inv_r,
+                        lo * inv_r,
+                        c * inv_r,
+                        v * inv_r,
+                        oi_map[time_ns],
+                        ry_map.get(time_ns, nan) if ry_map else nan,
+                        fc_map.get(time_ns, nan) if fc_map else nan,
+                        nr_map.get(time_ns, nan) if nr_map else nan,
+                        fr_map.get(time_ns, nan) if fr_map else nan,
+                        rv,
+                        ml,
+                        ms,
+                        inv,
+                    )
+                )
+            yield bars
         engine.settle()
 
 
@@ -181,85 +281,90 @@ def amount(values) -> pl.Series:
     return pl.Series([Decimal(value).scaleb(-8) for value in values], dtype=AMOUNT)
 
 
+def _amount_arr(arr: np.ndarray) -> pl.Series:
+    if arr.size == 0:
+        return pl.Series([], dtype=AMOUNT)
+    return (pl.Series(arr, dtype=pl.Int64).cast(pl.Decimal(28, 8)) / R).cast(AMOUNT)
+
+
+def _date_col(days: list[str]) -> pl.Series:
+    if not days:
+        return pl.Series([], dtype=pl.Date)
+    return pl.Series(days, dtype=pl.String).str.to_date("%Y-%m-%d")
+
+
 def tables(engine, contracts: list) -> dict:
     names = [item["symbol"] for item in contracts]
     owners = [item["run_symbol"] for item in contracts]
-    orders = engine.orders()
-    by_order = {order[0]: order for order in orders}
-    fills = engine.fills()
-    equity = engine.equity
-    positions = engine.positions
-    settlements = engine.settlements
+    cols = engine.table_columns()
+    eq_ts, eq_val, eq_ev = cols["equity"]
+    ord_id, ord_ts, ord_day, ord_c, ord_side, ord_off, ord_qty, ord_px, ord_state = cols["orders"]
+    fl_id, fl_ord, fl_ts, fl_day, fl_c, fl_side, fl_off, fl_qty, fl_px, fl_fee = cols["fills"]
+    pos_day, pos_c, pos_long, pos_short, pos_px, pos_mgn = cols["positions"]
+    set_day, set_ts, set_bal, set_eq, set_real, set_fee, set_mgn, set_avail = cols["settlements"]
+    ord_c_list = ord_c.tolist()
+    fl_c_list = fl_c.tolist()
+    pos_c_list = pos_c.tolist()
     return {
         "equity": pl.DataFrame(
             {
-                "time_ns": [point[0] for point in equity],
-                "equity": amount(point[1] for point in equity),
-                "event": [point[2] for point in equity],
+                "time_ns": pl.Series(eq_ts, dtype=pl.Int64),
+                "equity": _amount_arr(eq_val),
+                "event": pl.Series(eq_ev, dtype=pl.String),
             },
             schema=TABLES["equity"],
         ),
         "orders": pl.DataFrame(
             {
-                "order": [order[0] for order in orders],
-                "time_ns": [order[8] for order in orders],
-                "trading_day": [datetime.date.fromisoformat(order[9]) for order in orders],
-                "symbol": [owners[order[1]] for order in orders],
-                "contract": [names[order[1]] for order in orders],
-                "side": [order[2] for order in orders],
-                "offset": [order[3] for order in orders],
-                "quantity": amount(order[4] for order in orders),
-                "price": amount(order[5] for order in orders),
-                "state": [order[6] for order in orders],
+                "order": pl.Series(ord_id, dtype=pl.String),
+                "time_ns": pl.Series(ord_ts, dtype=pl.Int64),
+                "trading_day": _date_col(ord_day),
+                "symbol": pl.Series([owners[i] for i in ord_c_list], dtype=pl.String),
+                "contract": pl.Series([names[i] for i in ord_c_list], dtype=pl.String),
+                "side": pl.Series(ord_side, dtype=pl.String),
+                "offset": pl.Series(ord_off, dtype=pl.String),
+                "quantity": _amount_arr(ord_qty),
+                "price": _amount_arr(ord_px),
+                "state": pl.Series(ord_state, dtype=pl.String),
             },
             schema=TABLES["orders"],
         ),
         "fills": pl.DataFrame(
             {
-                "fill": [fill[0] for fill in fills],
-                "order": [fill[1] for fill in fills],
-                "time_ns": [fill[5] for fill in fills],
-                "trading_day": [datetime.date.fromisoformat(fill[6]) for fill in fills],
-                "contract": [names[by_order[fill[1]][1]] for fill in fills],
-                "side": [by_order[fill[1]][2] for fill in fills],
-                "offset": [by_order[fill[1]][3] for fill in fills],
-                "quantity": amount(fill[2] for fill in fills),
-                "price": amount(fill[3] for fill in fills),
-                "fee": amount(fill[4] for fill in fills),
+                "fill": pl.Series(fl_id, dtype=pl.String),
+                "order": pl.Series(fl_ord, dtype=pl.String),
+                "time_ns": pl.Series(fl_ts, dtype=pl.Int64),
+                "trading_day": _date_col(fl_day),
+                "contract": pl.Series([names[i] for i in fl_c_list], dtype=pl.String),
+                "side": pl.Series(fl_side, dtype=pl.String),
+                "offset": pl.Series(fl_off, dtype=pl.String),
+                "quantity": _amount_arr(fl_qty),
+                "price": _amount_arr(fl_px),
+                "fee": _amount_arr(fl_fee),
             },
             schema=TABLES["fills"],
         ),
         "positions": pl.DataFrame(
             {
-                "trading_day": [datetime.date.fromisoformat(row[0]) for row in positions],
-                "contract": [names[row[1]] for row in positions],
-                **{
-                    name: amount(row[i] for row in positions)
-                    for i, name in (
-                        (2, "long"),
-                        (3, "short"),
-                        (4, "settlement_price"),
-                        (5, "margin"),
-                    )
-                },
+                "trading_day": _date_col(pos_day),
+                "contract": pl.Series([names[i] for i in pos_c_list], dtype=pl.String),
+                "long": _amount_arr(pos_long),
+                "short": _amount_arr(pos_short),
+                "settlement_price": _amount_arr(pos_px),
+                "margin": _amount_arr(pos_mgn),
             },
             schema=TABLES["positions"],
         ),
         "settlements": pl.DataFrame(
             {
-                "trading_day": [datetime.date.fromisoformat(row[0]) for row in settlements],
-                "time_ns": [row[1] for row in settlements],
-                **{
-                    name: amount(row[i] for row in settlements)
-                    for i, name in (
-                        (2, "balance"),
-                        (3, "equity"),
-                        (4, "realized"),
-                        (5, "fees"),
-                        (6, "margin"),
-                        (7, "available"),
-                    )
-                },
+                "trading_day": _date_col(set_day),
+                "time_ns": pl.Series(set_ts, dtype=pl.Int64),
+                "balance": _amount_arr(set_bal),
+                "equity": _amount_arr(set_eq),
+                "realized": _amount_arr(set_real),
+                "fees": _amount_arr(set_fee),
+                "margin": _amount_arr(set_mgn),
+                "available": _amount_arr(set_avail),
             },
             schema=TABLES["settlements"],
         ),
@@ -548,6 +653,7 @@ def run(directory: Path, identity: str, config: Config, started=lambda: None, *,
                 contracts = cached_contracts
         else:
             contracts, series, first = prepare(data, config)
+            _pack_bar_columns(contracts)
             if cache is not None:
                 cache["prep_key"] = prep_key
                 cache["prepared"] = (contracts, series, first)
