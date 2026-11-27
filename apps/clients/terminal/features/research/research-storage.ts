@@ -137,6 +137,21 @@ export function saveAnnotation(id: string, patch: Partial<ExperimentAnnotation>)
   annotationListeners.forEach(listener => listener());
 }
 
+export function deleteAnnotations(ids: readonly string[]) {
+  if (!ids.length) return;
+  const all = readAnnotations();
+  let changed = false;
+  for (const id of ids) {
+    if (id in all) {
+      delete all[id];
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  localStorage.setItem(annotationsKey, JSON.stringify(all));
+  annotationListeners.forEach(listener => listener());
+}
+
 export function subscribeAnnotations(listener: () => void) {
   annotationListeners.add(listener);
   return () => {

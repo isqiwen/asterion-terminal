@@ -29,8 +29,9 @@ import {
   savedFactorForm,
   type FactorForm,
 } from "./research-lab";
-import { symbolsOf } from "./research-storage";
+import { deleteAnnotations, symbolsOf } from "./research-storage";
 import { factorStrategyStem, factorStrategyTemplate } from "./research-templates";
+import { FactorComparison, FactorRecords, factorPeriodTag } from "./FactorRecords";
 import { FactorResultView } from "./FactorResultView";
 import { FactorScopeBar, useFactorConditions } from "./FactorScope";
 import {
@@ -79,8 +80,15 @@ export function FactorLab(context: TerminalContext) {
   const scopeText = JSON.stringify(factorScopeOf(form));
   const shownScope = useRef(scopeText);
   const [view, setView] = useWorkspaceDraft<"library" | "detail">("factor-view", "library");
+  const [libraryTab, setLibraryTab] = useWorkspaceDraft<"library" | "records">(
+    "factor-library-tab",
+    "library",
+  );
   const [tab, setTab] = useWorkspaceDraft<"result" | "code" | "split">("factor-tab", "code");
   const [search, setSearch] = useWorkspaceDraft("modules-search:factors", "");
+  const [recordsSearch, setRecordsSearch] = useWorkspaceDraft("factor-records-search", "");
+  const [comparing, setComparing] = useState<string[]>([]);
+  const [onlyScopeRecords, setOnlyScopeRecords] = useState(false);
   const annotations = useAnnotations();
   const [submitting, setSubmitting] = useState(false);
   const [cancellingId, setCancellingId] = useState("");
@@ -169,6 +177,21 @@ export function FactorLab(context: TerminalContext) {
   };
   const openLibrary = () => {
     setReport("");
+    setComparing([]);
+    setView("library");
+  };
+  const openRecord = (item: FactorResult) => {
+    setComparing([]);
+    const target = item.evaluation?.factor ?? "";
+    if (!isCompositeResult(item) && target && modules?.factors.some(f => f.id === target)) {
+      setChosen(target);
+      setReport(item.id);
+      setTab("result");
+      setView("detail");
+      source.open(`factors/${target.split(".")[0]}.py`);
+      return;
+    }
+    setReport(item.id);
     setView("library");
   };
   const labActivity = useLabActivity();
@@ -340,9 +363,19 @@ export function FactorLab(context: TerminalContext) {
   const remove = (id: string) =>
     void attempt(async () => {
       await lab({ case: "deleteFactorResult", value: { id } });
+      deleteAnnotations([id]);
       setReport("");
       await readKept();
     });
+  const removeMany = async (ids: string[]) => {
+    await attempt(async () => {
+      await Promise.all(ids.map(id => lab({ case: "deleteFactorResult", value: { id } })));
+      deleteAnnotations(ids);
+      if (ids.includes(report)) setReport("");
+      setComparing(previous => previous.filter(id => !ids.includes(id)));
+      await readKept();
+    });
+  };
   useEffect(() => {
     if (!chosen || !modules || modules.factors.some(item => item.id === chosen)) return;
     const [stem] = chosen.split(".");
@@ -425,6 +458,30 @@ export function FactorLab(context: TerminalContext) {
           context.navigate("workspace.data-dataset", { params: dataGapParams(missingData) }),
       }
     : undefined;
+  const librarySwitcher = (
+    <div className="lab-segmented" role="group" aria-label={t("因子视图")}>
+      <button
+        type="button"
+        aria-pressed={libraryTab === "library"}
+        onClick={() => {
+          setComparing([]);
+          setLibraryTab("library");
+        }}
+      >
+        {t("因子库")}
+      </button>
+      <button
+        type="button"
+        aria-pressed={libraryTab === "records"}
+        onClick={() => {
+          setComparing([]);
+          setLibraryTab("records");
+        }}
+      >
+        {kept.length > 0 ? t("评价记录（{count}）", { count: kept.length }) : t("评价记录")}
+      </button>
+    </div>
+  );
   const openDataset = (params: Record<string, string>) =>
     context.navigate("workspace.data-dataset", { params });
   const savedNote = saved.length > 0 && (
@@ -559,11 +616,13 @@ export function FactorLab(context: TerminalContext) {
           }}
         />
       )}
-      {library && report ? (
+      {library && comparing.length >= 2 ? (
+        <FactorComparison ids={comparing} onBack={() => setComparing([])} onOpen={openRecord} />
+      ) : library && report ? (
         <div className="lab-center lab-runs-view">
           <header className="lab-report-header">
             <button type="button" className="lab-link" onClick={() => setReport("")}>
-              {t("← 因子库")}
+              {libraryTab === "records" ? t("← 评价记录") : t("← 因子库")}
             </button>
             <h2>{reportName}</h2>
             <span className="lab-spacer" />
@@ -576,9 +635,31 @@ export function FactorLab(context: TerminalContext) {
           </header>
           <Report key={report} id={report} openDataset={openDataset} />
         </div>
+      ) : library && libraryTab === "records" ? (
+        <FactorRecords
+          records={kept}
+          annotations={annotations}
+          search={recordsSearch}
+          setSearch={setRecordsSearch}
+          onScope={inScope}
+          busy={submitting || Boolean(context.busy)}
+          onOpen={openRecord}
+          onCompare={setComparing}
+          onDeleteMany={removeMany}
+          switcher={librarySwitcher}
+          notices={
+            <ActionError
+              error={error}
+              namespace="asterion.terminal.research"
+              onDismiss={clear}
+              action={errorAction}
+            />
+          }
+        />
       ) : library ? (
         <FactorLibrary
           items={items}
+          switcher={librarySwitcher}
           search={search}
           setSearch={setSearch}
           chosen={chosen}
@@ -728,43 +809,90 @@ export function FactorLab(context: TerminalContext) {
                   />
                 </>
               )}
-              {evaluations.length > 0 && (
-                <Section title={t("评价记录")} open>
-                  <ul className="lab-evaluations" aria-label={t("评价记录")}>
-                    {evaluations.map(item => {
-                      const ic = item.horizons[0]?.mean;
-                      const label = isCompositeResult(item)
-                        ? compositeName(item)
-                        : Object.entries(item.evaluation?.params ?? {})
-                            .map(([name, value]) => `${name}=${String(value.value.value)}`)
-                            .join(" ") || recordName(item.id);
-                      const ann = annotations[item.id];
-                      return (
-                        <li key={item.id}>
-                          <button
-                            type="button"
-                            aria-pressed={item.id === report}
-                            title={ann?.note || item.id}
-                            onClick={() => {
-                              setReport(item.id);
-                              setTab(previous => (previous === "split" ? "split" : "result"));
-                            }}
-                          >
-                            <span>
-                              {ann?.starred && <span className="lab-star-mark">★ </span>}
-                              {label}
-                            </span>
-                            <small>
-                              {item.evaluation?.firstDay} – {item.evaluation?.lastDay}
-                            </small>
-                            <span className={`numeric ${signed(ic)}`}>{metric(ic, false)}</span>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </Section>
-              )}
+              {evaluations.length > 0 &&
+                (() => {
+                  const hasOtherScope = Boolean(
+                    inScope && evaluations.some(item => !inScope(item)),
+                  );
+                  const shownEvaluations =
+                    onlyScopeRecords && inScope
+                      ? evaluations.filter(item => inScope(item))
+                      : evaluations;
+                  return (
+                    <Section title={t("评价记录（{count}）", { count: evaluations.length })} open>
+                      <div className="lab-evaluations-bar">
+                        {hasOtherScope && (
+                          <label className="lab-inline lab-check-inline">
+                            <input
+                              type="checkbox"
+                              checked={onlyScopeRecords}
+                              onChange={event => setOnlyScopeRecords(event.target.checked)}
+                            />
+                            <span>{t("仅当前条件")}</span>
+                          </label>
+                        )}
+                        <span className="lab-spacer" />
+                        <button
+                          type="button"
+                          className="lab-link"
+                          onClick={() => {
+                            setRecordsSearch(factor.id);
+                            setLibraryTab("records");
+                            openLibrary();
+                          }}
+                        >
+                          {t("管理")}
+                        </button>
+                      </div>
+                      <ul className="lab-evaluations" aria-label={t("评价记录")}>
+                        {shownEvaluations.map(item => {
+                          const ic = item.horizons[0]?.mean;
+                          const label = isCompositeResult(item)
+                            ? compositeName(item)
+                            : Object.entries(item.evaluation?.params ?? {})
+                                .map(([name, value]) => `${name}=${String(value.value.value)}`)
+                                .join(" ") || recordName(item.id);
+                          const ann = annotations[item.id];
+                          const offScope = Boolean(inScope && !inScope(item));
+                          const pTag = factorPeriodTag(item.evaluation?.period);
+                          const count = item.symbols.length || item.evaluation?.symbols.length || 0;
+                          const meta = [
+                            pTag,
+                            count ? t("{count} 个品种", { count }) : "",
+                            item.evaluation?.firstDay && item.evaluation?.lastDay
+                              ? `${item.evaluation.firstDay} – ${item.evaluation.lastDay}`
+                              : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" · ");
+                          return (
+                            <li key={item.id}>
+                              <button
+                                type="button"
+                                aria-pressed={item.id === report}
+                                data-off-scope={offScope || undefined}
+                                title={ann?.note || item.id}
+                                onClick={() => {
+                                  setReport(item.id);
+                                  setTab(previous => (previous === "split" ? "split" : "result"));
+                                }}
+                              >
+                                <span className="lab-eval-main">
+                                  <span>
+                                    {ann?.starred && <span className="lab-star-mark">★ </span>}
+                                    {label}
+                                  </span>
+                                  <small>{meta}</small>
+                                </span>
+                                <span className={`numeric ${signed(ic)}`}>{metric(ic, false)}</span>
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </Section>
+                  );
+                })()}
               {users.length > 0 && (
                 <Section title={t("导入本模块的策略（{count}）", { count: users.length })}>
                   <ul className="lab-evaluations" aria-label={t("导入本模块的策略")}>
@@ -908,6 +1036,7 @@ function Figures({ result }: { result?: FactorResult }) {
 // settings and factors without one are listed apart, so they never rank.
 function FactorLibrary({
   items: all,
+  switcher,
   search,
   setSearch,
   chosen,
@@ -933,6 +1062,7 @@ function FactorLibrary({
   notices,
 }: {
   items: readonly ModuleItem[];
+  switcher?: ReactNode;
   search: string;
   setSearch: (search: string) => void;
   chosen: string;
@@ -1045,6 +1175,7 @@ function FactorLibrary({
   return (
     <div className="lab-center lab-library-view">
       <div className="lab-toolbar">
+        {switcher}
         <input
           type="search"
           aria-label={t("搜索因子")}

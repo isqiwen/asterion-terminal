@@ -250,6 +250,77 @@ button.lab-add-module:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   background: var(--accent-surface);
   color: var(--accent);
 }
+.lab-evaluations-bar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+.lab-evaluations li button[data-off-scope] {
+  opacity: 0.68;
+}
+.lab-eval-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.lab-eval-main > span,
+.lab-eval-main > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lab-check-inline {
+  gap: var(--space-1);
+  cursor: pointer;
+}
+.lab-check-inline input[type="checkbox"] {
+  margin: 0;
+}
+.lab-star-col {
+  width: 28px;
+  padding-inline: 2px !important;
+  text-align: center;
+}
+.lab-star-btn {
+  min-height: 22px;
+  width: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--subtle);
+  font-size: var(--font-size-md);
+}
+.lab-star-btn.is-starred {
+  color: var(--warning);
+}
+.lab-record-params {
+  margin-left: var(--space-2);
+  color: var(--muted);
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-aux);
+  font-weight: 400;
+}
+.lab-record-note {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 280px;
+}
+.lab-records-empty {
+  padding: var(--space-4) var(--space-page);
+}
+.lab-compare-diff td {
+  background: var(--row-alt);
+}
 .lab-evaluations {
   grid-column: 1 / -1;
   max-height: 240px;

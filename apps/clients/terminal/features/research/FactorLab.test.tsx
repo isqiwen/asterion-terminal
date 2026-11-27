@@ -15,6 +15,7 @@ import type { TerminalContext } from "../../src/host/feature-registry";
 import { LabActivityProvider } from "../../src/host/lab-activity";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "../../src/host/workspace/drafts";
 import { defaultFactorForm, factorScopeOf, saveFactorConditions } from "./research-lab";
+import { readAnnotations, saveAnnotation } from "./research-storage";
 import { FactorLab } from "./FactorLab";
 import { FactorResultView } from "./FactorResultView";
 
@@ -888,4 +889,127 @@ test("FactorResultView hides snapshot link and redundant tab bar when code match
   expect(screen.getByText("源码已变更")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "评价时的源码" }));
   expect(screen.getByRole("dialog", { name: "评价时的源码" }).textContent).toContain(same);
+});
+
+test("evaluation records view filters, stars, compares side by side, and batch deletes with annotation cleanup", async () => {
+  saveFactorConditions({
+    active: "",
+    current: { ...factorScopeOf(defaultFactorForm()), symbols: "SHFE/rb, SHFE/cu" },
+    items: [],
+  });
+  saveAnnotation("mom-old", { starred: true, note: "legacy note" });
+  const deleted: string[] = [];
+  let keptResults = [
+    create(FactorResultSchema, {
+      id: "mom-20-20261126-100000",
+      evaluation: {
+        factor: "price.momentum",
+        symbols: ["SHFE/rb", "SHFE/cu"],
+        firstDay: "2025-01-02",
+        lastDay: "2026-02-13",
+        horizons: [5],
+        groups: 3,
+        params: { lookback: { value: { case: "integer", value: 20n } } },
+      },
+      symbols: ["SHFE/rb", "SHFE/cu"],
+      horizons: [{ horizon: 5, mean: 0.09, ir: 0.6, t: 2.8, positiveShare: 0.62 }],
+      evaluatedMs: 3000n,
+    }),
+    create(FactorResultSchema, {
+      id: "mom-old",
+      evaluation: {
+        factor: "price.momentum",
+        symbols: ["SHFE/rb", "SHFE/cu"],
+        firstDay: "2024-01-02",
+        lastDay: "2025-01-02",
+        horizons: [5],
+        groups: 3,
+        period: 2, // PERIOD_MINUTES_5
+        params: { lookback: { value: { case: "integer", value: 10n } } },
+      },
+      symbols: ["SHFE/rb", "SHFE/cu"],
+      horizons: [{ horizon: 5, mean: 0.04, ir: 0.3, t: 1.5, positiveShare: 0.55 }],
+      evaluatedMs: 2000n,
+    }),
+    create(FactorResultSchema, {
+      id: "mix-1",
+      factorNames: ["price.momentum", "technical.atr"],
+      evaluation: {
+        factor: "price.momentum",
+        symbols: ["SHFE/rb", "SHFE/cu"],
+        firstDay: "2025-01-02",
+        lastDay: "2026-02-13",
+        horizons: [5],
+        groups: 3,
+      },
+      symbols: ["SHFE/rb", "SHFE/cu"],
+      horizons: [{ horizon: 5, mean: 0.12, ir: 0.8, t: 3.4, positiveShare: 0.68 }],
+      evaluatedMs: 1000n,
+    }),
+  ];
+  vi.mocked(lab).mockImplementation(async operation => {
+    switch (operation?.case) {
+      case "listStrategies":
+        return create(StrategiesSchema, {
+          factors: [
+            { id: "price.momentum", inputs: ["close"] },
+            { id: "technical.atr", inputs: ["high", "low", "close"] },
+          ],
+        }) as never;
+      case "listFactorResults":
+        return create(FactorResultsSchema, { results: keptResults }) as never;
+      case "getFactorResult":
+        return keptResults.find(item => item.id === operation.value.id) as never;
+      case "deleteFactorResult":
+        deleted.push(operation.value.id ?? "");
+        keptResults = keptResults.filter(item => item.id !== operation.value.id);
+        return {} as never;
+      case "readSource":
+        return create(SourceSchema, { content: "" }) as never;
+    }
+    return {} as never;
+  });
+  const context = { snapshot: { research_directory: "/research" } } as unknown as TerminalContext;
+  render(
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.lab-factors">
+      <FactorLab {...context} />
+    </WorkspaceDraftScope>,
+  );
+
+  // Switch from the factor library to the centralized evaluation records view.
+  fireEvent.click(await screen.findByRole("button", { name: "评价记录（3）" }));
+  const table = await screen.findByRole("table", { name: "评价记录" });
+  expect(within(table).getAllByRole("row")).toHaveLength(4);
+
+  // Filter to starred records only.
+  fireEvent.click(screen.getByLabelText("仅看星标"));
+  expect(within(screen.getByRole("table", { name: "评价记录" })).getAllByRole("row")).toHaveLength(
+    2,
+  );
+  fireEvent.click(screen.getByLabelText("仅看星标"));
+
+  // Select two records and open side-by-side comparison.
+  const checkboxes = within(screen.getByRole("table", { name: "评价记录" })).getAllByRole(
+    "checkbox",
+  );
+  fireEvent.click(checkboxes[1]!);
+  fireEvent.click(checkboxes[2]!);
+  fireEvent.click(screen.getByRole("button", { name: "比较（2）" }));
+  const compareTable = await screen.findByRole("table", { name: "评价记录对比" });
+  expect(compareTable.textContent).toContain("lookback=20");
+  expect(compareTable.textContent).toContain("lookback=10");
+  expect(compareTable.textContent).toContain("5m");
+
+  // Return to records view and batch delete the selected records.
+  fireEvent.click(screen.getByRole("button", { name: "← 评价记录" }));
+  const backCheckboxes = within(
+    await screen.findByRole("table", { name: "评价记录" }),
+  ).getAllByRole("checkbox");
+  fireEvent.click(backCheckboxes[2]!); // mom-old (starred)
+  fireEvent.click(screen.getByRole("button", { name: "删除所选（1）" }));
+  fireEvent.click(screen.getByRole("button", { name: "确认删除（1）" }));
+  await vi.waitFor(() => {
+    expect(deleted).toEqual(["mom-old"]);
+    expect(readAnnotations()["mom-old"]).toBeUndefined();
+  });
 });
