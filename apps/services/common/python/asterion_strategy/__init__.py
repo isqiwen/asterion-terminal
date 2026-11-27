@@ -38,6 +38,7 @@ from .core import (
     FIELDS_SET,
     KINDS,
     PRICES,
+    SIDES,
     WEIGHT_STEP,
     Bar,
     Column,
@@ -45,8 +46,10 @@ from .core import (
     Strategy,
     check_factor,
     observe,
+    price_units,
     quantize_weight,
     scale_invariant,
+    side_lots,
     step,
     verify_factor_causality,
 )
@@ -60,6 +63,7 @@ from .cross_section import (
     sector_neutralize,
     winsorize_mad,
 )
+from .learning import random_fourier_features, ridge_predict
 from .operators import (
     corwin_schultz_spread,
     decay_linear,
@@ -113,6 +117,7 @@ __all__ = [
     "FIELDS",
     "FIELDS_SET",
     "PRICES",
+    "SIDES",
     "KINDS",
     "WEIGHT_STEP",
     "PRODUCT_SECTORS",
@@ -122,6 +127,8 @@ __all__ = [
     "Strategy",
     "AlignedPortfolio",
     "CombinedStrategy",
+    "price_units",
+    "side_lots",
     "quantize_weight",
     "check_factor",
     "scale_invariant",
@@ -178,4 +185,6 @@ __all__ = [
     "hrp_weights",
     "erc_weights",
     "mvo_weights",
+    "ridge_predict",
+    "random_fourier_features",
 ]

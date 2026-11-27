@@ -1,7 +1,5 @@
 """A channel breakout on one contract or dominant series."""
-from asterion_strategy import Strategy
-
-from strategies._common import lots
+from asterion_strategy import Strategy, side_lots
 
 
 # Donchian (1960); Faith (2007), "Way of the Turtle: The Secret Methods that Turned Ordinary People into Legendary Traders", McGraw-Hill.
@@ -21,7 +19,8 @@ class Breakout(Strategy):
         return all(len(ctx.history(symbol, "close", need)) == need for symbol in ctx.symbols)
 
     def on_bar(self, ctx, bar):
-        entry, leave = self.params["entry"], self.params["exit"]
+        p = self.params
+        entry, leave = p["entry"], p["exit"]
         if not 0 < leave <= entry:
             raise ValueError("a breakout needs 0 < exit <= entry")
         highs = ctx.history(bar.symbol, "high", entry + 1)[:-1]
@@ -37,4 +36,4 @@ class Breakout(Strategy):
                 (side < 0 and bar.close > highs[-leave:].max()):
             side = 0
         self.side[bar.symbol] = side
-        ctx.target(bar.symbol, lots(side, self.params))
+        ctx.target(bar.symbol, side_lots(side, p["lots"], p["sides"]))

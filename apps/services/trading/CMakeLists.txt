@@ -47,6 +47,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     ${PROJECT_SOURCE_DIR}/apps/services/common/python/asterion_strategy/combined.py
     ${PROJECT_SOURCE_DIR}/apps/services/common/python/asterion_strategy/core.py
     ${PROJECT_SOURCE_DIR}/apps/services/common/python/asterion_strategy/cross_section.py
+    ${PROJECT_SOURCE_DIR}/apps/services/common/python/asterion_strategy/learning.py
     ${PROJECT_SOURCE_DIR}/apps/services/common/python/asterion_strategy/operators.py
     ${PROJECT_SOURCE_DIR}/apps/services/common/python/asterion_strategy/portfolio.py)
   add_custom_command(OUTPUT ${release}

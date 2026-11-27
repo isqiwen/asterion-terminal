@@ -27,8 +27,27 @@ FIELDS = (
 )
 FIELDS_SET = frozenset(FIELDS)
 PRICES = ("open", "high", "low", "close")
+SIDES = ("both", "long", "short")
 KINDS = {bool: "bool", int: "int", float: "float", str: "str"}
 WEIGHT_STEP = Decimal("0.00000001")
+
+
+def price_units(values) -> list[int]:
+    """Convert prices to exact eight-place fixed-point integer units for rounding-free comparisons."""
+    return [int(value) for value in np.rint(np.asarray(values, dtype=float) * 1e8)]
+
+
+def side_lots(side: int, lots: int, sides: str = "both") -> int:
+    """Map a direction sign (`-1`, `0`, `+1`) to target integer lots permitted by `sides`."""
+    if lots <= 0:
+        raise ValueError("lots must be positive")
+    if sides not in SIDES:
+        raise ValueError(f"sides is one of {', '.join(SIDES)}")
+    if side > 0 and sides != "short":
+        return lots
+    if side < 0 and sides != "long":
+        return -lots
+    return 0
 
 
 @functools.lru_cache(maxsize=256)

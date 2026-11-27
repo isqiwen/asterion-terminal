@@ -241,17 +241,16 @@ class Repository(unittest.TestCase):
         (self.root / "strategies/huge.py").write_text("x = 1\n" * (3 << 20))
         package = build(self.root, "ma_cross.MaCross")
         self.assertEqual(package.manifest.entry, "strategies.ma_cross:MaCross")
-        self.assertEqual([file.path for file in package.files],
-                         ["strategies/_common.py", "strategies/ma_cross.py"])
-        self.assertEqual(list(package.manifest.files), ["strategies/_common.py", "strategies/ma_cross.py"])
+        self.assertEqual([file.path for file in package.files], ["strategies/ma_cross.py"])
+        self.assertEqual(list(package.manifest.files), ["strategies/ma_cross.py"])
         copy = Path(self.temporary.name) / "copy"
         repository.snapshot(self.root, copy, "strategies/ma_cross.py")
         self.assertEqual(sorted(path.relative_to(copy).as_posix() for path in copy.rglob("*.py")),
-                         ["strategies/_common.py", "strategies/ma_cross.py"])
+                         ["strategies/ma_cross.py"])
         # A strategy that uses a factor is published with the factor's module.
         ranked = build(self.root, "momentum_rank.MomentumRank")
         self.assertEqual([file.path for file in ranked.files],
-                         ["factors/price.py", "strategies/_common.py", "strategies/momentum_rank.py"])
+                         ["factors/price.py", "strategies/momentum_rank.py"])
         composite = build(self.root, "composite.CompositePortfolio")
         self.assertEqual([file.path for file in composite.files],
                          ["factors/positions.py", "factors/price.py", "factors/risk.py",
@@ -259,8 +258,7 @@ class Repository(unittest.TestCase):
                           "strategies/composite.py", "strategies/risk_premia.py"])
         learned = build(self.root, "learning.RandomFeatureForecast")
         self.assertEqual([file.path for file in learned.files],
-                         ["factors/price.py", "factors/technical.py",
-                          "strategies/_common.py", "strategies/_learning.py", "strategies/learning.py"])
+                         ["factors/price.py", "factors/technical.py", "strategies/learning.py"])
         noisy = build(self.root, "noisy.Noisy")
         self.assertEqual([file.path for file in noisy.files], ["helpers.py", "strategies/noisy.py"])
         (self.root / "helpers.py").unlink()

@@ -1,12 +1,14 @@
 """Rolling pooled futures forecasts on completed shared observation times."""
 import numpy as np
 
+from asterion_strategy import random_fourier_features, ridge_predict
+
 from factors.liquidity import chaikin_money_flow
 from factors.positions import interest_change
-from factors.price import information_discreteness
+from factors.price import information_discreteness, momentum, volatility
 from factors.risk import maximum_return
+from factors.technical import efficiency_ratio, price_zscore, rsi
 from factors.term_structure import roll_yield_carry
-from strategies._learning import fourier, price_features, ridge_predict
 from strategies.risk_premia import _Ranked
 
 
@@ -38,17 +40,20 @@ class PanelRidgeRank(_Ranked):
 
     def scores(self, data):
         p = self.params
-        horizon, count, window = p["rebalance"], p["train"], p["window"]
+        fast, horizon, count, window = p["fast"], p["rebalance"], p["train"], p["window"]
         training, labels, queries, symbols = [], [], [], []
         for symbol in sorted(data):
             row = data[symbol]
             close = row["close"]
-            inputs = np.column_stack((price_features(close, p["fast"], window),
-                                      information_discreteness(close, window), maximum_return(close, window),
-                                      chaikin_money_flow(row["high"], row["low"], close, row["volume"], window),
-                                      interest_change(row["open_interest"], window)))
+            inputs = np.column_stack((
+                momentum(close, fast), momentum(close, window), volatility(close, fast),
+                price_zscore(close, window), rsi(close, fast), efficiency_ratio(close, window),
+                information_discreteness(close, window), maximum_return(close, window),
+                chaikin_money_flow(row["high"], row["low"], close, row["volume"], window),
+                interest_change(row["open_interest"], window),
+            ))
             if p["use_carry"]:
-                inputs = np.column_stack((inputs, roll_yield_carry(row["roll_yield"], p["fast"])))
+                inputs = np.column_stack((inputs, roll_yield_carry(row["roll_yield"], fast)))
             train = inputs[-horizon - count - 1:-horizon - 1]
             # The last label exits after the previous shared bar, so its execution price is already known.
             returns = row["next_open"][-count - 1:-1] / row["next_open"][-count - horizon - 1:-horizon - 1] - 1
@@ -79,4 +84,4 @@ class PanelRandomFeatureRank(PanelRidgeRank):
         self.projection = np.random.default_rng(p["seed"]).normal(size=(p["features"] // 2, 10 + p["use_carry"])).T
 
     def transform(self, train, query):
-        return fourier(train, query, self.projection, self.params["gamma"])
+        return random_fourier_features(train, query, self.projection, self.params["gamma"])

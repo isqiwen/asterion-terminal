@@ -1,10 +1,9 @@
 """Oscillator reversion and volatility-band breakout rules."""
 import numpy as np
 
-from asterion_strategy import Strategy
+from asterion_strategy import SIDES, Strategy, side_lots
 
 from factors.technical import average_true_range, rsi
-from strategies._common import SIDES, lots
 
 
 # Wilder (1978), "New Concepts in Technical Trading Systems", Section VI (RSI).
@@ -38,7 +37,7 @@ class RsiReversion(Strategy):
         elif (side > 0 and value >= 50) or (side < 0 and value <= 50):
             side = 0
         self.side[bar.symbol] = side
-        ctx.target(bar.symbol, lots(side, p))
+        ctx.target(bar.symbol, side_lots(side, p["lots"], p["sides"]))
 
 
 # Keltner (1960), "How to Make Money in Commodities"; Wilder (1978), "New Concepts in Technical Trading Systems" (ATR).
@@ -76,4 +75,4 @@ class AtrBreakout(Strategy):
         elif (side > 0 and bar.close <= mean) or (side < 0 and bar.close >= mean):
             side = 0
         self.side[bar.symbol] = side
-        ctx.target(bar.symbol, lots(side, p))
+        ctx.target(bar.symbol, side_lots(side, p["lots"], p["sides"]))

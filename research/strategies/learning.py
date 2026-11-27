@@ -1,10 +1,15 @@
 """Rolling return forecasts using linear and random Fourier feature ridge regression."""
 import numpy as np
 
-from asterion_strategy import Strategy
+from asterion_strategy import SIDES, Strategy, random_fourier_features, ridge_predict, side_lots
 
-from strategies._common import SIDES, lots
-from strategies._learning import fourier, price_features, ridge_predict
+from factors.price import momentum, volatility
+from factors.technical import efficiency_ratio, price_zscore, rsi
+
+
+def _price_features(close, fast, slow):
+    return np.column_stack((momentum(close, fast), momentum(close, slow), volatility(close, fast),
+                            price_zscore(close, slow), rsi(close, fast), efficiency_ratio(close, slow)))
 
 
 # Linear control for RandomFeatureForecast, with the same inputs, labels and rolling fit.
@@ -34,7 +39,7 @@ class RidgeForecast(Strategy):
     def forecast(self, open, close):
         p = self.params
         horizon = p["rebalance"]
-        inputs = price_features(close, p["fast"], p["slow"])
+        inputs = _price_features(close, p["fast"], p["slow"])
         train = inputs[p["slow"]:-horizon - 1]
         query = inputs[-1:]
         # Targets execute at the next open; exclude features whose holding-period return is not yet known.
@@ -52,7 +57,7 @@ class RidgeForecast(Strategy):
         value = self.forecast(ctx.history(bar.symbol, "open", self.need),
                               ctx.history(bar.symbol, "close", self.need))
         side = int(value > p["threshold"]) - int(value < -p["threshold"]) if np.isfinite(value) else 0
-        ctx.target(bar.symbol, lots(side, p))
+        ctx.target(bar.symbol, side_lots(side, p["lots"], p["sides"]))
 
 
 # Kelly, Malamud & Zhou (2024), "The Virtue of Complexity in Return Prediction", Eq. (20): https://doi.org/10.1111/jofi.13298
@@ -72,4 +77,4 @@ class RandomFeatureForecast(RidgeForecast):
         self.projection = np.random.default_rng(p["seed"]).normal(size=(p["features"] // 2, 6)).T
 
     def transform(self, train, query):
-        return fourier(train, query, self.projection, self.params["gamma"])
+        return random_fourier_features(train, query, self.projection, self.params["gamma"])

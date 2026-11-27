@@ -1,9 +1,7 @@
 """Band reversion on one contract or dominant series."""
 import math
 
-from asterion_strategy import Strategy
-
-from strategies._common import lots, units
+from asterion_strategy import Strategy, price_units, side_lots
 
 
 # Bollinger (2001), "Bollinger on Bollinger Bands", McGraw-Hill.
@@ -23,10 +21,11 @@ class Reversion(Strategy):
         return all(len(ctx.history(symbol, "close", need)) == need for symbol in ctx.symbols)
 
     def on_bar(self, ctx, bar):
-        window, width = self.params["window"], self.params["width"]
+        p = self.params
+        window, width = p["window"], p["width"]
         if window < 2 or width <= 0:
             raise ValueError("a band needs a window of two bars or more and a positive width")
-        closes = units(ctx.history(bar.symbol, "close", window))
+        closes = price_units(ctx.history(bar.symbol, "close", window))
         if len(closes) < window:
             return
         # Statistics of the window relative to its first close, so that large
@@ -43,4 +42,4 @@ class Reversion(Strategy):
         elif (side > 0 and distance >= 0) or (side < 0 and distance <= 0):
             side = 0
         self.side[bar.symbol] = side
-        ctx.target(bar.symbol, lots(side, self.params))
+        ctx.target(bar.symbol, side_lots(side, p["lots"], p["sides"]))

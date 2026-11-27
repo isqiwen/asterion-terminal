@@ -2,10 +2,9 @@
 from collections import deque
 from decimal import Decimal, ROUND_DOWN
 
-from asterion_strategy import WEIGHT_STEP, Strategy
+from asterion_strategy import SIDES, WEIGHT_STEP, Strategy
 
 from factors.price import momentum, volatility
-from strategies._common import SIDES
 
 
 # Jegadeesh & Titman (1993), "Returns to Buying Winners and Selling Losers", JF 48(1), 65-91: https://doi.org/10.1111/j.1540-6261.1993.tb04702.x
