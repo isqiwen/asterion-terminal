@@ -10,7 +10,13 @@ import { useMarket } from "../../src/host/market";
 import { BoardSchema, FeedState, Subscription } from "../../src/generated/asterion/market_pb";
 import { Offset, Side } from "../../src/generated/asterion/common_pb";
 
-vi.mock("../../src/host/market", () => ({ useMarket: vi.fn() }));
+vi.mock("../../src/host/market", () => {
+  const mockedUseMarket = vi.fn();
+  return {
+    useMarket: mockedUseMarket,
+    useMarketCatalog: () => mockedUseMarket()?.board.catalog,
+  };
+});
 beforeEach(() => vi.mocked(useMarket).mockReturnValue(null));
 
 registerTerminalFeatures([feature]);

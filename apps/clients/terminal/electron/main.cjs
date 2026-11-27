@@ -346,6 +346,11 @@ app
         throw new Error("Invalid native request");
       return native.request(body);
     });
+    ipcMain.handle("asterion:market-watch", async (event, restart) => {
+      authorized(event);
+      if (typeof restart !== "boolean") throw new Error("Invalid market watch request");
+      return native.marketWatch(restart);
+    });
     lab = labChannel(async () => {
       const reply = JSON.parse(
         await native.request(JSON.stringify({ version: 1, method: "lab.endpoint", params: {} })),

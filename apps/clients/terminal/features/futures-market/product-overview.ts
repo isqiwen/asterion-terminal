@@ -23,25 +23,24 @@ function productsOf(catalog: Catalog | undefined) {
 export function productOverview(market: MarketView) {
   const products = productsOf(market.board.catalog);
   if (!products) return [];
-  const groups = new Map<string, QuoteRow>();
-  const interest = (row: QuoteRow) => {
-    const value = Number(row.quote?.openInterest?.text);
-    return row.quote?.openInterest && Number.isFinite(value) ? value : -1;
-  };
-  const volume = (row: QuoteRow) => row.quote?.volume ?? -1n;
+  const groups = new Map<string, { row: QuoteRow; oi: number; vol: bigint }>();
   for (const row of market.board.rows) {
     const key = products.get(rowKey(row));
     if (!key) continue;
+    const rawOi = row.quote?.openInterest ? Number(row.quote.openInterest.text) : -1;
+    const oi = Number.isFinite(rawOi) ? rawOi : -1;
+    const vol = row.quote?.volume ?? -1n;
     const previous = groups.get(key);
     if (
       !previous ||
-      interest(row) > interest(previous) ||
-      (interest(row) === interest(previous) &&
-        (volume(row) > volume(previous) ||
-          (volume(row) === volume(previous) &&
-            row.instrument!.symbol < previous.instrument!.symbol)))
+      oi > previous.oi ||
+      (oi === previous.oi &&
+        (vol > previous.vol ||
+          (vol === previous.vol && row.instrument!.symbol < previous.row.instrument!.symbol)))
     )
-      groups.set(key, row);
+      groups.set(key, { row, oi, vol });
   }
-  return [...groups.values()];
+  const result: QuoteRow[] = [];
+  for (const entry of groups.values()) result.push(entry.row);
+  return result;
 }

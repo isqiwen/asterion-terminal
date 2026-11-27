@@ -5,7 +5,7 @@ import { QuotePane } from "./QuotePane";
 import { ContractQuote, sameProduct } from "./ContractQuote";
 import { WatchlistEditor } from "./WatchlistEditor";
 import { WatchlistToggle } from "./WatchlistToggle";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { boardColumns } from "./board-columns";
 import type { QuoteRow } from "../../src/generated/asterion/market_pb";
 import { rowKey, type MarketView } from "../../src/host/market";
@@ -58,79 +58,85 @@ export function MarketBoard({ market, context }: { market: MarketView; context: 
   const [sort, setSort] = useWorkspaceDraft("market-sort", defaultSort);
   const board = useRef<HTMLDivElement>(null);
   const { rows: quotes, catalog } = market.board;
-  const venueOf = (row: QuoteRow) => row.instrument!.exchange;
-  const known = boardGroups.flatMap(group => group.venues);
-  const others = [...new Set(quotes.map(venueOf))].filter(value => !known.includes(value)).sort();
   const filter = venue;
   const query = search.trim().toUpperCase();
   // Without a catalog there is no product identity; list subscribed months.
   const dominantOnly = section === "主力合约" && !!catalog?.contracts.length;
   const overview =
     !watchlist && !dominantOnly && scope === "products" && !query && !!catalog?.contracts.length;
-  const candidates = watchlist
-    ? quotes.filter(row =>
-        watchlist.some(
-          id =>
-            id.exchange === row.instrument!.exchange &&
-            id.symbol.toUpperCase() === row.instrument!.symbol.toUpperCase(),
-        ),
-      )
-    : dominantOnly || overview
-      ? productOverview(market)
-      : quotes;
-  const rows = candidates.filter(
-    row =>
-      (!filter || venueOf(row) === filter) &&
-      `${rowKey(row)} ${contractName(row.instrument!, catalog) ?? ""} ${productLabel(row.instrument!, catalog) ?? ""}`
-        .toUpperCase()
-        .includes(query),
-  );
-  const numeric = (value: number | undefined | null) =>
-    value != null && Number.isFinite(value) ? value : null;
-  const value = (row: QuoteRow) => {
-    if (sort.column === "合约") return row.instrument!.symbol;
-    if (sort.column === "涨跌幅") return numeric(quoteChange(row)?.percent);
-    if (sort.column === "涨跌") return numeric(quoteChange(row)?.amount);
-    if (sort.column === "1分钟涨速")
-      return row.change1mPercent ? numeric(Number(row.change1mPercent.text)) : null;
-    if (sort.column === "成交量") return row.quote ? numeric(Number(row.quote.volume)) : null;
-    const field = sort.column === "最新价" ? row.quote?.last : row.quote?.openInterest;
-    return field ? numeric(Number(field.text)) : null;
-  };
-  const direction = sort.direction === "ascending" ? 1 : -1;
-  const keyed = rows.map(row => ({ row, key: value(row) }));
-  keyed.sort((a, b) => {
-    const left = a.key,
-      right = b.key;
-    if (left == null) return right == null ? 0 : 1;
-    if (right == null) return -1;
-    const compared =
-      typeof left === "string" && typeof right === "string"
-        ? left < right
-          ? -1
-          : left > right
-            ? 1
-            : 0
-        : Number(left) - Number(right);
-    return compared * direction;
-  });
-  for (let i = 0; i < keyed.length; ++i) rows[i] = keyed[i]!.row;
-  const groups = (
-    filter
-      ? [
-          {
-            title: filter,
-            label: venueNames[filter] ? t(venueNames[filter]) : filter,
-            venues: [filter],
-          },
-        ]
-      : [
-          ...boardGroups.map(group => ({ ...group, label: t(group.title) })),
-          ...others.map(value => ({ title: value, label: value, venues: [value] })),
-        ]
-  ).map(group => ({ ...group, rows: rows.filter(row => group.venues.includes(venueOf(row))) }));
-  const shown = groups.filter(group => group.rows.length);
-  const orderedRows = shown.flatMap(group => group.rows);
+  const { rows, shown, orderedRows } = useMemo(() => {
+    const venueOf = (row: QuoteRow) => row.instrument!.exchange;
+    const known = new Set(boardGroups.flatMap(group => group.venues));
+    const others = [...new Set(quotes.map(venueOf))].filter(value => !known.has(value)).sort();
+    const watchlistKeys = watchlist
+      ? new Set(watchlist.map(id => `${id.exchange}.${id.symbol.toUpperCase()}`))
+      : null;
+    const candidates = watchlistKeys
+      ? quotes.filter(row =>
+          watchlistKeys.has(`${row.instrument!.exchange}.${row.instrument!.symbol.toUpperCase()}`),
+        )
+      : dominantOnly || overview
+        ? productOverview(market)
+        : quotes;
+    const filtered = candidates.filter(
+      row =>
+        (!filter || venueOf(row) === filter) &&
+        (!query ||
+          `${rowKey(row)} ${contractName(row.instrument!, catalog) ?? ""} ${productLabel(row.instrument!, catalog) ?? ""}`
+            .toUpperCase()
+            .includes(query)),
+    );
+    const numeric = (value: number | undefined | null) =>
+      value != null && Number.isFinite(value) ? value : null;
+    const value = (row: QuoteRow) => {
+      if (sort.column === "合约") return row.instrument!.symbol;
+      if (sort.column === "涨跌幅") return numeric(quoteChange(row)?.percent);
+      if (sort.column === "涨跌") return numeric(quoteChange(row)?.amount);
+      if (sort.column === "1分钟涨速")
+        return row.change1mPercent ? numeric(Number(row.change1mPercent.text)) : null;
+      if (sort.column === "成交量") return row.quote ? numeric(Number(row.quote.volume)) : null;
+      const field = sort.column === "最新价" ? row.quote?.last : row.quote?.openInterest;
+      return field ? numeric(Number(field.text)) : null;
+    };
+    const direction = sort.direction === "ascending" ? 1 : -1;
+    const keyed = filtered.map(row => ({ row, key: value(row) }));
+    keyed.sort((a, b) => {
+      const left = a.key,
+        right = b.key;
+      if (left == null) return right == null ? 0 : 1;
+      if (right == null) return -1;
+      const compared =
+        typeof left === "string" && typeof right === "string"
+          ? left < right
+            ? -1
+            : left > right
+              ? 1
+              : 0
+          : Number(left) - Number(right);
+      return compared * direction;
+    });
+    const sorted = keyed.map(item => item.row);
+    const groups = (
+      filter
+        ? [
+            {
+              title: filter,
+              label: venueNames[filter] ? t(venueNames[filter]) : filter,
+              venues: [filter],
+            },
+          ]
+        : [
+            ...boardGroups.map(group => ({ ...group, label: t(group.title) })),
+            ...others.map(value => ({ title: value, label: value, venues: [value] })),
+          ]
+    ).map(group => ({ ...group, rows: sorted.filter(row => group.venues.includes(venueOf(row))) }));
+    const visible = groups.filter(group => group.rows.length);
+    return {
+      rows: sorted,
+      shown: visible,
+      orderedRows: visible.flatMap(group => group.rows),
+    };
+  }, [quotes, catalog, watchlist, dominantOnly, overview, market, filter, query, sort]);
   const firstRowId = orderedRows[0] ? rowKey(orderedRows[0]) : "";
   useEffect(() => {
     if (!selected && firstRowId) selectQuote(firstRowId);
@@ -144,10 +150,35 @@ export function MarketBoard({ market, context }: { market: MarketView; context: 
   const listed =
     active && (rows.includes(active) ? active : rows.find(row => sameProduct(row, active)));
   const [expanded, setExpanded] = useWorkspaceDraft("market-expanded", false);
-  const displayName = (row: QuoteRow) => {
-    const label = overview ? productLabel(row.instrument!, catalog) : undefined;
-    return label ? `${label}${t("主连")}` : contractName(row.instrument!, catalog);
-  };
+  const displayName = useCallback(
+    (row: QuoteRow) => {
+      const label = overview ? productLabel(row.instrument!, catalog) : undefined;
+      return label ? `${label}${t("主连")}` : contractName(row.instrument!, catalog);
+    },
+    [overview, catalog],
+  );
+  const handleOpen = useCallback(
+    (id: string) => {
+      selectQuote(id);
+      setExpanded(true);
+    },
+    [setExpanded],
+  );
+  const handleSort = useCallback(
+    (column: string) =>
+      setSort(previous => ({
+        column,
+        direction:
+          previous.column === column
+            ? previous.direction === "descending"
+              ? "ascending"
+              : "descending"
+            : column === "合约"
+              ? "ascending"
+              : "descending",
+      })),
+    [setSort],
+  );
   const table = (groupRows: QuoteRow[]) => (
     <QuoteTable
       overviewStyle={shown.length > 1 || groupRows.length < 100}
@@ -157,24 +188,9 @@ export function MarketBoard({ market, context }: { market: MarketView; context: 
       rows={groupRows}
       selected={listed ? rowKey(listed) : undefined}
       onSelect={selectQuote}
-      onOpen={id => {
-        selectQuote(id);
-        setExpanded(true);
-      }}
+      onOpen={handleOpen}
       sort={sort}
-      onSort={column =>
-        setSort(previous => ({
-          column,
-          direction:
-            previous.column === column
-              ? previous.direction === "descending"
-                ? "ascending"
-                : "descending"
-              : column === "合约"
-                ? "ascending"
-                : "descending",
-        }))
-      }
+      onSort={handleSort}
       onNavigate={(current, direction) => {
         const index = orderedRows.findIndex(row => rowKey(row) === current);
         const next = orderedRows[Math.max(0, Math.min(orderedRows.length - 1, index + direction))];

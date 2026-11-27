@@ -594,4 +594,22 @@ std::future<void> Application::request(std::string wire, Completion complete)
         ServiceIo::Lane::application);
 }
 
+std::future<void> Application::market_watch(bool restart, WatchCompletion complete)
+{
+    return impl_->service_io.submit<void>(
+        [this, restart, complete = std::move(complete)](std::stop_token) -> PolledTask<void> {
+            std::optional<MarketWatch::Batch> batch;
+            std::exception_ptr failure;
+            try {
+                co_await impl_->initialized();
+                if (impl_->watch)
+                    batch = impl_->watch->take_binary(restart);
+            } catch (...) {
+                failure = std::current_exception();
+            }
+            complete(std::move(batch), failure);
+        },
+        ServiceIo::Lane::application);
+}
+
 } // namespace asterion::terminal

@@ -15,7 +15,7 @@ import {
   type ContractTermsSchema,
   type ListedContract,
 } from "../../src/generated/asterion/trading_pb";
-import { useMarket } from "../../src/host/market";
+import { useMarketCatalog } from "../../src/host/market";
 import {
   BackendError,
   asDisplayError,
@@ -82,7 +82,7 @@ export type CatalogEntry = CatalogContract | ListedContract;
 export const listedKey = (row: CatalogEntry) => key(row.instrument);
 
 export function useTradingCatalog(connection: string) {
-  const market = useMarket()?.board.catalog;
+  const market = useMarketCatalog();
   const marketReady = market?.status?.state === CatalogState.READY;
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<{

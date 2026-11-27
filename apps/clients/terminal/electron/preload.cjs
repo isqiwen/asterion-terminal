@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld(
   Object.freeze({
     platform: process.platform,
     request: request => ipcRenderer.invoke("asterion:request", request),
+    marketWatch: restart => ipcRenderer.invoke("asterion:market-watch", restart),
     lab: payload => ipcRenderer.invoke("asterion:lab", payload),
     openSettings: category => ipcRenderer.invoke("asterion:settings", category),
     openLogs: () => ipcRenderer.invoke("asterion:logs"),

@@ -1,9 +1,11 @@
 #pragma once
+#include "market_client.hpp"
 #include <memory>
 #include <asterion/system/process/file_lock.hpp>
 #include <future>
 #include <functional>
 #include <exception>
+#include <optional>
 #include <string>
 #include <asterion/system/payload_budget.hpp>
 #include <nlohmann/json.hpp>
@@ -21,12 +23,15 @@ public:
     // Completion runs on the owner and must not throw or destroy Application.
     // The future completes after the callback returns; retain Application until then.
     using Completion = std::function<void(Payload, std::exception_ptr)>;
+    using WatchCompletion =
+        std::function<void(std::optional<MarketWatch::Batch>, std::exception_ptr)>;
 
     Application();
     ~Application();
     void stop() noexcept;
     nlohmann::json dispatch(const nlohmann::json& request);
     std::future<void> request(std::string wire, Completion complete);
+    std::future<void> market_watch(bool restart, WatchCompletion complete);
 
 private:
     struct Impl;

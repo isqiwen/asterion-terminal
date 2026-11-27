@@ -1,6 +1,12 @@
+export interface MarketWatchBatch {
+  frames: Uint8Array[];
+  online: boolean;
+  error: string;
+}
 export interface DesktopBridge {
   readonly platform: string;
   request(body: string): Promise<string>;
+  marketWatch?(restart: boolean): Promise<MarketWatchBatch | null>;
   lab(payload: Uint8Array): Promise<Uint8Array>;
   openSettings(category: string): Promise<void>;
   openLogs(): Promise<void>;

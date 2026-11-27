@@ -87,7 +87,7 @@ struct MarketWatch::Impl
                                 auto response = relay_decode<wire::Response>(*raw, request);
                                 if (!response.has_stream_quotes())
                                     throw Error(ErrorCode::unavailable, "missing quote frame");
-                                return relay_json_string(response.stream_quotes());
+                                return response.stream_quotes().SerializeAsString();
                             });
                         frames.push_back(std::move(value));
                         online = true;
@@ -159,32 +159,50 @@ MarketWatch::~MarketWatch()
     impl_->lifetime.request_stop();
 }
 
-std::string MarketWatch::take_json(bool restart)
+MarketWatch::Batch MarketWatch::take_binary(bool restart)
 {
     if (restart) {
         impl_->frames.clear();
         impl_->restarting = true;
         impl_->transport->cancel();
     }
-    std::size_t bytes = 64 + impl_->error.size();
-    for (const auto& frame : impl_->frames)
-        bytes += frame.size() + 1;
+    Batch batch;
+    batch.frames.reserve(impl_->frames.size());
+    for (auto& frame : impl_->frames)
+        batch.frames.push_back(std::move(frame));
+    impl_->frames.clear();
+    batch.online = impl_->online && std::chrono::steady_clock::now() - impl_->seen < 5s;
+    batch.error = impl_->error;
+    return batch;
+}
+
+std::string MarketWatch::take_json(bool restart)
+{
+    auto batch = take_binary(restart);
+    std::vector<std::string> encoded;
+    encoded.reserve(batch.frames.size());
+    std::size_t bytes = 64 + batch.error.size();
+    for (const auto& raw : batch.frames) {
+        wire::QuoteFrame frame;
+        if (!frame.ParseFromString(raw))
+            throw Error(ErrorCode::internal_error, "invalid buffered quote frame");
+        encoded.push_back(relay_json_string(frame));
+        bytes += encoded.back().size() + 1;
+    }
     std::string out;
     out.reserve(bytes);
     out += "{\"frames\":[";
     bool first = true;
-    for (auto& frame : impl_->frames) {
+    for (const auto& frame : encoded) {
         if (!first)
             out += ',';
         first = false;
         out += frame;
     }
-    impl_->frames.clear();
-    const bool online = impl_->online && std::chrono::steady_clock::now() - impl_->seen < 5s;
     out += "],\"online\":";
-    out += online ? "true" : "false";
+    out += batch.online ? "true" : "false";
     out += ",\"error\":";
-    out += Json(impl_->error).dump();
+    out += Json(batch.error).dump();
     out += '}';
     return out;
 }

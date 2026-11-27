@@ -65,11 +65,26 @@ test("a new full frame replaces membership and resets the tick curve", () => {
 
 test("a busy contract does not push out another contract's recent quotes", () => {
   const busy = Array.from({ length: 600 }, (_, i) =>
-    frame({ case: "changed", value: { rows: [row("rb2611", "3511", BigInt(2000 + i))] } }),
+    frame({
+      case: "changed",
+      value: { rows: [row("rb2611", String(3511 + i), BigInt(2000 + i))] },
+    }),
   );
   const { view } = applyFrames(null, [full, ...busy], true);
-  expect(view!.ticks.get("SHFE.rb2610")!.map(tick => tick.price)).toEqual(["3500"]);
-  expect(view!.ticks.get("SHFE.rb2611")).toHaveLength(512);
+  const quiet = view!.ticks.get("SHFE.rb2610")!;
+  expect(quiet.map(tick => tick.price)).toEqual(["3500"]);
+  const active = view!.ticks.get("SHFE.rb2611")!;
+  expect(active).toHaveLength(512);
+  expect(active[0]!.price).toBe(String(3511 + 88));
+  expect(active[511]!.price).toBe(String(3511 + 599));
+  // Unchanged contract keeps the exact cached array reference across later frames.
+  const next = applyFrames(
+    view,
+    [frame({ case: "changed", value: { rows: [row("rb2611", "4200", 5000n)] } })],
+    true,
+  ).view!;
+  expect(next.ticks.get("SHFE.rb2610")).toBe(quiet);
+  expect(next.ticks.get("SHFE.rb2611")!.at(-1)!.price).toBe("4200");
 });
 
 test("empty polls keep the same MarketView and ticks references when online status is unchanged", () => {

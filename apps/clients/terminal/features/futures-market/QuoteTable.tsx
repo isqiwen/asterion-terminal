@@ -84,6 +84,8 @@ export function QuoteTable({
         "更新时间（北京时间）",
         "状态",
       ];
+  const now = Date.now();
+  const realtimeLabel = t("实时");
   const { start, end, topPad, bottomPad } = useVirtualRows(containerRef, rows.length, {
     enabled: !overviewStyle,
     rowHeight: density === "comfortable" ? 34 : 26,
@@ -154,6 +156,8 @@ export function QuoteTable({
             const name = nameFor?.(row);
             const q = row.quote;
             const change = quoteChange(row);
+            const status = quoteStatus(market, row, now);
+            const rowSpeed = speed(row);
             const tone = change
               ? change.amount > 0
                 ? "up"
@@ -163,7 +167,7 @@ export function QuoteTable({
               : "flat";
             return (
               <tr
-                title={quoteStatus(market, row)}
+                title={status}
                 key={id}
                 data-selected={selected === id}
                 onClick={
@@ -204,12 +208,12 @@ export function QuoteTable({
                     <strong>{symbol}</strong>
                   )}
                   <small className="quote-venue">{exchange}</small>
-                  {onSelect && !overviewStyle && quoteStatus(market, row) !== t("实时") && (
+                  {onSelect && !overviewStyle && status !== realtimeLabel && (
                     <small
                       className="quote-inline-status"
                       title={row.ctpError ? ctpErrorSummary(row.ctpError) : undefined}
                     >
-                      {quoteStatus(market, row)}
+                      {status}
                       {row.ctpError !== 0 && ` · CTP ${row.ctpError}`}
                     </small>
                   )}
@@ -223,16 +227,16 @@ export function QuoteTable({
                         column === "持仓量" || column === "成交量"
                           ? undefined
                           : column === "1分钟涨速"
-                            ? (speed(row) ?? 0) > 0
+                            ? (rowSpeed ?? 0) > 0
                               ? "up"
-                              : (speed(row) ?? 0) < 0
+                              : (rowSpeed ?? 0) < 0
                                 ? "down"
                                 : "flat"
                             : tone
                       }
                     >
                       {column === "1分钟涨速"
-                        ? (speed(row)?.toFixed(2) ?? "—")
+                        ? (rowSpeed?.toFixed(2) ?? "—")
                         : column === "最新价"
                           ? (q?.last?.text ?? "—")
                           : column === "持仓量"
@@ -293,7 +297,7 @@ export function QuoteTable({
                 )}
                 {!onSelect && (
                   <td className="quote-status">
-                    <span className="quote-status-label">{quoteStatus(market, row)}</span>
+                    <span className="quote-status-label">{status}</span>
                     {row.ctpError !== 0 && (
                       <details>
                         <summary>{t("详情")}</summary>
