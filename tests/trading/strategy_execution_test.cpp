@@ -368,10 +368,23 @@ TEST_F(StrategyExecution, FailureCancelsOnlyThisInstancesOrdersAndPreservesPosit
     ASSERT_TRUE(wait_for(session, [](const Json& state) {
         return state.at("positions_reconciled") == true && !state.at("positions").empty();
     }).at("positions_reconciled"));
+    const auto accepted = [&](const char* id) {
+        return order_has_status(
+            wait_for(
+                session,
+                [&](const Json& state) {
+                    return order_has_status(state, id, "accepted");
+                }),
+            id,
+            "accepted");
+    };
     act(session, submit("manual.resting", "3"));
+    ASSERT_TRUE(accepted("manual.resting"));
     auto owner = session.register_strategy().get();
     session.execute_strategy(basis(owner), submit("strategy.first", "3")).get();
+    ASSERT_TRUE(accepted("strategy.first"));
     session.execute_strategy(basis(owner, 2), submit("strategy.second", "3")).get();
+    ASSERT_TRUE(accepted("strategy.second"));
     const auto effects = exchange.call<int (*)()>("asterion_fake_catalog_side_effects");
     EXPECT_THROW(
         session.execute_strategy(basis(owner, 3), submit("risk.failure", "6")).get(),

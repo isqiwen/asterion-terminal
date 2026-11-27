@@ -1257,9 +1257,20 @@ TEST_F(StrategyTarget, CapitalAndCancelHardRiskHandlesCashflowsMarkToMarketRollo
         // Closing remains permitted while hard risk is breached!
         act(session, close_order("ord-close-1", "close_today", "1", "2700"));
         wait_for(session, [](const Json& s) {
-            return order_has_status(s, "ord-close-1", "filled")
+            return order_has_status(s, "ord-close-1", "filled") && s.at("trades").size() == 2
                 && s.at("positions_reconciled") == true;
         });
+        // Rate queries follow the close's pending account refresh on the same SDK queue.
+        session.query_costs();
+        ASSERT_EQ(
+            wait_for(
+                session,
+                [](const Json& s) {
+                    return s.at("costs")[0].at("state") == "ready";
+                })
+                .at("costs")[0]
+                .at("state"),
+            "ready");
 
         // 3) Price recovers to 3500; cancel 2 resting orders (>=3 lots rest) to hit max_daily_cancels_per_contract=2.
         exchange.call<void (*)(double)>("asterion_fake_trader_quote_price", 3500.0);
