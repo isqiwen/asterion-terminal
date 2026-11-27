@@ -509,7 +509,7 @@ def plan(config: Config, version: str) -> Plan:
     )
 
 
-def run(directory: Path, identity: str, config: Config, started=lambda: None):
+def run(directory: Path, identity: str, config: Config, started=lambda: None, *, cache: dict | None = None):
     """One backtest from start to its record. A failure is recorded as failed;
     `started` is called once the record exists."""
     import asterion_engine
@@ -517,12 +517,40 @@ def run(directory: Path, identity: str, config: Config, started=lambda: None):
     runs = Runs(directory)
     if not config.source:
         raise ValueError("research runs read the source copied at admission")
-    data = open_data(directory, config)
+    data_key = (config.dataset_version, config.begin_day, config.end_day)
+    if cache is not None and cache.get("data_key") == data_key:
+        data = cache["data"]
+    else:
+        data = open_data(directory, config)
+        if cache is not None:
+            cache["data_key"] = data_key
+            cache["data"] = data
+            cache.pop("prep_key", None)
+            cache.pop("prepared", None)
     runs.start(identity, plan(config, data.version.identity))
     started()
     try:
         strategy = repository.load(Path(config.source), config.strategy, config.params)
-        contracts, series, first = prepare(data, config)
+        prep_key = (
+            config.dataset_version,
+            config.symbols,
+            config.begin_day,
+            config.end_day,
+            config.minutes,
+            config.fee_multiplier,
+            config.costs,
+        )
+        if cache is not None and cache.get("prep_key") == prep_key:
+            cached_contracts, series, first = cache["prepared"]
+            if cached_contracts and cached_contracts[0]["slippage_ticks"] != config.slippage_ticks:
+                contracts = [{**item, "slippage_ticks": config.slippage_ticks} for item in cached_contracts]
+            else:
+                contracts = cached_contracts
+        else:
+            contracts, series, first = prepare(data, config)
+            if cache is not None:
+                cache["prep_key"] = prep_key
+                cache["prepared"] = (contracts, series, first)
         engine = asterion_engine.Replay(
             raw(config.deposit),
             contracts,
@@ -550,6 +578,13 @@ def run(directory: Path, identity: str, config: Config, started=lambda: None):
         )
         held_without_prices(engine, contracts)
         run_tables = tables(engine, contracts)
+        if cache is not None:
+            pit_flags = cache.setdefault("uses_pit", {})
+            if config.source not in pit_flags:
+                pit_flags[config.source] = uses_pit_fundamentals(config.source)
+            has_pit = pit_flags[config.source]
+        else:
+            has_pit = uses_pit_fundamentals(config.source)
         run_diag = diagnostics.compute(
             config,
             contracts,
@@ -557,7 +592,7 @@ def run(directory: Path, identity: str, config: Config, started=lambda: None):
             tracker.summary() if tracker is not None else None,
             series=series,
             trials=runs.strategy_trials(config.strategy, config.holdout_day),
-            uses_pit_fundamentals=uses_pit_fundamentals(config.source),
+            uses_pit_fundamentals=has_pit,
         )
         runs.succeed(
             identity,
@@ -648,8 +683,36 @@ def config_of(admitted) -> Config:
 
 
 def main():
+    import os
     from asterion.lab_pb2 import AdmittedRun
+    from asterion_lab import worker
 
+    if len(sys.argv) >= 3 and sys.argv[1] == "--worker":
+        output = os.fdopen(os.dup(1), "wb")
+        os.dup2(2, 1)
+        directory = Path(sys.argv[2])
+        cache: dict = {}
+        current_source: str | None = None
+        while (payload := worker.read_frame(sys.stdin.buffer)) is not None:
+            request = AdmittedRun()
+            request.ParseFromString(payload)
+            try:
+                current_source = worker.switch_source(current_source, request.source)
+                run(
+                    directory,
+                    request.backtest.id,
+                    config_of(request),
+                    lambda: worker.write_frame(output, b"S"),
+                    cache=cache,
+                )
+                worker.write_frame(output, b"D")
+            except Exception as error:
+                import traceback
+
+                traceback.print_exc()
+                sys.stderr.flush()
+                worker.write_frame(output, b"E" + (str(error) or type(error).__name__).encode())
+        return
     request = AdmittedRun()
     request.ParseFromString(sys.stdin.buffer.read())
     try:

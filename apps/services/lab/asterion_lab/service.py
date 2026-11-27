@@ -147,6 +147,63 @@ def parameters(target, values: dict):
             setattr(target[name], fields[type(value)], value)
 
 
+class _PooledWorker:
+    """One persistent Lab child process reused across tasks of the same sweep or factor batch."""
+
+    def __init__(self, process):
+        self.process = process
+        self.tail = bytearray()
+        self.drain_task = asyncio.create_task(self._drain_stderr())
+
+    @classmethod
+    async def spawn(cls, module: str, directory: Path, cwd: str) -> "_PooledWorker":
+        process = await asyncio.create_subprocess_exec(
+            *worker.command(module),
+            "--worker",
+            str(directory),
+            cwd=cwd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        return cls(process)
+
+    async def _drain_stderr(self):
+        while chunk := await self.process.stderr.read(65536):
+            self.tail.extend(chunk)
+            if len(self.tail) > 65536:
+                del self.tail[:-65536]
+
+    def alive(self) -> bool:
+        return self.process.returncode is None
+
+    def terminate(self):
+        if self.alive():
+            self.process.terminate()
+
+    def reset_tail(self):
+        self.tail.clear()
+
+    def error_text(self) -> str:
+        return self.tail.decode(errors="replace").strip()
+
+    async def close_and_wait(self, *, force: bool = False):
+        if force:
+            self.terminate()
+        if self.process.stdin and not self.process.stdin.is_closing():
+            self.process.stdin.close()
+        try:
+            await self.process.wait()
+        finally:
+            await self.drain_task
+
+    def close(self):
+        asyncio.create_task(self.close_and_wait())
+
+    def kill_and_close(self):
+        asyncio.create_task(self.close_and_wait(force=True))
+
+
 class Service:
     def __init__(self, name: str, directory: Path, log, warehouse=None):
         self.name = name
@@ -159,10 +216,12 @@ class Service:
         # Runs a stopped service left running ended with it.
         self.runs.interrupt()
         self.prune_sources()
-        self.backtests = {}  # run id -> its child process, while it runs
+        self.backtests = {}  # run id -> its child process or _PooledWorker, while it runs
         self.waiting = collections.deque()  # (sweep, AdmittedRun, limit) not started yet
-        self.factors = {}  # factor eval id -> its child process, while it runs
+        self.sweep_workers = {}  # sweep id -> idle _PooledWorker list
+        self.factors = {}  # factor eval id -> its child process or _PooledWorker, while it runs
         self.factor_waiting = collections.deque()  # (batch_id, AdmittedFactor, limit) not started yet
+        self.factor_workers = {}  # batch id -> idle _PooledWorker list
         self.factor_task = {}  # child factor eval id -> owning batch id
         self.factor_batches = {}  # batch_id -> running/completed member counters
         self.processes = max(1, (os.cpu_count() or 2) - 1)
@@ -532,9 +591,40 @@ class Service:
     async def on_delete_source(self, request, _):
         repository.delete_source(Path(request.repository), request.path)
 
-    async def launch_factor(self, admitted):
-        """Starts the child of an AdmittedFactor asynchronously."""
+    async def _acquire_worker(self, pool_map: dict, key: str, module: str, cwd: str) -> _PooledWorker:
+        pool = pool_map.get(key)
+        while pool:
+            candidate = pool.pop()
+            if candidate.alive():
+                return candidate
+            candidate.close()
+        return await _PooledWorker.spawn(module, self.directory, cwd)
+
+    async def _close_idle_workers(self, pool_map: dict, key: str, *, force: bool = False):
+        workers = pool_map.pop(key, ())
+        if workers:
+            await asyncio.gather(*(pooled.close_and_wait(force=force) for pooled in workers))
+
+    async def launch_factor(self, admitted, batch_id: str | None = None):
+        """Starts the child of an AdmittedFactor asynchronously, reusing a pooled worker in batches."""
         identity = admitted.evaluation.id
+        if batch_id is not None:
+            pooled = None
+            try:
+                pooled = await self._acquire_worker(
+                    self.factor_workers, batch_id, "asterion_lab.factor", admitted.source
+                )
+                pooled.reset_tail()
+                await worker.async_write_frame(pooled.process.stdin, admitted.SerializeToString())
+            except Exception:
+                if pooled is not None:
+                    pooled.kill_and_close()
+                await asyncio.to_thread(shutil.rmtree, admitted.source, True)
+                raise
+            self.factors[identity] = pooled
+            asyncio.create_task(self.watch_pooled_factor(batch_id, admitted, pooled))
+            self.log.write("info", MODULE, "factor.started", factor=identity)
+            return
         process = None
         try:
             process = await asyncio.create_subprocess_exec(
@@ -557,6 +647,71 @@ class Service:
         self.factors[identity] = process
         asyncio.create_task(self.watch_factor(admitted, process))
         self.log.write("info", MODULE, "factor.started", factor=identity)
+
+    async def watch_pooled_factor(self, batch_id: str, admitted, pooled: _PooledWorker):
+        identity = admitted.evaluation.id
+        frame = None
+        try:
+            frame = await worker.async_read_frame(pooled.process.stdout)
+        except (asyncio.IncompleteReadError, EOFError, OSError):
+            frame = None
+        state, message = "failed", ""
+        reusable = False
+        try:
+            if frame is None:
+                await pooled.process.wait()
+                await pooled.drain_task
+                code = pooled.process.returncode
+                error_text = pooled.error_text()
+                if code is not None and code < 0:
+                    state, message = "interrupted", "cancelled"
+                    await asyncio.to_thread(shutil.rmtree, admitted.source, True)
+                    self.log.write("info", MODULE, "factor.cancelled", factor=identity)
+                else:
+                    lines = error_text.splitlines()
+                    message = lines[-1] if lines else f"factor exited with {code}"
+                    await asyncio.to_thread(shutil.rmtree, admitted.source, True)
+                    self.log.write(
+                        "warning",
+                        MODULE,
+                        "factor.failed",
+                        factor=identity,
+                        exit_code=code,
+                        stack=error_text,
+                    )
+            elif frame and frame[0] == 0:
+                reusable = pooled.alive()
+                result = FactorResult()
+                result.ParseFromString(frame[1:])
+                await self.read(self.save_factor, admitted, result)
+                state = "succeeded"
+                self.log.write("info", MODULE, "factor.finished", factor=identity)
+            else:
+                reusable = pooled.alive()
+                message = frame[1:].decode(errors="replace").strip() if frame else "factor failed"
+                await asyncio.to_thread(shutil.rmtree, admitted.source, True)
+                self.log.write(
+                    "warning",
+                    MODULE,
+                    "factor.failed",
+                    factor=identity,
+                    stack=pooled.error_text(),
+                )
+        except Exception as failure:
+            state, message = "failed", str(failure)
+            await asyncio.to_thread(shutil.rmtree, admitted.source, True)
+            self.log.write("error", MODULE, "factor.record_failed", factor=identity, message=message)
+        finally:
+            has_more = any(item[0] == batch_id for item in self.factor_waiting)
+            if reusable and has_more:
+                self.factor_workers.setdefault(batch_id, []).append(pooled)
+            elif frame is not None:
+                await pooled.close_and_wait()
+            self.factors.pop(identity, None)
+            await self.pump()
+            if not any(item[0] == batch_id for item in self.factor_waiting):
+                await self._close_idle_workers(self.factor_workers, batch_id)
+            self._complete_factor_activity(identity, state, message)
 
     async def watch_factor(self, admitted, process):
         identity = admitted.evaluation.id
@@ -685,6 +840,7 @@ class Service:
         for admitted in dropped:
             self.factor_task.pop(admitted.evaluation.id, None)
             await asyncio.to_thread(shutil.rmtree, admitted.source, True)
+        await self._close_idle_workers(self.factor_workers, request.id, force=True)
         running_members = [
             fid for fid, bid in list(self.factor_task.items()) if bid == request.id and fid in self.factors
         ]
@@ -832,6 +988,93 @@ class Service:
         async with self.admission:
             await self.start_waiting()
 
+    async def launch_pooled_backtest(self, sweep_id: str, request):
+        """Dispatches one sweep AdmittedRun onto a pooled worker process."""
+        identity = request.backtest.id
+        config = backtest.config_of(request)
+        plan = backtest.plan(config, config.dataset_version)
+        pooled = None
+        try:
+            pooled = await self._acquire_worker(
+                self.sweep_workers, sweep_id, "asterion_lab.backtest", request.source
+            )
+            pooled.reset_tail()
+            await worker.async_write_frame(pooled.process.stdin, request.SerializeToString())
+        except Exception as error:
+            if pooled is not None:
+                pooled.kill_and_close()
+            self.finish_child(identity, plan, "failed", str(error))
+            raise
+        self.backtests[identity] = pooled
+        asyncio.create_task(self.watch_pooled_backtest(sweep_id, identity, pooled, plan))
+        self.log.write("info", MODULE, "backtest.started", run=identity)
+
+    async def watch_pooled_backtest(self, sweep_id: str, identity: str, pooled: _PooledWorker, plan):
+        async def next_frame():
+            try:
+                return await worker.async_read_frame(pooled.process.stdout)
+            except (asyncio.IncompleteReadError, EOFError, OSError):
+                return None
+
+        frame = await next_frame()
+        if frame == b"S":
+            frame = await next_frame()
+        reusable = False
+        final_state, final_error = "failed", ""
+        try:
+            if frame is None:
+                await pooled.process.wait()
+                await pooled.drain_task
+                code = pooled.process.returncode
+                error = pooled.error_text()
+                message = "cancelled" if (code is not None and code < 0) else (
+                    error or f"exited with {code} before completing its run"
+                )
+                state = self.finish_child(
+                    identity, plan, "interrupted" if (code is not None and code < 0) else "failed", message
+                )
+                final_state = state
+                final_error = "" if state == "succeeded" else message
+                if state == "succeeded":
+                    self.log.write("info", MODULE, "backtest.finished", run=identity)
+                else:
+                    self.log.write(
+                        "warning", MODULE, "backtest.failed", run=identity, exit_code=code, stack=error
+                    )
+            elif frame == b"D":
+                reusable = pooled.alive()
+                state = self.finish_child(identity, plan, "failed", "completed without result")
+                final_state = state
+                final_error = "" if state == "succeeded" else "completed without result"
+                self.log.write("info", MODULE, "backtest.finished", run=identity)
+            else:
+                reusable = pooled.alive()
+                message = frame[1:].decode(errors="replace").strip() if frame else "backtest failed"
+                state = self.finish_child(identity, plan, "failed", message)
+                final_state = state
+                final_error = "" if state == "succeeded" else message
+                self.log.write(
+                    "warning",
+                    MODULE,
+                    "backtest.failed",
+                    run=identity,
+                    stack=pooled.error_text(),
+                )
+        except Exception as failure:
+            final_state, final_error = "failed", str(failure)
+            self.log.write("error", MODULE, "backtest.record_failed", run=identity, message=final_error)
+        finally:
+            has_more = any(item[0] == sweep_id for item in self.waiting) or sweep_id in self.bayes
+            if reusable and has_more:
+                self.sweep_workers.setdefault(sweep_id, []).append(pooled)
+            elif frame is not None:
+                await pooled.close_and_wait()
+            del self.backtests[identity]
+            await self.pump()
+            if not any(item[0] == sweep_id for item in self.waiting) and sweep_id not in self.bayes:
+                await self._close_idle_workers(self.sweep_workers, sweep_id)
+            await self._complete_activity(identity, final_state, final_error)
+
     async def start_waiting(self):
         """Starts waiting runs while fewer than the allowed number run, advances
         active Bayesian optimization sweeps between waves, and starts a sweep's
@@ -839,9 +1082,9 @@ class Service:
         Called with the admission lock held."""
         while True:
             while self.waiting and len(self.backtests) + len(self.factors) < self.waiting[0][2]:
-                _, run, _ = self.waiting[0]
+                sweep_id, run, _ = self.waiting[0]
                 try:
-                    await self.launch(run)
+                    await self.launch_pooled_backtest(sweep_id, run)
                 except Exception as error:
                     self.log.write(
                         "error", MODULE, "backtest.not_started", run=run.backtest.id, message=str(error)
@@ -852,9 +1095,9 @@ class Service:
                 self.factor_waiting
                 and len(self.backtests) + len(self.factors) < self.factor_waiting[0][2]
             ):
-                _, admitted, _ = self.factor_waiting.popleft()
+                batch_id, admitted, _ = self.factor_waiting.popleft()
                 try:
-                    await self.launch_factor(admitted)
+                    await self.launch_factor(admitted, batch_id=batch_id)
                 except Exception as error:
                     self.log.write(
                         "error",
@@ -882,6 +1125,7 @@ class Service:
                         if sweep in self.rolling:
                             self.rolling[sweep].candidates = bayes.next_index
                         del self.bayes[sweep]
+                        await self._close_idle_workers(self.sweep_workers, sweep)
                         continue
                     wave = min(bayes.limit, remaining)
                     next_combos = await asyncio.to_thread(
@@ -896,6 +1140,7 @@ class Service:
                         if sweep in self.rolling:
                             self.rolling[sweep].candidates = bayes.next_index
                         del self.bayes[sweep]
+                        await self._close_idle_workers(self.sweep_workers, sweep)
                         continue
                     offset, new_runs, new_planned = sweeps.materialize_bayes_wave(
                         sweep, bayes, next_combos
@@ -1022,6 +1267,7 @@ class Service:
         self.waiting = collections.deque(item for item in self.waiting if item[0] != request.id)
         self.bayes.pop(request.id, None)
         self.rolling.pop(request.id, None)
+        await self._close_idle_workers(self.sweep_workers, request.id, force=True)
         running_members = members & set(self.backtests)
         for identity in members - running_members:
             self.run_task.pop(identity, None)

@@ -1641,20 +1641,31 @@ class BacktestService(BacktestCase):
         asyncio.run(scenario())
 
     def test_a_sweep_stays_active_while_its_last_candidate_starts(self):
+        from asterion_lab import worker as lab_worker
+
         async def scenario():
-            spawn, calls = asyncio.create_subprocess_exec, 0
+            spawn, spawn_calls = asyncio.create_subprocess_exec, 0
+            send, send_calls = lab_worker.async_write_frame, 0
             starting, release = asyncio.Event(), asyncio.Event()
 
-            async def delayed_spawn(*args, **kwargs):
-                nonlocal calls
-                calls += 1
-                if calls == 2:
-                    starting.set()
-                    await release.wait()
+            async def counted_spawn(*args, **kwargs):
+                nonlocal spawn_calls
+                spawn_calls += 1
                 return await spawn(*args, **kwargs)
 
+            async def delayed_send(*args, **kwargs):
+                nonlocal send_calls
+                send_calls += 1
+                if send_calls == 2:
+                    starting.set()
+                    await release.wait()
+                return await send(*args, **kwargs)
+
             async with self.service() as service:
-                with patch("asyncio.create_subprocess_exec", delayed_spawn):
+                with (
+                    patch("asyncio.create_subprocess_exec", counted_spawn),
+                    patch.object(lab_worker, "async_write_frame", delayed_send),
+                ):
                     response = await service.reply(self.sweep_request("handoff", [2, 3], [4], 1))
                     self.assertEqual(response.WhichOneof("result"), "start_sweep", response.error)
                     try:
@@ -1664,6 +1675,7 @@ class BacktestService(BacktestCase):
                         release.set()
                         await service.pump()
                     await self.idle(service)
+                self.assertEqual(spawn_calls, 1)
                 self.assertTrue(reply.active)
                 self.assertEqual([run.state for run in reply.runs],
                                  [SUCCEEDED, RunState.RUN_STATE_UNSPECIFIED])

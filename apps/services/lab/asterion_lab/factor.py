@@ -693,7 +693,7 @@ def settings_of(request, defaults: dict) -> dict:
     return settings
 
 
-def run(directory: Path, admitted, reply):
+def run(directory: Path, admitted, reply, *, cache: dict | None = None):
     """Evaluates an AdmittedFactor into a FactorResult."""
     request = admitted.evaluation
     if not request.horizons or any(h < 1 for h in request.horizons) \
@@ -719,14 +719,27 @@ def run(directory: Path, admitted, reply):
         verify_factor_causality(c_fn, c_inputs, c_settings, item.factor)
         controls.append((item.factor, c_fn, c_inputs, c_settings))
     minutes = period_minutes(request.period)
-    data = Data(Dataset(directory), request.first_day, request.last_day,
-                version=admitted.pinned.dataset_version)
-    prepared = {}
-    symbols, skipped = symbols_of(data, list(request.symbols), prepared, minutes=minutes)
-    if not symbols:
-        kind = f"{minutes}m" if minutes else "daily"
-        raise ValueError(f"no symbol has {kind} bars in the range")
-    symbol_bars = {symbol: bars(data, symbol, prepared[symbol], minutes=minutes) for symbol in symbols}
+    cache_key = (
+        admitted.pinned.dataset_version,
+        request.first_day,
+        request.last_day,
+        tuple(request.symbols),
+        minutes,
+    )
+    if cache is not None and cache.get("key") == cache_key:
+        symbols, skipped, symbol_bars = cache["value"]
+    else:
+        data = Data(Dataset(directory), request.first_day, request.last_day,
+                    version=admitted.pinned.dataset_version)
+        prepared = {}
+        symbols, skipped = symbols_of(data, list(request.symbols), prepared, minutes=minutes)
+        if not symbols:
+            kind = f"{minutes}m" if minutes else "daily"
+            raise ValueError(f"no symbol has {kind} bars in the range")
+        symbol_bars = {symbol: bars(data, symbol, prepared[symbol], minutes=minutes) for symbol in symbols}
+        if cache is not None:
+            cache["key"] = cache_key
+            cache["value"] = (symbols, skipped, symbol_bars)
     primary = filter_liquidity(
         values(function, inputs, settings, symbol_bars),
         request.min_volume,
@@ -818,10 +831,26 @@ def run(directory: Path, admitted, reply):
 
 def main():
     from asterion.lab_pb2 import AdmittedFactor, FactorResult
+    from asterion_lab import worker
 
     # What factor code prints goes to standard error; standard output carries the reply.
     output = os.fdopen(os.dup(1), "wb")
     os.dup2(2, 1)
+    if len(sys.argv) >= 3 and sys.argv[1] == "--worker":
+        directory = Path(sys.argv[2])
+        cache: dict = {}
+        current_source: str | None = None
+        while (payload := worker.read_frame(sys.stdin.buffer)) is not None:
+            request, reply = AdmittedFactor(), FactorResult()
+            request.ParseFromString(payload)
+            try:
+                current_source = worker.switch_source(current_source, request.source)
+                run(directory, request, reply, cache=cache)
+                worker.write_frame(output, b"\x00" + reply.SerializeToString())
+            except Exception as error:
+                print(error, file=sys.stderr, flush=True)
+                worker.write_frame(output, b"\x01" + str(error).encode())
+        return
     request, reply = AdmittedFactor(), FactorResult()
     request.ParseFromString(sys.stdin.buffer.read())
     try:
