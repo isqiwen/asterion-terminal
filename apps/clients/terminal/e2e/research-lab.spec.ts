@@ -119,7 +119,7 @@ test(
     await expect(decay.locator("tbody tr")).toHaveCount(6, { timeout: 30000 });
     await expect(decay.locator("tbody tr").first()).toContainText("1 根");
     await expect(page.getByRole("table", { name: "分组" }).locator("tbody tr")).toHaveCount(3);
-    await expect(page.getByText(/3 个品种/)).toBeVisible();
+    await expect(page.locator(".lab-result").getByText(/3 个品种/)).toBeVisible();
     await page.screenshot({ path: join(__dirname, "../test-results/research-lab-factor.png") });
     // The evaluation is kept under the factor's settings and reopens from there.
     await page.locator(".lab-page-head").getByRole("button", { name: "代码", exact: true }).click();

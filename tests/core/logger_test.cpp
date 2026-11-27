@@ -1,5 +1,5 @@
-#include <asterion/base/time.hpp>
 #include <asterion/system/log.hpp>
+#include <asterion/system/process/child.hpp>
 #include <asterion/system/process/owner.hpp>
 #include <asterion/system/trace.hpp>
 #include <gtest/gtest.h>
@@ -51,8 +51,7 @@ struct Installation : testing::Test
         return "accepted";
     }
 
-    fs::path root = fs::temp_directory_path()
-        / ("asterion-log-test-" + std::to_string(SystemClock{}.monotonic_now()));
+    fs::path root = fs::temp_directory_path() / ("asterion-log-test-" + unique_process_id());
 };
 
 std::string today()

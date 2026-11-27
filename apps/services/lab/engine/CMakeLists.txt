@@ -9,6 +9,8 @@ set(PYBIND11_FINDPYTHON ON)
 find_package(Python 3.12 EXACT REQUIRED COMPONENTS Interpreter Development.Module)
 find_package(pybind11 CONFIG REQUIRED)
 pybind11_add_module(asterion_engine engine.cpp operators.cpp)
+# Match Python's separately rounded arithmetic in recursive filters.
+set_source_files_properties(operators.cpp PROPERTIES COMPILE_OPTIONS -ffp-contract=off)
 target_link_libraries(asterion_engine PRIVATE Asterion::Futures)
 set_target_properties(asterion_engine PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/engine-python")
 asterion_target_defaults(asterion_engine)
