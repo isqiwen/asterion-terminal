@@ -820,8 +820,8 @@ export function FactorLab(context: TerminalContext) {
                       : evaluations;
                   return (
                     <Section title={t("评价记录（{count}）", { count: evaluations.length })} open>
-                      <div className="lab-evaluations-bar">
-                        {hasOtherScope && (
+                      {hasOtherScope && (
+                        <div className="lab-evaluations-bar">
                           <label className="lab-inline lab-check-inline">
                             <input
                               type="checkbox"
@@ -830,20 +830,8 @@ export function FactorLab(context: TerminalContext) {
                             />
                             <span>{t("仅当前条件")}</span>
                           </label>
-                        )}
-                        <span className="lab-spacer" />
-                        <button
-                          type="button"
-                          className="lab-link"
-                          onClick={() => {
-                            setRecordsSearch(factor.id);
-                            setLibraryTab("records");
-                            openLibrary();
-                          }}
-                        >
-                          {t("管理")}
-                        </button>
-                      </div>
+                        </div>
+                      )}
                       <ul className="lab-evaluations" aria-label={t("评价记录")}>
                         {shownEvaluations.map(item => {
                           const ic = item.horizons[0]?.mean;
