@@ -15,6 +15,8 @@ def ts_mean(values, window: int) -> np.ndarray:
     if type(window) is not int or window < 1:
         raise ValueError("window must be a positive integer")
     arr = np.asarray(values, dtype=float)
+    if _engine is not None and arr.ndim == 1:
+        return _engine.ts_mean(arr, window)
     out = np.full(len(arr), np.nan)
     if len(arr) < window:
         return out
@@ -30,6 +32,8 @@ def ts_std(values, window: int, ddof: int = 1) -> np.ndarray:
     if type(window) is not int or type(ddof) is not int or ddof < 0 or window <= ddof:
         raise ValueError("window must be an integer greater than ddof")
     arr = np.asarray(values, dtype=float)
+    if _engine is not None and arr.ndim == 1:
+        return _engine.ts_std(arr, window, ddof)
     out = np.full(len(arr), np.nan)
     if len(arr) < window:
         return out
@@ -71,6 +75,8 @@ def ts_rank(values, window: int) -> np.ndarray:
     if type(window) is not int or window < 1:
         raise ValueError("window must be a positive integer")
     arr = np.asarray(values, dtype=float)
+    if _engine is not None and arr.ndim == 1:
+        return _engine.ts_rank(arr, window)
     out = np.full(len(arr), np.nan)
     if len(arr) < window:
         return out
@@ -86,20 +92,23 @@ def ts_rank(values, window: int) -> np.ndarray:
     return out
 
 
-def ts_zscore(values, window: int) -> np.ndarray:
+def ts_zscore(values, window: int, ddof: int = 1) -> np.ndarray:
     """Strictly causal trailing z-score `(x - mean) / std` over `window` bars."""
-    if type(window) is not int or window < 2:
-        raise ValueError("window must be an integer of at least 2")
+    if type(window) is not int or type(ddof) is not int or ddof < 0 or window < max(2, ddof + 1):
+        raise ValueError("window must be an integer of at least 2 and greater than ddof")
     arr = np.asarray(values, dtype=float)
+    if _engine is not None and arr.ndim == 1:
+        return _engine.ts_zscore(arr, window, ddof)
     out = np.full(len(arr), np.nan)
     if len(arr) < window:
         return out
     win = np.lib.stride_tricks.sliding_window_view(arr, window)
     valid = np.all(np.isfinite(win), axis=1)
     safe = np.where(valid[:, None], win, 0.0)
-    mu = np.mean(safe, axis=1)
-    sigma = np.std(safe, axis=1, ddof=1)
-    z = np.divide(safe[:, -1] - mu, sigma, out=np.zeros(len(win), dtype=float), where=sigma > 0)
+    shifted = safe - safe[:, :1]
+    mu = np.mean(shifted, axis=1)
+    sigma = np.std(shifted, axis=1, ddof=ddof)
+    z = np.divide(shifted[:, -1] - mu, sigma, out=np.zeros(len(win), dtype=float), where=sigma > 0)
     out[window - 1 :] = np.where(valid, z, np.nan)
     return out
 
@@ -112,6 +121,8 @@ def ts_corr(x, y, window: int) -> np.ndarray:
     b = np.asarray(y, dtype=float)
     if a.ndim != 1 or a.shape != b.shape:
         raise ValueError("ts_corr inputs must be 1D arrays of equal length")
+    if _engine is not None:
+        return _engine.ts_corr(a, b, window)
     out = np.full(len(a), np.nan)
     if len(a) < window:
         return out
@@ -120,6 +131,8 @@ def ts_corr(x, y, window: int) -> np.ndarray:
     valid = np.all(np.isfinite(wa), axis=1) & np.all(np.isfinite(wb), axis=1)
     sa = np.where(valid[:, None], wa, 0.0)
     sb = np.where(valid[:, None], wb, 0.0)
+    sa = sa - sa[:, :1]
+    sb = sb - sb[:, :1]
     da = sa - np.mean(sa, axis=1, keepdims=True)
     db = sb - np.mean(sb, axis=1, keepdims=True)
     denom = np.sqrt(np.sum(da * da, axis=1) * np.sum(db * db, axis=1))
@@ -133,6 +146,8 @@ def decay_linear(values, window: int) -> np.ndarray:
     if type(window) is not int or window < 1:
         raise ValueError("window must be a positive integer")
     arr = np.asarray(values, dtype=float)
+    if _engine is not None and arr.ndim == 1:
+        return _engine.decay_linear(arr, window)
     out = np.full(len(arr), np.nan)
     if len(arr) < window:
         return out
@@ -142,6 +157,31 @@ def decay_linear(values, window: int) -> np.ndarray:
     valid = np.all(np.isfinite(win), axis=1)
     safe = np.where(valid[:, None], win, 0.0)
     out[window - 1 :] = np.where(valid, safe @ weights, np.nan)
+    return out
+
+
+def ts_expected_shortfall(values, window: int, tail: float = 0.05) -> np.ndarray:
+    """Strictly causal negative mean of the worst `ceil(window * tail)` observations in `window` bars."""
+    if type(window) is not int or window < 1:
+        raise ValueError("window must be a positive integer")
+    if (
+        not isinstance(tail, numbers.Real)
+        or isinstance(tail, bool)
+        or not math.isfinite(tail)
+        or not (0.0 < float(tail) <= 1.0)
+    ):
+        raise ValueError("tail must be in (0, 1]")
+    count = int(np.ceil(window * float(tail)))
+    arr = np.asarray(values, dtype=float)
+    if _engine is not None and arr.ndim == 1:
+        return _engine.ts_expected_shortfall(arr, window, count)
+    out = np.full(len(arr), np.nan)
+    if len(arr) < window:
+        return out
+    win = np.lib.stride_tricks.sliding_window_view(arr, window)
+    valid = np.all(np.isfinite(win), axis=1)
+    safe = np.where(valid[:, None], win, 0.0)
+    out[window - 1 :] = np.where(valid, -np.sort(safe, axis=1)[:, :count].mean(axis=1), np.nan)
     return out
 
 
@@ -217,6 +257,8 @@ def _rolling_ols(y, x, window: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]
     ax = np.asarray(x, dtype=float)
     if ay.ndim != 1 or ay.shape != ax.shape:
         raise ValueError("rolling OLS inputs must be 1D arrays of equal length")
+    if _engine is not None:
+        return _engine.rolling_ols(ay, ax, window)
     n = len(ay)
     beta_out = np.full(n, np.nan)
     resid_out = np.full(n, np.nan)
@@ -228,6 +270,8 @@ def _rolling_ols(y, x, window: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]
     valid = np.all(np.isfinite(wy), axis=1) & np.all(np.isfinite(wx), axis=1)
     sy = np.where(valid[:, None], wy, 0.0)
     sx = np.where(valid[:, None], wx, 0.0)
+    sy = sy - sy[:, :1]
+    sx = sx - sx[:, :1]
     my = np.mean(sy, axis=1)
     mx = np.mean(sx, axis=1)
     dy = sy - my[:, None]
@@ -237,8 +281,7 @@ def _rolling_ols(y, x, window: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]
     sxy = np.sum(dx * dy, axis=1)
     ok_x = valid & (sxx > 1e-24)
     beta = np.divide(sxy, sxx, out=np.full(len(wy), np.nan), where=ok_x)
-    alpha = my - beta * mx
-    resid = sy[:, -1] - (alpha + beta * sx[:, -1])
+    resid = (sy[:, -1] - my) - beta * (sx[:, -1] - mx)
     ok_r2 = ok_x & (syy > 1e-24)
     r2 = np.divide(sxy * sxy, sxx * syy, out=np.full(len(wy), np.nan), where=ok_r2)
     beta_out[window - 1 :] = np.where(ok_x, beta, np.nan)
@@ -421,6 +464,8 @@ def ts_autocorr(values, window: int, lag: int = 1) -> np.ndarray:
     if type(window) is not int or type(lag) is not int or lag < 1 or window < lag + 2:
         raise ValueError("ts_autocorr requires lag >= 1 and window >= lag + 2")
     arr = np.asarray(values, dtype=float)
+    if _engine is not None and arr.ndim == 1:
+        return _engine.ts_autocorr(arr, window, lag)
     out = np.full(len(arr), np.nan)
     if len(arr) < window:
         return out
@@ -428,6 +473,8 @@ def ts_autocorr(values, window: int, lag: int = 1) -> np.ndarray:
     valid = np.all(np.isfinite(win), axis=1)
     safe = np.where(valid[:, None], win, 0.0)
     a, b = safe[:, :-lag], safe[:, lag:]
+    a = a - a[:, :1]
+    b = b - b[:, :1]
     da = a - np.mean(a, axis=1, keepdims=True)
     db = b - np.mean(b, axis=1, keepdims=True)
     denom = np.sqrt(np.sum(da * da, axis=1) * np.sum(db * db, axis=1))
@@ -441,13 +488,16 @@ def ts_skew(values, window: int) -> np.ndarray:
     if type(window) is not int or window < 3:
         raise ValueError("ts_skew requires window >= 3")
     arr = np.asarray(values, dtype=float)
+    if _engine is not None and arr.ndim == 1:
+        return _engine.ts_skew(arr, window)
     out = np.full(len(arr), np.nan)
     if len(arr) < window:
         return out
     win = np.lib.stride_tricks.sliding_window_view(arr, window)
     valid = np.all(np.isfinite(win), axis=1)
     safe = np.where(valid[:, None], win, 0.0)
-    centered = safe - np.mean(safe, axis=1, keepdims=True)
+    shifted = safe - safe[:, :1]
+    centered = shifted - np.mean(shifted, axis=1, keepdims=True)
     m2 = np.mean(centered * centered, axis=1)
     m3 = np.mean(centered**3, axis=1)
     ok = valid & (m2 > 1e-24)
@@ -461,13 +511,16 @@ def ts_kurt(values, window: int) -> np.ndarray:
     if type(window) is not int or window < 4:
         raise ValueError("ts_kurt requires window >= 4")
     arr = np.asarray(values, dtype=float)
+    if _engine is not None and arr.ndim == 1:
+        return _engine.ts_kurt(arr, window)
     out = np.full(len(arr), np.nan)
     if len(arr) < window:
         return out
     win = np.lib.stride_tricks.sliding_window_view(arr, window)
     valid = np.all(np.isfinite(win), axis=1)
     safe = np.where(valid[:, None], win, 0.0)
-    centered = safe - np.mean(safe, axis=1, keepdims=True)
+    shifted = safe - safe[:, :1]
+    centered = shifted - np.mean(shifted, axis=1, keepdims=True)
     m2 = np.mean(centered * centered, axis=1)
     m4 = np.mean(centered**4, axis=1)
     ok = valid & (m2 > 1e-24)
@@ -496,7 +549,10 @@ def ts_variance_ratio(close, window: int, q: int = 5) -> np.ndarray:
     """
     if type(window) is not int or type(q) is not int or not (2 <= q < window):
         raise ValueError("ts_variance_ratio requires 2 <= q < window")
-    log_p = _positive_log(close)
+    arr = np.asarray(close, dtype=float)
+    if _engine is not None and arr.ndim == 1:
+        return _engine.ts_variance_ratio(arr, window, q)
+    log_p = _positive_log(arr)
     out = np.full(len(log_p), np.nan)
     if len(log_p) <= window:
         return out
@@ -504,7 +560,8 @@ def ts_variance_ratio(close, window: int, q: int = 5) -> np.ndarray:
     win = np.lib.stride_tricks.sliding_window_view(rets, window)
     valid = np.all(np.isfinite(win), axis=1)
     safe = np.where(valid[:, None], win, 0.0)
-    centered = safe - np.mean(safe, axis=1, keepdims=True)
+    shifted = safe - safe[:, :1]
+    centered = shifted - np.mean(shifted, axis=1, keepdims=True)
     var1 = np.sum(centered * centered, axis=1) / float(window - 1)
     sums = np.lib.stride_tricks.sliding_window_view(centered, q, axis=1).sum(axis=2)
     denom_q = float(q) * float(window - q + 1) * (1.0 - float(q) / float(window))
@@ -535,13 +592,16 @@ def ts_hurst(close, window: int = 100, max_lag: int = 20) -> np.ndarray:
     """
     if type(window) is not int or type(max_lag) is not int or window < 8 or max_lag < 3:
         raise ValueError("ts_hurst requires window >= 8 and max_lag >= 3")
-    log_p = _positive_log(close)
-    out = np.full(len(log_p), np.nan)
-    if len(log_p) < window:
-        return out
     upper = min(max_lag, window // 2)
     if upper < 3:
         raise ValueError("ts_hurst requires min(max_lag, window // 2) >= 3")
+    arr = np.asarray(close, dtype=float)
+    if _engine is not None and arr.ndim == 1:
+        return _engine.ts_hurst(arr, window, max_lag)
+    log_p = _positive_log(arr)
+    out = np.full(len(log_p), np.nan)
+    if len(log_p) < window:
+        return out
     win = np.lib.stride_tricks.sliding_window_view(log_p, window)
     valid = np.all(np.isfinite(win), axis=1)
     safe = np.where(valid[:, None], win, 0.0)
@@ -730,6 +790,8 @@ def ts_vwap_dev(close, volume, window: int) -> np.ndarray:
     av = np.asarray(volume, dtype=float)
     if ac.ndim != 1 or ac.shape != av.shape:
         raise ValueError("ts_vwap_dev inputs must be 1D arrays of equal length")
+    if _engine is not None:
+        return _engine.ts_vwap_dev(ac, av, window)
     out = np.full(len(ac), np.nan)
     if len(ac) < window:
         return out

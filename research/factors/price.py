@@ -4,7 +4,11 @@ import numpy as np
 from asterion_strategy import (
     ou_half_life as _ou_half_life,
     scale_invariant as _scale_invariant,
+    ts_autocorr as _ts_autocorr,
     ts_hurst as _ts_hurst,
+    ts_mean as _ts_mean,
+    ts_std as _ts_std,
+    ts_variance_ratio as _ts_variance_ratio,
 )
 
 from factors._rolling import apply as _apply, log as _log, ratio as _ratio, returns as _returns
@@ -31,7 +35,7 @@ def volatility(close, window: int = 20):
     """Standard deviation of the last `window` one-bar returns."""
     if window < 2:
         raise ValueError("window is at least two bars")
-    return _apply(_returns(close), window, lambda x: x.std(axis=1, ddof=1), 2)
+    return _ts_std(_returns(close), window, ddof=1)
 
 
 # Jegadeesh & Titman (1993), "Returns to Buying Winners and Selling Losers", JF 48(1), 65-91: https://doi.org/10.1111/j.1540-6261.1993.tb04702.x
@@ -63,9 +67,11 @@ def distance_to_high(close, window: int = 252):
 @_scale_invariant
 def momentum_strength(close, window: int = 60):
     """Mean simple return / standard error (a return t-statistic); needs window + 1 bars."""
+    if window < 2:
+        raise ValueError("window must be at least 2")
     changes = _returns(close)
-    mean = _apply(changes, window, lambda x: x.mean(axis=1), 2)
-    error = _apply(changes, window, lambda x: x.std(axis=1, ddof=1), 2) / np.sqrt(window)
+    mean = _ts_mean(changes, window)
+    error = _ts_std(changes, window, ddof=1) / np.sqrt(window)
     return _ratio(mean, error)
 
 
@@ -114,7 +120,7 @@ def intraday_return(open, close, window: int = 20):
 @_scale_invariant
 def information_discreteness(close, window: int = 126):
     """Return sign times (negative fraction - positive fraction); needs window + 1 bars."""
-    balance = _apply(_returns(close), window, lambda x: ((x < 0).sum(axis=1) - (x > 0).sum(axis=1)) / window)
+    balance = _ts_mean(-np.sign(_returns(close)), window)
     cumulative = np.full(len(close), np.nan)
     cumulative[window:] = _ratio(close[window:], close[:-window]) - 1
     return np.sign(cumulative) * balance
@@ -125,13 +131,7 @@ def return_autocorrelation(close, window: int = 20, lag: int = 1):
     """Pearson correlation of lagged simple returns inside the window; needs window + 1 bars."""
     if not 1 <= lag <= window - 2:
         raise ValueError("autocorrelation needs 1 <= lag <= window - 2")
-    def correlation(x):
-        first, second = x[:, :-lag], x[:, lag:]
-        first = first - first.mean(axis=1, keepdims=True)
-        second = second - second.mean(axis=1, keepdims=True)
-        return _ratio((first * second).sum(axis=1),
-                      np.sqrt((first * first).sum(axis=1) * (second * second).sum(axis=1)))
-    return _apply(_returns(close), window, correlation)
+    return _ts_autocorr(_returns(close), window, lag)
 
 
 # Lo & MacKinlay (1988), "Stock Market Prices Do Not Follow Random Walks: Evidence from a Simple Specification Test", Eqs. (12)-(13): https://doi.org/10.1093/rfs/1.1.41
@@ -141,12 +141,7 @@ def variance_ratio(close, window: int = 20, lag: int = 2):
     """Lo-MacKinlay variance ratio at lag q; needs window + 1 bars; constant returns are missing."""
     if not 2 <= lag < window:
         raise ValueError("variance ratio needs 2 <= lag < window")
-    def estimate(x):
-        centered = x - x.mean(axis=1, keepdims=True)
-        sums = np.lib.stride_tricks.sliding_window_view(centered, lag, axis=1).sum(axis=2)
-        long_variance = (sums * sums).sum(axis=1) / (lag * (window - lag + 1) * (1 - lag / window))
-        return _ratio(long_variance, (centered * centered).sum(axis=1) / (window - 1))
-    return _apply(np.diff(_log(close), prepend=np.nan), window, estimate)
+    return _ts_variance_ratio(close, window, lag)
 
 
 # Hurst (1951), "Long-Term Storage Capacity of Reservoirs", Trans. ASCE 116, 770-799: https://doi.org/10.1061/TACEAT.0006518
@@ -175,6 +170,6 @@ def blended_momentum(close, fast: int = 21, slow: int = 252, fast_share: float =
         raise ValueError("blend needs 0 < fast < slow and fast_share in [0, 1]")
     changes = _returns(close)
     def signal(window):
-        mean = _apply(changes, window, lambda x: x.mean(axis=1))
+        mean = _ts_mean(changes, window)
         return np.where(np.isfinite(mean), np.where(mean >= 0, 1.0, -1.0), np.nan)
     return (1 - fast_share) * signal(slow) + fast_share * signal(fast)

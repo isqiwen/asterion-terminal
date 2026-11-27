@@ -1,7 +1,11 @@
 """Finite-window trend and oscillator signals; windows count completed bars."""
 import numpy as np
 
-from asterion_strategy import scale_invariant as _scale_invariant
+from asterion_strategy import (
+    scale_invariant as _scale_invariant,
+    ts_mean as _ts_mean,
+    ts_zscore as _ts_zscore,
+)
 
 from factors._rolling import apply as _apply, log as _log, ratio as _ratio
 
@@ -11,17 +15,13 @@ def moving_average_gap(close, fast: int = 5, slow: int = 20):
     """Fast simple moving average / slow simple moving average - 1; needs slow bars."""
     if not 0 < fast < slow:
         raise ValueError("moving averages need 0 < fast < slow")
-    return _ratio(_apply(close, fast, lambda x: x.mean(axis=1)),
-                  _apply(close, slow, lambda x: x.mean(axis=1))) - 1
+    return _ratio(_ts_mean(close, fast), _ts_mean(close, slow)) - 1
 
 
 @_scale_invariant
 def price_zscore(close, window: int = 20):
     """Close minus trailing mean, divided by population standard deviation; needs window bars."""
-    def score(x):
-        shifted = x - x[:, :1]
-        return _ratio(shifted[:, -1] - shifted.mean(axis=1), shifted.std(axis=1), neutral=0.0)
-    return _apply(close, window, score, 2)
+    return _ts_zscore(close, window, ddof=0)
 
 
 # Wilder (1978), "New Concepts in Technical Trading Systems", Section VI (RSI).
@@ -30,8 +30,8 @@ def price_zscore(close, window: int = 20):
 def rsi(close, window: int = 14):
     """Cutler RSI (simple sums, 0..100); flat windows are 50; needs window + 1 bars."""
     changes = np.diff(close, prepend=np.nan)
-    gains = _apply(np.maximum(changes, 0), window, lambda x: x.sum(axis=1))
-    moves = _apply(np.abs(changes), window, lambda x: x.sum(axis=1))
+    gains = _ts_mean(np.maximum(changes, 0), window)
+    moves = _ts_mean(np.abs(changes), window)
     return 100 * _ratio(gains, moves, neutral=0.5)
 
 
@@ -64,7 +64,7 @@ def efficiency_ratio(close, window: int = 20):
         raise ValueError("window must be at least one")
     distance = np.full(len(close), np.nan)
     distance[window:] = np.abs(close[window:] - close[:-window])
-    travelled = _apply(np.abs(np.diff(close, prepend=np.nan)), window, lambda x: x.sum(axis=1))
+    travelled = window * _ts_mean(np.abs(np.diff(close, prepend=np.nan)), window)
     return _ratio(distance, travelled, neutral=0.0)
 
 
@@ -85,7 +85,7 @@ def average_true_range(high, low, close, window: int = 14):
     ranges[1:] = np.maximum(high[1:] - low[1:],
                             np.maximum(np.abs(high[1:] - close[:-1]),
                                        np.abs(low[1:] - close[:-1])))
-    return _apply(ranges, window, lambda x: x.mean(axis=1))
+    return _ts_mean(ranges, window)
 
 
 # Lambert (1980), "Commodity Channel Index: Tool for Trading Cyclic Trends", Commodities Magazine 9(10), 40-41.

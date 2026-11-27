@@ -2,11 +2,15 @@
 
 Run with the bundled interpreter: python3 -I -B engine_test.py <engine-directory>
 """
+from pathlib import Path
 import sys
 import unittest
 
-sys.path[:0] = [sys.argv.pop(1)]
+ROOT = Path(__file__).resolve().parents[2]
+sys.path[:0] = [sys.argv.pop(1), str(ROOT / "apps/services/common/python")]
 import asterion_engine  # noqa: E402
+import numpy as np  # noqa: E402
+from asterion_strategy import operators as op  # noqa: E402
 
 R = 10 ** 8
 DAY_NS = 86400 * 10 ** 9
@@ -116,6 +120,106 @@ class Engine(unittest.TestCase):
                 asterion_engine.Replay(R, [broken], [], (R, R, 1, R))
         with self.assertRaises(ValueError):
             asterion_engine.Replay(R, [item], [], (R, R, 1))
+
+    def test_cpp_operators_match_python_fallback_with_nans_constants_and_spikes(self):
+        self.assertIs(op._engine, asterion_engine)
+        rng = np.random.default_rng(20261126)
+        n = 140
+        rets = rng.normal(0.0004, 0.015, n)
+        close = 100.0 * np.exp(np.cumsum(rets))
+        other = close * np.exp(rng.normal(0.0, 0.01, n))
+        volume = rng.uniform(50.0, 5000.0, n)
+
+        # Inject NaNs, Inf, a zero-volume stretch, a constant stretch, and a huge outlier spike.
+        x = close.copy()
+        y = other.copy()
+        v = volume.copy()
+        x[12] = np.nan
+        x[45] = np.inf
+        y[30] = np.nan
+        v[20:26] = 0.0
+        v[50] = np.nan
+        x[60:72] = 100000.1
+        y[60:72] = 200000.2
+        x[80] = 1e9  # Spike must leave zero subtraction drift once it exits the window.
+
+        cases = [
+            ("ts_mean_1", lambda: op.ts_mean(x, 1)),
+            ("ts_mean_11", lambda: op.ts_mean(x, 11)),
+            ("ts_std_ddof1", lambda: op.ts_std(x, 11, ddof=1)),
+            ("ts_std_ddof0", lambda: op.ts_std(x, 11, ddof=0)),
+            ("ts_zscore_ddof1", lambda: op.ts_zscore(x, 11, ddof=1)),
+            ("ts_zscore_ddof0", lambda: op.ts_zscore(x, 11, ddof=0)),
+            ("ts_rank_1", lambda: op.ts_rank(x, 1)),
+            ("ts_rank_9", lambda: op.ts_rank(x, 9)),
+            ("ts_corr", lambda: op.ts_corr(x, y, 11)),
+            ("decay_linear_1", lambda: op.decay_linear(x, 1)),
+            ("decay_linear_11", lambda: op.decay_linear(x, 11)),
+            ("ts_ols_beta", lambda: op.ts_ols_beta(y, x, 11)),
+            ("ts_ols_resid", lambda: op.ts_ols_resid(y, x, 11)),
+            ("ts_ols_r2", lambda: op.ts_ols_r2(y, x, 11)),
+            ("ou_half_life", lambda: op.ou_half_life(np.log(close), 20)),
+            ("ts_autocorr_lag1", lambda: op.ts_autocorr(x, 11, lag=1)),
+            ("ts_autocorr_large_lag", lambda: op.ts_autocorr(x, 7, lag=4)),
+            ("ts_skew", lambda: op.ts_skew(x, 11)),
+            ("ts_kurt", lambda: op.ts_kurt(x, 11)),
+            ("ts_variance_ratio", lambda: op.ts_variance_ratio(x, 15, q=4)),
+            ("ts_hurst", lambda: op.ts_hurst(x, window=24, max_lag=8)),
+            ("ts_vwap_dev", lambda: op.ts_vwap_dev(x, v, 11)),
+            ("ts_expected_shortfall_partial", lambda: op.ts_expected_shortfall(x, 11, tail=0.25)),
+            ("ts_expected_shortfall_full", lambda: op.ts_expected_shortfall(x, 11, tail=1.0)),
+            ("ts_ema", lambda: op.ts_ema(x, 10)),
+            ("ts_ewma_vol", lambda: op.ts_ewma_vol(x, 10)),
+            ("kalman_filter", lambda: op.kalman_filter(x)),
+            ("kalman_hedge_beta", lambda: op.kalman_hedge(y, x)[0]),
+            ("kalman_hedge_intercept", lambda: op.kalman_hedge(y, x)[1]),
+            ("kalman_hedge_spread", lambda: op.kalman_hedge(y, x)[2]),
+        ]
+
+        for label, call in cases:
+            with self.subTest(operator=label):
+                cpp_out = call()
+                saved = op._engine
+                try:
+                    op._engine = None
+                    py_out = call()
+                finally:
+                    op._engine = saved
+                np.testing.assert_allclose(cpp_out, py_out, rtol=1e-9, atol=1e-10, equal_nan=True)
+                # After the 1e9 spike exits every rolling window, verify zero subtraction drift.
+                if label not in ("ts_ema", "ts_ewma_vol", "kalman_filter",
+                                 "kalman_hedge_beta", "kalman_hedge_intercept", "kalman_hedge_spread"):
+                    np.testing.assert_allclose(
+                        cpp_out[110:], py_out[110:], rtol=1e-11, atol=1e-12, equal_nan=True
+                    )
+
+        # Short-input edge lengths (0, 1, 3) never crash and match fallback.
+        for short in (0, 1, 3):
+            sx, sy, sv = close[:short], other[:short], volume[:short]
+            for fn in (
+                lambda: op.ts_mean(sx, 5),
+                lambda: op.ts_std(sx, 5),
+                lambda: op.ts_zscore(sx, 5),
+                lambda: op.ts_rank(sx, 5),
+                lambda: op.ts_corr(sx, sy, 5),
+                lambda: op.decay_linear(sx, 5),
+                lambda: op.ts_ols_beta(sy, sx, 5),
+                lambda: op.ts_autocorr(sx, 5, lag=1),
+                lambda: op.ts_skew(sx, 5),
+                lambda: op.ts_kurt(sx, 5),
+                lambda: op.ts_variance_ratio(sx, 5, q=2),
+                lambda: op.ts_hurst(sx, window=8, max_lag=3),
+                lambda: op.ts_vwap_dev(sx, sv, 5),
+                lambda: op.ts_expected_shortfall(sx, 5, tail=0.4),
+            ):
+                cpp_out = fn()
+                saved = op._engine
+                try:
+                    op._engine = None
+                    py_out = fn()
+                finally:
+                    op._engine = saved
+                np.testing.assert_allclose(cpp_out, py_out, equal_nan=True)
 
 
 if __name__ == "__main__":

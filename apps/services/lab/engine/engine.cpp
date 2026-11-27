@@ -1,5 +1,6 @@
 // asterion_engine: core's Replay for the lab's Python backtests. Amounts and
 // prices cross as the raw int64 of an eight-place Decimal, never as floats.
+#include "operators.hpp"
 #include <asterion/futures/intraday_bars.hpp>
 #include <asterion/futures/order_limits.hpp>
 #include <asterion/futures/performance.hpp>
@@ -1009,160 +1010,6 @@ py::tuple aggregate_minutes(
         to_arr(zero_vol_by_day));
 }
 
-py::array_t<double>
-ts_ema_cpp(const py::array_t<double, py::array::c_style | py::array::forcecast>& values, int span)
-{
-    const auto n = values.size();
-    py::array_t<double> out(n);
-    auto* dst = out.mutable_data();
-    const double nan = std::numeric_limits<double>::quiet_NaN();
-    std::fill_n(dst, n, nan);
-    const auto* src = values.data();
-    const double alpha = 2.0 / (static_cast<double>(span) + 1.0);
-    const double decay = 1.0 - alpha;
-    double ema = 0.0;
-    bool has_ema = false;
-    int seen = 0;
-    for (py::ssize_t i = 0; i < n; ++i) {
-        const double val = src[i];
-        if (!std::isfinite(val))
-            continue;
-        ema = has_ema ? (decay * ema + alpha * val) : val;
-        has_ema = true;
-        if (++seen >= span)
-            dst[i] = ema;
-    }
-    return out;
-}
-
-py::array_t<double> ts_ewma_vol_cpp(
-    const py::array_t<double, py::array::c_style | py::array::forcecast>& close,
-    int span,
-    double scale)
-{
-    const auto n = close.size();
-    py::array_t<double> out(n);
-    auto* dst = out.mutable_data();
-    const double nan = std::numeric_limits<double>::quiet_NaN();
-    std::fill_n(dst, n, nan);
-    if (n < 2)
-        return out;
-    const auto* src = close.data();
-    const double alpha = 2.0 / (static_cast<double>(span) + 1.0);
-    const double decay = 1.0 - alpha;
-    double var = 0.0;
-    bool has_var = false;
-    int seen = 0;
-    for (py::ssize_t i = 1; i < n; ++i) {
-        const double prev = src[i - 1];
-        const double cur = src[i];
-        if (!(std::isfinite(prev) && std::isfinite(cur) && prev > 0.0 && cur > 0.0))
-            continue;
-        const double r = std::log(cur / prev);
-        const double sq = r * r;
-        var = has_var ? (decay * var + alpha * sq) : sq;
-        has_var = true;
-        if (++seen >= span)
-            dst[i] = std::sqrt(var) * scale;
-    }
-    return out;
-}
-
-py::array_t<double> kalman_filter_cpp(
-    const py::array_t<double, py::array::c_style | py::array::forcecast>& values,
-    double q,
-    double r)
-{
-    const auto n = values.size();
-    py::array_t<double> out(n);
-    auto* dst = out.mutable_data();
-    const double nan = std::numeric_limits<double>::quiet_NaN();
-    std::fill_n(dst, n, nan);
-    const auto* src = values.data();
-    double x_hat = 0.0;
-    double p = r;
-    bool has_x = false;
-    for (py::ssize_t i = 0; i < n; ++i) {
-        const double z = src[i];
-        if (!std::isfinite(z)) {
-            if (has_x)
-                p += q;
-            continue;
-        }
-        if (!has_x) {
-            x_hat = z;
-            p = r;
-            has_x = true;
-        } else {
-            const double p_pred = p + q;
-            const double gain = p_pred / (p_pred + r);
-            x_hat += gain * (z - x_hat);
-            p = (1.0 - gain) * p_pred;
-        }
-        dst[i] = x_hat;
-    }
-    return out;
-}
-
-py::tuple kalman_hedge_cpp(
-    const py::array_t<double, py::array::c_style | py::array::forcecast>& y,
-    const py::array_t<double, py::array::c_style | py::array::forcecast>& x,
-    double q,
-    double r)
-{
-    const auto n = y.size();
-    py::array_t<double> beta_out(n), intercept_out(n), spread_out(n);
-    auto* bp = beta_out.mutable_data();
-    auto* ip = intercept_out.mutable_data();
-    auto* sp = spread_out.mutable_data();
-    const double nan = std::numeric_limits<double>::quiet_NaN();
-    std::fill_n(bp, n, nan);
-    std::fill_n(ip, n, nan);
-    std::fill_n(sp, n, nan);
-    const auto* yp = y.data();
-    const auto* xp = x.data();
-    double t0 = 0.0, t1 = 0.0;
-    double p00 = 1e6, p01 = 0.0, p11 = 1e6;
-    bool seen = false;
-    for (py::ssize_t i = 0; i < n; ++i) {
-        const double yt = yp[i];
-        const double xt = xp[i];
-        if (!(std::isfinite(yt) && std::isfinite(xt))) {
-            if (seen) {
-                p00 += q;
-                p11 += q;
-            }
-            continue;
-        }
-        const double p00_p = seen ? (p00 + q) : p00;
-        const double p01_p = p01;
-        const double p11_p = seen ? (p11 + q) : p11;
-        const double err = yt - (t0 * xt + t1);
-        if (seen)
-            sp[i] = err;
-        const double s_var = xt * (p00_p * xt + p01_p) + (p01_p * xt + p11_p) + r;
-        const double k0 = (p00_p * xt + p01_p) / s_var;
-        const double k1 = (p01_p * xt + p11_p) / s_var;
-        t0 += k0 * err;
-        t1 += k1 * err;
-        const double a00 = 1.0 - k0 * xt;
-        const double a01 = -k0;
-        const double a10 = -k1 * xt;
-        const double a11 = 1.0 - k1;
-        const double b00 = a00 * p00_p + a01 * p01_p;
-        const double b01 = a00 * p01_p + a01 * p11_p;
-        const double b10 = a10 * p00_p + a11 * p01_p;
-        const double b11 = a10 * p01_p + a11 * p11_p;
-        p00 = b00 * a00 + b01 * a01 + k0 * r * k0;
-        p01 = 0.5 * ((b00 * a10 + b01 * a11) + (b10 * a00 + b11 * a01)) + k0 * r * k1;
-        p11 = b10 * a10 + b11 * a11 + k1 * r * k1;
-        seen = true;
-        bp[i] = t0;
-        ip[i] = t1;
-    }
-    return py::make_tuple(beta_out, intercept_out, spread_out);
-}
-
 } // namespace
 } // namespace asterion
 
@@ -1174,10 +1021,7 @@ PYBIND11_MODULE(asterion_engine, module)
         return asterion::trading_sessions({venue, product});
     });
     module.def("aggregate_minutes", &asterion::aggregate_minutes);
-    module.def("ts_ema", &asterion::ts_ema_cpp);
-    module.def("ts_ewma_vol", &asterion::ts_ewma_vol_cpp);
-    module.def("kalman_filter", &asterion::kalman_filter_cpp);
-    module.def("kalman_hedge", &asterion::kalman_hedge_cpp);
+    asterion::register_operators(module);
     module.def(
         "performance",
         &asterion::statistics,
