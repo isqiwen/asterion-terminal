@@ -81,3 +81,28 @@ test("cross-field risk constraints surface inline errors and simulation preset f
     }),
   );
 });
+
+test("optional limits start collapsed when requested and expand once any optional value is set", () => {
+  vi.mocked(lab).mockRejectedValue(new Error("offline"));
+  const empty = {
+    max_order_quantity: "",
+    max_contract_quantity: "",
+    max_gross_quantity: "",
+    max_working_orders: "",
+    max_price_deviation: "",
+    max_daily_loss: "",
+    max_drawdown: "",
+    max_margin_ratio: "",
+    max_daily_cancels_per_contract: "",
+  };
+  const { container, rerender } = render(
+    <LimitFields limits={empty} change={vi.fn()} collapseOptional />,
+  );
+  const details = container.querySelector("details")!;
+  expect(details.open).toBe(false);
+  rerender(
+    <LimitFields limits={{ ...empty, max_margin_ratio: "35" }} change={vi.fn()} collapseOptional />,
+  );
+  expect(details.open).toBe(true);
+  expect(screen.getByText("已设 1 项")).toBeTruthy();
+});

@@ -18,7 +18,7 @@ export function ContractPicker({
   onAdd,
 }: {
   ariaLabel: string;
-  label: string;
+  label?: string;
   options: readonly ContractOption[];
   disabled?: boolean;
   maxReached?: boolean;
@@ -59,47 +59,56 @@ export function ContractPicker({
     setOpen(false);
   };
 
+  const input = (
+    <input
+      role="combobox"
+      aria-label={ariaLabel}
+      aria-expanded={open && filtered.length > 0}
+      aria-controls={listId}
+      aria-autocomplete="list"
+      spellCheck={false}
+      autoCorrect="off"
+      autoCapitalize="none"
+      placeholder={t("输入代码或中文品种名，如 SHFE.rb / 螺纹钢")}
+      value={query}
+      disabled={disabled}
+      onFocus={() => setOpen(true)}
+      onBlur={() => setOpen(false)}
+      onChange={event => {
+        setQuery(event.target.value);
+        setActiveIndex(0);
+        setOpen(true);
+      }}
+      onKeyDown={event => {
+        if (event.nativeEvent.isComposing) return;
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          setOpen(true);
+          setActiveIndex(current => Math.min(filtered.length - 1, current + 1));
+        } else if (event.key === "ArrowUp") {
+          event.preventDefault();
+          setActiveIndex(current => Math.max(0, current - 1));
+        } else if (event.key === "Escape") {
+          setOpen(false);
+        } else if (event.key === "Enter" && open && filtered[activeIndex]) {
+          event.preventDefault();
+          commit(filtered[activeIndex]!.id);
+        }
+      }}
+    />
+  );
+
   return (
     <div className="contract-picker">
       <div className="contract-picker-input">
-        <label>
-          {label}
-          <input
-            role="combobox"
-            aria-label={ariaLabel}
-            aria-expanded={open && filtered.length > 0}
-            aria-controls={listId}
-            aria-autocomplete="list"
-            spellCheck={false}
-            autoCorrect="off"
-            autoCapitalize="none"
-            placeholder={t("输入代码或中文品种名，如 SHFE.rb / 螺纹钢")}
-            value={query}
-            disabled={disabled}
-            onFocus={() => setOpen(true)}
-            onBlur={() => setOpen(false)}
-            onChange={event => {
-              setQuery(event.target.value);
-              setActiveIndex(0);
-              setOpen(true);
-            }}
-            onKeyDown={event => {
-              if (event.key === "ArrowDown") {
-                event.preventDefault();
-                setOpen(true);
-                setActiveIndex(current => Math.min(filtered.length - 1, current + 1));
-              } else if (event.key === "ArrowUp") {
-                event.preventDefault();
-                setActiveIndex(current => Math.max(0, current - 1));
-              } else if (event.key === "Escape") {
-                setOpen(false);
-              } else if (event.key === "Enter" && open && filtered[activeIndex]) {
-                event.preventDefault();
-                commit(filtered[activeIndex]!.id);
-              }
-            }}
-          />
-        </label>
+        {label ? (
+          <label>
+            {label}
+            {input}
+          </label>
+        ) : (
+          input
+        )}
         {open && !disabled && (trimmed || filtered.length > 0) && (
           <ul id={listId} role="listbox" className="contract-picker-menu">
             {filtered.length > 0 ? (

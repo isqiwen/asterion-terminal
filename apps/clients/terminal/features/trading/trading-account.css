@@ -229,32 +229,6 @@
   justify-content: space-between;
   gap: var(--space-2) var(--space-3);
 }
-.ctp-account-facts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-5);
-  margin: 0;
-  font-size: var(--font-size-body);
-}
-.ctp-account-facts div {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-}
-.ctp-account-facts dt {
-  color: var(--muted);
-  font-size: var(--font-size-aux);
-}
-.ctp-account-facts dd {
-  margin: 0;
-  color: var(--text-strong);
-}
-.ctp-account-facts dd code {
-  font-family: var(--font-terminal);
-  font-size: var(--font-size-body);
-  font-variant-numeric: tabular-nums;
-  color: var(--text-strong);
-}
 
 .ticket-capacity {
   margin: 0;
@@ -371,12 +345,14 @@
   align-items: safe center;
   gap: var(--space-2);
   width: fit-content;
+  min-width: 0;
   color: var(--muted);
   font-size: var(--font-size-aux);
   white-space: nowrap;
 }
 .limit-source select {
   width: auto;
+  min-width: 0;
   max-width: 220px;
 }
 .limit-field input:is(:user-invalid, [aria-invalid="true"]) {
@@ -396,13 +372,27 @@
   gap: var(--space-2);
   margin-top: var(--space-2);
 }
+.account-setup .contract-picker {
+  margin-top: 0;
+}
 .contract-picker-input {
   position: relative;
-  flex: 1 1 260px;
-  max-width: 380px;
+  display: block;
+  flex: 1 1 280px;
+  max-width: 460px;
+  min-width: 0;
+}
+.contract-picker-input > label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 100%;
+  min-width: 0;
 }
 .contract-picker-input input {
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 .contract-picker-menu {
   position: absolute;

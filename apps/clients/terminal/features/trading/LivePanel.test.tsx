@@ -228,13 +228,35 @@ test("a real-money order is sent only after its summary is confirmed", async () 
 });
 
 test("an account without a policy offers to open trading in the service's environment", async () => {
+  marketCatalog = create(CatalogSchema, {
+    status: { state: CatalogState.READY, tradingDay: "2026-11-27" },
+    contracts: [
+      {
+        instrument: { exchange: "SHFE", symbol: "rb2610" },
+        contract: "SHFE/rb/2026-10",
+        product: "rb",
+        name: "螺纹钢2610",
+        multiplier: 10,
+        priceTick: { text: "1" },
+      },
+    ],
+  });
   read = () =>
     create(ResponseSchema, {
       result: { case: "getAccount", value: create(AccountSchema, account) },
     });
   show("create");
   expect(await screen.findByText("开通交易：account-b")).toBeTruthy();
+  expect(screen.getByRole("status", { name: "CTP 账户" }).textContent).toContain("account-b");
   expect(screen.getAllByText("CTP 仿真").length).toBeGreaterThan(0);
+  expect(screen.getByText("已选 0 个合约")).toBeTruthy();
+  expect(screen.getByText("已填 0/5 项必填")).toBeTruthy();
+  const picker = screen.getByRole("combobox", { name: "添加合约" });
+  fireEvent.focus(picker);
+  fireEvent.mouseDown(await screen.findByRole("option", { name: /SHFE\.rb2610/ }));
+  fireEvent.click(screen.getByRole("button", { name: "填入轻仓仿真参考" }));
+  expect(screen.getByText("已选 1 个合约")).toBeTruthy();
+  expect(screen.getByText("已填 5/5 项必填")).toBeTruthy();
 });
 
 test("account setup surfaces catalog sync failures with a retry button", async () => {

@@ -1,31 +1,58 @@
 .flow-steps {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-5);
+  align-items: safe center;
+  gap: var(--space-2) var(--space-3);
   list-style: none;
   padding: 0;
-  margin: var(--space-5) 0;
+  margin: var(--space-3) 0;
 }
 .flow-steps li {
-  display: flex;
+  display: inline-flex;
   gap: var(--space-2);
-  align-items: center;
+  align-items: safe center;
   color: var(--muted);
   font-size: var(--font-size-body);
+  white-space: nowrap;
+}
+.flow-steps li:not(:last-child)::after {
+  content: "";
+  width: 18px;
+  height: 1px;
+  margin-left: var(--space-1);
+  background: var(--line-strong);
 }
 .flow-steps li span {
   border: 1px solid var(--line-strong);
   border-radius: 50%;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   display: grid;
   place-items: center;
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-aux);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 .flow-steps li[aria-current] {
-  color: var(--accent);
+  color: var(--text-strong);
+  font-weight: 500;
 }
 .flow-steps li[aria-current] span {
   border-color: var(--accent);
+  background: var(--accent-surface);
+  color: var(--accent);
+}
+.flow-steps li[data-done] {
+  color: var(--text);
+}
+.flow-steps li[data-done] span {
+  border-color: color-mix(in oklab, var(--success) 55%, transparent);
+  background: color-mix(in oklab, var(--success) 12%, transparent);
+  color: var(--success);
+}
+.flow-steps li[data-done]:not(:last-child)::after {
+  background: color-mix(in oklab, var(--success) 45%, var(--line-strong));
 }
 .workflow-heading {
   display: flex;
@@ -58,31 +85,74 @@
 }
 .account-setup,
 .ctp-account-panel > .account-setup {
-  width: min(960px, 100%);
+  width: min(920px, 100%);
   margin: 0 auto;
-  padding: var(--space-5) var(--space-page);
+  padding: clamp(20px, 4vh, 48px) var(--space-page) var(--space-5);
   border-bottom: 0;
 }
-.account-setup .workflow-heading {
-  margin-bottom: var(--space-3);
+.account-setup-head {
+  margin-bottom: var(--space-4);
+  padding: 0 0 var(--space-3);
+  border-bottom: 1px solid var(--line);
 }
-.account-setup .workflow-heading h2 {
+.account-setup-head[data-real] {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid color-mix(in oklab, var(--danger) 42%, var(--line));
+  border-left: 3px solid var(--danger);
+  border-radius: var(--panel-radius);
+  background: linear-gradient(90deg, var(--danger-surface), var(--panel) 65%);
+}
+.account-setup-head-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: safe center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+.account-setup-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: safe center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.account-setup-title h2,
+.ctp-account-panel .account-setup-title h2 {
   margin: 0;
   font-size: var(--font-size-xl);
   font-weight: 600;
   color: var(--text-strong);
-}
-.account-setup-meta {
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--line);
-  border-radius: var(--panel-radius);
-  background: var(--pane);
+  letter-spacing: -0.01em;
 }
 .account-setup .flow-steps {
-  margin: var(--space-4) 0;
+  margin: 0;
 }
-.account-setup details {
-  margin-block: var(--space-4);
+.account-setup-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-4);
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-aux);
+}
+.account-setup-facts > div {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.account-setup-facts dt {
+  color: var(--subtle);
+}
+.account-setup-facts dd {
+  margin: 0;
+  color: var(--text);
+}
+.account-setup-facts dd code {
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-aux);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
 }
 /* Trading: the accounts on the left; the chosen account is one panel whose
    sections share a gutter and are separated by hairlines. */
@@ -352,48 +422,74 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
-.account-setup .account-field-group {
-  margin: 0 0 var(--space-4);
-  padding: var(--space-4) var(--space-5);
+.account-setup-panel {
   border: 1px solid var(--line);
-  border-radius: var(--panel-radius);
+  border-radius: 6px;
   background: var(--panel);
   box-shadow: var(--surface-highlight);
+}
+.account-setup .account-field-group {
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.account-setup .account-field-group:last-child {
+  border-bottom: 0;
 }
 .account-setup .account-field-group > p {
   margin: 0;
 }
-.account-setup .dataset-list {
+.account-field-meta {
+  color: var(--muted);
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-aux);
+  font-variant-numeric: tabular-nums;
+}
+.setup-contract-chips {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-  margin-top: var(--space-3);
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
 }
-.account-setup .dataset-list li {
-  padding: 2px var(--space-2) 2px var(--space-3);
-  background: var(--pane);
-}
-.account-setup .dataset-list p {
+.setup-contract-chips li {
   display: inline-flex;
-  align-items: center;
+  align-items: safe center;
   gap: var(--space-2);
-  margin: 0;
+  padding-left: var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--control-radius);
+  background: var(--pane);
+  overflow: hidden;
 }
-.account-setup .dataset-list strong {
+.setup-contract-chips strong {
   font-family: var(--font-terminal);
   font-size: var(--font-size-body);
   font-weight: 500;
   color: var(--text-strong);
 }
-.account-setup .dataset-list button {
+.setup-contract-chips button {
   min-height: 24px;
   padding: 0 var(--space-2);
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--muted);
   font-size: var(--font-size-aux);
+}
+.setup-contract-chips button:hover:enabled {
+  background: var(--hover);
+  color: var(--text-strong);
 }
 .account-setup label:not(.limit-source, .checkbox) {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-1);
   color: var(--muted);
   font-size: var(--font-size-body);
 }
@@ -410,24 +506,150 @@
   padding: 0;
 }
 .account-setup .futures-fields {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-3) var(--space-4);
   margin-block: 0;
 }
 .account-setup .account-limit-required .futures-fields {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+.account-setup .account-limit-required .futures-fields > :nth-child(-n + 3) {
+  grid-column: span 2;
+}
+.account-setup .account-limit-required .futures-fields > :nth-child(n + 4) {
+  grid-column: span 3;
+}
+.account-setup .account-limit-optional {
+  padding: 0;
+  background: color-mix(in oklab, var(--pane) 55%, var(--panel));
+}
+.account-setup .account-optional-disclosure {
+  margin-block: 0;
+}
+.account-optional-disclosure > summary {
+  display: flex;
+  align-items: safe center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  list-style: none;
+  color: var(--muted);
+  user-select: none;
+}
+.account-optional-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.account-optional-disclosure > summary:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.account-optional-heading {
+  display: inline-flex;
+  align-items: safe center;
+  gap: var(--space-2);
+}
+.account-optional-heading::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin-right: 2px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 140ms ease;
+}
+.account-optional-disclosure[open] > summary .account-optional-heading::before {
+  transform: translateY(-2px) rotate(45deg);
+}
+.account-optional-heading strong {
+  color: var(--text);
+  font-size: var(--font-size-body);
+  font-weight: 500;
+}
+.account-optional-heading small {
+  color: var(--subtle);
+  font-size: var(--font-size-aux);
+  font-weight: normal;
+}
+.account-optional-count {
+  padding: 1px var(--space-2);
+  border: 1px solid color-mix(in oklab, var(--accent) 36%, var(--line));
+  border-radius: 999px;
+  background: var(--accent-surface);
+  color: var(--accent);
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-aux);
+  font-variant-numeric: tabular-nums;
+}
+.account-setup .account-optional-disclosure > .futures-fields {
+  padding: var(--space-1) var(--space-5) var(--space-4);
 }
 .account-setup .creation-review {
   padding: var(--space-4) var(--space-5);
-  border: 1px solid var(--line);
-  border-radius: var(--panel-radius);
-  background: var(--panel);
-  box-shadow: var(--surface-highlight);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
-.account-setup .workflow-actions {
-  margin-top: var(--space-4);
-  padding-top: var(--space-3);
+.account-setup .creation-review dl {
+  margin: 0;
+  border-top: 0;
+}
+.account-setup .creation-review dt:last-of-type,
+.account-setup .creation-review dd:last-of-type {
+  border-bottom: 0;
+}
+.account-setup-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: safe center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
   border-top: 1px solid var(--line);
+  border-radius: 0 0 6px 6px;
+  background: color-mix(in oklab, var(--pane) 80%, var(--panel));
+}
+.account-setup-readiness {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: safe center;
+  gap: var(--space-2) var(--space-4);
+}
+.setup-readiness-item {
+  display: inline-flex;
+  align-items: safe center;
+  gap: var(--space-2);
+  color: var(--muted);
+  font-size: var(--font-size-aux);
+  font-variant-numeric: tabular-nums;
+}
+.setup-readiness-item::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+.setup-readiness-item[data-tone="ok"] {
+  color: var(--text);
+}
+.setup-readiness-item[data-tone="ok"]::before {
+  background: var(--success);
+}
+.setup-readiness-item[data-tone="danger"] {
+  color: var(--danger);
+}
+.setup-readiness-item[data-tone="danger"]::before {
+  background: var(--danger);
+}
+.account-setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: safe center;
+  gap: var(--space-2);
+  margin-left: auto;
 }
 .creation-review dl {
   display: grid;
@@ -457,12 +679,18 @@
   display: none !important;
 }
 @media (max-width: 900px) {
+  .workflow-heading {
+    flex-wrap: wrap;
+  }
+}
+@media (max-width: 720px) {
   .account-setup .futures-fields,
   .account-setup .account-limit-required .futures-fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .workflow-heading {
-    flex-wrap: wrap;
+  .account-setup .account-limit-required .futures-fields > :nth-child(-n + 3),
+  .account-setup .account-limit-required .futures-fields > :nth-child(n + 4) {
+    grid-column: auto;
   }
 }
 /* Buying and selling read apart at a glance, in the owner's rise and fall colours. */

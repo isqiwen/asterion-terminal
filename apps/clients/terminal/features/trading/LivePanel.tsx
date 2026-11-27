@@ -202,9 +202,6 @@ function AccountColumn({
           />
         ) : view?.account && view.initialized === false ? (
           <div className="account-setup">
-            <div className="workflow-heading">
-              <h2>{t("开通交易：{name}", { name: account.instance })}</h2>
-            </div>
             <CreateLive
               account={account}
               configuration={view.account}

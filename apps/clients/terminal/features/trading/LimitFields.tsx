@@ -64,15 +64,22 @@ export function LimitFields({
   applied,
   change,
   offerSimPreset = false,
+  collapseOptional = false,
 }: {
   limits: LimitsDraft;
   // What is in force, shown beside a field that differs from it.
   applied?: LimitsDraft;
   change: (next: LimitsDraft) => void;
   offerSimPreset?: boolean;
+  collapseOptional?: boolean;
 }) {
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [touched, setTouched] = useState<Partial<Record<keyof LimitsDraft, boolean>>>({});
+  const filledOptional = optionalLimitFields.filter(([name]) => (limits[name] ?? "").trim()).length;
+  const [optionalOpen, setOptionalOpen] = useState(() => !collapseOptional || filledOptional > 0);
+  useEffect(() => {
+    if (filledOptional > 0) setOptionalOpen(true);
+  }, [filledOptional]);
   const errorBaseId = useId();
   useEffect(() => {
     // Without Lab the limits are entered by hand; the choice is not offered.
@@ -170,12 +177,39 @@ export function LimitFields({
         className="account-field-group account-limit-optional"
         aria-label={t("资金与撤单限制")}
       >
-        <header className="account-field-group-header">
-          <h3>
-            {t("资金与撤单限制")} <small>{t("可选")}</small>
-          </h3>
-        </header>
-        <div className="futures-fields">{optionalLimitFields.map(item => field(item, false))}</div>
+        {collapseOptional ? (
+          <details
+            className="account-optional-disclosure"
+            open={optionalOpen}
+            onToggle={event => setOptionalOpen(event.currentTarget.open)}
+          >
+            <summary>
+              <span className="account-optional-heading">
+                <strong>{t("资金与撤单限制")}</strong>
+                <small>{t("可选")}</small>
+              </span>
+              {filledOptional > 0 && (
+                <span className="account-optional-count">
+                  {t("已设 {n} 项", { n: filledOptional })}
+                </span>
+              )}
+            </summary>
+            <div className="futures-fields">
+              {optionalLimitFields.map(item => field(item, false))}
+            </div>
+          </details>
+        ) : (
+          <>
+            <header className="account-field-group-header">
+              <h3>
+                {t("资金与撤单限制")} <small>{t("可选")}</small>
+              </h3>
+            </header>
+            <div className="futures-fields">
+              {optionalLimitFields.map(item => field(item, false))}
+            </div>
+          </>
+        )}
       </section>
     </>
   );

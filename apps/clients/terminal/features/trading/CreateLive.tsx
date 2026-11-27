@@ -79,45 +79,44 @@ export function CreateLive({
     ];
   }, [listed, contracts]);
   const hasLimitErrors = Object.keys(limitValidationErrors(limits)).length > 0;
+  const filledRequired = requiredLimitFields.filter(([field]) =>
+    (limits[field] ?? "").trim(),
+  ).length;
   return (
     <>
-      {real && (
-        <div className="ctp-identity" data-real>
-          <strong>
-            {account.instance} · {broker.brokerId} · {broker.userId}
-          </strong>
-          <Tag danger>{environment}</Tag>
+      <div
+        className="account-setup-head"
+        role="status"
+        aria-label={t("CTP 账户")}
+        data-real={real || undefined}
+      >
+        <div className="account-setup-head-top">
+          <div className="account-setup-title">
+            <h2>{t("开通交易：{name}", { name: account.instance })}</h2>
+            <Tag danger={real}>{environment}</Tag>
+          </div>
+          <FlowSteps labels={[t("合约与风控"), t("确认创建")]} current={step} />
         </div>
-      )}
-      <div className="account-setup-meta" role="status" aria-label={t("CTP 账户")}>
-        <dl className="ctp-account-facts">
+        <dl className="account-setup-facts">
           {(
             [
-              ["账户", account.instance, false],
-              ["柜台环境", environment, false],
-              ["经纪商", broker.brokerId, true],
-              ["投资者", broker.userId, true],
-              ["AppID", broker.appId, true],
-              ["交易前置", broker.front, true],
+              ["经纪商", broker.brokerId],
+              ["投资者", broker.userId],
+              ["AppID", broker.appId],
+              ["交易前置", broker.front],
             ] as const
-          ).map(([label, value, mono]) => (
+          ).map(([label, value]) => (
             <div key={label}>
               <dt>{t(label)}</dt>
               <dd>
-                {label === "柜台环境" ? (
-                  <Tag danger={real}>{value}</Tag>
-                ) : mono ? (
-                  <code>{value}</code>
-                ) : (
-                  value
-                )}
+                <code>{value}</code>
               </dd>
             </div>
           ))}
         </dl>
       </div>
-      <FlowSteps labels={[t("合约与风控"), t("确认创建")]} current={step} />
       <form
+        className="account-setup-panel"
         onSubmit={event => {
           event.preventDefault();
           if (hasLimitErrors) return;
@@ -149,11 +148,13 @@ export function CreateLive({
                 <h3>
                   {t("可交易合约")} <small>{t("必填")}</small>
                 </h3>
+                {contracts.length > 0 && (
+                  <span className="account-field-meta">{contracts.length} / 64</span>
+                )}
               </header>
               {catalogReady ? (
                 <ContractPicker
                   ariaLabel={t("添加合约")}
-                  label={t("合约")}
                   options={selectable}
                   maxReached={contracts.length >= 64}
                   onAdd={id => setContracts([...contracts, id])}
@@ -170,11 +171,11 @@ export function CreateLive({
                   {t("合约目录同步中")}
                 </p>
               )}
-              <ul className="dataset-list" aria-label={t("已选可交易合约")}>
-                {contracts.map(item => (
-                  <li key={item}>
-                    <p>
-                      <strong>{item}</strong>{" "}
+              {contracts.length > 0 && (
+                <ul className="setup-contract-chips" aria-label={t("已选可交易合约")}>
+                  {contracts.map(item => (
+                    <li key={item}>
+                      <strong>{item}</strong>
                       <button
                         type="button"
                         aria-label={t("移除 {contract}", { contract: item })}
@@ -182,12 +183,17 @@ export function CreateLive({
                       >
                         {t("移除")}
                       </button>
-                    </p>
-                  </li>
-                ))}
-              </ul>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </section>
-            <LimitFields limits={limits} change={setLimits} offerSimPreset={!real} />
+            <LimitFields
+              limits={limits}
+              change={setLimits}
+              offerSimPreset={!real}
+              collapseOptional
+            />
           </fieldset>
           {step === 1 && (
             <section className="creation-review">
@@ -203,7 +209,9 @@ export function CreateLive({
                 <dt>{t("交易服务连接")}</dt>
                 <dd>{account.instance}</dd>
                 <dt>{t("柜台环境")}</dt>
-                <dd>{environment}</dd>
+                <dd>
+                  <Tag danger={real}>{environment}</Tag>
+                </dd>
                 <dt>{t("可交易合约")}</dt>
                 <dd>{contracts.join(" + ")}</dd>
                 <dt>{t("委托与持仓限制")}</dt>
@@ -218,19 +226,46 @@ export function CreateLive({
               </dl>
             </section>
           )}
-          <div className="workflow-actions">
-            {step === 1 && (
-              <button type="button" onClick={() => setStep(0)}>
-                {t("上一步")}
-              </button>
+          <div className="account-setup-footer">
+            {step === 0 && (
+              <div className="account-setup-readiness">
+                <span
+                  className="setup-readiness-item"
+                  data-tone={contracts.length > 0 ? "ok" : undefined}
+                >
+                  {t("已选 {n} 个合约", { n: contracts.length })}
+                </span>
+                <span
+                  className="setup-readiness-item"
+                  data-tone={
+                    hasLimitErrors
+                      ? "danger"
+                      : filledRequired === requiredLimitFields.length
+                        ? "ok"
+                        : undefined
+                  }
+                >
+                  {t("已填 {filled}/{total} 项必填", {
+                    filled: filledRequired,
+                    total: requiredLimitFields.length,
+                  })}
+                </span>
+              </div>
             )}
-            <button
-              className="primary"
-              type="submit"
-              disabled={!contracts.length || hasLimitErrors}
-            >
-              {t(step === 1 ? "创建 CTP 账户" : "下一步")}
-            </button>
+            <div className="account-setup-actions">
+              {step === 1 && (
+                <button type="button" onClick={() => setStep(0)}>
+                  {t("上一步")}
+                </button>
+              )}
+              <button
+                className="primary"
+                type="submit"
+                disabled={!contracts.length || hasLimitErrors}
+              >
+                {t(step === 1 ? "创建 CTP 账户" : "下一步")}
+              </button>
+            </div>
           </div>
         </fieldset>
       </form>
