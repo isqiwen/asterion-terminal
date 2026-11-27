@@ -86,9 +86,15 @@
 .account-setup,
 .ctp-account-panel > .account-setup {
   width: min(920px, 100%);
-  margin: 0 auto;
-  padding: clamp(20px, 4vh, 48px) var(--space-page) var(--space-5);
+  margin: auto;
+  padding: var(--space-5) var(--space-page) clamp(24px, 7vh, 72px);
   border-bottom: 0;
+}
+@media (min-width: 2200px) and (min-height: 1200px) {
+  .account-setup,
+  .ctp-account-panel > .account-setup {
+    width: min(1040px, 100%);
+  }
 }
 .account-setup-head {
   margin-bottom: var(--space-4);
