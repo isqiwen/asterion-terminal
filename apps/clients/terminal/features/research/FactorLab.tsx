@@ -7,11 +7,11 @@ import {
   type ReactNode,
 } from "react";
 import { lab } from "../../src/bridge/lab";
-import type { FactorResult } from "../../src/generated/asterion/lab_pb";
+import { RunState, TaskKind, type FactorResult } from "../../src/generated/asterion/lab_pb";
 import { ActionError, useActionError } from "../../src/host/action-error";
 import { useLabActivity } from "../../src/host/lab-activity";
 import { notify, useErrorNotification } from "../../src/host/notifications";
-import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
+import { BackendError, type DisplayError, asDisplayError } from "../../src/i18n/errors";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { type MessageValues, translate, listSeparator } from "../../src/i18n";
@@ -81,11 +81,15 @@ export function FactorLab(context: TerminalContext) {
   const [tab, setTab] = useWorkspaceDraft<"result" | "code" | "split">("factor-tab", "code");
   const [search, setSearch] = useWorkspaceDraft("modules-search:factors", "");
   const annotations = useAnnotations();
-  const [busy, setBusy] = useState(false);
-  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
-  const [cancellingBatch, setCancellingBatch] = useState(false);
-  const batchCancelledRef = useRef(false);
-  const { error, attempt } = useActionError();
+  const [submitting, setSubmitting] = useState(false);
+  const [cancellingId, setCancellingId] = useState("");
+  const trackedSingleRef = useRef<{ id: string; factorId: string } | null>(null);
+  const trackedCompositeRef = useRef("");
+  const trackedBatchRef = useRef("");
+  const seenFactorActiveRef = useRef(new Set<string>());
+  const handledRecentRef = useRef(new Set<string>());
+  const lastBatchDoneRef = useRef<Record<string, number>>({});
+  const { error, attempt, fail } = useActionError();
   const source = useSource(repository, "factors");
   const [saved, setSaved] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
@@ -103,10 +107,11 @@ export function FactorLab(context: TerminalContext) {
   );
   // Kept evaluations, newest first.
   const [kept, setKept] = useState<FactorResult[]>([]);
-  const readKept = useCallback(
-    async () => setKept((await lab({ case: "listFactorResults", value: {} })).results),
-    [],
-  );
+  const readKept = useCallback(async () => {
+    const results = (await lab({ case: "listFactorResults", value: {} })).results;
+    setKept(results);
+    return results;
+  }, []);
   useEffect(
     () =>
       void readKept().catch(failure =>
@@ -165,90 +170,139 @@ export function FactorLab(context: TerminalContext) {
     setReport("");
     setView("library");
   };
+  const labActivity = useLabActivity();
+  const activeFactorTasks = (labActivity?.active ?? []).filter(
+    item => item.kind === TaskKind.FACTOR,
+  );
+  const activeBatchTask =
+    (labActivity?.active ?? []).find(item => item.kind === TaskKind.FACTOR_BATCH) ?? null;
+  const activeSingleTask =
+    !library && factor
+      ? (activeFactorTasks.find(
+          item => item.id === trackedSingleRef.current?.id || item.strategy === factor.id,
+        ) ?? null)
+      : null;
+  const activeCompositeTask =
+    activeFactorTasks.find(
+      item => item.id === trackedCompositeRef.current || item.strategy.includes(" + "),
+    ) ?? null;
+
+  useEffect(() => {
+    for (const task of labActivity?.active ?? []) {
+      if (task.kind !== TaskKind.FACTOR && task.kind !== TaskKind.FACTOR_BATCH) continue;
+      seenFactorActiveRef.current.add(task.id);
+      if (task.kind === TaskKind.FACTOR_BATCH) {
+        const previous = lastBatchDoneRef.current[task.id] ?? 0;
+        if (task.done > previous) {
+          lastBatchDoneRef.current[task.id] = task.done;
+          void readKept();
+        }
+      }
+    }
+    for (const task of labActivity?.recent ?? []) {
+      if (task.kind !== TaskKind.FACTOR && task.kind !== TaskKind.FACTOR_BATCH) continue;
+      const isSingle = trackedSingleRef.current?.id === task.id;
+      const isComposite = trackedCompositeRef.current === task.id;
+      const isBatch = trackedBatchRef.current === task.id;
+      const wasSeen = seenFactorActiveRef.current.has(task.id);
+      if (!isSingle && !isComposite && !isBatch && !wasSeen) continue;
+      if (handledRecentRef.current.has(task.id)) continue;
+      handledRecentRef.current.add(task.id);
+      seenFactorActiveRef.current.delete(task.id);
+
+      if (isSingle) {
+        const targetFactor = trackedSingleRef.current!.factorId;
+        trackedSingleRef.current = null;
+        if (task.state === RunState.SUCCEEDED) {
+          void readKept();
+          if (openPage.current === targetFactor) {
+            setReport(task.id);
+            setTab(previous => (previous === "split" ? "split" : "result"));
+          }
+        } else if (task.state === RunState.FAILED) {
+          fail(new BackendError("operation_failed", task.error || "factor evaluation failed"));
+        }
+      } else if (isComposite) {
+        trackedCompositeRef.current = "";
+        if (task.state === RunState.SUCCEEDED) {
+          void readKept();
+          if (!openPage.current) setReport(task.id);
+        } else if (task.state === RunState.FAILED) {
+          fail(new BackendError("operation_failed", task.error || "factor evaluation failed"));
+        }
+      } else if (isBatch) {
+        trackedBatchRef.current = "";
+        delete lastBatchDoneRef.current[task.id];
+        void readKept();
+        if (task.state === RunState.FAILED && task.error) {
+          fail(new BackendError("operation_failed", task.error));
+        }
+      } else if (task.state === RunState.SUCCEEDED || task.kind === TaskKind.FACTOR_BATCH) {
+        void readKept();
+      }
+    }
+  }, [labActivity?.active, labActivity?.recent, readKept, fail, setReport, setTab]);
+
+  const cancelFactorTask = async (id: string) => {
+    setCancellingId(id);
+    await attempt(async () => {
+      await lab({ case: "cancelFactor", value: { id } });
+      await labActivity?.refresh();
+    });
+    setCancellingId(previous => (previous === id ? "" : previous));
+  };
+
   const evaluate = async () => {
     if (!factor) return;
-    setBusy(true);
+    setSubmitting(true);
     setSaved([]);
     await attempt(async () => {
       const written = await source.save();
       setSaved(written);
       if (written.length) await read();
       const id = identity(factor.id);
+      const request = factorRequest(form, repository, factor);
+      trackedSingleRef.current = { id, factorId: factor.id };
       await lab({
-        case: "evaluateFactor",
-        value: { ...factorRequest(form, repository, factor), id },
+        case: "startFactor",
+        value: { ...request, id },
       });
-      if (openPage.current === factor.id) {
-        setReport(id);
-        setTab(previous => (previous === "split" ? "split" : "result"));
-      }
-      await readKept();
+      await labActivity?.refresh();
     });
-    setBusy(false);
+    setSubmitting(false);
   };
-  const labActivity = useLabActivity();
   const activeSelected = selected.filter(id => modules?.factors.some(item => item.id === id));
   const evaluateBatch = async () => {
     const targets = activeSelected
       .map(id => modules?.factors.find(item => item.id === id))
       .filter((entry): entry is NonNullable<typeof entry> => entry !== undefined);
     if (!targets.length) return;
-    setBusy(true);
+    setSubmitting(true);
     setSaved([]);
-    batchCancelledRef.current = false;
-    setCancellingBatch(false);
-    const startedMs = Date.now();
-    const batchId = `factors-${startedMs}`;
-    const cancelBatch = () => {
-      batchCancelledRef.current = true;
-      setCancellingBatch(true);
-    };
-    setBatchProgress({ done: 0, total: targets.length });
-    labActivity?.setFactorBatch({
-      id: batchId,
-      done: 0,
-      total: targets.length,
-      startedMs,
-      cancel: cancelBatch,
-    });
     await attempt(async () => {
       const requests = targets.map((entry, index) => ({
+        ...factorRequest(form, repository, entry, { useDefaults: true, extraFactors: [] }),
         id: identity(entry.id, String(index + 1)),
-        request: factorRequest(form, repository, entry, { useDefaults: true, extraFactors: [] }),
       }));
       const written = await source.save();
       setSaved(written);
       if (written.length) await read();
-      try {
-        for (let i = 0; i < requests.length; i++) {
-          if (batchCancelledRef.current) break;
-          const item = requests[i]!;
-          await lab({ case: "evaluateFactor", value: { ...item.request, id: item.id } });
-          setBatchProgress({ done: i + 1, total: requests.length });
-          labActivity?.setFactorBatch({
-            id: batchId,
-            done: i + 1,
-            total: requests.length,
-            startedMs,
-            cancel: cancelBatch,
-          });
-        }
-      } finally {
-        batchCancelledRef.current = false;
-        setCancellingBatch(false);
-        await readKept();
-      }
+      const batchId = identity("factors");
+      trackedBatchRef.current = batchId;
+      await lab({
+        case: "startFactorBatch",
+        value: { id: batchId, evaluations: requests, processes: 0 },
+      });
+      await labActivity?.refresh();
     });
-    setBatchProgress(null);
-    labActivity?.setFactorBatch(null);
-    setBusy(false);
+    setSubmitting(false);
   };
   const evaluateComposite = async () => {
     const targets = activeSelected
       .map(id => modules?.factors.find(item => item.id === id))
       .filter((entry): entry is NonNullable<typeof entry> => entry !== undefined);
     if (targets.length < 2) return;
-    setBusy(true);
+    setSubmitting(true);
     setSaved([]);
     await attempt(async () => {
       const primary = targets[0]!;
@@ -260,11 +314,11 @@ export function FactorLab(context: TerminalContext) {
       setSaved(written);
       if (written.length) await read();
       const id = identity(primary.id, "mix");
-      await lab({ case: "evaluateFactor", value: { ...request, id } });
-      if (!openPage.current) setReport(id);
-      await readKept();
+      trackedCompositeRef.current = id;
+      await lab({ case: "startFactor", value: { ...request, id } });
+      await labActivity?.refresh();
     });
-    setBusy(false);
+    setSubmitting(false);
   };
   const remove = (id: string) =>
     void attempt(async () => {
@@ -288,23 +342,36 @@ export function FactorLab(context: TerminalContext) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeText]);
 
-  // Deep-link from a generated strategy's lineage record back to its factor evaluation.
+  // Deep-link from a generated strategy's lineage record or completion notification back to its factor evaluation.
   const openFactorResultId = context.workspaceParams?.factorResult;
   useEffect(() => {
     if (!openFactorResultId) return;
-    const found = kept.find(item => item.id === openFactorResultId);
-    if (found && !isCompositeResult(found) && found.evaluation?.factor) {
-      const target = found.evaluation.factor;
-      setChosen(target);
-      source.open(`factors/${target.split(".")[0]}.py`);
-      setView("detail");
-      setReport(found.id);
-      setTab("result");
-    } else {
-      setView("library");
-      setReport(openFactorResultId);
+    let active = true;
+    const openFound = (itemsList: readonly FactorResult[]) => {
+      const found = itemsList.find(item => item.id === openFactorResultId);
+      if (found && !isCompositeResult(found) && found.evaluation?.factor) {
+        const target = found.evaluation.factor;
+        setChosen(target);
+        source.open(`factors/${target.split(".")[0]}.py`);
+        setView("detail");
+        setReport(found.id);
+        setTab("result");
+      } else {
+        setView("library");
+        setReport(openFactorResultId);
+      }
+      context.navigate("workspace.lab-factors", {});
+    };
+    if (kept.some(item => item.id === openFactorResultId)) {
+      openFound(kept);
+      return;
     }
-    context.navigate("workspace.lab-factors", {});
+    void readKept().then(itemsList => {
+      if (active) openFound(itemsList);
+    });
+    return () => {
+      active = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openFactorResultId]);
 
@@ -343,7 +410,8 @@ export function FactorLab(context: TerminalContext) {
     if (
       !library &&
       factor &&
-      !busy &&
+      !submitting &&
+      !activeSingleTask &&
       !context.busy &&
       (event.metaKey || event.ctrlKey) &&
       event.key === "Enter"
@@ -492,15 +560,23 @@ export function FactorLab(context: TerminalContext) {
           latest={latest}
           onScope={inScope}
           composites={composites}
-          busy={busy || Boolean(context.busy)}
-          batchProgress={batchProgress}
-          cancellingBatch={cancellingBatch}
+          busy={submitting || Boolean(context.busy)}
+          batchProgress={
+            activeBatchTask ? { done: activeBatchTask.done, total: activeBatchTask.total } : null
+          }
+          compositeRunning={Boolean(activeCompositeTask)}
+          cancelling={
+            Boolean(activeBatchTask && cancellingId === activeBatchTask.id) ||
+            Boolean(activeCompositeTask && cancellingId === activeCompositeTask.id)
+          }
           onBatchEvaluate={() => void evaluateBatch()}
           onCancelBatch={() => {
-            batchCancelledRef.current = true;
-            setCancellingBatch(true);
+            if (activeBatchTask) void cancelFactorTask(activeBatchTask.id);
           }}
           onCompositeEvaluate={() => void evaluateComposite()}
+          onCancelComposite={() => {
+            if (activeCompositeTask) void cancelFactorTask(activeCompositeTask.id);
+          }}
           open={choose}
           openComposite={setReport}
           contextTarget={menu.target}
@@ -672,14 +748,26 @@ export function FactorLab(context: TerminalContext) {
                 </Section>
               )}
               <footer className="lab-submit">
-                <button
-                  type="button"
-                  className="primary"
-                  disabled={busy || context.busy}
-                  onClick={() => void evaluate()}
-                >
-                  {busy ? t("正在评价…") : t("评价")}
-                </button>
+                <div className="lab-submit-row">
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={submitting || Boolean(activeSingleTask) || context.busy}
+                    onClick={() => void evaluate()}
+                  >
+                    {submitting || activeSingleTask ? t("正在评价…") : t("评价")}
+                  </button>
+                  {activeSingleTask && (
+                    <button
+                      type="button"
+                      className="lab-link"
+                      disabled={cancellingId === activeSingleTask.id}
+                      onClick={() => void cancelFactorTask(activeSingleTask.id)}
+                    >
+                      {t("取消")}
+                    </button>
+                  )}
+                </div>
                 {savedNote}
                 <ActionError error={error} namespace="asterion.terminal.research" />
               </footer>
@@ -787,10 +875,12 @@ function FactorLibrary({
   composites,
   busy,
   batchProgress,
-  cancellingBatch,
+  compositeRunning,
+  cancelling,
   onBatchEvaluate,
   onCancelBatch,
   onCompositeEvaluate,
+  onCancelComposite,
   open,
   openComposite,
   contextTarget,
@@ -811,10 +901,12 @@ function FactorLibrary({
   composites: readonly FactorResult[];
   busy: boolean;
   batchProgress: { done: number; total: number } | null;
-  cancellingBatch: boolean;
+  compositeRunning: boolean;
+  cancelling: boolean;
   onBatchEvaluate: () => void;
   onCancelBatch: () => void;
   onCompositeEvaluate: () => void;
+  onCancelComposite: () => void;
   open: (id: string) => void;
   openComposite: (id: string) => void;
   contextTarget?: string;
@@ -944,17 +1036,31 @@ function FactorLibrary({
         )}
         {selected.length >= 2 && combination}
         {newModule}
-        <button type="button" disabled={busy || selected.length < 2} onClick={onCompositeEvaluate}>
-          {busy && !batchProgress
+        <button
+          type="button"
+          disabled={busy || compositeRunning || Boolean(batchProgress) || selected.length < 2}
+          onClick={onCompositeEvaluate}
+        >
+          {compositeRunning
             ? t("正在评价…")
             : selected.length
               ? t("相关性与合成（{count}）", { count: selected.length })
               : t("相关性与合成")}
         </button>
+        {compositeRunning && (
+          <button
+            type="button"
+            className="lab-link"
+            disabled={cancelling}
+            onClick={onCancelComposite}
+          >
+            {t("取消")}
+          </button>
+        )}
         <button
           type="button"
           className="primary"
-          disabled={busy || selected.length === 0}
+          disabled={busy || Boolean(batchProgress) || compositeRunning || selected.length === 0}
           onClick={onBatchEvaluate}
         >
           {batchProgress
@@ -964,12 +1070,7 @@ function FactorLibrary({
               : t("批量评价")}
         </button>
         {batchProgress && (
-          <button
-            type="button"
-            className="lab-link"
-            disabled={cancellingBatch}
-            onClick={onCancelBatch}
-          >
+          <button type="button" className="lab-link" disabled={cancelling} onClick={onCancelBatch}>
             {t("取消")}
           </button>
         )}

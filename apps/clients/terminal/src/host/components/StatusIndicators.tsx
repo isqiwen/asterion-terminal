@@ -40,7 +40,7 @@ export function StatusIndicators({
   openResearch?: () => void;
   openRun?: (id: string) => void;
   openSweep?: (id: string) => void;
-  openFactors?: () => void;
+  openFactors?: (id?: string) => void;
   openWarehouseSettings: () => void;
   openDataset?: () => void;
   openTradingSettings: () => void;

@@ -15,7 +15,10 @@ export function useActionError() {
       return false;
     }
   }, []);
-  return { error, attempt, clear: () => setError("") };
+  const fail = useCallback((reason: unknown) => {
+    setError(asDisplayError(reason));
+  }, []);
+  return { error, attempt, fail, clear: () => setError("") };
 }
 
 function isServiceFailure(error: DisplayError) {

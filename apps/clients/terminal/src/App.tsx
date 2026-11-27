@@ -124,7 +124,9 @@ export function ModuleHeader({
         <LabHeaderActivity
           openRun={id => navigate("workspace.lab-runs", { params: { run: id } })}
           openSweep={id => navigate("workspace.lab-runs", { params: { sweep: id } })}
-          openFactors={() => navigate("workspace.lab-factors")}
+          openFactors={id =>
+            navigate("workspace.lab-factors", id ? { params: { factorResult: id } } : undefined)
+          }
         />
       )}
     </div>
@@ -413,6 +415,12 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                 currentModule={navigation.module}
                 openRun={id => context.navigate("workspace.lab-runs", { params: { run: id } })}
                 openSweep={id => context.navigate("workspace.lab-runs", { params: { sweep: id } })}
+                openFactors={id =>
+                  context.navigate(
+                    "workspace.lab-factors",
+                    id ? { params: { factorResult: id } } : undefined,
+                  )
+                }
               >
                 <Workbench
                   showToolbar={!current?.hideToolbar && !!WorkspaceToolbar}
@@ -493,7 +501,12 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                         openSweep={id =>
                           context.navigate("workspace.lab-runs", { params: { sweep: id } })
                         }
-                        openFactors={() => context.navigate("workspace.lab-factors")}
+                        openFactors={id =>
+                          context.navigate(
+                            "workspace.lab-factors",
+                            id ? { params: { factorResult: id } } : undefined,
+                          )
+                        }
                         openWarehouseSettings={() => showSettings("warehouse")}
                         openDataset={() => context.navigate("workspace.data-dataset")}
                         openTradingSettings={() => showSettings("trading")}

@@ -427,5 +427,10 @@
   "contract list gives no listing days": "合约表没有给出该合约的上市和退市日期，画不出日线",
   "contract table units unreadable": "合约表里该合约的交易单位和报价单位无法解析，算不出合约乘数",
   "daily bars lack settlement price": "日线表里缺少该合约在某个交易日的结算价",
-  "instruments cannot be read": "所选的品种或合约里有在这个范围内无法读取的，请移除后再提交"
+  "instruments cannot be read": "所选的品种或合约里有在这个范围内无法读取的，请移除后再提交",
+  "no such factor evaluation is running": "该因子评价当前未在运行",
+  "a running or waiting factor evaluation cannot be deleted": "运行中或排队中的因子评价不能删除",
+  "factor batch id is invalid or already used": "批量因子评价编号无效或已被占用",
+  "a factor batch requires one or more evaluations": "批量因子评价至少需要选择一个因子",
+  "factor batch contains duplicate evaluation ids": "批量因子评价包含重复的评价编号"
 }

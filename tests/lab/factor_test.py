@@ -11,12 +11,13 @@ import subprocess
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "apps/services/common/python"))
 import tempfile
+import time
 import unittest
 
 sys.path[:0] = [sys.argv.pop(1), sys.argv.pop(1), sys.argv.pop(1), str(Path(__file__).parent)]
 import numpy as np  # noqa: E402
 import polars as pl  # noqa: E402
-from asterion.lab_pb2 import Request  # noqa: E402
+from asterion.lab_pb2 import Request, RunState, TaskKind  # noqa: E402
 from asterion_lab import factor, repository  # noqa: E402
 from asterion_strategy import check_factor  # noqa: E402
 from service_fixture import Service  # noqa: E402
@@ -24,6 +25,30 @@ from warehouse_writer import Warehouse  # noqa: E402
 from warehouse_fixture import DAYS, warehouse  # noqa: E402
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "research"
+
+
+async def wait_factor(service, identity: str, timeout: float = 30.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        activity = (await service.reply(Request(id=99, get_activity={}))).get_activity
+        for task in activity.recent:
+            if task.id == identity:
+                return task
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"factor task {identity} did not finish within {timeout}s")
+
+
+async def run_factor(service, request):
+    reply = await service.reply(request)
+    if reply.WhichOneof("result") != "start_factor":
+        raise AssertionError(f"start_factor failed: {reply}")
+    task = await wait_factor(service, request.start_factor.id)
+    if task.state != RunState.RUN_STATE_SUCCEEDED:
+        raise AssertionError(f"factor task failed: {task}")
+    kept = await service.reply(Request(id=98, get_factor_result={"id": request.start_factor.id}))
+    if kept.WhichOneof("result") != "get_factor_result":
+        raise AssertionError(f"get_factor_result failed: {kept}")
+    return kept.get_factor_result
 
 
 def git(root, *arguments):
@@ -329,7 +354,7 @@ class Repository(unittest.TestCase):
         async def scenario():
             service = Service("lab", self.directory, Log())
             request = Request(id=1)
-            run = request.evaluate_factor
+            run = request.start_factor
             run.id, run.repository, run.factor = "unsupported", str(self.repository), "frames.signal"
             run.symbols.append("SHFE/rb")
             run.first_day, run.last_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
@@ -348,7 +373,7 @@ class Repository(unittest.TestCase):
         async def scenario():
             service = Service("lab", self.directory, Log())
             request = Request(id=1)
-            run = request.evaluate_factor
+            run = request.start_factor
             run.id = "momentum-1"
             run.repository, run.factor = str(self.repository), "price.momentum"
             run.params["lookback"].integer = 2
@@ -356,9 +381,7 @@ class Repository(unittest.TestCase):
             run.first_day, run.last_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
             run.horizons.extend([1, 3])
             run.groups = 3
-            reply = await service.reply(request)
-            self.assertEqual(reply.WhichOneof("result"), "evaluate_factor", reply)
-            result = reply.evaluate_factor
+            result = await run_factor(service, request)
             self.assertEqual(list(result.symbols), list(run.symbols))
             self.assertEqual([item.horizon for item in result.horizons], [1, 3])
             self.assertEqual(len(result.days), len(DAYS))
@@ -371,8 +394,11 @@ class Repository(unittest.TestCase):
             self.assertIn("used", (await service.reply(request)).error.message)
             run.id = "momentum-2"
             run.params["lookback"].integer = 0
-            failed = await service.reply(request)
-            self.assertIn("lookback is at least one bar", failed.error.message)
+            started = await service.reply(request)
+            self.assertEqual(started.WhichOneof("result"), "start_factor", started)
+            failed = await wait_factor(service, "momentum-2")
+            self.assertEqual(failed.state, RunState.RUN_STATE_FAILED)
+            self.assertIn("lookback is at least one bar", failed.error)
             self.assertEqual(list((self.directory / "sources").glob("factor-momentum-2-*")), [])
             # The result keeps the code it evaluated; a later edit is a later evaluation's.
             module = self.repository / "factors" / "price.py"
@@ -385,7 +411,7 @@ class Repository(unittest.TestCase):
             run.id = "momentum-3"
             run.params.clear()
             run.symbols[:] = ["SHFE"]
-            exchange = (await service.reply(request)).evaluate_factor
+            exchange = await run_factor(service, request)
             kept = (await service.reply(Request(id=2, get_factor_result={"id": "momentum-1"})))
             self.assertEqual(kept.get_factor_result.code, evaluated)
             self.assertEqual(kept.get_factor_result.evaluation.factor, "price.momentum")
@@ -485,7 +511,7 @@ class Repository(unittest.TestCase):
         async def scenario():
             service = Service("lab", self.directory, Log())
             req = Request(id=1)
-            ev = req.evaluate_factor
+            ev = req.start_factor
             ev.id = "multi-ic-holdout"
             ev.repository = str(self.repository)
             ev.factor = "price.momentum"
@@ -499,7 +525,7 @@ class Repository(unittest.TestCase):
             ev.first_day, ev.last_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
             ev.horizons.extend([1, 3])
             ev.groups = 3
-            res = (await service.reply(req)).evaluate_factor
+            res = await run_factor(service, req)
             self.assertEqual(list(res.factor_names),
                              ["price.momentum", "price.reversal", "positions.interest_change"])
             self.assertEqual(len(res.correlations), 9)
@@ -564,7 +590,7 @@ class Repository(unittest.TestCase):
         async def scenario():
             service = Service("lab", self.directory, Log())
             req = Request(id=1)
-            ev = req.evaluate_factor
+            ev = req.start_factor
             ev.id = "carry-1"
             ev.repository = str(self.repository)
             ev.factor = "term_structure.roll_yield_carry"
@@ -573,9 +599,7 @@ class Repository(unittest.TestCase):
             ev.first_day, ev.last_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
             ev.horizons.extend([1, 3])
             ev.groups = 2
-            reply = await service.reply(req)
-            self.assertEqual(reply.WhichOneof("result"), "evaluate_factor", reply)
-            res = reply.evaluate_factor
+            res = await run_factor(service, req)
             self.assertGreater(res.horizons[0].days, 10)
             # Higher backwardation (roll_yield) matches higher forward drift -> positive IC = 1.0.
             self.assertAlmostEqual(res.horizons[0].mean, 1.0, places=5)
@@ -627,7 +651,7 @@ class Repository(unittest.TestCase):
         async def scenario():
             service = Service("lab", self.directory, Log())
             req = Request(id=1)
-            ev = req.evaluate_factor
+            ev = req.start_factor
             ev.id = "leaky-1"
             ev.repository, ev.factor = str(self.repository), "leaky.future_close"
             ev.symbols.append("SHFE/rb")
@@ -635,8 +659,10 @@ class Repository(unittest.TestCase):
             ev.horizons.append(1)
             ev.groups = 2
             reply = await service.reply(req)
-            self.assertEqual(reply.WhichOneof("result"), "error")
-            self.assertIn("failed causality check", reply.error.message)
+            self.assertEqual(reply.WhichOneof("result"), "start_factor", reply)
+            failed = await wait_factor(service, "leaky-1")
+            self.assertEqual(failed.state, RunState.RUN_STATE_FAILED)
+            self.assertIn("failed causality check", failed.error)
 
         asyncio.run(scenario())
 
@@ -667,7 +693,7 @@ class Repository(unittest.TestCase):
         async def scenario():
             service = Service("lab", self.directory, Log())
             req = Request(id=1)
-            ev = req.evaluate_factor
+            ev = req.start_factor
             ev.id = "hygiene-1"
             ev.repository = str(self.repository)
             ev.factor = "price.momentum"
@@ -684,9 +710,7 @@ class Repository(unittest.TestCase):
             ev.first_day, ev.last_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
             ev.horizons.extend([1, 3])
             ev.groups = 2
-            reply = await service.reply(req)
-            self.assertEqual(reply.WhichOneof("result"), "evaluate_factor", reply)
-            res = reply.evaluate_factor
+            res = await run_factor(service, req)
             self.assertEqual(res.evaluation.return_mode, "open")
             self.assertTrue(res.evaluation.winsorize)
             self.assertEqual(res.evaluation.neutralize, "sector")
@@ -778,7 +802,7 @@ class Repository(unittest.TestCase):
             service = Service("lab", self.directory, Log())
             # 1. Basis-Momentum evaluates cleanly over same-contract near/far returns.
             req = Request(id=1)
-            ev = req.evaluate_factor
+            ev = req.start_factor
             ev.id = "bm-1"
             ev.repository = str(self.repository)
             ev.factor = "term_structure.basis_momentum"
@@ -787,14 +811,13 @@ class Repository(unittest.TestCase):
             ev.first_day, ev.last_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
             ev.horizons.append(1)
             ev.groups = 2
-            reply = await service.reply(req)
-            self.assertEqual(reply.WhichOneof("result"), "evaluate_factor", reply)
-            self.assertGreater(reply.evaluate_factor.horizons[0].days, 10)
-            self.assertGreater(reply.evaluate_factor.horizons[0].mean, 0.5)
+            res1 = await run_factor(service, req)
+            self.assertGreater(res1.horizons[0].days, 10)
+            self.assertGreater(res1.horizons[0].mean, 0.5)
 
             # 2. Member net ratio evaluates cleanly using PIT post-close member positions.
             req2 = Request(id=2)
-            ev2 = req2.evaluate_factor
+            ev2 = req2.start_factor
             ev2.id = "mem-1"
             ev2.repository = str(self.repository)
             ev2.factor = "fundamentals.member_net_ratio"
@@ -803,9 +826,8 @@ class Repository(unittest.TestCase):
             ev2.first_day, ev2.last_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
             ev2.horizons.append(1)
             ev2.groups = 2
-            reply2 = await service.reply(req2)
-            self.assertEqual(reply2.WhichOneof("result"), "evaluate_factor", reply2)
-            self.assertAlmostEqual(reply2.evaluate_factor.horizons[0].mean, 1.0, places=5)
+            res2 = await run_factor(service, req2)
+            self.assertAlmostEqual(res2.horizons[0].mean, 1.0, places=5)
 
         asyncio.run(scenario())
 
@@ -855,7 +877,7 @@ class Repository(unittest.TestCase):
         async def scenario():
             service = Service("lab", self.directory, Log())
             req = Request(id=1)
-            ev = req.evaluate_factor
+            ev = req.start_factor
             ev.id = "min-5m-1"
             ev.repository = str(self.repository)
             ev.factor = "price.momentum"
@@ -865,12 +887,104 @@ class Repository(unittest.TestCase):
             ev.period = Period.PERIOD_MINUTES_5
             ev.horizons.extend([1, 2])
             ev.groups = 2
-            reply = await service.reply(req)
-            self.assertEqual(reply.WhichOneof("result"), "evaluate_factor", reply)
-            res = reply.evaluate_factor
+            res = await run_factor(service, req)
             self.assertGreater(res.horizons[0].days, 10)
             self.assertTrue(any(" " in d.trading_day for d in res.days))
             self.assertTrue(res.HasField("autocorr"))
+
+        asyncio.run(scenario())
+
+    def test_factor_batch_runs_in_parallel_and_can_be_cancelled(self):
+        (self.repository / "factors/slow.py").write_text(
+            "import time\nimport numpy as np\n\n"
+            "def nap(close):\n"
+            "    if len(close) <= 280:\n"
+            "        return np.zeros(len(close))\n"
+            "    time.sleep(10)\n"
+            "    return np.zeros(len(close))\n"
+        )
+
+        class Log:
+            def write(self, *args, **kwargs):
+                pass
+
+        async def scenario():
+            service = Service("lab", self.directory, Log())
+            # 1. Batch evaluates multiple factors under one pinned dataset version.
+            batch_req = Request(id=1)
+            batch = batch_req.start_factor_batch
+            batch.id = "batch-ok"
+            batch.processes = 2
+            for idx, name in enumerate(("price.momentum", "price.reversal"), 1):
+                ev = batch.evaluations.add()
+                ev.id = f"b-{idx}"
+                ev.repository, ev.factor = str(self.repository), name
+                ev.params["lookback"].integer = 2
+                ev.symbols.extend(["SHFE/rb/2026-05", "SHFE/rb/2026-10", "SHFE/rb"])
+                ev.first_day, ev.last_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
+                ev.horizons.append(1)
+                ev.groups = 2
+            started = await service.reply(batch_req)
+            self.assertEqual(started.WhichOneof("result"), "start_factor_batch", started)
+            done = await wait_factor(service, "batch-ok")
+            self.assertEqual(done.kind, TaskKind.TASK_KIND_FACTOR_BATCH)
+            self.assertEqual(done.state, RunState.RUN_STATE_SUCCEEDED)
+            self.assertEqual((done.done, done.succeeded, done.failed), (2, 2, 0))
+            listed = (await service.reply(Request(id=2, list_factor_results={}))).list_factor_results
+            self.assertEqual({item.id for item in listed.results}, {"b-1", "b-2"})
+
+            # 2. A running single factor evaluation is visible in activity, blocks deletion, and cancels cleanly.
+            (self.repository / "factors/slow_short.py").write_text(
+                "import time\nimport numpy as np\n\n"
+                "def stall(close):\n"
+                "    time.sleep(0.01)\n"
+                "    if len(close) == 30:\n"
+                "        time.sleep(10)\n"
+                "    return np.zeros(len(close))\n"
+            )
+            slow_req = Request(id=3)
+            ev = slow_req.start_factor
+            ev.id = "slow-1"
+            ev.repository, ev.factor = str(self.repository), "slow_short.stall"
+            ev.symbols.extend(["SHFE/rb/2026-05", "SHFE/rb/2026-10"])
+            ev.first_day, ev.last_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
+            ev.horizons.append(1)
+            ev.groups = 2
+            self.assertEqual((await service.reply(slow_req)).WhichOneof("result"), "start_factor")
+            active = (await service.reply(Request(id=4, get_activity={}))).get_activity
+            self.assertTrue(any(t.id == "slow-1" and t.kind == TaskKind.TASK_KIND_FACTOR for t in active.active))
+            delete_busy = await service.reply(Request(id=5, delete_factor_result={"id": "slow-1"}))
+            self.assertEqual(delete_busy.WhichOneof("result"), "error")
+            cancelled = await service.reply(Request(id=6, cancel_factor={"id": "slow-1"}))
+            self.assertEqual(cancelled.WhichOneof("result"), "cancel_factor", cancelled)
+            interrupted = await wait_factor(service, "slow-1")
+            self.assertEqual(interrupted.state, RunState.RUN_STATE_INTERRUPTED)
+            self.assertFalse((self.directory / "factors" / "slow-1.binpb").exists())
+            self.assertEqual(list((self.directory / "sources").glob("factor-slow-1-*")), [])
+
+            # 3. Cancelling a batch drops queued items and terminates active ones.
+            cancel_batch_req = Request(id=7)
+            cb = cancel_batch_req.start_factor_batch
+            cb.id = "batch-cancel"
+            cb.processes = 1
+            for idx in (1, 2):
+                item = cb.evaluations.add()
+                item.id = f"cb-{idx}"
+                item.repository, item.factor = str(self.repository), "slow_short.stall"
+                item.symbols.extend(["SHFE/rb/2026-05", "SHFE/rb/2026-10"])
+                item.first_day, item.last_day = DAYS[0].isoformat(), DAYS[-1].isoformat()
+                item.horizons.append(1)
+                item.groups = 2
+            self.assertEqual((await service.reply(cancel_batch_req)).WhichOneof("result"), "start_factor_batch")
+            self.assertEqual(
+                (await service.reply(Request(id=8, cancel_factor={"id": "batch-cancel"}))).WhichOneof("result"),
+                "cancel_factor",
+            )
+            batch_done = await wait_factor(service, "batch-cancel")
+            self.assertEqual(batch_done.state, RunState.RUN_STATE_INTERRUPTED)
+            self.assertEqual(list((self.directory / "sources").glob("factor-cb-*")), [])
+            unknown = await service.reply(Request(id=9, cancel_factor={"id": "no-such"}))
+            self.assertEqual(unknown.WhichOneof("result"), "error")
 
         asyncio.run(scenario())
 

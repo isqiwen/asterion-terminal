@@ -22,12 +22,7 @@ def volatility(close, window: int = 20):
     """Standard deviation of the last `window` one-bar returns."""
     if window < 2:
         raise ValueError("window is at least two bars")
-    changes = np.full(len(close), np.nan)
-    changes[1:] = close[1:] / close[:-1] - 1
-    result = np.full(len(close), np.nan)
-    for i in range(window, len(close)):
-        result[i] = np.std(changes[i - window + 1:i + 1], ddof=1)
-    return result
+    return _apply(_returns(close), window, lambda x: x.std(axis=1, ddof=1), 2)
 
 
 def skip_momentum(close, lookback: int = 252, skip: int = 21):

@@ -1,7 +1,7 @@
 """Factors of the futures term structure (dominant vs next-dominant roll yield)."""
 import numpy as np
 
-from factors._rolling import ratio as _ratio
+from factors._rolling import apply as _apply, ratio as _ratio
 from factors.price import volatility as _volatility
 from factors.technical import price_zscore as _price_zscore
 
@@ -12,12 +12,7 @@ def roll_yield_carry(roll_yield, window: int = 5):
     """Mean annualized roll yield over the last `window` bars."""
     if window < 1:
         raise ValueError("window is at least one bar")
-    result = np.full(len(roll_yield), np.nan)
-    for i in range(window - 1, len(roll_yield)):
-        chunk = roll_yield[i - window + 1:i + 1]
-        if np.all(np.isfinite(chunk)):
-            result[i] = float(np.mean(chunk))
-    return result
+    return _apply(roll_yield, window, lambda x: x.mean(axis=1), 1)
 
 
 def roll_yield_momentum(roll_yield, lookback: int = 20):

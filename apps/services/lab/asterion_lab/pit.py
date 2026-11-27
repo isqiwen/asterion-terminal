@@ -7,12 +7,18 @@ after `published_ms` when recorded, preventing same-day close lookahead.
 """
 from bisect import bisect_right
 import datetime
+import functools
 import math
 
 _BEIJING = datetime.timezone(datetime.timedelta(hours=8))
 _SUMMARY_TOKENS = ("合计", "总计", "小计")
 _DAILY_MAX_AGE_DAYS = 14
 _WEEKLY_MAX_AGE_DAYS = 21
+
+
+@functools.lru_cache(maxsize=8192)
+def _day_ordinal(day: str) -> int:
+    return datetime.date.fromisoformat(day).toordinal()
 
 
 def _close_ms(day: datetime.date) -> int:
@@ -87,7 +93,7 @@ class ExchangePit:
         """Return `(receipt_volume, member_long, member_short, inventory_total)` visible at `(bar_day, bar_end_ms)`."""
         if self.empty():
             return math.nan, math.nan, math.nan, math.nan
-        day_ord = datetime.date.fromisoformat(bar_day).toordinal()
+        day_ord = _day_ordinal(bar_day)
         receipt = self._latest(self._receipts, product, day_ord, bar_end_ms, _DAILY_MAX_AGE_DAYS)
         member = self._latest(self._members, product, day_ord, bar_end_ms, _DAILY_MAX_AGE_DAYS)
         inv = self._latest(self._inventory, product, day_ord, bar_end_ms, _WEEKLY_MAX_AGE_DAYS)

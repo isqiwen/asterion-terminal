@@ -17,6 +17,7 @@ from bisect import bisect_left
 from dataclasses import dataclass
 import datetime
 from decimal import Decimal, ROUND_HALF_UP
+import functools
 from itertools import groupby
 import math
 from operator import itemgetter
@@ -61,6 +62,7 @@ def limit_units(value, tick: int) -> int:
     return above if above % tick == 0 and units % tick else units
 
 
+@functools.lru_cache(maxsize=8192)
 def close_ns(day: str) -> int:
     # 15:00 Asia/Shanghai is 07:00 UTC.
     return int(datetime.datetime.fromisoformat(f"{day}T07:00:00+00:00").timestamp()) * 10**9
@@ -582,7 +584,7 @@ def contract_input(
     )
 
 
-def series_input(data: Data, config, exchange: str, product: str):
+def series_input(data: Data, config, exchange: str, product: str, *, leading_only: bool = False):
     """The months of a product's traded dominant series and its rolls."""
     data.check_stored(exchange)
     product_months = data.product(exchange, product)
@@ -673,7 +675,8 @@ def series_input(data: Data, config, exchange: str, product: str):
             bars = traded[month.contract]
             closed = next(n for n, day in enumerate(bars) if day >= next_begin)
             until = bars[min(closed + 1, len(bars) - 1)]
-        entry = contract_input(data, config, month.contract, begin, config.end_day, until)
+        contract_end = until if (leading_only and until) else config.end_day
+        entry = contract_input(data, config, month.contract, begin, contract_end, until)
         entry["roll_ratio"] = float(plan.ratios[i])
         ry_map, far_close_map, near_ret_map, far_ret_map = {}, {}, {}, {}
         prev_near_min = None
@@ -726,7 +729,7 @@ def series_input(data: Data, config, exchange: str, product: str):
     return contracts, rolls
 
 
-def prepare(data: Data, config):
+def prepare(data: Data, config, *, leading_only: bool = False):
     """The engine's contracts and series, and for each symbol the index of its
     first contract in them. Each contract is marked with the symbol it trades for."""
     contracts, series, first = [], [], {}
@@ -745,7 +748,7 @@ def prepare(data: Data, config):
             if len(parts) == 3:
                 contracts.append(contract_input(data, config, symbol, config.begin_day, config.end_day))
             elif len(parts) == 2:
-                months, rolls = series_input(data, config, *parts)
+                months, rolls = series_input(data, config, *parts, leading_only=leading_only)
                 offset = len(contracts)
                 contracts.extend(months)
                 series.append([(day, offset + index) for day, index in rolls])

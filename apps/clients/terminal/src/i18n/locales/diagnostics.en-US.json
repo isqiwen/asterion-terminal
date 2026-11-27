@@ -427,5 +427,10 @@
   "contract list gives no listing days": "The contract table provides no listing and delisting dates for this contract",
   "contract table units unreadable": "The contract's trading and quote units in the contract table could not be parsed to compute the multiplier",
   "daily bars lack settlement price": "Daily bars lack a settlement price for this contract on a trading day",
-  "instruments cannot be read": "Some selected products or contracts cannot be read in this range; remove them and resubmit"
+  "instruments cannot be read": "Some selected products or contracts cannot be read in this range; remove them and resubmit",
+  "no such factor evaluation is running": "No such factor evaluation is running.",
+  "a running or waiting factor evaluation cannot be deleted": "A running or waiting factor evaluation cannot be deleted.",
+  "factor batch id is invalid or already used": "The factor batch ID is invalid or already in use.",
+  "a factor batch requires one or more evaluations": "A factor batch requires one or more evaluations.",
+  "factor batch contains duplicate evaluation ids": "The factor batch contains duplicate evaluation IDs."
 }

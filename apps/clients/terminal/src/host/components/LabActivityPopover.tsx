@@ -35,7 +35,7 @@ const shortTime = (ms: bigint) =>
 type OpenHandlers = {
   openRun: (id: string) => void;
   openSweep: (id: string) => void;
-  openFactors: () => void;
+  openFactors: (id?: string) => void;
 };
 
 function LabTasksPopover({
@@ -74,6 +74,9 @@ function LabTasksPopover({
   const jump = (task: LabTask) => {
     panel.current?.hidePopover?.();
     if (task.kind === TaskKind.BACKTEST) openRun(task.id);
+    else if (task.kind === TaskKind.FACTOR)
+      openFactors(task.state === RunState.SUCCEEDED ? task.id : undefined);
+    else if (task.kind === TaskKind.FACTOR_BATCH) openFactors();
     else openSweep(task.id);
   };
 
@@ -128,51 +131,6 @@ function LabTasksPopover({
                 <div className="lab-activity-group">
                   <h3>{th("进行中")}</h3>
                   <ul>
-                    {activity.factorBatch && (
-                      <li>
-                        <div className="lab-activity-row">
-                          <div className="lab-activity-main">
-                            <strong>{th("批量评价因子")}</strong>
-                            <span className="subtle numeric">
-                              {activity.factorBatch.done} / {activity.factorBatch.total} ·{" "}
-                              {th("已用 {time}", {
-                                time: formatDuration(now - activity.factorBatch.startedMs),
-                              })}
-                              {(() => {
-                                const eta = estimateRemainingMs(
-                                  activity.factorBatch.done,
-                                  activity.factorBatch.total,
-                                  activity.factorBatch.startedMs,
-                                  now,
-                                );
-                                return eta !== null
-                                  ? ` · ${th("剩余 ~{time}", { time: formatDuration(eta) })}`
-                                  : "";
-                              })()}
-                            </span>
-                            <progress
-                              className="lab-activity-progress"
-                              value={activity.factorBatch.done}
-                              max={activity.factorBatch.total}
-                            />
-                          </div>
-                          <div className="lab-activity-actions">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                panel.current?.hidePopover?.();
-                                openFactors();
-                              }}
-                            >
-                              {th("查看")}
-                            </button>
-                            <button type="button" onClick={() => activity.factorBatch?.cancel()}>
-                              {th("取消")}
-                            </button>
-                          </div>
-                        </div>
-                      </li>
-                    )}
                     {activity.active.map(task => {
                       const started = Number(task.startedMs);
                       const elapsed = started > 0 ? formatDuration(now - started) : "";
@@ -285,29 +243,14 @@ export function LabStatusTask(handlers: OpenHandlers) {
 
   if (!activity || activity.totalActive === 0) return null;
 
-  const primary = activity.active[0];
-  const factor = activity.factorBatch;
+  const primary = activity.active[0]!;
   const extra = activity.totalActive - 1;
   const now = Date.now();
-
-  let heading = "";
-  let done = 0;
-  let total = 0;
-  let startedMs = 0;
-  let failed = 0;
-
-  if (primary) {
-    heading = labTaskTitle(primary);
-    done = primary.done;
-    total = primary.total;
-    startedMs = Number(primary.startedMs);
-    failed = primary.failed;
-  } else if (factor) {
-    heading = th("批量评价因子");
-    done = factor.done;
-    total = factor.total;
-    startedMs = factor.startedMs;
-  }
+  const heading = labTaskTitle(primary);
+  const done = primary.done;
+  const total = primary.total;
+  const startedMs = Number(primary.startedMs);
+  const failed = primary.failed;
 
   const determinate = total > 1;
   const percent = determinate ? Math.min(100, Math.floor((done * 100) / total)) : 0;

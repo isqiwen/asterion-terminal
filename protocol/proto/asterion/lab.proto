@@ -22,7 +22,7 @@ message Request {
     BuildPackage build_package = 34;
     BuildWarmup build_warmup = 35;
 
-    EvaluateFactor evaluate_factor = 40;
+    EvaluateFactor start_factor = 40;
     Backtest start_backtest = 41;
     ListRuns list_runs = 42;
     RunId get_run = 43;
@@ -41,6 +41,8 @@ message Request {
     common.Empty list_recent_runs = 55;
     ReconcileLive reconcile_live = 56;
     common.Empty get_activity = 57;
+    RunId cancel_factor = 58;
+    FactorBatch start_factor_batch = 59;
   }
 }
 
@@ -61,7 +63,7 @@ message Response {
     strategy.Package build_package = 34;
     strategy.Warmup build_warmup = 35;
 
-    FactorResult evaluate_factor = 40;
+    common.Empty start_factor = 40;
     common.Empty start_backtest = 41;
     Runs list_runs = 42;
     RunDetail get_run = 43;
@@ -79,6 +81,8 @@ message Response {
     Runs list_recent_runs = 55;
     ReconcileResult reconcile_live = 56;
     LabActivity get_activity = 57;
+    common.Empty cancel_factor = 58;
+    common.Empty start_factor_batch = 59;
   }
 }
 
@@ -266,6 +270,14 @@ message EvaluateFactor {
   repeated ExtraFactor orthogonalize_against = 21;
   // Bar period: unspecified or day for daily bars, or 1 to 60 minutes.
   common.Period period = 22;
+}
+
+// Evaluates each factor in parallel under one shared dataset version.
+message FactorBatch {
+  string id = 1;
+  repeated EvaluateFactor evaluations = 2;
+  // At once; 0 uses the processors less one.
+  uint32 processes = 3;
 }
 
 // An evaluation as it was asked for and evaluated; kept by Lab.
@@ -618,6 +630,8 @@ enum TaskKind {
   TASK_KIND_BATCH = 3;
   TASK_KIND_SLIPPAGE_STRESS = 4;
   TASK_KIND_ROLLING = 5;
+  TASK_KIND_FACTOR = 6;
+  TASK_KIND_FACTOR_BATCH = 7;
 }
 
 message LabTask {

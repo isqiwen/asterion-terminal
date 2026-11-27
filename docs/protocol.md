@@ -165,7 +165,8 @@ sequenceDiagram
 | `read_source` / `save_source` / `delete_source` | 模块路径（保存另含内容与新建标志） | 模块内容 / — / — |
 | `build_package` | 成功回测的 `run_id`，或策略目录与策略标识（二选一） | 可发布至 Trading 的 `strategy.Package` |
 | `build_warmup` | 柜台合约、历史标识（主力连续另含候选交割月）、周期、固定版本、最大根数 | 供 Trading 回放的 `strategy.Warmup`（含 SHA-256 摘要） |
-| `evaluate_factor` | 评价 ID、因子、参数、品种、起止日、持有期、分组数、标准化方式、附加因子与合成方式、留出日 | 因子评价完整结果（Lab 同步持久化） |
+| `start_factor` / `start_factor_batch` | 单次/合成因子评价配置 / 批量因子评价（批次 ID、评价列表、并发数） | —（异步接纳，进度与结果状态通过 `get_activity` 追踪，完成后持久化） |
+| `cancel_factor` | 评价 ID 或批量因子评价 ID | —（终止运行中子进程并移除未启动排队项） |
 | `list_factor_results` / `get_factor_result` | — / 评价 ID | 已保存评价列表（按时间降序，省略逐日明细、样本内分期和相关性矩阵，保留分组换手率与留出期统计）/ 单次评价完整结果 |
 | `start_backtest` | 回测配置 | —（返回即表示已接纳并记录） |
 | `list_runs` | 分页、策略筛选、搜索词、排序字段与方向 | 合并参数扫描后的运行摘要、是否还有下一页及策略筛选项 |

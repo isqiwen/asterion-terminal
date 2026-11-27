@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 import datetime
 from decimal import Decimal
 import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -30,9 +31,7 @@ from asterion_lab.warehouse import write_durably
 from asterion_lab.warehouse_client import Client, Dataset, WarehouseError
 
 MODULE = "lab-service"
-# Keep child deadlines inside Terminal's 65 s reply budget. QuantStats imports
-# native libraries on demand; their first load needs more time than a factor.
-FACTOR_SECONDS = 25
+# Keep synchronous child deadlines inside Terminal's 65 s reply budget.
 REPORT_SECONDS = 60
 
 
@@ -73,7 +72,13 @@ TASK_KINDS = {
     "batch": TaskKind.TASK_KIND_BATCH,
     "slippage": TaskKind.TASK_KIND_SLIPPAGE_STRESS,
     "rolling": TaskKind.TASK_KIND_ROLLING,
+    "factor": TaskKind.TASK_KIND_FACTOR,
+    "factor_batch": TaskKind.TASK_KIND_FACTOR_BATCH,
 }
+
+
+def factor_label(request) -> str:
+    return " + ".join([request.factor, *(extra.factor for extra in request.extra_factors)])
 
 
 def error_code(name: str) -> int:
@@ -156,10 +161,14 @@ class Service:
         self.prune_sources()
         self.backtests = {}  # run id -> its child process, while it runs
         self.waiting = collections.deque()  # (sweep, AdmittedRun, limit) not started yet
+        self.factors = {}  # factor eval id -> its child process, while it runs
+        self.factor_waiting = collections.deque()  # (batch_id, AdmittedFactor, limit) not started yet
+        self.factor_task = {}  # child factor eval id -> owning batch id
+        self.factor_batches = {}  # batch_id -> running/completed member counters
         self.processes = max(1, (os.cpu_count() or 2) - 1)
         self.rolling = {}  # sweep -> its Rolling, until every candidate has ended
         self.bayes = {}  # sweep -> active BayesSweep state across waves
-        self.activity = {}  # run or sweep id -> metadata while active
+        self.activity = {}  # run, sweep or factor task id -> metadata while active
         self.run_task = {}  # child run id -> owning sweep id
         self.recent_tasks = collections.deque(maxlen=12)  # session-completed tasks, newest first
         # Checks, version selection and child startup form one admission. Reads
@@ -175,7 +184,16 @@ class Service:
                 raise ValueError("request has no call")
             handler = getattr(self, f"on_{call}")
             result = getattr(response, call)
-            if call in ("start_backtest", "start_sweep", "cancel_run", "cancel_sweep", "build_package"):
+            if call in (
+                "start_backtest",
+                "start_sweep",
+                "cancel_run",
+                "cancel_sweep",
+                "start_factor",
+                "start_factor_batch",
+                "cancel_factor",
+                "build_package",
+            ):
                 async with self.admission:
                     await handler(getattr(request, call), result)
             else:
@@ -258,25 +276,67 @@ class Service:
                 raise ValueError(f"research version {version.identity} has no {table} partitions")
         return version.identity
 
-    def pin_factor(self, request):
+    def _factor_id_active(self, identity: str) -> bool:
+        return (
+            identity in self.factors
+            or identity in self.activity
+            or identity in self.factor_task
+            or any(item[1].evaluation.id == identity for item in self.factor_waiting)
+        )
+
+    def pin_factor(self, request, *, version: str = "", span_cache: dict | None = None):
         """The evaluation with the research dataset version it reads and its own
         copy of the repository's code."""
-        if not IDENTITY.fullmatch(request.id) or self.factor_path(request.id).exists():
+        if (
+            not IDENTITY.fullmatch(request.id)
+            or self.factor_path(request.id).exists()
+            or self._factor_id_active(request.id)
+        ):
             raise ValueError("factor result id is invalid or already used")
         is_minutes = request.period not in (Period.PERIOD_UNSPECIFIED, Period.PERIOD_DAY)
         if is_minutes and PERIODS.get(request.period) not in chart.MINUTES:
             raise ValueError("factor evaluation supports daily or 1 to 60 minute bars")
+        if (
+            not request.horizons
+            or any(h < 1 for h in request.horizons)
+            or len(set(request.horizons)) != len(request.horizons)
+        ):
+            raise ValueError("horizons are distinct whole numbers of bars, at least one")
+        if request.groups < 2:
+            raise ValueError("a factor is split into at least two groups")
+        if not request.symbols:
+            raise ValueError("a factor is evaluated over one or more symbols")
+        if request.return_mode not in ("", "close", "open"):
+            raise ValueError(f"unknown factor return mode: {request.return_mode!r}")
+        if request.standardize not in ("", "none", "zscore", "rank"):
+            raise ValueError(f"unknown factor standardization: {request.standardize!r}")
+        if request.neutralize not in ("", "none", "sector"):
+            raise ValueError(f"unknown factor neutralization: {request.neutralize!r}")
+        if request.combination not in ("", "equal", "ic_weighted"):
+            raise ValueError(f"unknown factor combination: {request.combination!r}")
+        if not math.isfinite(request.min_volume) or request.min_volume < 0:
+            raise ValueError("min_volume must be a non-negative finite number")
+        if not math.isfinite(request.min_open_interest) or request.min_open_interest < 0:
+            raise ValueError("min_open_interest must be a non-negative finite number")
+        if not math.isfinite(request.cost_bps) or request.cost_bps < 0:
+            raise ValueError("cost_bps must be a non-negative finite number")
         admitted = AdmittedFactor(evaluation=request)
         tables = ("daily", "minutes") if is_minutes else ("daily",)
-        admitted.pinned.dataset_version = self.data_version("", tables)
+        admitted.pinned.dataset_version = self.data_version(version, tables)
         if request.symbols and (not request.first_day or not request.last_day):
-            exchanges = {s.split("/")[0] for s in request.symbols if s}
-            _, found, _ = self.stored_contracts(
-                pinned=admitted.pinned.dataset_version,
-                exchanges=exchanges,
-                include_daily=not is_minutes,
-                include_names=False,
-            )
+            exchanges = frozenset(s.split("/")[0] for s in request.symbols if s)
+            cache_key = (admitted.pinned.dataset_version, exchanges, is_minutes)
+            if span_cache is not None and cache_key in span_cache:
+                found = span_cache[cache_key]
+            else:
+                _, found, _ = self.stored_contracts(
+                    pinned=admitted.pinned.dataset_version,
+                    exchanges=set(exchanges),
+                    include_daily=not is_minutes,
+                    include_names=False,
+                )
+                if span_cache is not None:
+                    span_cache[cache_key] = found
             first, last = lab_data.stored_span(found, request.symbols, is_minutes)
             if not admitted.evaluation.first_day:
                 admitted.evaluation.first_day = first
@@ -287,12 +347,16 @@ class Service:
             f"factor-{request.id}",
             f"factors/{request.factor.partition('.')[0]}.py",
         )
-        for extra in (*request.extra_factors, *request.orthogonalize_against):
-            repository.snapshot(
-                Path(request.repository),
-                Path(admitted.source),
-                f"factors/{extra.factor.partition('.')[0]}.py",
-            )
+        try:
+            for extra in (*request.extra_factors, *request.orthogonalize_against):
+                repository.snapshot(
+                    Path(request.repository),
+                    Path(admitted.source),
+                    f"factors/{extra.factor.partition('.')[0]}.py",
+                )
+        except Exception:
+            shutil.rmtree(admitted.source, True)
+            raise
         admitted.pinned.commit, admitted.pinned.changes = revision.commit, revision.changes
         return admitted
 
@@ -468,31 +532,173 @@ class Service:
     async def on_delete_source(self, request, _):
         repository.delete_source(Path(request.repository), request.path)
 
-    async def on_evaluate_factor(self, request, result):
-        """Evaluates a factor in a child process, keeps its result and replies
-        with it, within the time the Terminal waits for a reply."""
-        admitted = await self.read(self.pin_factor, request)
-        is_minutes = admitted.evaluation.period not in (Period.PERIOD_UNSPECIFIED, Period.PERIOD_DAY)
-        timeout = REPORT_SECONDS if is_minutes else FACTOR_SECONDS
+    async def launch_factor(self, admitted):
+        """Starts the child of an AdmittedFactor asynchronously."""
+        identity = admitted.evaluation.id
+        process = None
         try:
-            try:
-                output = await worker.output(
-                    "asterion_lab.factor",
-                    str(self.directory),
-                    cwd=admitted.source,
-                    input=admitted.SerializeToString(),
-                    timeout=timeout,
-                )
-            except TimeoutError:
-                raise ValueError(
-                    f"the factor took longer than {timeout} s; "
-                    "evaluate fewer symbols or a shorter range"
-                )
-            result.ParseFromString(output)
-            await self.read(self.save_factor, admitted, result)
+            process = await asyncio.create_subprocess_exec(
+                *worker.command("asterion_lab.factor"),
+                str(self.directory),
+                cwd=admitted.source,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            process.stdin.write(admitted.SerializeToString())
+            process.stdin.close()
         except Exception:
+            if process is not None:
+                if process.returncode is None:
+                    process.kill()
+                await process.communicate()
             await asyncio.to_thread(shutil.rmtree, admitted.source, True)
             raise
+        self.factors[identity] = process
+        asyncio.create_task(self.watch_factor(admitted, process))
+        self.log.write("info", MODULE, "factor.started", factor=identity)
+
+    async def watch_factor(self, admitted, process):
+        identity = admitted.evaluation.id
+
+        async def read_all(stream):
+            chunks = []
+            while chunk := await stream.read(65536):
+                chunks.append(chunk)
+            return b"".join(chunks)
+
+        async def tail(stream):
+            kept = b""
+            while chunk := await stream.read(65536):
+                kept = (kept + chunk)[-65536:]
+            return kept
+
+        output, raw_error = await asyncio.gather(read_all(process.stdout), tail(process.stderr))
+        error_text = raw_error.decode(errors="replace").strip()
+        await process.wait()
+        code = process.returncode
+        state, message = "failed", ""
+        try:
+            if code == 0:
+                result = FactorResult()
+                result.ParseFromString(output)
+                await self.read(self.save_factor, admitted, result)
+                state = "succeeded"
+                self.log.write("info", MODULE, "factor.finished", factor=identity)
+            elif code < 0:
+                state, message = "interrupted", "cancelled"
+                await asyncio.to_thread(shutil.rmtree, admitted.source, True)
+                self.log.write("info", MODULE, "factor.cancelled", factor=identity)
+            else:
+                lines = error_text.splitlines()
+                message = lines[-1] if lines else f"factor exited with {code}"
+                await asyncio.to_thread(shutil.rmtree, admitted.source, True)
+                self.log.write(
+                    "warning",
+                    MODULE,
+                    "factor.failed",
+                    factor=identity,
+                    exit_code=code,
+                    stack=error_text,
+                )
+        except Exception as failure:
+            state, message = "failed", str(failure)
+            await asyncio.to_thread(shutil.rmtree, admitted.source, True)
+            self.log.write("error", MODULE, "factor.record_failed", factor=identity, message=message)
+        finally:
+            self.factors.pop(identity, None)
+            self._complete_factor_activity(identity, state, message)
+            await self.pump()
+
+    async def on_start_factor(self, request, _):
+        admitted = await self.read(self.pin_factor, request)
+        self.activity[request.id] = dict(
+            id=request.id,
+            kind="factor",
+            strategy=factor_label(request),
+            symbols=list(admitted.evaluation.symbols),
+            total=1,
+            started_ms=int(time.time() * 1000),
+        )
+        try:
+            await self.launch_factor(admitted)
+        except Exception:
+            self.activity.pop(request.id, None)
+            raise
+
+    def pin_factor_batch(self, request):
+        if not IDENTITY.fullmatch(request.id) or self._factor_id_active(request.id):
+            raise ValueError("factor batch id is invalid or already used")
+        if not request.evaluations:
+            raise ValueError("a factor batch requires one or more evaluations")
+        seen = set()
+        for item in request.evaluations:
+            if item.id in seen:
+                raise ValueError("factor batch contains duplicate evaluation ids")
+            seen.add(item.id)
+        needs_minutes = any(
+            item.period not in (Period.PERIOD_UNSPECIFIED, Period.PERIOD_DAY)
+            for item in request.evaluations
+        )
+        version = self.data_version("", ("daily", "minutes") if needs_minutes else ("daily",))
+        admitted_list, span_cache = [], {}
+        try:
+            for item in request.evaluations:
+                admitted_list.append(self.pin_factor(item, version=version, span_cache=span_cache))
+        except Exception:
+            for admitted in admitted_list:
+                shutil.rmtree(admitted.source, True)
+            raise
+        return admitted_list
+
+    async def on_start_factor_batch(self, request, _):
+        admitted_list = await self.read(self.pin_factor_batch, request)
+        limit = min(request.processes, os.cpu_count() or 1) if request.processes else self.processes
+        self.activity[request.id] = dict(
+            id=request.id,
+            kind="factor_batch",
+            strategy="",
+            symbols=list(admitted_list[0].evaluation.symbols),
+            total=len(admitted_list),
+            started_ms=int(time.time() * 1000),
+        )
+        self.factor_batches[request.id] = dict(done=0, succeeded=0, failed=0, interrupted=0, error="")
+        for admitted in admitted_list:
+            self.factor_task[admitted.evaluation.id] = request.id
+            self.factor_waiting.append((request.id, admitted, limit))
+        await self.start_waiting()
+
+    async def on_cancel_factor(self, request, _):
+        if request.id in self.factors:
+            self.factors[request.id].terminate()
+            return
+        if request.id not in self.factor_batches:
+            raise ValueError("no such factor evaluation is running")
+        kept = collections.deque()
+        dropped = []
+        for item in self.factor_waiting:
+            if item[0] == request.id:
+                dropped.append(item[1])
+            else:
+                kept.append(item)
+        self.factor_waiting = kept
+        for admitted in dropped:
+            self.factor_task.pop(admitted.evaluation.id, None)
+            await asyncio.to_thread(shutil.rmtree, admitted.source, True)
+        running_members = [
+            fid for fid, bid in list(self.factor_task.items()) if bid == request.id and fid in self.factors
+        ]
+        for fid in running_members:
+            self.factors[fid].terminate()
+        if not running_members:
+            meta = self.activity.pop(request.id, None)
+            stats = self.factor_batches.pop(request.id, None)
+            if meta is not None and stats is not None:
+                info = self._factor_batch_info(request.id, meta, stats, 0, 0)
+                if info["state"] == "running":
+                    info["state"] = "interrupted"
+                info["finished_ms"] = int(time.time() * 1000)
+                self._record_recent(info)
 
     async def on_get_run_report(self, request, reply):
         """QuantStats figures of a finished run, computed in a child process."""
@@ -632,7 +838,7 @@ class Service:
         rolling validation once all its candidates have ended.
         Called with the admission lock held."""
         while True:
-            while self.waiting and len(self.backtests) < self.waiting[0][2]:
+            while self.waiting and len(self.backtests) + len(self.factors) < self.waiting[0][2]:
                 _, run, _ = self.waiting[0]
                 try:
                     await self.launch(run)
@@ -641,6 +847,23 @@ class Service:
                         "error", MODULE, "backtest.not_started", run=run.backtest.id, message=str(error)
                     )
                 self.waiting.popleft()
+
+            while (
+                self.factor_waiting
+                and len(self.backtests) + len(self.factors) < self.factor_waiting[0][2]
+            ):
+                _, admitted, _ = self.factor_waiting.popleft()
+                try:
+                    await self.launch_factor(admitted)
+                except Exception as error:
+                    self.log.write(
+                        "error",
+                        MODULE,
+                        "factor.not_started",
+                        factor=admitted.evaluation.id,
+                        message=str(error),
+                    )
+                    self._complete_factor_activity(admitted.evaluation.id, "failed", str(error))
 
             advanced = False
             for sweep, bayes in list(self.bayes.items()):
@@ -968,16 +1191,94 @@ class Service:
         target.state = STATES[info["state"]]
         target.error = info["error"]
 
+    def _factor_batch_info(self, batch_id: str, meta: dict, stats: dict, running: int, queued: int) -> dict:
+        total = meta["total"]
+        succeeded = stats["succeeded"]
+        failed = stats["failed"] + stats["interrupted"]
+        done = succeeded + failed
+        if running or queued:
+            state = "running"
+        elif succeeded == total and total > 0:
+            state = "succeeded"
+        elif stats["interrupted"] > 0 or done < total:
+            state = "interrupted"
+        else:
+            state = "failed"
+        return dict(
+            id=batch_id,
+            kind="factor_batch",
+            strategy=meta["strategy"],
+            symbols=meta["symbols"],
+            total=total,
+            done=done,
+            succeeded=succeeded,
+            failed=failed,
+            running=running,
+            queued=queued,
+            started_ms=meta["started_ms"],
+            finished_ms=0,
+            state=state,
+            error="" if state == "succeeded" else stats["error"],
+        )
+
+    def _complete_factor_activity(self, identity: str, state: str, error: str):
+        batch_id = self.factor_task.pop(identity, None)
+        if batch_id is None:
+            meta = self.activity.pop(identity, None)
+            if meta is None:
+                return
+            self._record_recent(
+                dict(
+                    id=identity,
+                    kind=meta["kind"],
+                    strategy=meta["strategy"],
+                    symbols=meta["symbols"],
+                    total=1,
+                    done=1,
+                    succeeded=1 if state == "succeeded" else 0,
+                    failed=0 if state == "succeeded" else 1,
+                    running=0,
+                    queued=0,
+                    started_ms=meta["started_ms"],
+                    finished_ms=int(time.time() * 1000),
+                    state=state,
+                    error="" if state == "succeeded" else error,
+                )
+            )
+            return
+        stats = self.factor_batches.get(batch_id)
+        if stats is not None:
+            stats["done"] += 1
+            if state == "succeeded":
+                stats["succeeded"] += 1
+            elif state == "interrupted":
+                stats["interrupted"] += 1
+            else:
+                stats["failed"] += 1
+                if error and not stats["error"]:
+                    stats["error"] = error
+        still_running = any(self.factor_task.get(fid) == batch_id for fid in self.factors)
+        still_queued = any(item[0] == batch_id for item in self.factor_waiting)
+        if still_running or still_queued:
+            return
+        meta = self.activity.pop(batch_id, None)
+        stats = self.factor_batches.pop(batch_id, None)
+        if meta is None or stats is None:
+            return
+        info = self._factor_batch_info(batch_id, meta, stats, 0, 0)
+        info["finished_ms"] = int(time.time() * 1000)
+        self._record_recent(info)
+
     async def on_get_activity(self, _, reply):
-        reply.running_processes = len(self.backtests)
+        reply.running_processes = len(self.backtests) + len(self.factors)
         reply.max_processes = self.processes
-        reply.queued_runs = len(self.waiting)
+        reply.queued_runs = len(self.waiting) + len(self.factor_waiting)
         for task_id, meta in list(self.activity.items()):
-            if meta["kind"] == "backtest":
-                running = 1 if task_id in self.backtests else 0
+            if meta["kind"] in ("backtest", "factor"):
+                running = 1 if (task_id in self.backtests or task_id in self.factors) else 0
                 info = dict(
                     id=task_id,
-                    kind="backtest",
+                    kind=meta["kind"],
                     strategy=meta["strategy"],
                     symbols=meta["symbols"],
                     total=1,
@@ -991,6 +1292,13 @@ class Service:
                     state="running",
                     error="",
                 )
+            elif meta["kind"] == "factor_batch":
+                running = sum(1 for fid in self.factors if self.factor_task.get(fid) == task_id)
+                queued = sum(1 for item in self.factor_waiting if item[0] == task_id)
+                stats = self.factor_batches.get(
+                    task_id, dict(done=0, succeeded=0, failed=0, interrupted=0, error="")
+                )
+                info = self._factor_batch_info(task_id, meta, stats, running, queued)
             else:
                 running = sum(1 for r in self.backtests if self.run_task.get(r) == task_id)
                 bayes_rem = (
@@ -1060,11 +1368,18 @@ class Service:
             )
 
     async def on_delete_factor_result(self, request, _):
-        path = self.factor_path(request.id)
-        if not IDENTITY.fullmatch(request.id) or not path.exists():
-            raise ValueError(f"no factor result {request.id}")
-        path.unlink()
-        await asyncio.to_thread(self.remove_sources, f"factor-{request.id}")
+        async with self.admission:
+            if self._factor_id_active(request.id):
+                raise ValueError("a running or waiting factor evaluation cannot be deleted")
+            path = self.factor_path(request.id)
+            if not IDENTITY.fullmatch(request.id) or not path.exists():
+                raise ValueError(f"no factor result {request.id}")
+            path.unlink()
+            await asyncio.to_thread(self.remove_sources, f"factor-{request.id}")
+            self.recent_tasks = collections.deque(
+                (item for item in self.recent_tasks if item["id"] != request.id),
+                maxlen=self.recent_tasks.maxlen,
+            )
 
     async def on_cancel_run(self, request, _):
         process = self.backtests.get(request.id)

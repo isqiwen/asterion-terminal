@@ -178,3 +178,99 @@ test("finishing an active task while outside research notifies the notification 
   window.dispatchEvent(unloadEvent);
   expect(unloadEvent.defaultPrevented).toBe(false);
 });
+
+test("factor tasks cancel via cancelFactor and click-through opens the completed factor report", async () => {
+  const startedMs = BigInt(Date.now() - 4_000);
+  let finished = false;
+  vi.mocked(lab).mockImplementation(async operation => {
+    if (operation.case === "getActivity") {
+      return create(
+        LabActivitySchema,
+        finished
+          ? {
+              runningProcesses: 0,
+              maxProcesses: 4,
+              queuedRuns: 0,
+              active: [],
+              recent: [
+                {
+                  id: "mom-1",
+                  kind: TaskKind.FACTOR,
+                  strategy: "price.momentum",
+                  total: 1,
+                  done: 1,
+                  succeeded: 1,
+                  failed: 0,
+                  startedMs,
+                  finishedMs: BigInt(Date.now()),
+                  state: RunState.SUCCEEDED,
+                },
+              ],
+            }
+          : {
+              runningProcesses: 1,
+              maxProcesses: 4,
+              queuedRuns: 0,
+              active: [
+                {
+                  id: "mom-1",
+                  kind: TaskKind.FACTOR,
+                  strategy: "price.momentum",
+                  total: 1,
+                  done: 0,
+                  running: 1,
+                  startedMs,
+                  state: RunState.RUNNING,
+                },
+              ],
+              recent: [],
+            },
+      ) as never;
+    }
+    return {} as never;
+  });
+
+  function Refresher() {
+    const activity = useLabActivity();
+    return (
+      <button type="button" onClick={() => void activity?.refresh()}>
+        刷新活动
+      </button>
+    );
+  }
+
+  const openFactors = vi.fn();
+  render(
+    <LabActivityProvider
+      ready={true}
+      currentModule="market"
+      openRun={vi.fn()}
+      openSweep={vi.fn()}
+      openFactors={openFactors}
+    >
+      <LabStatusTask openRun={vi.fn()} openSweep={vi.fn()} openFactors={openFactors} />
+      <Refresher />
+      <NotificationCenter />
+    </LabActivityProvider>,
+  );
+
+  const pill = await screen.findByRole("button", { name: /评价 momentum/ });
+  openPopover(pill);
+  fireEvent.click(screen.getByRole("button", { name: "取消" }));
+  await waitFor(() =>
+    expect(vi.mocked(lab)).toHaveBeenCalledWith({
+      case: "cancelFactor",
+      value: { id: "mom-1" },
+    }),
+  );
+
+  finished = true;
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "刷新活动" }));
+  });
+
+  const notice = await screen.findByRole("button", { name: /评价 momentum 已完成/ });
+  openPopover(notice);
+  fireEvent.click(screen.getByRole("button", { name: "评价 momentum 已完成" }));
+  expect(openFactors).toHaveBeenCalledWith("mom-1");
+});

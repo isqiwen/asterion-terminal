@@ -16,6 +16,10 @@ const mutationCases = new Set<Call["case"]>([
   "cancelRun",
   "cancelSweep",
   "deleteRun",
+  "startFactor",
+  "startFactorBatch",
+  "cancelFactor",
+  "deleteFactorResult",
 ]);
 const mutationListeners = new Set<() => void>();
 

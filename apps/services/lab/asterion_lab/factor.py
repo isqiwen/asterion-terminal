@@ -24,6 +24,7 @@ FactorResult to standard output:
     python3 -I -B -c "...; from asterion_lab.factor import main; main()" <lab-directory>
 """
 from bisect import bisect_left
+import datetime
 from decimal import Decimal
 import math
 import os
@@ -34,14 +35,13 @@ import numpy as np
 import polars as pl
 
 from asterion_lab import repository, statistics as lab_stats
-from asterion_lab.backtest import Config, observations, rolls
-from asterion_lab.data import COSTS, Data, prepare, raw
+from asterion_lab.backtest import Config
+from asterion_lab.data import BEIJING, COSTS, Data, R, prepare
 from asterion_lab.warehouse_client import Dataset
 from asterion_strategy import (
     FIELDS,
     KINDS,
-    Context,
-    observe,
+    PRICES,
     orthogonalize,
     sector_neutralize,
     verify_factor_causality,
@@ -91,7 +91,7 @@ def symbols_of(data: Data, symbols, prepared: dict | None = None, minutes: int =
             for product in data.load_exchange(symbol):
                 name = f"{symbol}/{product}"
                 try:
-                    ready = prepare(data, config(data, (name,), minutes))
+                    ready = prepare(data, config(data, (name,), minutes), leading_only=True)
                     if prepared is not None:
                         prepared[name] = ready
                     chosen.append(name)
@@ -102,7 +102,7 @@ def symbols_of(data: Data, symbols, prepared: dict | None = None, minutes: int =
         if prepared is not None:
             for symbol in chosen:
                 if symbol not in prepared:
-                    prepared[symbol] = prepare(data, config(data, (symbol,), minutes))
+                    prepared[symbol] = prepare(data, config(data, (symbol,), minutes), leading_only=True)
     return tuple(chosen), skipped
 
 
@@ -117,38 +117,93 @@ def config(data: Data, symbols, minutes: int = 0) -> Config:
                   max_contract_lots=Decimal(0), max_working_orders=0, minutes=minutes)
 
 
+def _readonly(array: np.ndarray) -> np.ndarray:
+    view = array.view()
+    view.flags.writeable = False
+    return view
+
+
 def bars(data: Data, symbol: str, prepared=None, minutes: int = 0) -> dict:
     """A symbol's bars as a strategy sees them: its timestamps and an array of each
-    field. Each symbol is replayed alone, so a contract and the series it is a
-    month of can both be evaluated."""
-    import asterion_engine
+    field. Builds leading segments directly with point-in-time roll back-adjustment,
+    matching Context.observe without running a trading Replay."""
+    contracts, series, _ = prepared or prepare(data, config(data, (symbol,), minutes), leading_only=True)
+    schedule = series[0] if series else [("", 0)]
+    active = []
+    for k, (seg_begin, c_idx) in enumerate(schedule):
+        next_begin = schedule[k + 1][0] if k + 1 < len(schedule) else ""
+        entry = contracts[c_idx]
+        seg_bars = [
+            bar
+            for bar in entry["bars"]
+            if (not seg_begin or bar[0] >= seg_begin) and (not next_begin or bar[0] < next_begin)
+        ]
+        if seg_bars:
+            active.append((entry, seg_bars))
 
-    contracts, series, _ = prepared or prepare(data, config(data, (symbol,), minutes))
-    limit = raw(Decimal(1))
-    engine = asterion_engine.Replay(limit, contracts, series, (limit, limit, 1, limit))
-    context, days, segments, start = Context([symbol], rolls(contracts)), [], [], 0
-    for completed in observations(engine, {0: symbol}, contracts):
-        if completed:
-            if context.contracts.get(symbol, completed[0].contract) != completed[0].contract:
-                segments.append((start, {field: context.history(symbol, field, len(days))
-                                         for field in FIELDS}))
-                start = len(days)
-            observe(context, completed)
-            if minutes:
-                days.extend(bar.time.strftime("%Y-%m-%d %H:%M") for bar in completed)
-            else:
-                days.extend(bar.time.date().isoformat() for bar in completed)
-    snapshot = {field: context.history(symbol, field, len(days)) for field in FIELDS}
+    total = sum(len(seg_bars) for _, seg_bars in active)
+    cols = {field: np.full(total, np.nan, dtype=float) for field in FIELDS}
+    days, segments, start, offset, prev_contract = [], [], 0, 0, None
+    for entry, seg_bars in active:
+        if offset and entry["symbol"] != prev_contract:
+            snap = {
+                field: _readonly(cols[field][:offset].copy() if field in PRICES else cols[field][:offset])
+                for field in FIELDS
+            }
+            segments.append((start, snap))
+            ratio = entry["roll_ratio"]
+            for field in PRICES:
+                cols[field][:offset] *= ratio
+            start = offset
+        prev_contract = entry["symbol"]
+        end = offset + len(seg_bars)
+        if minutes:
+            days.extend(
+                datetime.datetime.fromtimestamp(bar[1] / 10**9, BEIJING).strftime("%Y-%m-%d %H:%M")
+                for bar in seg_bars
+            )
+        else:
+            days.extend(bar[0] for bar in seg_bars)
+        cols["open"][offset:end] = np.fromiter((bar[2] for bar in seg_bars), float, len(seg_bars)) / R
+        cols["high"][offset:end] = np.fromiter((bar[3] for bar in seg_bars), float, len(seg_bars)) / R
+        cols["low"][offset:end] = np.fromiter((bar[4] for bar in seg_bars), float, len(seg_bars)) / R
+        cols["close"][offset:end] = np.fromiter((bar[5] for bar in seg_bars), float, len(seg_bars)) / R
+        cols["volume"][offset:end] = np.fromiter((bar[6] for bar in seg_bars), float, len(seg_bars)) / R
+        oi_map = entry["open_interest"]
+        cols["open_interest"][offset:end] = np.fromiter(
+            (oi_map[bar[1]] for bar in seg_bars), float, len(seg_bars)
+        )
+        for name in ("roll_yield", "far_close", "near_return", "far_return"):
+            mapping = entry.get(name)
+            if mapping:
+                cols[name][offset:end] = np.fromiter(
+                    (mapping.get(bar[1], math.nan) for bar in seg_bars), float, len(seg_bars)
+                )
+        pit_map = entry.get("pit")
+        if pit_map:
+            pit_rows = [pit_map.get(bar[1]) for bar in seg_bars]
+            if any(row is not None for row in pit_rows):
+                for idx, name in enumerate(("receipt_volume", "member_long", "member_short", "inventory_total")):
+                    cols[name][offset:end] = np.fromiter(
+                        (math.nan if row is None else row[idx] for row in pit_rows), float, len(seg_bars)
+                    )
+        offset = end
+
+    snapshot = {field: _readonly(cols[field]) for field in FIELDS}
     segments.append((start, snapshot))
     return {"day": days, "segments": segments, **snapshot}
 
 
 def values(function, inputs, settings, symbols: dict) -> pl.DataFrame:
     """The factor's value and the close of every symbol's bars."""
+    uses_prices = bool(set(inputs) & set(PRICES))
     frames = []
     for symbol, columns in symbols.items():
         count = len(columns["day"])
         segments = columns.get("segments") or [(0, columns)]
+        # Non-price fields are never scaled on rolls, so one pass over the full series is exact.
+        if not uses_prices and len(segments) > 1:
+            segments = [(0, segments[-1][1])]
         parts = []
         for start, snapshot in segments:
             end = len(snapshot["close"])

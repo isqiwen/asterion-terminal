@@ -90,7 +90,7 @@ test(
   "a factor from the repository is evaluated across symbols",
   { tag: "@journey" },
   async ({ page }) => {
-    test.setTimeout(60000); // Includes the service's 25 s factor budget.
+    test.setTimeout(60000);
     prepare();
     await page.goto("/");
     await openView(page, "factors");

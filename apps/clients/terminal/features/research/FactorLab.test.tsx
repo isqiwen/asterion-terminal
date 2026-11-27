@@ -5,16 +5,23 @@ import { lab } from "../../src/bridge/lab";
 import {
   FactorResultSchema,
   FactorResultsSchema,
+  LabActivitySchema,
+  RunState,
   SourceSchema,
   StrategiesSchema,
+  TaskKind,
 } from "../../src/generated/asterion/lab_pb";
 import type { TerminalContext } from "../../src/host/feature-registry";
+import { LabActivityProvider } from "../../src/host/lab-activity";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "../../src/host/workspace/drafts";
 import { defaultFactorForm, factorScopeOf, saveFactorConditions } from "./research-lab";
 import { FactorLab } from "./FactorLab";
 import { FactorResultView } from "./FactorResultView";
 
-vi.mock("../../src/bridge/lab", () => ({ lab: vi.fn() }));
+vi.mock("../../src/bridge/lab", () => ({
+  lab: vi.fn(),
+  onLabMutation: vi.fn(() => () => {}),
+}));
 vi.mock("../../src/i18n", async original => ({
   ...(await original<typeof import("../../src/i18n")>()),
   translate: (_namespace: string, key: string, values?: Record<string, string | number>) =>
@@ -246,14 +253,31 @@ test("only evaluations on the current settings rank", async () => {
 });
 
 test("factor library runs batch evaluation and multi-factor composite evaluation from selected rows", async () => {
-  const evaluated: Array<{
+  const startedBatches: Array<{
+    id?: string;
+    evaluations?: Array<{
+      factor?: string;
+      extraFactors?: Array<{ factor?: string }>;
+      params?: Record<string, unknown>;
+    }>;
+  }> = [];
+  const startedFactors: Array<{
+    id?: string;
     factor?: string;
     extraFactors?: Array<{ factor?: string }>;
     combination?: string;
-    params?: Record<string, unknown>;
   }> = [];
   let listCount = 0;
   let lastCompositeId = "";
+  const recentTasks: Array<{
+    id: string;
+    kind: TaskKind;
+    strategy: string;
+    total: number;
+    done: number;
+    succeeded: number;
+    state: RunState;
+  }> = [];
   vi.mocked(lab).mockImplementation(async operation => {
     switch (operation?.case) {
       case "listStrategies":
@@ -287,17 +311,44 @@ test("factor library runs batch evaluation and multi-factor composite evaluation
               ]
             : [],
         }) as never;
-      case "evaluateFactor": {
+      case "startFactorBatch": {
         const value = operation.value;
-        evaluated.push({
+        startedBatches.push({ id: value.id, evaluations: value.evaluations });
+        recentTasks.unshift({
+          id: value.id ?? "",
+          kind: TaskKind.FACTOR_BATCH,
+          strategy: "",
+          total: value.evaluations?.length ?? 0,
+          done: value.evaluations?.length ?? 0,
+          succeeded: value.evaluations?.length ?? 0,
+          state: RunState.SUCCEEDED,
+        });
+        return {} as never;
+      }
+      case "startFactor": {
+        const value = operation.value;
+        startedFactors.push({
+          id: value.id,
           factor: value.factor,
           extraFactors: value.extraFactors,
           combination: value.combination,
-          params: value.params,
         });
         if (value.extraFactors?.length) lastCompositeId = value.id ?? "";
-        return create(FactorResultSchema, { id: value.id }) as never;
+        recentTasks.unshift({
+          id: value.id ?? "",
+          kind: TaskKind.FACTOR,
+          strategy: [value.factor, ...(value.extraFactors ?? []).map(item => item.factor)].join(
+            " + ",
+          ),
+          total: 1,
+          done: 1,
+          succeeded: 1,
+          state: RunState.SUCCEEDED,
+        });
+        return {} as never;
       }
+      case "getActivity":
+        return create(LabActivitySchema, { active: [], recent: recentTasks }) as never;
       case "getFactorResult":
         return create(FactorResultSchema, {
           id: operation.value.id,
@@ -319,9 +370,16 @@ test("factor library runs batch evaluation and multi-factor composite evaluation
   });
   const context = { snapshot: { research_directory: "/research" } } as unknown as TerminalContext;
   render(
-    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.lab-factors">
-      <FactorLab {...context} />
-    </WorkspaceDraftScope>,
+    <LabActivityProvider
+      ready={true}
+      currentModule="research"
+      openRun={vi.fn()}
+      openSweep={vi.fn()}
+    >
+      <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.lab-factors">
+        <FactorLab {...context} />
+      </WorkspaceDraftScope>
+    </LabActivityProvider>,
   );
   const library = await screen.findByRole("table", { name: "因子库" });
 
@@ -338,26 +396,29 @@ test("factor library runs batch evaluation and multi-factor composite evaluation
   fireEvent.click(within(library).getByLabelText("选择 positions.interest_change"));
   fireEvent.change(screen.getByLabelText("合成方式"), { target: { value: "ic_weighted" } });
 
-  // Batch evaluation runs each selected factor individually with default params.
+  // Batch evaluation submits a single startFactorBatch request with default params.
   const listBefore = listCount;
   fireEvent.click(screen.getByRole("button", { name: "批量评价（2）" }));
   await vi.waitFor(() => expect(listCount).toBeGreaterThan(listBefore));
-  expect(evaluated).toHaveLength(2);
-  expect(evaluated.map(item => item.factor)).toEqual([
+  expect(startedBatches).toHaveLength(1);
+  const batchEvals = startedBatches[0]!.evaluations ?? [];
+  expect(batchEvals.map(item => item.factor)).toEqual([
     "price.momentum",
     "positions.interest_change",
   ]);
-  expect(evaluated.every(item => item.extraFactors?.length === 0)).toBe(true);
-  expect(evaluated[0]!.params).toEqual({ lookback: { value: { case: "integer", value: 20n } } });
+  expect(batchEvals.every(item => item.extraFactors?.length === 0)).toBe(true);
+  expect(batchEvals[0]!.params).toEqual({ lookback: { value: { case: "integer", value: 20n } } });
 
-  // Composite evaluation submits both factors together and opens the correlation report.
+  // Composite evaluation submits startFactor with extraFactors and opens the report once complete.
   fireEvent.click(screen.getByRole("button", { name: "相关性与合成（2）" }));
   expect(await screen.findByRole("table", { name: "因子相关性" })).toBeTruthy();
   expect(
     screen.getByText(/price\.momentum \+ positions\.interest_change · IC 加权合成/),
   ).toBeTruthy();
-  expect(evaluated[2]!.extraFactors).toEqual([{ factor: "positions.interest_change", params: {} }]);
-  expect(evaluated[2]!.combination).toBe("ic_weighted");
+  expect(startedFactors[0]!.extraFactors).toEqual([
+    { factor: "positions.interest_change", params: {} },
+  ]);
+  expect(startedFactors[0]!.combination).toBe("ic_weighted");
 
   // Returning from the composite report restores the factor library table.
   fireEvent.click(screen.getByRole("button", { name: "← 因子库" }));
@@ -514,9 +575,9 @@ test("factor result view shows realism tags and net long-short KPI when cost_bps
   expect(screen.getByText("1.50%")).toBeTruthy();
 });
 
-test("cancelling a batch factor evaluation skips remaining factors", async () => {
-  const evaluated: string[] = [];
-  let finishFirst!: () => void;
+test("cancelling a running batch factor evaluation calls cancelFactor and clears active progress", async () => {
+  let activeBatchId = "";
+  const cancelledIds: string[] = [];
   vi.mocked(lab).mockImplementation(async operation => {
     switch (operation?.case) {
       case "listStrategies":
@@ -525,14 +586,41 @@ test("cancelling a batch factor evaluation skips remaining factors", async () =>
         }) as never;
       case "listFactorResults":
         return create(FactorResultsSchema, {}) as never;
-      case "evaluateFactor":
-        evaluated.push(operation.value.factor!);
-        if (evaluated.length === 1) {
-          await new Promise<void>(resolve => {
-            finishFirst = resolve;
-          });
-        }
-        return create(FactorResultSchema, { id: operation.value.id }) as never;
+      case "startFactorBatch":
+        activeBatchId = operation.value.id ?? "";
+        return {} as never;
+      case "cancelFactor":
+        cancelledIds.push(operation.value.id ?? "");
+        activeBatchId = "";
+        return {} as never;
+      case "getActivity":
+        return create(LabActivitySchema, {
+          active: activeBatchId
+            ? [
+                {
+                  id: activeBatchId,
+                  kind: TaskKind.FACTOR_BATCH,
+                  total: 2,
+                  done: 0,
+                  running: 1,
+                  queued: 1,
+                  state: RunState.RUNNING,
+                },
+              ]
+            : [],
+          recent:
+            !activeBatchId && cancelledIds.length
+              ? [
+                  {
+                    id: cancelledIds[0]!,
+                    kind: TaskKind.FACTOR_BATCH,
+                    total: 2,
+                    done: 0,
+                    state: RunState.INTERRUPTED,
+                  },
+                ]
+              : [],
+        }) as never;
     }
     return new Promise(() => {}) as never;
   });
@@ -542,9 +630,16 @@ test("cancelling a batch factor evaluation skips remaining factors", async () =>
   });
   const context = { snapshot: { research_directory: "/research" } } as unknown as TerminalContext;
   render(
-    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.lab-factors">
-      <FactorLab {...context} />
-    </WorkspaceDraftScope>,
+    <LabActivityProvider
+      ready={true}
+      currentModule="research"
+      openRun={vi.fn()}
+      openSweep={vi.fn()}
+    >
+      <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.lab-factors">
+        <FactorLab {...context} />
+      </WorkspaceDraftScope>
+    </LabActivityProvider>,
   );
   const library = await screen.findByRole("table", { name: "因子库" });
   fireEvent.click(within(library).getByLabelText("选择 price.first"));
@@ -552,9 +647,8 @@ test("cancelling a batch factor evaluation skips remaining factors", async () =>
   fireEvent.click(screen.getByRole("button", { name: "批量评价（2）" }));
   const cancel = await screen.findByRole("button", { name: "取消" });
   fireEvent.click(cancel);
-  finishFirst();
   await vi.waitFor(() => expect(screen.queryByRole("button", { name: "取消" })).toBeNull());
-  expect(evaluated).toEqual(["price.first"]);
+  expect(cancelledIds).toHaveLength(1);
 });
 
 test("generating a strategy from a factor report saves it and navigates to StrategyLab with scope", async () => {

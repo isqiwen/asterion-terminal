@@ -473,7 +473,7 @@ class RemoteResearch(unittest.TestCase):
                 # A factor reads the version current when it is admitted.
                 self.research.write_text(self.original.identity)
                 factor = Request(id=1)
-                run = factor.evaluate_factor
+                run = factor.start_factor
                 run.id = 'factor-1'
                 run.repository, run.factor = str(self.repository), 'price.momentum'
                 run.params['lookback'].integer = 2
@@ -482,8 +482,14 @@ class RemoteResearch(unittest.TestCase):
                 run.horizons.extend([1, 3])
                 run.groups = 3
                 answer = await service.reply(factor)
-                self.assertEqual(answer.WhichOneof('result'), 'evaluate_factor', answer)
-                self.assertEqual(answer.evaluate_factor.pinned.dataset_version, self.original.identity)
+                self.assertEqual(answer.WhichOneof('result'), 'start_factor', answer)
+                deadline = time.monotonic() + 30
+                while service.factors and time.monotonic() < deadline:
+                    await asyncio.sleep(0.05)
+                self.assertFalse(service.factors)
+                kept = await service.reply(Request(id=1, get_factor_result={'id': 'factor-1'}))
+                self.assertEqual(kept.WhichOneof('result'), 'get_factor_result', kept)
+                self.assertEqual(kept.get_factor_result.pinned.dataset_version, self.original.identity)
                 query = Request(id=1, get_chart_bars=dict(
                     dataset_version=self.original.identity, contract='SHFE/rb/2026-05',
                     period=Period.PERIOD_DAY))

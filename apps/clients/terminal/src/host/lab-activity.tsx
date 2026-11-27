@@ -16,23 +16,13 @@ import { useIntervalPoll } from "./polling";
 
 const th = (key: string, values?: MessageValues) => translate("host", key, values);
 
-export type FactorBatchTask = {
-  id: string;
-  done: number;
-  total: number;
-  startedMs: number;
-  cancel: () => void;
-};
-
 export type LabActivityView = {
   runningProcesses: number;
   maxProcesses: number;
   queuedRuns: number;
   active: LabTask[];
   recent: LabTask[];
-  factorBatch: FactorBatchTask | null;
   totalActive: number;
-  setFactorBatch: (batch: FactorBatchTask | null) => void;
   refresh: () => Promise<void>;
   cancelTask: (task: LabTask) => Promise<void>;
   cancelAll: () => Promise<void>;
@@ -40,6 +30,12 @@ export type LabActivityView = {
 
 const shortStrategy = (strategy: string) =>
   strategy.includes(".") ? strategy.split(".")[1]! : strategy;
+
+const shortFactors = (strategy: string) =>
+  strategy
+    .split(" + ")
+    .map(item => shortStrategy(item))
+    .join(" + ");
 
 export function labTaskTitle(task: LabTask) {
   const name = shortStrategy(task.strategy);
@@ -52,6 +48,12 @@ export function labTaskTitle(task: LabTask) {
       return name ? th("扫描 {name}", { name }) : th("参数扫描");
     case TaskKind.ROLLING:
       return name ? th("滚动验证 {name}", { name }) : th("滚动验证");
+    case TaskKind.FACTOR:
+      if (task.strategy.includes(" + "))
+        return th("合成因子 {name}", { name: shortFactors(task.strategy) });
+      return name ? th("评价 {name}", { name }) : th("因子评价");
+    case TaskKind.FACTOR_BATCH:
+      return th("批量评价因子");
     default:
       return name ? th("回测 {name}", { name }) : th("回测");
   }
@@ -111,12 +113,14 @@ export function LabActivityProvider({
   currentModule,
   openRun,
   openSweep,
+  openFactors,
   children,
 }: {
   ready: boolean;
   currentModule: string;
   openRun: (id: string) => void;
   openSweep: (id: string) => void;
+  openFactors?: (id?: string) => void;
   children: ReactNode;
 }) {
   const [state, setState] = useState<{
@@ -132,13 +136,14 @@ export function LabActivityProvider({
     active: [],
     recent: [],
   });
-  const [factorBatch, setFactorBatch] = useState<FactorBatchTask | null>(null);
   const currentModuleRef = useRef(currentModule);
   currentModuleRef.current = currentModule;
   const openRunRef = useRef(openRun);
   openRunRef.current = openRun;
   const openSweepRef = useRef(openSweep);
   openSweepRef.current = openSweep;
+  const openFactorsRef = useRef(openFactors);
+  openFactorsRef.current = openFactors;
 
   const seenActive = useRef(new Set<string>());
   const notified = useRef(new Set<string>());
@@ -181,7 +186,12 @@ export function LabActivityProvider({
         const onClick =
           task.kind === TaskKind.BACKTEST
             ? () => openRunRef.current(task.id)
-            : () => openSweepRef.current(task.id);
+            : task.kind === TaskKind.FACTOR
+              ? () =>
+                  openFactorsRef.current?.(task.state === RunState.SUCCEEDED ? task.id : undefined)
+              : task.kind === TaskKind.FACTOR_BATCH
+                ? () => openFactorsRef.current?.()
+                : () => openSweepRef.current(task.id);
         if (task.state === RunState.SUCCEEDED) {
           notify(
             task.total > 1
@@ -231,7 +241,7 @@ export function LabActivityProvider({
   const hasLabActive = ready && state.active.length > 0;
   useIntervalPoll(() => void read(), hasLabActive ? 1500 : null, [read, hasLabActive]);
 
-  const totalActive = state.active.length + (factorBatch ? 1 : 0);
+  const totalActive = state.active.length;
   useEffect(() => {
     if (totalActive === 0) return;
     const guard = (event: BeforeUnloadEvent) => {
@@ -242,37 +252,35 @@ export function LabActivityProvider({
     return () => window.removeEventListener("beforeunload", guard);
   }, [totalActive]);
 
+  const cancelOne = (task: LabTask) =>
+    task.kind === TaskKind.BACKTEST
+      ? lab({ case: "cancelRun", value: { id: task.id } })
+      : task.kind === TaskKind.FACTOR || task.kind === TaskKind.FACTOR_BATCH
+        ? lab({ case: "cancelFactor", value: { id: task.id } })
+        : lab({ case: "cancelSweep", value: { id: task.id } });
+
   const cancelTask = useCallback(
     async (task: LabTask) => {
-      await (task.kind === TaskKind.BACKTEST
-        ? lab({ case: "cancelRun", value: { id: task.id } })
-        : lab({ case: "cancelSweep", value: { id: task.id } }));
+      await cancelOne(task);
       await read();
     },
     [read],
   );
 
   const cancelAll = useCallback(async () => {
-    factorBatch?.cancel();
-    for (const task of state.active) {
-      await (task.kind === TaskKind.BACKTEST
-        ? lab({ case: "cancelRun", value: { id: task.id } })
-        : lab({ case: "cancelSweep", value: { id: task.id } }));
-    }
+    for (const task of state.active) await cancelOne(task);
     await read();
-  }, [factorBatch, state.active, read]);
+  }, [state.active, read]);
 
   const value = useMemo<LabActivityView>(
     () => ({
       ...state,
-      factorBatch,
       totalActive,
-      setFactorBatch,
       refresh: read,
       cancelTask,
       cancelAll,
     }),
-    [state, factorBatch, totalActive, read, cancelTask, cancelAll],
+    [state, totalActive, read, cancelTask, cancelAll],
   );
   return <LabActivityContext.Provider value={value}>{children}</LabActivityContext.Provider>;
 }
