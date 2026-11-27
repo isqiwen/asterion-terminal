@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PriceChart } from "@asterion/terminal/charts/PriceChart";
 import { Period } from "../../src/generated/asterion/common_pb";
 import type { FactorResult } from "../../src/generated/asterion/lab_pb";
 import { diagnosticSummary } from "../../src/i18n/errors";
 import { type MessageValues, translate } from "../../src/i18n";
+import { Icon } from "../../src/ui/Icon";
 import { dataGapParams, parseDataGap } from "./data-gap";
 import { CopySummaryButton, ExperimentNoteBar, useAnnotations } from "./LabParts";
 import { cumulativeIc, yearlyIc } from "./research-analytics";
@@ -60,12 +61,15 @@ const correlationFill = (value: number | undefined, diagonal: boolean) => {
 // IC by horizon, yearly IC stability, each day's IC and its running sum, and the groups.
 export function FactorResultView({
   result,
+  currentCode,
   openDataset,
 }: {
   result: FactorResult;
+  currentCode?: string;
   openDataset?: (params: Record<string, string>) => void;
 }) {
-  const [tab, setTab] = useState<"overview" | "code" | "skipped">("overview");
+  const [tab, setTab] = useState<"overview" | "skipped">("overview");
+  const [snapshotOpen, setSnapshotOpen] = useState(false);
   const [focusedDay, setFocusedDay] = useState<string | null>(null);
   const largest = Math.max(...result.horizons.map(item => Math.abs(item.mean ?? 0)), 1e-12);
   const widest = Math.max(...result.groups.map(item => Math.abs(item.meanReturn ?? 0)), 1e-12);
@@ -166,9 +170,14 @@ export function FactorResultView({
       : []),
   ];
   const annotations = useAnnotations();
+  const hasSnapshot = Boolean(result.code);
+  const codeChanged = Boolean(
+    hasSnapshot && currentCode !== undefined && currentCode !== result.code,
+  );
+  const showSnapshotLink = hasSnapshot && (codeChanged || currentCode === undefined);
+  const activeTab = tab === "skipped" && result.skipped.length > 0 ? "skipped" : "overview";
   const tabs = [
     ["overview", t("概览")],
-    ["code", t("评价时的源码")],
     ...(result.skipped.length
       ? [["skipped", t("未参与（{count}）", { count: result.skipped.length })] as const]
       : []),
@@ -209,8 +218,26 @@ export function FactorResultView({
             </>
           )}
           {result.pinned?.changes && ` · ${t("含未提交改动")}`}
+          {codeChanged && (
+            <>
+              {" "}
+              · <span className="lab-code-drift">{t("源码已变更")}</span>
+            </>
+          )}
+          {showSnapshotLink && (
+            <>
+              {" "}
+              ·{" "}
+              <button type="button" className="lab-link" onClick={() => setSnapshotOpen(true)}>
+                {t("评价时的源码")}
+              </button>
+            </>
+          )}
         </span>
       </div>
+      {snapshotOpen && hasSnapshot && (
+        <CodeSnapshotDialog code={result.code} close={() => setSnapshotOpen(false)} />
+      )}
       <ExperimentNoteBar
         id={result.id}
         trailing={
@@ -263,15 +290,21 @@ export function FactorResultView({
           ))}
         </dl>
       )}
-      <nav className="lab-report-tabs tabs" aria-label={t("报告")}>
-        {tabs.map(([key, label]) => (
-          <button type="button" key={key} aria-pressed={tab === key} onClick={() => setTab(key)}>
-            {label}
-          </button>
-        ))}
-      </nav>
-      {tab === "code" && <pre className="lab-code">{result.code}</pre>}
-      {tab === "skipped" && (
+      {tabs.length > 1 && (
+        <nav className="lab-report-tabs tabs" aria-label={t("报告")}>
+          {tabs.map(([key, label]) => (
+            <button
+              type="button"
+              key={key}
+              aria-pressed={activeTab === key}
+              onClick={() => setTab(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+      )}
+      {activeTab === "skipped" && (
         <ul className="lab-skipped">
           {result.skipped.map(item => {
             const text = diagnosticSummary(item.reason) ?? item.reason;
@@ -296,7 +329,7 @@ export function FactorResultView({
           })}
         </ul>
       )}
-      {tab === "overview" && (
+      {activeTab === "overview" && (
         <>
           <h3>{t("IC 与衰减")}</h3>
           <table className="lab-table" aria-label={t("IC 与衰减")}>
@@ -587,5 +620,37 @@ export function FactorResultView({
         </>
       )}
     </div>
+  );
+}
+
+function CodeSnapshotDialog({ code, close }: { code: string; close: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const heading = useId();
+  useLayoutEffect(() => {
+    const element = dialog.current;
+    element?.showModal();
+    return () => element?.close();
+  }, []);
+  return (
+    <dialog
+      ref={dialog}
+      className="lab-snapshot-dialog"
+      aria-labelledby={heading}
+      onCancel={event => {
+        event.preventDefault();
+        close();
+      }}
+      onClick={event => {
+        if (event.target === event.currentTarget) close();
+      }}
+    >
+      <header className="lab-snapshot-head">
+        <h2 id={heading}>{t("评价时的源码")}</h2>
+        <button type="button" aria-label={t("关闭")} onClick={close}>
+          <Icon name="close" size={14} />
+        </button>
+      </header>
+      <pre className="lab-code">{code}</pre>
+    </dialog>
   );
 }

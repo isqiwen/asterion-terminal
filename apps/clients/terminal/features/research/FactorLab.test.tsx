@@ -464,8 +464,12 @@ test("a factor's kept evaluation reopens its report with the code it evaluated",
   const records = await screen.findByRole("list", { name: "评价记录" });
   fireEvent.click(within(records).getByRole("button", { name: /lookback=2/ }));
   expect(await screen.findByText(/price\.momentum · lookback=2/)).toBeTruthy();
+  expect(await screen.findByText("源码已变更")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "评价时的源码" }));
-  expect(screen.getByText("def momentum(close, lookback: int = 20): ...")).toBeTruthy();
+  const snapshot = screen.getByRole("dialog", { name: "评价时的源码" });
+  expect(within(snapshot).getByText("def momentum(close, lookback: int = 20): ...")).toBeTruthy();
+  fireEvent.click(within(snapshot).getByRole("button", { name: "关闭" }));
+  expect(screen.queryByRole("dialog", { name: "评价时的源码" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "代码" }));
   await screen.findByText("factors/price.py");
 });
@@ -855,4 +859,33 @@ test("FactorResultView localizes skipped symbol diagnostics and links acquirable
     product: "SHFE/rb",
     search: "rb2605",
   });
+});
+
+test("FactorResultView hides snapshot link and redundant tab bar when code matches current source", () => {
+  const same = "def atr(high, low, close): return high - low";
+  const { rerender } = render(
+    <FactorResultView
+      currentCode={same}
+      result={create(FactorResultSchema, {
+        symbols: ["SHFE/rb", "SHFE/cu"],
+        code: same,
+      })}
+    />,
+  );
+  expect(screen.queryByRole("navigation", { name: "报告" })).toBeNull();
+  expect(screen.queryByText("源码已变更")).toBeNull();
+  expect(screen.queryByRole("button", { name: "评价时的源码" })).toBeNull();
+
+  rerender(
+    <FactorResultView
+      currentCode="def atr(high, low, close): return (high - low) / close"
+      result={create(FactorResultSchema, {
+        symbols: ["SHFE/rb", "SHFE/cu"],
+        code: same,
+      })}
+    />,
+  );
+  expect(screen.getByText("源码已变更")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "评价时的源码" }));
+  expect(screen.getByRole("dialog", { name: "评价时的源码" }).textContent).toContain(same);
 });

@@ -574,7 +574,7 @@ export function FactorLab(context: TerminalContext) {
             )}
             <DeleteRecord name={report} remove={() => remove(report)} />
           </header>
-          <Report key={report} id={report} />
+          <Report key={report} id={report} openDataset={openDataset} />
         </div>
       ) : library ? (
         <FactorLibrary
@@ -655,7 +655,13 @@ export function FactorLab(context: TerminalContext) {
           {(tab === "result" || tab === "split") &&
             (report ? (
               <div className="lab-center lab-runs-view">
-                <Report key={report} id={report} openDataset={openDataset} />
+                <Report
+                  key={report}
+                  id={report}
+                  repository={repository}
+                  drafts={source.drafts}
+                  openDataset={openDataset}
+                />
               </div>
             ) : (
               <div className="lab-placeholder">
@@ -1217,24 +1223,46 @@ function FactorLibrary({
 
 function Report({
   id,
+  repository,
+  drafts,
   openDataset,
 }: {
   id: string;
+  repository?: string;
+  drafts?: Record<string, string>;
   openDataset?: (params: Record<string, string>) => void;
 }) {
   const [result, setResult] = useState<FactorResult | null>(null);
+  const [loadedCode, setLoadedCode] = useState<string | undefined>(undefined);
   const [error, setError] = useState<DisplayError>("");
   useEffect(() => {
     let active = true;
+    setLoadedCode(undefined);
     void lab({ case: "getFactorResult", value: { id } })
-      .then(reply => active && setResult(reply))
+      .then(reply => {
+        if (!active) return;
+        setResult(reply);
+        if (repository && !isCompositeResult(reply) && reply.evaluation?.factor) {
+          const path = `factors/${reply.evaluation.factor.split(".")[0]}.py`;
+          void lab({ case: "readSource", value: { repository, path } })
+            .then(sourceReply => {
+              if (active) setLoadedCode(sourceReply.content);
+            })
+            .catch(() => {});
+        }
+      })
       .catch(failure => active && setError(asDisplayError(failure)));
     return () => {
       active = false;
     };
-  }, [id]);
+  }, [id, repository]);
   useErrorNotification(error, "asterion.terminal.research");
   if (error) return null;
   if (!result) return <p className="subtle">{t("正在读取结果…")}</p>;
-  return <FactorResultView result={result} openDataset={openDataset} />;
+  const modulePath =
+    repository && !isCompositeResult(result) && result.evaluation?.factor
+      ? `factors/${result.evaluation.factor.split(".")[0]}.py`
+      : "";
+  const currentCode = modulePath ? (drafts?.[modulePath] ?? loadedCode) : undefined;
+  return <FactorResultView result={result} currentCode={currentCode} openDataset={openDataset} />;
 }
