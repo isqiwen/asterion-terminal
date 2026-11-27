@@ -42,10 +42,8 @@ from asterion_strategy import (
     FIELDS,
     KINDS,
     PRICES,
-    orthogonalize,
-    sector_neutralize,
+    product_sector,
     verify_factor_causality,
-    winsorize_mad,
 )
 
 MINIMUM = 3  # symbols a day's IC needs
@@ -197,12 +195,13 @@ def bars(data: Data, symbol: str, prepared=None, minutes: int = 0) -> dict:
 def values(function, inputs, settings, symbols: dict) -> pl.DataFrame:
     """The factor's value and the close of every symbol's bars."""
     uses_prices = bool(set(inputs) & set(PRICES))
+    single_pass = not uses_prices or bool(getattr(function, "scale_invariant", False))
     frames = []
     for symbol, columns in symbols.items():
         count = len(columns["day"])
         segments = columns.get("segments") or [(0, columns)]
-        # Non-price fields are never scaled on rolls, so one pass over the full series is exact.
-        if not uses_prices and len(segments) > 1:
+        # Non-price and verified scale-invariant price factors are exact in one pass over the full series.
+        if single_pass and len(segments) > 1:
             segments = [(0, segments[-1][1])]
         parts = []
         for start, snapshot in segments:
@@ -258,47 +257,89 @@ def filter_liquidity(frame: pl.DataFrame, min_volume: float = 0.0,
     )
 
 
-def _apply_daily(frame: pl.DataFrame, transform) -> pl.DataFrame:
-    """Apply a per-day cross-sectional `{symbol: value}` transform to `frame`."""
+def winsorize_frame(frame: pl.DataFrame, n: float = 5.0) -> pl.DataFrame:
+    """Vectorized cross-sectional MAD clipping (`median +- n * 1.4826 * MAD`) per day."""
     if frame.is_empty():
         return frame
-    valid = frame.filter(pl.col("value").is_finite())
-    if valid.is_empty():
-        return frame.with_columns(pl.lit(None, dtype=pl.Float64).alias("value"))
-    rows = []
-    for (day,), part in valid.group_by("day", maintain_order=True):
-        scores = dict(zip(part["symbol"].to_list(), part["value"].to_list()))
-        for symbol, value in transform(scores).items():
-            if math.isfinite(value):
-                rows.append((day, symbol, float(value)))
-    if not rows:
-        return frame.with_columns(pl.lit(None, dtype=pl.Float64).alias("value"))
-    updated = pl.DataFrame(rows, schema={"day": pl.String, "symbol": pl.String, "value": pl.Float64}, orient="row")
-    return frame.drop("value").join(updated, on=["day", "symbol"], how="left")
+    val = pl.when(pl.col("value").is_finite()).then(pl.col("value")).otherwise(None)
+    cnt = val.count().over("day")
+    med = val.median().over("day")
+    mad = (val - med).abs().median().over("day")
+    bound = float(n) * 1.4826 * mad
+    clipped = (
+        pl.when(val.is_null())
+        .then(None)
+        .when((cnt >= 2) & (mad > 0.0) & mad.is_finite())
+        .then(val.clip(med - bound, med + bound))
+        .otherwise(val)
+    )
+    return frame.with_columns(clipped.cast(pl.Float64).alias("value"))
+
+
+def sector_neutralize_frame(frame: pl.DataFrame) -> pl.DataFrame:
+    """Vectorized cross-sectional sector demeaning per day."""
+    if frame.is_empty():
+        return frame
+    symbols = frame["symbol"].unique().to_list()
+    sector_map = {s: product_sector(s) for s in symbols}
+    val = pl.when(pl.col("value").is_finite()).then(pl.col("value")).otherwise(None)
+    return (
+        frame.with_columns(pl.col("symbol").replace_strict(sector_map, default="").alias("_sector"))
+        .with_columns(
+            pl.when(val.is_not_null())
+            .then(val - val.mean().over(["day", "_sector"]))
+            .otherwise(None)
+            .cast(pl.Float64)
+            .alias("value")
+        )
+        .drop("_sector")
+    )
 
 
 def orthogonalize_frame(frame: pl.DataFrame, controls: list) -> pl.DataFrame:
     """Replace each day's factor values with OLS residuals against `controls`."""
     if not controls or frame.is_empty():
         return frame
-    control_days = []
-    for ctrl in controls:
-        by_day = {}
-        valid = ctrl.filter(pl.col("value").is_finite())
-        for (day,), part in valid.group_by("day"):
-            by_day[day] = dict(zip(part["symbol"].to_list(), part["value"].to_list()))
-        control_days.append(by_day)
-    valid = frame.filter(pl.col("value").is_finite())
-    rows = []
-    for (day,), part in valid.group_by("day", maintain_order=True):
-        scores = dict(zip(part["symbol"].to_list(), part["value"].to_list()))
-        day_controls = [by_day.get(day, {}) for by_day in control_days]
-        for symbol, value in orthogonalize(scores, day_controls).items():
-            if math.isfinite(value):
-                rows.append((day, symbol, float(value)))
-    if not rows:
+    k = len(controls)
+    joined = frame.select("day", "symbol", pl.col("value").alias("y")).filter(pl.col("y").is_finite())
+    ctrl_cols = []
+    for idx, ctrl in enumerate(controls):
+        col_name = f"c{idx}"
+        ctrl_cols.append(col_name)
+        joined = joined.join(
+            ctrl.select("day", "symbol", pl.col("value").alias(col_name)).filter(
+                pl.col(col_name).is_finite()
+            ),
+            on=["day", "symbol"],
+            how="inner",
+        )
+    if joined.is_empty():
         return frame.with_columns(pl.lit(None, dtype=pl.Float64).alias("value"))
-    updated = pl.DataFrame(rows, schema={"day": pl.String, "symbol": pl.String, "value": pl.Float64}, orient="row")
+    joined = (
+        joined.with_columns(pl.len().over("day").alias("_n"))
+        .filter(pl.col("_n") >= k + 2)
+        .sort("day", "symbol")
+    )
+    if joined.is_empty():
+        return frame.with_columns(pl.lit(None, dtype=pl.Float64).alias("value"))
+    y_all = joined["y"].to_numpy()
+    x_cols = [np.ones(joined.height, dtype=float), *(joined[c].to_numpy() for c in ctrl_cols)]
+    x_all = np.column_stack(x_cols)
+    resid_all = np.full(joined.height, np.nan, dtype=float)
+    day_counts = joined.group_by("day", maintain_order=True).len()["len"].to_numpy()
+    offset = 0
+    for count in day_counts:
+        end = offset + int(count)
+        x_slice = x_all[offset:end]
+        y_slice = y_all[offset:end]
+        beta, *_ = np.linalg.lstsq(x_slice, y_slice, rcond=None)
+        resid_all[offset:end] = y_slice - x_slice @ beta
+        offset = end
+    updated = (
+        joined.select("day", "symbol")
+        .with_columns(pl.Series("value", resid_all, dtype=pl.Float64))
+        .filter(pl.col("value").is_finite())
+    )
     return frame.drop("value").join(updated, on=["day", "symbol"], how="left")
 
 
@@ -308,10 +349,10 @@ def preprocess_frame(frame: pl.DataFrame, *, winsorize: bool = False, standardiz
     if neutralize not in ("", "none", "sector"):
         raise ValueError(f"unknown factor neutralization: {neutralize!r}")
     if winsorize:
-        frame = _apply_daily(frame, winsorize_mad)
+        frame = winsorize_frame(frame)
     frame = standardize_frame(frame, standardize)
     if neutralize == "sector":
-        frame = _apply_daily(frame, sector_neutralize)
+        frame = sector_neutralize_frame(frame)
     if controls:
         frame = orthogonalize_frame(frame, controls)
     return frame
@@ -628,16 +669,42 @@ def group_returns(frame: pl.DataFrame, horizon: int, groups: int):
     """Each day with at least `groups` symbols: the mean return `horizon` bars
     ahead of each group, and its members. Equal values keep symbol order."""
     returns, members = {}, {}
-    ranked = frame.filter(pl.col("value").is_not_null() & pl.col(f"ahead{horizon}").is_finite())
-    for (day,), part in ranked.sort("day", "value", "symbol").group_by("day", maintain_order=True):
-        size = part.height
-        if size < groups:
-            continue
-        bucket = (np.arange(size) * groups) // size
-        ahead = part[f"ahead{horizon}"].to_numpy()
-        symbols = part["symbol"].to_list()
-        returns[day] = [float(ahead[bucket == g].mean()) for g in range(groups)]
-        members[day] = [{symbols[i] for i in np.flatnonzero(bucket == g)} for g in range(groups)]
+    ahead_col = f"ahead{horizon}"
+    ranked = (
+        frame.filter(pl.col("value").is_not_null() & pl.col(ahead_col).is_finite())
+        .sort("day", "value", "symbol")
+        .with_columns(pl.len().over("day").alias("_size"))
+        .filter(pl.col("_size") >= groups)
+    )
+    if ranked.is_empty():
+        return returns, members
+    agg = (
+        ranked.with_columns(
+            ((pl.int_range(0, pl.len()).over("day") * groups) // pl.col("_size")).alias("_g")
+        )
+        .group_by("day", "_g")
+        .agg(
+            pl.col(ahead_col).mean().alias("ret"),
+            pl.col("symbol").alias("syms"),
+        )
+        .sort("day", "_g")
+    )
+    cur_day = None
+    day_rets: list[float] = []
+    day_mems: list[set[str]] = []
+    for day, _g, ret, syms in agg.iter_rows():
+        if day != cur_day:
+            if cur_day is not None:
+                returns[cur_day] = day_rets
+                members[cur_day] = day_mems
+            cur_day = day
+            day_rets = []
+            day_mems = []
+        day_rets.append(float(ret))
+        day_mems.append(set(syms))
+    if cur_day is not None:
+        returns[cur_day] = day_rets
+        members[cur_day] = day_mems
     return returns, members
 
 
@@ -758,7 +825,7 @@ def run(directory: Path, admitted, reply, *, cache: dict | None = None):
               for _, fn, inp, cfg in extras),
         ]
         if request.winsorize:
-            all_frames = [_apply_daily(f, winsorize_mad) for f in all_frames]
+            all_frames = [winsorize_frame(f) for f in all_frames]
         corr_matrix = factor_correlations(all_frames)
         combined = combine_factors(
             all_frames,

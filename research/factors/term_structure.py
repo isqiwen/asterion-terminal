@@ -1,6 +1,8 @@
 """Factors of the futures term structure (dominant vs next-dominant roll yield)."""
 import numpy as np
 
+from asterion_strategy import scale_invariant as _scale_invariant
+
 from factors._rolling import apply as _apply, ratio as _ratio
 from factors.price import volatility as _volatility
 from factors.technical import price_zscore as _price_zscore
@@ -24,6 +26,7 @@ def roll_yield_momentum(roll_yield, lookback: int = 20):
     return result
 
 
+@_scale_invariant
 def carry_to_risk(close, roll_yield, window: int = 60, periods: int = 252):
     """Mean annualized roll yield / annualized return volatility; needs window + 1 bars."""
     if periods < 1:

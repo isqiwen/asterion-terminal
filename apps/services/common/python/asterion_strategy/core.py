@@ -79,6 +79,12 @@ def check_factor(function, inputs: dict, count: int, **settings):
             )
 
 
+def scale_invariant(function):
+    """Mark a price factor whose output is invariant to positive multiplicative price rescaling."""
+    function.scale_invariant = True
+    return function
+
+
 def verify_factor_causality(function, inputs, settings: dict, name: str = ""):
     """Fast automatic lookahead check on a deterministic synthetic sample.
 
@@ -151,6 +157,18 @@ def verify_factor_causality(function, inputs, settings: dict, name: str = ""):
             raise ValueError(
                 f"{label} failed causality check: historical values change when truncated to {end} bars"
             )
+    if getattr(function, "scale_invariant", False) and any(field in PRICES for field in inputs):
+        scaled_arrays = {}
+        for field, arr in arrays.items():
+            scaled = arr * 2.37 if field in PRICES else arr
+            if scaled is not arr:
+                scaled.flags.writeable = False
+            scaled_arrays[field] = scaled
+        scaled_out = np.asarray(function(**scaled_arrays, **settings), dtype=float)
+        if scaled_out.shape != (size,) or not np.allclose(
+            scaled_out, full, rtol=1e-6, atol=1e-8, equal_nan=True
+        ):
+            raise ValueError(f"{label} is marked scale_invariant but changes under price rescaling")
 
 
 @dataclass(frozen=True)

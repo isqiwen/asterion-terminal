@@ -1,6 +1,8 @@
 """Volume and open-interest signals measured in contracts, not traded currency."""
 import numpy as np
 
+from asterion_strategy import scale_invariant as _scale_invariant
+
 from factors._rolling import apply as _apply, ratio as _ratio, returns as _returns
 
 
@@ -9,6 +11,7 @@ def relative_volume(volume, window: int = 20):
     return _ratio(volume, _apply(volume, window, lambda x: x.mean(axis=1))) - 1
 
 
+@_scale_invariant
 def volume_weighted_return(close, volume, window: int = 20):
     """Mean one-bar return weighted by contemporaneous volume; needs window + 1 bars."""
     weighted = _apply(_returns(close) * volume, window, lambda x: x.sum(axis=1))
@@ -16,6 +19,7 @@ def volume_weighted_return(close, volume, window: int = 20):
     return _ratio(weighted, total)
 
 
+@_scale_invariant
 def volume_return_correlation(close, volume, window: int = 20):
     """Pearson correlation of simple return with contemporaneous volume; needs window + 1 bars."""
     if window < 2:
@@ -36,11 +40,13 @@ def turnover(volume, open_interest, window: int = 20):
     return _apply(_ratio(volume, open_interest), window, lambda x: x.mean(axis=1))
 
 
+@_scale_invariant
 def return_per_volume(close, volume, window: int = 20):
     """Mean absolute simple return per traded contract; needs window + 1 bars (not dollar Amihud)."""
     return _apply(_ratio(np.abs(_returns(close)), volume), window, lambda x: x.mean(axis=1))
 
 
+@_scale_invariant
 def money_flow_index(high, low, close, volume, window: int = 14):
     """MFI (0..100) from typical price times volume; unchanged prices add no flow; needs window + 1 bars."""
     typical = (high + low + close) / 3
@@ -53,6 +59,7 @@ def money_flow_index(high, low, close, volume, window: int = 14):
 
 
 # Marc Chaikin's CMF formula: https://chartschool.stockcharts.com/table-of-contents/technical-indicators-and-overlays/technical-indicators/chaikin-money-flow-cmf
+@_scale_invariant
 def chaikin_money_flow(high, low, close, volume, window: int = 20):
     """Volume-weighted close location (-1..1), not observed order flow; needs window bars."""
     location = _ratio((close - low) - (high - close), high - low, neutral=0.0)

@@ -46,6 +46,7 @@ from .core import (
     check_factor,
     observe,
     quantize_weight,
+    scale_invariant,
     step,
     verify_factor_causality,
 )
@@ -113,6 +114,7 @@ __all__ = [
     "CombinedStrategy",
     "quantize_weight",
     "check_factor",
+    "scale_invariant",
     "verify_factor_causality",
     "observe",
     "step",
