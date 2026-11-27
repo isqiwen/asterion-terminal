@@ -18,6 +18,8 @@ const electronDist = mac
   ? electronExecutable.slice(0, electronExecutable.indexOf("/Electron.app/"))
   : path.dirname(electronExecutable);
 const native = require("../../../../scripts/desktop/native-resources.json");
+const localNetworkMessage = "连接你配置的局域网 Market、Warehouse 和 Trading 服务。";
+const english = require("../src/i18n/locales/en-US.json");
 const nativeFiles = [
   ...native.programs,
   ...native.libraries.map(name => name + (mac ? ".dylib" : ".so")),
@@ -61,10 +63,30 @@ module.exports = {
   nodeGypRebuild: false,
   artifactName: "Asterion-Terminal-${version}-${os}-${arch}.${ext}",
   forceCodeSigning: mac && distribution,
+  afterPack(context) {
+    if (context.electronPlatformName !== "darwin") return;
+    for (const [language, locale] of [
+      ["en", "en-US"],
+      ["zh-Hans", "zh-CN"],
+    ]) {
+      const directory = path.join(
+        context.appOutDir,
+        "asterion_terminal.app/Contents/Resources",
+        language + ".lproj",
+      );
+      const messages = require("../src/i18n/locales/" + locale + ".json");
+      fs.mkdirSync(directory, { recursive: true });
+      fs.writeFileSync(
+        path.join(directory, "InfoPlist.strings"),
+        `NSLocalNetworkUsageDescription = ${JSON.stringify(messages[localNetworkMessage])};\n`,
+      );
+    }
+  },
   mac: {
     target: ["dmg"],
     category: "public.app-category.finance",
     minimumSystemVersion: "13.0",
+    extendInfo: { NSLocalNetworkUsageDescription: english[localNetworkMessage] },
     type: "distribution",
     identity: distribution ? process.env.CSC_NAME : "-",
     notarize: distribution,
