@@ -232,9 +232,9 @@ struct Vendor
             if (p.at("exchange") == "CFFEX")
                 return table(
                     "ts_code,trade_date,trading_fee_rate,trading_fee,offset_today_fee,long_margin_rate,short_margin_rate",
-                    {{"T2609.CFX", p.at("trade_date"), 3.0, 3.0, nullptr, 2.0, 2.0},
+                    {{"T2609.CFX", p.at("trade_date"), 3.0, 3.0, 0.0, 2.0, 2.0},
                         {"TS2609.CFX", p.at("trade_date"), 3.0, 3.0, nullptr, 0.5, 0.5},
-                        {"IC2609.CFX", p.at("trade_date"), 0.23, 0.23, nullptr, 12.0, 12.0}});
+                        {"IC2609.CFX", p.at("trade_date"), 0.23, 0.23, 1000.0, 12.0, 12.0}});
             if (p.at("exchange") == "DCE")
                 return table(
                     "ts_code,trade_date,trading_fee_rate,trading_fee,offset_today_fee,long_margin_rate,short_margin_rate",
@@ -749,12 +749,18 @@ TEST_F(Acquisition, SettlementFeesKeepTheirUnitsAndCloseTodayFeesStayMissing)
     EXPECT_EQ(std::get<std::string>(cffex[0].long_margin_rate), "0.02");
     EXPECT_EQ(std::get<std::string>(cffex[0].fee_rate), "0");
     EXPECT_EQ(std::get<std::string>(cffex[0].fee_per_lot), "3");
+    EXPECT_EQ(std::get<std::string>(cffex[0].close_today_fee_rate), "0");
+    EXPECT_EQ(std::get<std::string>(cffex[0].close_today_fee_per_lot), "0");
     EXPECT_EQ(cffex[1].contract, "CFFEX/ts/2026-09");
     EXPECT_EQ(std::get<std::string>(cffex[1].long_margin_rate), "0.005");
+    EXPECT_EQ(cffex[1].close_today_fee_rate, wh::Cell{});
+    EXPECT_EQ(cffex[1].close_today_fee_per_lot, wh::Cell{});
     EXPECT_EQ(cffex[2].contract, "CFFEX/ic/2026-09");
     EXPECT_EQ(std::get<std::string>(cffex[2].long_margin_rate), "0.12");
     EXPECT_EQ(std::get<std::string>(cffex[2].fee_rate), "0.000023");
     EXPECT_EQ(std::get<std::string>(cffex[2].fee_per_lot), "0");
+    EXPECT_EQ(std::get<std::string>(cffex[2].close_today_fee_rate), "0.00023");
+    EXPECT_EQ(std::get<std::string>(cffex[2].close_today_fee_per_lot), "0");
     const auto dce_early = source->settlement("DCE", "2020-12-31");
     ASSERT_EQ(dce_early.size(), 4);
     EXPECT_EQ(std::get<std::string>(dce_early[2].fee_rate), "0.00006");

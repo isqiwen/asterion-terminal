@@ -505,7 +505,15 @@ std::vector<Settlement> Tushare::settlement(const std::string& exchange, const s
                 throw std::invalid_argument("missing or unverified trading fee");
             Cell close_today_fee_rate, close_today_fee_per_lot;
             if (!at("offset_today_fee").is_null() && basis != FeeBasis::unknown) {
-                if (basis == FeeBasis::rate) {
+                if (exchange == "CFFEX") {
+                    // CFFEX reports close-today fees as a percentage of the trading fee.
+                    const auto ratio =
+                        Decimal::parse(std::get<std::string>(cell("offset_today_fee", -2)));
+                    const auto rate = Decimal::parse(std::get<std::string>(fee_rate));
+                    const auto lot = Decimal::parse(std::get<std::string>(fee_per_lot));
+                    close_today_fee_rate = multiply(rate, ratio, Rounding::exact).str();
+                    close_today_fee_per_lot = multiply(lot, ratio, Rounding::exact).str();
+                } else if (basis == FeeBasis::rate) {
                     close_today_fee_rate = cell("offset_today_fee", rate_shift);
                     close_today_fee_per_lot = zero;
                 } else {
