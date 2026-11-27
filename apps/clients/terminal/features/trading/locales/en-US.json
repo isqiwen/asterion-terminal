@@ -244,6 +244,7 @@
   "报价时间未知": "Quote time unknown",
   "报价时间 {time}": "Quoted at {time}",
   "报价已过期": "Quote is stale",
+  "来源时间超前": "Source time ahead",
   "来源回测": "Source backtest",
   "改用当前源码": "Use current source",
   "撤单统计": "Cancel Counts",

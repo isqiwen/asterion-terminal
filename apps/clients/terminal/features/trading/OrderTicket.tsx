@@ -56,17 +56,23 @@ function stepPrice(
   return frac ? `${whole}.${frac}` : whole.toString();
 }
 
-function usableQuote(market: MarketView | null, row: QuoteRow | undefined, now: number) {
+function quoteIssue(market: MarketView | null, row: QuoteRow | undefined, now: number) {
   const quote = row?.quote;
-  return !!(
-    market?.online &&
-    market.board.feed?.state === FeedState.CONNECTED &&
-    row?.subscription === Subscription.ACTIVE &&
-    quote?.exchangeMs !== undefined &&
-    Number(quote.exchangeMs) <= now + 5000 &&
-    now - Number(quote.exchangeMs) <= 30000 &&
-    now - Number(quote.receivedMs) <= 30000
-  );
+  if (
+    !market?.online ||
+    market.board.feed?.state !== FeedState.CONNECTED ||
+    row?.subscription !== Subscription.ACTIVE ||
+    quote?.exchangeMs === undefined
+  )
+    return "报价已过期";
+  const exchangeMs = Number(quote.exchangeMs);
+  if (exchangeMs > now + 5000) return "来源时间超前";
+  if (now - exchangeMs > 30000 || now - Number(quote.receivedMs) > 30000) return "报价已过期";
+  return undefined;
+}
+
+function usableQuote(market: MarketView | null, row: QuoteRow | undefined, now: number) {
+  return quoteIssue(market, row, now) === undefined;
 }
 
 const formatMoney = (value: number) =>
@@ -97,6 +103,7 @@ export function OrderTicket({
   onPresetApplied,
   initialContract,
   onContract,
+  onDefaultContract,
 }: Pick<TerminalContext, "snapshot" | "busy"> & {
   connection?: string;
   record: Account;
@@ -109,6 +116,7 @@ export function OrderTicket({
   initialContract?: string;
   // Told which contract the ticket is on, so the chart beside it can follow.
   onContract?: (contract: string) => void;
+  onDefaultContract?: (contract: string) => void;
 }) {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
@@ -194,9 +202,12 @@ export function OrderTicket({
   const exchange = traded?.instrument?.exchange ?? "";
   const symbol = traded?.instrument?.symbol ?? "";
   const tradedKey = traded ? key(traded.instrument) : "";
+  const explicit = Boolean(order.contract);
   useEffect(() => {
-    if (tradedKey) onContract?.(tradedKey);
-  }, [tradedKey, onContract]);
+    if (!tradedKey) return;
+    if (explicit) onContract?.(tradedKey);
+    else (onDefaultContract ?? onContract)?.(tradedKey);
+  }, [tradedKey, explicit, onContract, onDefaultContract]);
   const explicitBuckets = explicitCloseBuckets(snapshot, exchange);
   const session = record.session;
   // Lots of the contract's long or short position free to close now.
@@ -219,7 +230,8 @@ export function OrderTicket({
   const catalog = market?.board.catalog;
   const quoteRow = rows?.find(row => key(row.instrument) === key(traded?.instrument));
   const quote = quoteRow?.quote;
-  const quoteUsable = usableQuote(market, quoteRow, now);
+  const quoteProblem = quoteIssue(market, quoteRow, now);
+  const quoteUsable = quoteProblem === undefined;
   // A preset applies once; selling takes the best bid and buying the best ask, if quoted.
   const applied = useRef<Preset>(undefined);
   useEffect(() => {
@@ -544,7 +556,7 @@ export function OrderTicket({
                     hour12: false,
                   }),
                 })}
-            {!quoteUsable && ` · ${t("报价已过期")}`}
+            {quoteProblem && ` · ${t(quoteProblem)}`}
           </p>
         )}
         <div className="order-book" role="group" aria-label={t("五档行情")}>

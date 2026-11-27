@@ -445,3 +445,59 @@ test("quick price chips fill limit prices and the ticket estimates notional and 
   fireEvent.click(screen.getByRole("button", { name: "跌停" }));
   expect(price.value).toBe("3290");
 });
+
+test("future-dated broker quotes report ahead-of-clock time rather than stale and default fallback uses onDefaultContract", () => {
+  const now = Date.now();
+  vi.mocked(useMarket).mockReturnValue({
+    board: create(BoardSchema, {
+      feed: { state: FeedState.CONNECTED },
+      rows: [
+        {
+          instrument: { exchange: "CFFEX", symbol: "IC2612" },
+          subscription: Subscription.ACTIVE,
+          quote: {
+            last: { text: "5730.6" },
+            exchangeMs: BigInt(now + 360_000),
+            receivedMs: BigInt(now),
+            bids: [{ price: { text: "5730.4" } }],
+            asks: [{ price: { text: "5731.2" } }],
+          },
+        },
+      ],
+    }),
+    online: true,
+    ticks: new Map(),
+    generation: 1,
+    interrupted: false,
+    lastReceivedMs: now,
+  });
+  const record = create(AccountSchema, {
+    id: "sim",
+    session: {
+      policyRevision: "p1",
+      policy: {
+        contracts: [{ instrument: { exchange: "CFFEX", symbol: "IC2612" } }],
+        limits: { maxOrderLots: { text: "5" } },
+      },
+    },
+  });
+  const onContract = vi.fn();
+  const onDefaultContract = vi.fn();
+  render(
+    <OrderTicket
+      record={record}
+      snapshot={null}
+      busy={false}
+      accountName="sim"
+      confirm={false}
+      run={vi.fn()}
+      onSent={() => {}}
+      onContract={onContract}
+      onDefaultContract={onDefaultContract}
+    />,
+  );
+  expect(onContract).not.toHaveBeenCalled();
+  expect(onDefaultContract).toHaveBeenCalledWith("CFFEX.IC2612");
+  expect(screen.getByRole("status").textContent).toContain("来源时间超前");
+  expect((screen.getByRole("button", { name: /买1/ }) as HTMLButtonElement).disabled).toBe(true);
+});

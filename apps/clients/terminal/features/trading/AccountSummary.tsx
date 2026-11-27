@@ -141,7 +141,9 @@ export function AccountSummary({ live }: { live: Session }) {
             <div>
               <dt>{t("当日盈亏")}</dt>
               <dd className="account-pnl-value">
-                <span className={dailyTone}>{money(daily)}</span>
+                <span className={dailyTone}>
+                  {daily >= 0.005 ? `+${money(daily)}` : money(daily)}
+                </span>
                 {dailyPct && <small className={dailyTone}>{dailyPct}</small>}
               </dd>
             </div>
@@ -155,44 +157,42 @@ export function AccountSummary({ live }: { live: Session }) {
             </div>
           </dl>
         )}
-        <div className="account-risk-panel">
-          <ul className="risk-usage" aria-label={t("风控占用")}>
-            {riskMeters(live).map(meter => {
-              const share = meter.limit > 0 ? meter.used / meter.limit : 0;
-              const breached = !!meter.breach && live.riskBreaches.includes(meter.breach);
-              const tone = breached || share >= 1 ? "danger" : share >= 0.8 ? "attention" : "ok";
-              return (
-                <li key={meter.label} data-tone={tone} title={meter.title}>
-                  <span>{t(meter.label)}</span>
-                  <span className="risk-value">{meter.text}</span>
-                  <span
-                    className="risk-bar"
-                    role="meter"
-                    aria-label={t(meter.label)}
-                    aria-valuemin={0}
-                    aria-valuemax={meter.limit}
-                    aria-valuenow={meter.used}
-                  >
-                    <span style={{ width: `${Math.min(share, 1) * 100}%` }} />
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-          {funds && (
-            <details className="account-details">
-              <summary>{t("资金明细")}</summary>
-              <dl>
-                {detailFields.map(([field, label]) => (
-                  <div key={field}>
-                    <dt>{t(label)}</dt>
-                    <dd>{groupedText(funds[field])}</dd>
-                  </div>
-                ))}
-              </dl>
-            </details>
-          )}
-        </div>
+        <ul className="risk-usage" aria-label={t("风控占用")}>
+          {riskMeters(live).map(meter => {
+            const share = meter.limit > 0 ? meter.used / meter.limit : 0;
+            const breached = !!meter.breach && live.riskBreaches.includes(meter.breach);
+            const tone = breached || share >= 1 ? "danger" : share >= 0.8 ? "attention" : "ok";
+            return (
+              <li key={meter.label} data-tone={tone} title={meter.title}>
+                <span>{t(meter.label)}</span>
+                <span className="risk-value">{meter.text}</span>
+                <span
+                  className="risk-bar"
+                  role="meter"
+                  aria-label={t(meter.label)}
+                  aria-valuemin={0}
+                  aria-valuemax={meter.limit}
+                  aria-valuenow={meter.used}
+                >
+                  <span style={{ width: `${Math.min(share, 1) * 100}%` }} />
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+        {funds && (
+          <details className="account-details">
+            <summary>{t("资金明细")}</summary>
+            <dl>
+              {detailFields.map(([field, label]) => (
+                <div key={field}>
+                  <dt>{t(label)}</dt>
+                  <dd>{groupedText(funds[field])}</dd>
+                </div>
+              ))}
+            </dl>
+          </details>
+        )}
       </div>
     </section>
   );

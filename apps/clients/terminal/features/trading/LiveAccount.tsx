@@ -1,6 +1,6 @@
 import { listSeparator } from "../../src/i18n";
 import { ctpErrorSummary } from "../../src/i18n/errors";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { TradingConnection } from "../../src/bridge/client";
 import {
   BrokerState,
@@ -96,6 +96,10 @@ export function LiveAccount({
   const [contract, setContract] = useWorkspaceDraft(
     `trade-contract:${account.id}`,
     initialContract ?? "",
+  );
+  const setDefaultContract = useCallback(
+    (next: string) => setContract(current => current || next),
+    [setContract],
   );
   useEffect(() => {
     if (initialContract) setContract(initialContract);
@@ -349,6 +353,7 @@ export function LiveAccount({
               onPresetApplied={() => setPreset(undefined)}
               initialContract={contract || initialContract}
               onContract={setContract}
+              onDefaultContract={setDefaultContract}
             />
           )}
         </aside>

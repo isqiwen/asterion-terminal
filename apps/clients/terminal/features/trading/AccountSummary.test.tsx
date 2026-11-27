@@ -58,3 +58,18 @@ test("the account shows today's result and how much of each limit it uses", () =
   // The broker's other figures stay folded until asked for.
   expect(screen.getByText("资金明细").closest("details")!.open).toBe(false);
 });
+
+test("positive daily P&L includes an explicit plus sign", () => {
+  const live = create(SessionSchema, {
+    funds: {
+      dynamicEquity: { text: "1002520" },
+      preBalance: { text: "1000000" },
+      deposit: { text: "0" },
+      withdraw: { text: "0" },
+      available: { text: "950000" },
+      margin: { text: "50000" },
+    },
+  });
+  render(<AccountSummary live={live} />);
+  expect(screen.getByText("+2,520.00").className).toBe("ctp-up");
+});

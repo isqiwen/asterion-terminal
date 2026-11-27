@@ -37,9 +37,12 @@
 }
 .account-summary-primary {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-  gap: var(--space-2) var(--space-5);
+  grid-template-columns: minmax(0, 1fr);
+  align-items: safe center;
+  gap: var(--space-2) var(--space-4);
+}
+.account-summary-primary:has(> .account-headline) {
+  grid-template-columns: auto minmax(0, 1fr) auto;
 }
 .account-headline {
   display: grid;
@@ -72,23 +75,24 @@
 .account-pnl-value {
   display: flex;
   align-items: baseline;
-  gap: var(--space-1);
+  gap: var(--space-2);
 }
 .account-pnl-value small {
   font-size: var(--font-size-aux);
   font-weight: 500;
 }
-.account-risk-panel {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-3);
-  min-width: 0;
+.account-details {
+  justify-self: end;
 }
 .account-details[open] {
-  flex-basis: 100%;
-  padding-top: var(--space-1);
-  border-top: 1px dashed var(--line);
+  grid-column: 1 / -1;
+  justify-self: stretch;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-4);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--line);
 }
 .account-details summary {
   width: fit-content;
@@ -99,6 +103,9 @@
   white-space: nowrap;
   cursor: pointer;
 }
+.account-details[open] > summary {
+  padding-left: 0;
+}
 .account-details summary:hover {
   background: var(--hover);
   color: var(--text);
@@ -107,7 +114,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1) var(--space-4);
-  margin: var(--space-2) 0 0;
+  margin: 0;
 }
 .account-details > dl > div {
   display: flex;
@@ -124,9 +131,9 @@
 }
 .risk-usage {
   display: grid;
-  flex: 1 1 280px;
-  grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(136px, 180px));
   gap: var(--space-2);
+  min-width: 0;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -169,7 +176,8 @@
   color: var(--danger);
 }
 @media (max-width: 1200px) {
-  .account-summary-primary {
+  .account-summary-primary,
+  .account-summary-primary:has(> .account-headline) {
     grid-template-columns: minmax(0, 1fr);
   }
   .account-headline {
@@ -177,6 +185,9 @@
     padding-bottom: var(--space-2);
     border-right: 0;
     border-bottom: 1px solid var(--line);
+  }
+  .account-details {
+    justify-self: start;
   }
 }
 @media (max-width: 720px) {

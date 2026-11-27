@@ -66,10 +66,6 @@
   min-width: 0;
   padding: var(--space-3) var(--space-page);
 }
-/* On a full screen, figures stay close enough to read across a row. */
-.ctp-trade-records table {
-  max-width: 1680px;
-}
 .ctp-trade-side {
   display: flex;
   flex-direction: column;

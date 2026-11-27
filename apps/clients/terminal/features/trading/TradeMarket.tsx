@@ -6,7 +6,7 @@ import { contractName } from "../../src/ui/contract-names";
 import { QuotePane } from "../futures-market/QuotePane";
 import { QuoteTable } from "../futures-market/QuoteTable";
 import { WatchlistToggle } from "../futures-market/WatchlistToggle";
-import { t } from "./live-shared";
+import { findPolicyTerms, t } from "./live-shared";
 
 const columns = ["最新价", "涨跌幅"] as const;
 
@@ -40,7 +40,9 @@ export function TradeMarket({
       }),
     ),
   ];
-  const first = rows[0] && rowKey(rows[0]);
+  const preferred = rows.find(item => findPolicyTerms(session.policy?.contracts, item.instrument));
+  const firstRow = preferred ?? rows[0];
+  const first = firstRow && rowKey(firstRow);
   useEffect(() => {
     if (!contract && first) select(first);
   }, [contract, first, select]);

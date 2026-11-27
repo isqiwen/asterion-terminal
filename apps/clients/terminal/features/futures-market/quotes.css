@@ -278,23 +278,6 @@
   color: var(--accent);
 }
 
-@media (min-width: 901px) {
-  .market-contract .price-chart[data-fit-height] {
-    display: flex;
-    flex-direction: column;
-    flex: 1 0 auto;
-    min-height: min-content;
-  }
-  .market-contract .price-chart[data-fit-height] > :not(.price-chart-canvas) {
-    flex-shrink: 0;
-  }
-  .market-contract .price-chart[data-fit-height] .price-chart-canvas {
-    flex: 1 0 190px;
-    height: 190px;
-    min-height: 190px;
-  }
-}
-
 .market-periods {
   flex-wrap: wrap;
 }
@@ -477,8 +460,32 @@
 .quote-pane-body .contract-live-chart {
   display: flex;
   flex-direction: column;
-  flex: 1 0 auto;
-  min-height: min-content;
+  flex: 1;
+  min-height: 0;
+}
+.quote-pane-body .price-chart[data-fit-height] {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  padding: var(--space-1) 0 0;
+}
+.quote-pane-body .price-chart[data-fit-height] > :not(.price-chart-canvas) {
+  flex-shrink: 0;
+}
+.quote-pane-body .price-chart[data-fit-height] .price-chart-canvas {
+  flex: 1 1 0;
+  height: auto;
+  min-height: 190px;
+}
+.quote-pane-body .price-chart[data-fit-height] .price-chart-cursor {
+  min-height: 18px;
+  margin: 0 0 2px;
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-aux);
+  color: var(--muted);
 }
 .quote-pane-body .market-chart-empty {
   margin: auto;

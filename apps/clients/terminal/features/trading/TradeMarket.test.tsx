@@ -62,3 +62,37 @@ test("holdings list before the watchlist, and choosing a row moves the contract"
   fireEvent.click(within(screen.getByRole("region")).getAllByRole("button")[1]!);
   expect(select).toHaveBeenCalledWith("DCE.i2701");
 });
+
+test("initial selection prefers the first tradable holding or watchlist contract", () => {
+  const view = {
+    board: create(BoardSchema, {
+      feed: { state: FeedState.CONNECTED },
+      rows: [quote("SHFE", "au2612"), quote("SHFE", "rb2701")],
+    }),
+    online: true,
+    ticks: new Map(),
+    generation: 1,
+  } as unknown as MarketView;
+  const session = create(SessionSchema, {
+    policy: {
+      contracts: [
+        { instrument: { exchange: "SHFE", symbol: "rb" }, product: "rb", deliveryMonth: "" },
+      ],
+    },
+    positions: [
+      { instrument: { exchange: "SHFE", symbol: "au2612" }, side: Side.SELL },
+      { instrument: { exchange: "SHFE", symbol: "rb2701" }, side: Side.SELL },
+    ],
+  });
+  const select = vi.fn();
+  render(
+    <TradeMarket
+      context={{ snapshot: null } as unknown as TerminalContext}
+      market={view}
+      session={session}
+      contract=""
+      select={select}
+    />,
+  );
+  expect(select).toHaveBeenCalledWith("SHFE.rb2701");
+});
