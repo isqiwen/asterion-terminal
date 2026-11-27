@@ -8,6 +8,9 @@ from factors.price import momentum, volatility
 from strategies._common import SIDES
 
 
+# Jegadeesh & Titman (1993), "Returns to Buying Winners and Selling Losers", JF 48(1), 65-91: https://doi.org/10.1111/j.1540-6261.1993.tb04702.x
+# Miffre & Rallis (2007), "Momentum strategies in commodity futures markets", JBF 31(6), 1863-1886: https://doi.org/10.1016/j.jbankfin.2006.10.020
+# Adaptation: synchronized shared-bar ranking across futures symbols with optional reversal sign and inverse-volatility sizing.
 class MomentumRank(Strategy):
     """On every `rebalance`-th time all symbols have a bar, rank them by the
     return over `lookback` such bars: the `count` highest are held long and the
@@ -69,4 +72,3 @@ class MomentumRank(Strategy):
                       for symbol, side in wanted.items()}
         ctx.weights({symbol: float(Decimal(str(side * p["weight"])).quantize(WEIGHT_STEP, rounding=ROUND_DOWN))
                      for symbol, side in wanted.items()})
-

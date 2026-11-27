@@ -3,12 +3,12 @@ from decimal import Decimal
 
 import numpy as np
 
-from asterion_strategy import WEIGHT_STEP, cross_section_rank
+from asterion_strategy import WEIGHT_STEP, cap_sector_weights, cross_section_rank, sector_neutralize
 
 from factors.positions import interest_change
 from factors.price import information_discreteness, momentum, volatility
 from factors.risk import downside_volatility, maximum_return, realized_skewness
-from factors.term_structure import roll_yield_carry
+from factors.term_structure import basis_momentum, roll_yield_carry
 from strategies._portfolio import AlignedPortfolio, tails
 
 
@@ -68,6 +68,18 @@ class CarryRank(_Ranked):
                 for s, row in data.items()}
 
 
+# Boons & Prado (2019), "Basis-Momentum", Journal of Finance 74(1), 239-279, Eq. (2): https://doi.org/10.1111/jofi.12738
+# Adaptation: cross-sectional tails on dominant vs next-dominant same-contract return spread, inverse-volatility weighted.
+class BasisMomentumRank(_Ranked):
+    """Long high basis-momentum futures, short low basis-momentum futures (Boons & Prado, JF 2019)."""
+    params = {**_Ranked.params, "window": 20}
+    factor_extra_bar = 0
+
+    def scores(self, data):
+        return {s: basis_momentum(row["near_return"], row["far_return"], self.params["window"])[-1]
+                for s, row in data.items()}
+
+
 # Fernandez-Perez et al. (2018), "The Skewness of Commodity Futures Returns": https://doi.org/10.1016/j.jbankfin.2017.06.015
 # Adaptation: configurable return window and tail count, with inverse-volatility side weights.
 class SkewnessRank(_Ranked):
@@ -80,6 +92,8 @@ class SkewnessRank(_Ranked):
                 for s, row in data.items()}
 
 
+# Ang, Hodrick, Xing & Zhang (2006), "The Cross-Section of Volatility and Expected Returns", JF 61(1), 259-299: https://doi.org/10.1111/j.1540-6261.2006.00836.x
+# Adaptation: total trailing return volatility across futures with equal long/short risk-scaled budgets.
 class LowVolatilityRank(_Ranked):
     """Long low-volatility futures and short high-volatility futures, with equal side budgets."""
     minimum_window = 2
@@ -88,6 +102,8 @@ class LowVolatilityRank(_Ranked):
         return {s: -volatility(row["close"], self.params["window"])[-1] for s, row in data.items()}
 
 
+# Ang, Chen & Xing (2006), "Downside Risk", RFS 19(4), 1191-1239: https://doi.org/10.1093/rfs/hhj035
+# Adaptation: trailing realized downside semideviation across futures with equal long/short budgets.
 class DownsideRiskRank(_Ranked):
     """Long low downside semideviation, short high downside semideviation."""
 
@@ -96,6 +112,8 @@ class DownsideRiskRank(_Ranked):
                 for s, row in data.items()}
 
 
+# Hong & Yogo (2012), "What Does Futures Market Interest Tell Us about the Macroeconomy and Asset Prices?", JFE 105(3), 473-490: https://doi.org/10.1016/j.jfineco.2012.04.005
+# Adaptation: cross-sectional ranking on single-symbol open-interest growth rather than aggregate open interest.
 class OpenInterestRank(_Ranked):
     """Long rising open interest, short falling open interest; this is not hedging pressure."""
 
@@ -104,6 +122,8 @@ class OpenInterestRank(_Ranked):
                 for s, row in data.items()}
 
 
+# Antonacci (2014), "Dual Momentum Investing"; Moskowitz, Ooi & Pedersen (2012): https://doi.org/10.1016/j.jfineco.2011.11.003
+# Adaptation: cross-sectional momentum tails gated by absolute return sign, leaving unused budget in cash.
 class DualMomentum(_Ranked):
     """Rank past returns; take longs only above zero and shorts only below zero, leaving unused cash."""
     params = {**_Ranked.params, "window": 126}
@@ -160,3 +180,40 @@ class TrendCarryRank(_Ranked):
         carry = cross_section_rank({s: pair[1] for s, pair in valid.items()})
         return {s: p["trend_share"] * trend[s] + (1 - p["trend_share"]) * carry[s]
                 for s in valid}
+
+
+# Asness, Moskowitz & Pedersen (2013), "Value and Momentum Everywhere", JF 68(3), 929-985: https://doi.org/10.1111/jofi.12021
+# Fernandez-Perez et al. (2018), "The Skewness of Commodity Futures Returns", JBF 86, 143-158: https://doi.org/10.1016/j.jbankfin.2017.06.015
+# Adaptation: blend momentum, negative skewness and optional carry ranks, demeaned inside China futures sectors with sector gross caps.
+class SectorNeutralRank(_Ranked):
+    """Multi-factor cross-sectional alpha neutralized within China futures sectors with per-sector exposure caps."""
+    params = {**_Ranked.params, "window": 60, "use_carry": True, "max_sector_gross": 0.35}
+    minimum_window = 3
+
+    def __init__(self, **values):
+        super().__init__(**values)
+        if self.params["max_sector_gross"] < 0:
+            raise ValueError("max_sector_gross must be nonnegative")
+
+    def scores(self, data):
+        p = self.params
+        w = p["window"]
+        raw = {}
+        for s, row in data.items():
+            parts = [momentum(row["close"], w)[-1], -realized_skewness(row["close"], w)[-1]]
+            if p["use_carry"]:
+                parts.append(roll_yield_carry(row["roll_yield"], w)[-1])
+            if np.isfinite(parts).all():
+                raw[s] = parts
+        if not raw:
+            return {}
+        n_parts = len(next(iter(raw.values())))
+        ranked = [cross_section_rank({s: vals[i] for s, vals in raw.items()}) for i in range(n_parts)]
+        blended = {s: sum(r[s] for r in ranked) / n_parts for s in raw}
+        return sector_neutralize(blended)
+
+    def allocate(self, data):
+        target = super().allocate(data)
+        if self.params["max_sector_gross"] > 0:
+            target = cap_sector_weights(target, max_sector_gross=self.params["max_sector_gross"])
+        return target

@@ -7,6 +7,8 @@ from factors.technical import average_true_range, rsi
 from strategies._common import SIDES, lots
 
 
+# Wilder (1978), "New Concepts in Technical Trading Systems", Section VI (RSI).
+# Adaptation: Cutler finite-window RSI oversold/overbought reversion exiting at RSI 50.
 class RsiReversion(Strategy):
     """Enter below lower / above upper Cutler RSI; exit each side at RSI 50."""
     params = {"window": 14, "lower": 30.0, "upper": 70.0, "lots": 1, "sides": "both"}
@@ -39,6 +41,8 @@ class RsiReversion(Strategy):
         ctx.target(bar.symbol, lots(side, p))
 
 
+# Keltner (1960), "How to Make Money in Commodities"; Wilder (1978), "New Concepts in Technical Trading Systems" (ATR).
+# Adaptation: breakout outside prior simple mean +/- width * prior simple ATR, exiting on crossing the prior mean.
 class AtrBreakout(Strategy):
     """Enter outside the prior mean +/- width * prior simple ATR; exit on crossing that mean."""
     params = {"window": 20, "width": 2.0, "lots": 1, "sides": "both"}

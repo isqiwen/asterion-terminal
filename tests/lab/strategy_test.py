@@ -438,15 +438,19 @@ class Repository(unittest.TestCase):
             (self.root / "strategies/private_helper.py").unlink()
         self.assertEqual([entry.id for entry in listed.strategies],
                          ["breakout.Breakout", "composite.CompositePortfolio", "composite.MultiFactorRank",
+                          "composite.RiskParityPortfolio",
+                          "fundamentals.InventoryCarryRank", "fundamentals.MemberFlowRank",
                           "learning.RandomFeatureForecast", "learning.RidgeForecast", "ma_cross.MaCross",
                           "momentum.Momentum", "momentum_rank.MomentumRank", "noisy.Noisy",
                           "oscillators.AtrBreakout", "oscillators.RsiReversion",
+                          "pairs.KalmanPairs",
                           "panel.PanelRandomFeatureRank", "panel.PanelRidgeRank", "reversion.Reversion",
-                          "risk_premia.CarryRank", "risk_premia.ContinuousMomentumRank",
+                          "risk_premia.BasisMomentumRank", "risk_premia.CarryRank",
+                          "risk_premia.ContinuousMomentumRank",
                           "risk_premia.DownsideRiskRank", "risk_premia.DualMomentum",
                           "risk_premia.LowVolatilityRank", "risk_premia.MaximumReturnRank", "risk_premia.OpenInterestRank",
-                          "risk_premia.SkewnessRank", "risk_premia.TrendCarryRank",
-                          "trend.TurningPointMomentum", "trend.VolatilityTargetMomentum"])
+                          "risk_premia.SectorNeutralRank", "risk_premia.SkewnessRank", "risk_premia.TrendCarryRank",
+                          "trend.MultiHorizonTrend", "trend.TurningPointMomentum", "trend.VolatilityTargetMomentum"])
         strategies = {entry.id: entry for entry in listed.strategies}
         self.assertTrue(strategies["ma_cross.MaCross"].description.startswith("Long while the mean"))
         self.assertEqual([(item.name, item.default.WhichOneof("value"))
@@ -581,7 +585,7 @@ class Repository(unittest.TestCase):
         request = Request(id=1)
         request.list_strategies.path = str(self.root)
         response = asyncio.run(service.reply(request))
-        self.assertEqual(len(response.list_strategies.strategies), 25, response)
+        self.assertEqual(len(response.list_strategies.strategies), 32, response)
         request.list_strategies.path = str(Path(self.temporary.name) / "missing")
         response = asyncio.run(service.reply(request))
         self.assertEqual(response.error.code, ErrorCode.ERROR_CODE_INVALID_REQUEST)

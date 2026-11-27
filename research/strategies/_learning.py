@@ -30,6 +30,7 @@ def ridge_predict(train, query, labels, ridge, transform):
     return prediction + intercept
 
 
+# Rahimi & Recht (2007), "Random Features for Large-Scale Kernel Machines", NeurIPS 20: https://papers.nips.cc/paper/2007/hash/013a006f03dbc5392effeb8f18fda755-Abstract.html
 # Kelly, Malamud & Zhou (2024), "The Virtue of Complexity in Return Prediction", Eq. (20): https://doi.org/10.1111/jofi.13298
 def fourier(train, query, projection, gamma):
     train, query = gamma * (train @ projection), gamma * (query @ projection)

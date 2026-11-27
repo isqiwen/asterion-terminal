@@ -9,7 +9,7 @@ from asterion_strategy import (
 
 from factors.positions import interest_change
 from factors.price import momentum, reversal, volatility
-from strategies.risk_premia import CarryRank
+from strategies.risk_premia import BasisMomentumRank, CarryRank, SkewnessRank
 
 
 class MultiFactorRank(Strategy):
@@ -115,3 +115,72 @@ class CompositePortfolio(CombinedStrategy):
             min_volume=p["min_volume"],
         )
         return [(trend, p["trend_share"]), (carry, p["carry_share"])]
+
+
+# López de Prado (2016), "Building Diversified Portfolios that Outperform Out-of-Sample", JPM 42(4), 59-69: https://doi.org/10.3905/jpm.2016.42.4.059
+# Maillard, Roncalli & Teïletche (2010), "The Properties of Equally Weighted Risk Contribution Portfolios", JPM 36(4), 60-70: https://doi.org/10.3905/jpm.2010.36.4.060
+# Adaptation: combines multi-factor, carry, basis-momentum and skewness sleeves via causal HRP/ERC over component proxy returns,
+# with China futures sector exposure caps and turnover deadband.
+class RiskParityPortfolio(CombinedStrategy):
+    """Combines four uncorrelated futures risk-premia sleeves via causal HRP or ERC risk allocation."""
+    params = {
+        "allocation": "hrp",
+        "vol_window": 40,
+        "trend_lookback": 20,
+        "carry_window": 5,
+        "basis_window": 20,
+        "skew_window": 60,
+        "rebalance": 5,
+        "count": 2,
+        "gross_weight": 0.8,
+        "max_sector_gross": 0.4,
+        "deadband": 0.01,
+        "min_volume": 0.0,
+    }
+
+    def __init__(self, **values):
+        merged = {**self.params, **values}
+        self.allocation = merged["allocation"]
+        self.vol_window = merged["vol_window"]
+        self.max_sector_gross = merged["max_sector_gross"]
+        self.deadband = merged["deadband"]
+        super().__init__(**values)
+
+    def components(self):
+        p = self.params
+        if p["vol_window"] < 5 or p["max_sector_gross"] < 0 or p["deadband"] < 0 or p["gross_weight"] <= 0:
+            raise ValueError("invalid risk-parity portfolio parameters")
+        trend = MultiFactorRank(
+            fast=max(1, p["trend_lookback"] // 4),
+            slow=p["trend_lookback"],
+            rebalance=p["rebalance"],
+            count=p["count"],
+            gross_weight=p["gross_weight"],
+            min_volume=p["min_volume"],
+            standardize="zscore",
+        )
+        carry = CarryRank(
+            window=p["carry_window"],
+            volatility=p["trend_lookback"],
+            rebalance=p["rebalance"],
+            count=p["count"],
+            gross_weight=p["gross_weight"],
+            min_volume=p["min_volume"],
+        )
+        basis = BasisMomentumRank(
+            window=p["basis_window"],
+            volatility=p["trend_lookback"],
+            rebalance=p["rebalance"],
+            count=p["count"],
+            gross_weight=p["gross_weight"],
+            min_volume=p["min_volume"],
+        )
+        skew = SkewnessRank(
+            window=p["skew_window"],
+            volatility=p["trend_lookback"],
+            rebalance=p["rebalance"],
+            count=p["count"],
+            gross_weight=p["gross_weight"],
+            min_volume=p["min_volume"],
+        )
+        return [(trend, 0.25), (carry, 0.25), (basis, 0.25), (skew, 0.25)]

@@ -4,6 +4,8 @@ from asterion_strategy import Strategy
 from strategies._common import lots
 
 
+# Donchian (1960); Faith (2007), "Way of the Turtle: The Secret Methods that Turned Ordinary People into Legendary Traders", McGraw-Hill.
+# Adaptation: dual-horizon entry/exit high-low breakout on completed futures bars, emitting fixed lots.
 class Breakout(Strategy):
     """Long from a close above the highest high of the `entry` bars before it,
     short from one below their lowest low; the side is given up when a close

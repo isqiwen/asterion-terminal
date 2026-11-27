@@ -13,26 +13,32 @@ sys.path[:0] = [str(ROOT / "research"), str(ROOT / "apps/services/common/python"
 
 import numpy as np
 
-from asterion_strategy import Bar, Context, check_factor, observe, quantize_weight, step
+from asterion_strategy import (
+    Bar, Context, check_factor, observe, quantize_weight, step, verify_factor_causality,
+)
 from factors import fundamentals, liquidity, positions, price, risk, technical, term_structure
-from strategies.composite import CompositePortfolio
+from strategies.composite import CompositePortfolio, RiskParityPortfolio
+from strategies.fundamentals import InventoryCarryRank, MemberFlowRank
 from strategies.learning import RandomFeatureForecast, RidgeForecast
 from strategies.momentum_rank import MomentumRank
 from strategies.oscillators import AtrBreakout, RsiReversion
+from strategies.pairs import KalmanPairs
 from strategies.panel import PanelRandomFeatureRank, PanelRidgeRank
 from strategies.risk_premia import (
-    CarryRank, ContinuousMomentumRank, DownsideRiskRank, DualMomentum, LowVolatilityRank, MaximumReturnRank,
-    OpenInterestRank, SkewnessRank, TrendCarryRank,
+    BasisMomentumRank, CarryRank, ContinuousMomentumRank, DownsideRiskRank, DualMomentum, LowVolatilityRank,
+    MaximumReturnRank, OpenInterestRank, SectorNeutralRank, SkewnessRank, TrendCarryRank,
 )
-from strategies.trend import TurningPointMomentum, VolatilityTargetMomentum
+from strategies.trend import MultiHorizonTrend, TurningPointMomentum, VolatilityTargetMomentum
 
 
 EXTRA_BAR = {
-    "interest_change", "momentum", "reversal", "volatility", "skip_momentum", "momentum_strength",
+    "interest_change", "oi_price_confirmation", "momentum", "reversal", "volatility", "skip_momentum",
+    "momentum_strength", "ewmac", "overnight_return", "mean_reversion_half_life",
     "blended_momentum", "roll_yield_momentum", "carry_to_risk", "average_true_range", "rsi",
     "channel_position", "efficiency_ratio", "downside_volatility", "upside_volatility",
     "realized_skewness", "excess_kurtosis", "expected_shortfall", "semivariance_balance",
-    "money_flow_index", "return_per_volume", "volume_return_correlation", "volume_weighted_return",
+    "volatility_ratio", "money_flow_index", "return_per_volume", "corwin_schultz_spread",
+    "volume_return_correlation", "volume_weighted_return",
     "information_discreteness", "return_autocorrelation", "variance_ratio", "maximum_return",
     "yang_zhang_volatility", "receipt_change", "member_net_change", "inventory_change",
 }
@@ -68,16 +74,18 @@ class Factors(unittest.TestCase):
                 inputs = {field: source[field].copy() for field in signature if field in source}
                 inputs[next(iter(inputs))][17] = np.nan
                 for length in (5, 9):
+                    effective = max(length, 8) if name == "hurst_exponent" else length
                     settings = {key: parameter.default for key, parameter in signature.items() if key not in inputs}
                     for parameter in ("window", "lookback", "slow"):
                         if parameter in settings:
-                            settings[parameter] = length
-                    settings.update({key: value for key, value in {"fast": 2, "skip": 1,
+                            settings[parameter] = effective
+                    settings.update({key: value for key, value in {"fast": 2, "skip": 1, "max_lag": 3,
                                      "tail": 0.4, "fast_share": 0.3, "periods": 12}.items() if key in settings})
-                    count = length + (name in EXTRA_BAR)
-                    with self.subTest(factor=name, length=length):
+                    count = effective + (name in EXTRA_BAR)
+                    with self.subTest(factor=name, length=effective):
                         for size in (0, 1, 3, len(close)):
                             check_factor(function, {k: v[:size] for k, v in inputs.items()}, count, **settings)
+                        verify_factor_causality(function, list(inputs), settings, name)
                         expected = function(**inputs, **settings)
                         ctx = Context(["a"])
                         actual = []
@@ -87,7 +95,63 @@ class Factors(unittest.TestCase):
                             observe(ctx, [Bar("a", "a", row("a", i, close[i]).time, **fields)])
                             actual.append(ctx.factor(function, "a", count, **settings))
                         np.testing.assert_allclose(actual, expected, equal_nan=True)
-        self.assertEqual(len(checked), 48)
+        self.assertEqual(len(checked), 59)
+
+    def test_new_price_risk_liquidity_position_and_fundamental_factors_match_analytic_values(self):
+        # EWMAC: positive in uptrend, negative in downtrend, 0 on flat prices.
+        up = 100.0 * (1.01 ** np.arange(10))
+        down = 100.0 * (0.99 ** np.arange(10))
+        self.assertGreater(price.ewmac(up, fast=2, slow=5)[-1], 0.0)
+        self.assertLess(price.ewmac(down, fast=2, slow=5)[-1], 0.0)
+        self.assertEqual(price.ewmac(np.full(10, 100.0), fast=2, slow=5)[-1], 0.0)
+
+        # Overnight vs intraday return decomposition.
+        opening = np.array([100.0, 105.0, 102.0, 110.0])
+        closing = np.array([100.0, 102.0, 110.0, 121.0])
+        self.assertAlmostEqual(price.overnight_return(opening, closing, 2)[-1], (102 / 102) * (110 / 110) - 1)
+        self.assertAlmostEqual(price.overnight_return(opening, closing, 3)[-1], (105 / 100) - 1)
+        self.assertAlmostEqual(price.intraday_return(opening, closing, 2)[-1], (110 / 102) * (121 / 110) - 1)
+
+        # Hurst exponent: trending > 0.5 vs stationary mean-reverting AR(1) < 0.5.
+        trend_px = 100.0 * np.exp(0.02 * np.arange(40) + 0.001 * np.sin(np.arange(40)))
+        rev_rng = np.random.default_rng(7)
+        rev_log = np.zeros(40)
+        for i in range(1, 40):
+            rev_log[i] = -0.6 * rev_log[i - 1] + rev_rng.normal(0.0, 0.02)
+        rev_px = 100.0 * np.exp(rev_log)
+        self.assertGreater(price.hurst_exponent(trend_px, window=30, max_lag=8)[-1], 0.7)
+        self.assertLess(price.hurst_exponent(rev_px, window=30, max_lag=8)[-1], 0.3)
+
+        # OU half-life: exact decay log(P_t) = 0.5^t -> half-life = 1 bar; monotone drift is NaN.
+        ou_px = np.exp(np.array([0.0, 1.0, 0.5, 0.25, 0.125, 0.0625, 0.03125]))
+        self.assertAlmostEqual(price.mean_reversion_half_life(ou_px, window=5)[-1], 1.0, places=6)
+        self.assertTrue(np.isnan(price.mean_reversion_half_life(up, window=5)[-1]))
+
+        # Volatility ratio: calm then volatile -> ratio > 1; flat -> NaN.
+        regime = 100.0 * np.r_[1.0, np.cumprod(1.0 + np.array([0.001, -0.001, 0.001, -0.001, 0.05, -0.05, 0.05]))]
+        self.assertGreater(risk.volatility_ratio(regime, fast=3, slow=6)[-1], 1.2)
+        self.assertTrue(np.isnan(risk.volatility_ratio(np.full(10, 100.0), fast=3, slow=6)[-1]))
+
+        # Corwin-Schultz spread & VWAP deviation.
+        high = np.array([105.0, 106.0, 105.0, 106.0])
+        low = np.array([95.0, 96.0, 95.0, 96.0])
+        cs = liquidity.corwin_schultz_spread(high, low, window=2)[-1]
+        self.assertTrue(np.isfinite(cs) and cs >= 0.0)
+        self.assertAlmostEqual(
+            liquidity.vwap_deviation(np.array([100.0, 110.0, 120.0]), np.array([1.0, 1.0, 2.0]), window=3)[-1],
+            120.0 / ((100 + 110 + 240) / 4.0) - 1.0,
+        )
+
+        # OI-price confirmation: uptrend + growing OI > 0; downtrend + growing OI < 0.
+        oi_up = np.array([1000.0, 1100.0, 1210.0, 1331.0])
+        self.assertAlmostEqual(positions.oi_price_confirmation(np.array([100., 101., 102., 103.]), oi_up, 3)[-1], 0.1)
+        self.assertAlmostEqual(positions.oi_price_confirmation(np.array([103., 102., 101., 100.]), oi_up, 3)[-1], -0.1)
+
+        # Fundamental receipt / inventory Z-scores.
+        receipts = np.array([100.0, 120.0, 140.0])
+        self.assertAlmostEqual(fundamentals.receipt_zscore(receipts, 3)[-1], 1.0)
+        self.assertEqual(fundamentals.receipt_zscore(np.full(4, 100.0), 3)[-1], 0.0)
+        self.assertAlmostEqual(fundamentals.inventory_zscore(np.array([300.0, 200.0, 100.0]), 3)[-1], -1.0)
 
     def test_basis_momentum_and_fundamental_factors_match_analytic_values(self):
         near = np.array([0.1, 0.2, -0.1])
@@ -334,6 +398,162 @@ class Portfolios(unittest.TestCase):
         outputs = [step(strategy, ctx, [row("a", i, close)])
                    for i, close in enumerate((100, 100, 100, 110, 106, 103))]
         self.assertEqual(outputs, [{}, {}, {}, {"a": 1}, {"a": 1}, {"a": 0}])
+
+    def test_basis_momentum_rank_prefers_near_outperformers(self):
+        strategy = BasisMomentumRank(window=3, volatility=3, count=1, rebalance=1)
+        ctx = Context(["a", "b"])
+        for i, close in enumerate((100., 101., 99., 102.)):
+            output = step(strategy, ctx, [
+                replace(row("a", i, close), near_return=0.03, far_return=0.01),
+                replace(row("b", i, close), near_return=0.01, far_return=0.03),
+            ])
+        self.assertEqual(output, {"a": 0.3, "b": -0.3})
+
+    def test_sector_neutral_rank_demeans_within_sectors_and_caps_sector_gross(self):
+        # Black sector (rb, hc) both rally strongly while nonferrous (cu, al) both fall;
+        # within each sector rb > hc and cu > al, so sector neutralization picks rb/cu long and hc/al short.
+        strategy = SectorNeutralRank(
+            window=4, volatility=4, count=2, rebalance=1, use_carry=False, gross_weight=0.8, max_sector_gross=0.3
+        )
+        symbols = ["SHFE/rb", "SHFE/hc", "SHFE/cu", "SHFE/al"]
+        ctx = Context(symbols)
+        paths = {
+            "SHFE/rb": 100.0 * np.r_[1.0, np.cumprod(1.0 + np.array([-0.01, 0.06, 0.06, 0.06]))],
+            "SHFE/hc": 100.0 * np.r_[1.0, np.cumprod(1.0 + np.array([0.05, 0.01, 0.01, 0.01]))],
+            "SHFE/cu": 100.0 * np.r_[1.0, np.cumprod(1.0 + np.array([-0.04, 0.0, 0.0, 0.0]))],
+            "SHFE/al": 100.0 * np.r_[1.0, np.cumprod(1.0 + np.array([0.01, -0.08, -0.08, -0.08]))],
+        }
+        for i in range(5):
+            output = step(strategy, ctx, [row(s, i, paths[s][i]) for s in symbols])
+        self.assertGreater(output["SHFE/rb"], 0)
+        self.assertLess(output["SHFE/hc"], 0)
+        self.assertGreater(output["SHFE/cu"], 0)
+        self.assertLess(output["SHFE/al"], 0)
+        self.assertLessEqual(abs(output["SHFE/rb"]) + abs(output["SHFE/hc"]), 0.3 + 1e-9)
+        self.assertLessEqual(abs(output["SHFE/cu"]) + abs(output["SHFE/al"]), 0.3 + 1e-9)
+
+    def test_multi_horizon_trend_follows_direction_respects_caps_and_is_roll_invariant(self):
+        def replay(roll):
+            strategy = MultiHorizonTrend(
+                fast=2, volatility=6, periods=1, rebalance=1, target_volatility=0.05,
+                max_weight=0.25, gross_weight=0.4, max_sector_gross=0.3, deadband=0.0,
+            )
+            ctx = Context(["SHFE/rb", "SHFE/hc", "SHFE/cu"], {"rb2": 2.0})
+            out = None
+            for i in range(34):
+                rb_close = 100.0 * (1.015 ** i) * (2.0 if roll and i >= 20 else 1.0)
+                hc_close = 100.0 * (1.012 ** i)
+                cu_close = 100.0 * (0.985 ** i)
+                out = step(strategy, ctx, [
+                    row("SHFE/rb", i, rb_close, contract="rb2" if roll and i >= 20 else "SHFE/rb"),
+                    row("SHFE/hc", i, hc_close),
+                    row("SHFE/cu", i, cu_close),
+                ])
+            return out
+        plain = replay(False)
+        self.assertEqual(plain, replay(True))
+        self.assertGreater(plain["SHFE/rb"], 0)
+        self.assertGreater(plain["SHFE/hc"], 0)
+        self.assertLess(plain["SHFE/cu"], 0)
+        self.assertLessEqual(abs(plain["SHFE/rb"]) + abs(plain["SHFE/hc"]), 0.3 + 1e-9)
+        self.assertLessEqual(sum(abs(v) for v in plain.values()), 0.4 + 1e-9)
+
+    def test_kalman_pairs_trades_spread_divergence_and_is_roll_invariant(self):
+        with self.assertRaisesRegex(ValueError, "exactly two symbols"):
+            step(KalmanPairs(window=6), Context(["a"]), [row("a", 0, 100.0)])
+
+        rng = np.random.default_rng(123)
+        base = 100.0 * np.exp(np.cumsum(rng.normal(0.0, 0.01, 20)))
+        noise = rng.normal(0.0, 0.002, 20)
+        # Bar 14: moderate divergence (y rich -> short spread); bar 16: reverts -> flat; bar 18: blowup -> stop.
+        spread_shift = np.zeros(20)
+        spread_shift[14] = 0.006
+        spread_shift[15] = 0.005
+        spread_shift[16] = 0.0
+        spread_shift[17] = 0.0
+        spread_shift[18] = 0.08
+        cy = base * np.exp(noise + spread_shift)
+        cx = base
+
+        def replay(roll):
+            strategy = KalmanPairs(
+                window=6, rebalance=1, delta=1e-4, obs_var=1e-3,
+                entry_z=1.5, exit_z=0.5, stop_z=6.0, gross_weight=0.6,
+            )
+            ctx = Context(["SHFE/rb", "SHFE/hc"], {"rb2": 1.5})
+            decisions = []
+            for i in range(20):
+                scale = 1.5 if roll and i >= 12 else 1.0
+                decisions.append(dict(step(strategy, ctx, [
+                    row("SHFE/rb", i, cy[i] * scale, contract="rb2" if roll and i >= 12 else "SHFE/rb"),
+                    row("SHFE/hc", i, cx[i]),
+                ])))
+            return decisions
+
+        plain = replay(False)
+        self.assertEqual(plain, replay(True))
+        self.assertEqual(plain[:11], [{}] * 11)
+        # Entry short spread on bar 14 (short rb, long hc) within gross_weight.
+        self.assertLess(plain[14]["SHFE/rb"], 0)
+        self.assertGreater(plain[14]["SHFE/hc"], 0)
+        self.assertLessEqual(abs(plain[14]["SHFE/rb"]) + abs(plain[14]["SHFE/hc"]), 0.6 + 1e-9)
+        # Mean reversion exit on bar 16.
+        self.assertEqual(plain[16], {"SHFE/rb": 0.0, "SHFE/hc": 0.0})
+        # Extreme blowout on bar 18 stays flat via stop_z.
+        self.assertEqual(plain[18], {"SHFE/rb": 0.0, "SHFE/hc": 0.0})
+
+    def test_risk_parity_portfolio_runs_hrp_and_erc_within_limits(self):
+        rng = np.random.default_rng(77)
+        symbols = ["SHFE/rb", "SHFE/hc", "SHFE/cu", "SHFE/al"]
+        n = 35
+        closes = {s: 100.0 * np.exp(np.cumsum(rng.normal(0.001, 0.015, n))) for s in symbols}
+        for mode in ("hrp", "erc"):
+            with self.subTest(allocation=mode):
+                strategy = RiskParityPortfolio(
+                    allocation=mode, vol_window=8, trend_lookback=6, carry_window=3,
+                    basis_window=4, skew_window=6, rebalance=2, count=1,
+                    gross_weight=0.6, max_sector_gross=0.35, deadband=0.0,
+                )
+                ctx = Context(symbols)
+                output = {}
+                for i in range(n):
+                    bars = [
+                        replace(
+                            row(s, i, closes[s][i], carry=0.05 * (idx - 1.5)),
+                            near_return=0.01 * (idx - 1.5),
+                            far_return=-0.005 * (idx - 1.5),
+                        )
+                        for idx, s in enumerate(symbols)
+                    ]
+                    out = step(strategy, ctx, bars)
+                    if out:
+                        output = out
+                self.assertTrue(ctx.ready)
+                self.assertEqual(len(strategy.last_components), 4)
+                self.assertAlmostEqual(sum(c["share"] for c in strategy.last_components), 1.0, places=6)
+                self.assertLessEqual(sum(abs(v) for v in output.values()), 0.6 + 1e-9)
+                self.assertLessEqual(abs(output["SHFE/rb"]) + abs(output["SHFE/hc"]), 0.35 + 1e-9)
+
+    def test_fundamental_strategies_rank_scarcity_carry_and_member_flow(self):
+        # InventoryCarryRank: long scarce receipts + high carry, falling back to inventory_total when receipts are NaN.
+        inv_strategy = InventoryCarryRank(window=3, carry_window=2, volatility=3, count=1, rebalance=1)
+        ctx = Context(["a", "b"])
+        for i, close in enumerate((100., 101., 99., 102.)):
+            output = step(inv_strategy, ctx, [
+                replace(row("a", i, close, carry=0.12), receipt_volume=np.nan, inventory_total=1000.0 - 100.0 * i),
+                replace(row("b", i, close, carry=-0.12), receipt_volume=100.0 + 50.0 * i, inventory_total=np.nan),
+            ])
+        self.assertEqual(output, {"a": 0.3, "b": -0.3})
+
+        # MemberFlowRank: long net-long rising member positioning, short net-short falling positioning.
+        flow_strategy = MemberFlowRank(window=2, change_lookback=2, volatility=3, count=1, rebalance=1)
+        ctx2 = Context(["a", "b"])
+        for i, close in enumerate((100., 101., 99., 102.)):
+            output2 = step(flow_strategy, ctx2, [
+                replace(row("a", i, close), member_long=600.0 + 100.0 * i, member_short=400.0 - 50.0 * i),
+                replace(row("b", i, close), member_long=400.0 - 50.0 * i, member_short=600.0 + 100.0 * i),
+            ])
+        self.assertEqual(output2, {"a": 0.3, "b": -0.3})
 
 
 class Learning(unittest.TestCase):

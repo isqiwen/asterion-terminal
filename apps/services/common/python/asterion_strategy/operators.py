@@ -587,7 +587,7 @@ def ou_half_life(series, window: int) -> np.ndarray:
     if len(arr) <= window:
         return out
     beta = _rolling_ols(np.diff(arr), arr[:-1], window)[0]
-    ok = np.isfinite(beta) & (beta < 0.0) & (beta > -1.0)
+    ok = np.isfinite(beta) & (beta < -1e-12) & (beta > -1.0)
     hl = np.full_like(beta, np.nan)
     hl[ok] = -math.log(2.0) / np.log1p(beta[ok])
     out[1:] = hl

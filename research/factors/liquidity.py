@@ -1,7 +1,11 @@
 """Volume and open-interest signals measured in contracts, not traded currency."""
 import numpy as np
 
-from asterion_strategy import scale_invariant as _scale_invariant
+from asterion_strategy import (
+    corwin_schultz_spread as _corwin_schultz_spread,
+    scale_invariant as _scale_invariant,
+    ts_vwap_dev as _ts_vwap_dev,
+)
 
 from factors._rolling import apply as _apply, ratio as _ratio, returns as _returns
 
@@ -40,12 +44,16 @@ def turnover(volume, open_interest, window: int = 20):
     return _apply(_ratio(volume, open_interest), window, lambda x: x.mean(axis=1))
 
 
+# Amihud (2002), "Illiquidity and stock returns: cross-section and time-series effects", JFM 5(1), 31-56, Eq. (1): https://doi.org/10.1016/S1386-4181(01)00024-6
+# Adaptation: contract volume rather than traded currency volume; scale differs across products by contract multiplier.
 @_scale_invariant
 def return_per_volume(close, volume, window: int = 20):
     """Mean absolute simple return per traded contract; needs window + 1 bars (not dollar Amihud)."""
     return _apply(_ratio(np.abs(_returns(close)), volume), window, lambda x: x.mean(axis=1))
 
 
+# Quong & Soudack (1989), "Volume-Weighted RSI: Money Flow", Technical Analysis of Stocks & Commodities 7(3), 76-77.
+# Adaptation: finite-window sums of positive vs nonzero typical-price money flow; flat windows return 50.
 @_scale_invariant
 def money_flow_index(high, low, close, volume, window: int = 14):
     """MFI (0..100) from typical price times volume; unchanged prices add no flow; needs window + 1 bars."""
@@ -66,3 +74,17 @@ def chaikin_money_flow(high, low, close, volume, window: int = 20):
     weighted = _apply(location * volume, window, lambda x: x.sum(axis=1))
     total = _apply(volume, window, lambda x: x.sum(axis=1))
     return _ratio(weighted, total)
+
+
+# Corwin & Schultz (2012), "A Simple Way to Estimate Bid-Ask Spreads from Daily High and Low Prices", JF 67(2), 719-760, Eqs. (14)-(18): https://doi.org/10.1111/j.1540-6261.2012.01729.x
+# Adaptation: rolling mean of adjacent-bar high-low implied spread estimates via asterion_strategy.corwin_schultz_spread.
+@_scale_invariant
+def corwin_schultz_spread(high, low, window: int = 20):
+    """Corwin-Schultz high-low implied bid-ask spread; needs window + 1 bars."""
+    return _corwin_schultz_spread(high, low, window)
+
+
+@_scale_invariant
+def vwap_deviation(close, volume, window: int = 20):
+    """Close / trailing volume-weighted average price - 1; needs window bars."""
+    return _ts_vwap_dev(close, volume, window)

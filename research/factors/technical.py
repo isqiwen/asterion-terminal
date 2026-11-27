@@ -24,6 +24,8 @@ def price_zscore(close, window: int = 20):
     return _apply(close, window, score, 2)
 
 
+# Wilder (1978), "New Concepts in Technical Trading Systems", Section VI (RSI).
+# Adaptation: Cutler finite-window simple sums so research and short-window live outputs match identically.
 @_scale_invariant
 def rsi(close, window: int = 14):
     """Cutler RSI (simple sums, 0..100); flat windows are 50; needs window + 1 bars."""
@@ -33,6 +35,8 @@ def rsi(close, window: int = 14):
     return 100 * _ratio(gains, moves, neutral=0.5)
 
 
+# Lane (1984), "Lane's Stochastics", Technical Analysis of Stocks & Commodities 2(3), 87-90.
+# Adaptation: raw %K over `window` completed bars, returning 50 on zero-range windows.
 @_scale_invariant
 def stochastic(high, low, close, window: int = 14):
     """Stochastic %K (0..100) over window bars; a zero range is 50."""
@@ -51,6 +55,8 @@ def channel_position(high, low, close, window: int = 20):
     return _ratio(close - bottom, top - bottom)
 
 
+# Kaufman (1995), "Smarter Trading: Improving Performance in Changing Markets", Ch. 4 (AMA Efficiency Ratio).
+# Adaptation: finite-window net price displacement divided by summed bar-to-bar absolute moves, returning 0 on flat windows.
 @_scale_invariant
 def efficiency_ratio(close, window: int = 20):
     """Kaufman efficiency: absolute net move / total absolute moves; needs window + 1 bars."""
@@ -71,6 +77,8 @@ def log_price_slope(close, window: int = 20):
     return _apply(_log(close), window, lambda x: ((x - x[:, :1]) @ time) / (time @ time))
 
 
+# Wilder (1978), "New Concepts in Technical Trading Systems", Section III (True Range / ATR).
+# Adaptation: finite-window arithmetic mean of true range instead of Wilder recursive smoothing.
 def average_true_range(high, low, close, window: int = 14):
     """Simple mean true range in price units, including gaps; needs window + 1 bars."""
     ranges = np.full(len(close), np.nan)
@@ -80,6 +88,8 @@ def average_true_range(high, low, close, window: int = 14):
     return _apply(ranges, window, lambda x: x.mean(axis=1))
 
 
+# Lambert (1980), "Commodity Channel Index: Tool for Trading Cyclic Trends", Commodities Magazine 9(10), 40-41.
+# Adaptation: typical price deviation scaled by 0.015 * mean absolute deviation, returning 0 on flat windows.
 @_scale_invariant
 def commodity_channel_index(high, low, close, window: int = 20):
     """CCI of typical price with mean absolute deviation and 0.015 scale; needs window bars."""

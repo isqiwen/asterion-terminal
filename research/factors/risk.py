@@ -4,6 +4,7 @@ import numpy as np
 from asterion_strategy import scale_invariant as _scale_invariant
 
 from factors._rolling import apply as _apply, log as _log, ratio as _ratio, returns as _returns
+from factors.price import volatility as _volatility
 
 
 # Bali, Cakici & Whitelaw (2011), "Maxing out: Stocks as lotteries and the cross-section of expected returns": https://doi.org/10.1016/j.jfineco.2010.08.014
@@ -14,19 +15,25 @@ def maximum_return(close, window: int = 20):
     return _apply(_returns(close), window, lambda x: x.max(axis=1))
 
 
+# Markowitz (1959), "Portfolio Selection: Efficient Diversification of Investments";
+# Barndorff-Nielsen, Kinnebrock & Shephard (2010), "Measuring Downside Risk — Realised Semivariance": https://doi.org/10.1093/acprof:oso/9780199549498.003.0007
+# Adaptation: root mean squared negative simple returns over all `window` bars.
 @_scale_invariant
 def downside_volatility(close, window: int = 20):
     """Root mean squared negative simple returns; needs window + 1 bars."""
     return np.sqrt(_apply(np.minimum(_returns(close), 0) ** 2, window, lambda x: x.mean(axis=1)))
 
 
+# Barndorff-Nielsen, Kinnebrock & Shephard (2010), "Measuring Downside Risk — Realised Semivariance": https://doi.org/10.1093/acprof:oso/9780199549498.003.0007
+# Adaptation: root mean squared positive simple returns over all `window` bars.
 @_scale_invariant
 def upside_volatility(close, window: int = 20):
     """Root mean squared positive simple returns; needs window + 1 bars."""
     return np.sqrt(_apply(np.maximum(_returns(close), 0) ** 2, window, lambda x: x.mean(axis=1)))
 
 
-# Signal source: Fernandez-Perez et al. (2018), "The Skewness of Commodity Futures Returns": https://doi.org/10.1016/j.jbankfin.2017.06.015
+# Fernandez-Perez, Frijns, Fuertes & Miffre (2018), "The Skewness of Commodity Futures Returns", JBF 86, 143-158, Eq. (1): https://doi.org/10.1016/j.jbankfin.2017.06.015
+# Adaptation: population central moments over a configurable trailing futures-bar window.
 @_scale_invariant
 def realized_skewness(close, window: int = 60):
     """Standardized third central moment of simple returns; needs window + 1 bars."""
@@ -45,6 +52,8 @@ def excess_kurtosis(close, window: int = 60):
     return _apply(_returns(close), window, kurtosis, 4)
 
 
+# Acerbi & Tasche (2002), "On the coherence of expected shortfall", JBF 26(7), 1487-1503, Eq. (3.2): https://doi.org/10.1016/S0378-4266(02)00283-2
+# Adaptation: empirical mean of the worst ceil(window * tail) simple returns, negated so deeper left tails rank higher.
 @_scale_invariant
 def expected_shortfall(close, window: int = 60, tail: float = 0.05):
     """Negative mean of the worst ceil(window * tail) returns; needs window + 1 bars."""
@@ -54,6 +63,8 @@ def expected_shortfall(close, window: int = 60, tail: float = 0.05):
     return _apply(_returns(close), window, lambda x: -np.sort(x, axis=1)[:, :count].mean(axis=1))
 
 
+# Patton & Sheppard (2015), "Good Volatility, Bad Volatility: Signed Jumps and The Persistence of Volatility", REStat 97(3), 683-697, Eq. (4): https://doi.org/10.1162/REST_a_00503
+# Adaptation: signed realized semivariance difference normalized by total realized variance `(RS+ - RS-) / RV`.
 @_scale_invariant
 def semivariance_balance(close, window: int = 20):
     """(Positive minus negative realized variance) / total variance; needs window + 1 bars."""
@@ -63,7 +74,16 @@ def semivariance_balance(close, window: int = 20):
     return _ratio(signed, total, neutral=0.0)
 
 
-# Parkinson (1980), "The Extreme Value Method for Estimating the Variance of the Rate of Return": https://doi.org/10.1086/296071
+@_scale_invariant
+def volatility_ratio(close, fast: int = 10, slow: int = 60):
+    """Short-window return volatility divided by long-window volatility; needs slow + 1 bars."""
+    if not 2 <= fast < slow:
+        raise ValueError("volatility ratio needs 2 <= fast < slow")
+    return _ratio(_volatility(close, fast), _volatility(close, slow))
+
+
+# Parkinson (1980), "The Extreme Value Method for Estimating the Variance of the Rate of Return", Eq. (2.6): https://doi.org/10.1086/296071
+# Adaptation: rolling per-bar volatility over `window` bars without annualization.
 @_scale_invariant
 def parkinson_volatility(high, low, window: int = 20):
     """Parkinson high-low log-range volatility; needs window bars."""
@@ -71,8 +91,8 @@ def parkinson_volatility(high, low, window: int = 20):
     return np.sqrt(_apply(variance, window, lambda x: x.mean(axis=1)))
 
 
-# Garman & Klass (1980), "On the Estimation of Security Price Volatilities from Historical Data": https://doi.org/10.1086/296072
-# Uses the paper's simplified range/open-close estimator.
+# Garman & Klass (1980), "On the Estimation of Security Price Volatilities from Historical Data", Eq. (20): https://doi.org/10.1086/296072
+# Adaptation: simplified range/open-close estimator averaged over `window` bars without annualization.
 @_scale_invariant
 def garman_klass_volatility(open, high, low, close, window: int = 20):
     """Garman-Klass OHLC volatility, excluding overnight gaps; needs window bars."""
@@ -81,8 +101,8 @@ def garman_klass_volatility(open, high, low, close, window: int = 20):
     return np.sqrt(_apply(variance, window, lambda x: x.mean(axis=1)))
 
 
-# Rogers & Satchell (1991), "Estimating Variance From High, Low and Closing Prices": https://doi.org/10.1214/aoap/1177005835
-# Uses the continuous-path base estimator.
+# Rogers & Satchell (1991), "Estimating Variance From High, Low and Closing Prices", Eq. (3.1): https://doi.org/10.1214/aoap/1177005835
+# Adaptation: drift-independent continuous-path estimator averaged over `window` bars without annualization.
 @_scale_invariant
 def rogers_satchell_volatility(open, high, low, close, window: int = 20):
     """Rogers-Satchell drift-independent OHLC volatility; needs window bars."""

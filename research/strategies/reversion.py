@@ -6,6 +6,8 @@ from asterion_strategy import Strategy
 from strategies._common import lots, units
 
 
+# Bollinger (2001), "Bollinger on Bollinger Bands", McGraw-Hill.
+# Adaptation: enter against population-standard-deviation band breaches and exit on returning to the trailing mean.
 class Reversion(Strategy):
     """Short from a close more than `width` standard deviations above the mean
     of the last `window` closes, long from one as far below it; the side is
