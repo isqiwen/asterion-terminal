@@ -83,7 +83,10 @@ export const listedKey = (row: CatalogEntry) => key(row.instrument);
 
 export function useTradingCatalog(connection: string) {
   const market = useMarketCatalog();
-  const marketReady = market?.status?.state === CatalogState.READY;
+  // Market keeps cached contracts while refreshing or after an off-hours failure; reuse them immediately.
+  const marketReady =
+    market !== undefined &&
+    (market.status?.state === CatalogState.READY || market.contracts.length > 0);
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<{
     connection: string;
@@ -127,7 +130,7 @@ export function useTradingCatalog(connection: string) {
     };
   }, [connection, marketReady, attempt]);
   const retry = () => setAttempt(count => count + 1);
-  if (marketReady)
+  if (market && marketReady)
     return {
       contracts: market.contracts as CatalogEntry[],
       ready: true,

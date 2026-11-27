@@ -42,7 +42,7 @@
 .futures-fields select {
   width: 100%;
 }
-.futures-data label {
+.futures-data label:not(.limit-source, .checkbox) {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);

@@ -47,6 +47,7 @@
   "服务暂不可用": "Service unavailable.",
   "期货": "Futures",
   "未就绪": "Not ready",
+  "未开通": "not set up",
   "本机 C++ 服务不可用，请重新启动终端": "Local C++ service unavailable. Restart Terminal.",
   "本机核心返回了不支持的状态契约": "The local core returned an unsupported state contract",
   "本次运行有日志写入失败，诊断记录可能不完整。请检查日志目录的空间和权限。": "Log writes failed during this run. Diagnostics may be incomplete. Check free space and permissions for the log directory.",

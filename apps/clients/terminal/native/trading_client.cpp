@@ -77,9 +77,12 @@ std::future<std::string> call_trading_json(ServiceIo& io, TradingEndpoint endpoi
                         io.payload_budget(ServiceIo::PayloadLane::administration),
                         frame_bytes);
                 });
+            // Cold CTP catalog queries step through ~80 futures products at ~1.1 s each.
+            const auto reply_timeout =
+                request.call_case() == wire::Request::kGetCatalog ? 240s : 30s;
             auto reply = transport->request(
                 request.SerializeAsString(),
-                30s,
+                reply_timeout,
                 std::chrono::steady_clock::time_point::max(),
                 5s,
                 keep_alive);

@@ -4,6 +4,7 @@ import { beforeEach, expect, test, vi } from "vitest";
 import type { Snapshot } from "../../src/bridge/client";
 import { tradingRequest } from "../../src/bridge/trading";
 import { Offset, Side } from "../../src/generated/asterion/common_pb";
+import { CatalogSchema, CatalogState, type Catalog } from "../../src/generated/asterion/market_pb";
 import {
   AccountSchema,
   BrokerState,
@@ -24,6 +25,11 @@ import { LivePanel } from "./LivePanel";
 import { LiveStrategies } from "./LiveStrategies";
 import { feature } from "./feature";
 
+let marketCatalog: Catalog | undefined;
+vi.mock("../../src/host/market", async importOriginal => {
+  const actual = await importOriginal<typeof import("../../src/host/market")>();
+  return { ...actual, useMarketCatalog: () => marketCatalog };
+});
 vi.mock("../../src/bridge/trading", () => {
   const tradingRequest = vi.fn();
   const tradingCall = async (account: string, operation: unknown) =>
@@ -79,6 +85,7 @@ const snapshot: Snapshot = {
 let read = () => live(session);
 let answer = (_: Response) => {};
 beforeEach(() => {
+  marketCatalog = undefined;
   read = () => live(session);
   vi.mocked(tradingRequest).mockReset();
   vi.mocked(tradingRequest).mockImplementation(async (_account, operation) =>
@@ -265,6 +272,33 @@ test("account setup surfaces catalog sync failures with a retry button", async (
   failCatalog = false;
   fireEvent.click(screen.getByRole("button", { name: "重试" }));
   expect(await screen.findByRole("combobox", { name: "添加合约" })).toBeTruthy();
+});
+
+test("account setup reuses cached Market contracts while Market refreshes without calling Trading getCatalog", async () => {
+  marketCatalog = create(CatalogSchema, {
+    status: { state: CatalogState.LOADING, tradingDay: "2026-11-27" },
+    contracts: [
+      {
+        instrument: { exchange: "SHFE", symbol: "rb2610" },
+        contract: "SHFE/rb/2026-10",
+        product: "rb",
+        name: "螺纹钢2610",
+        multiplier: 10,
+        priceTick: { text: "1" },
+      },
+    ],
+  });
+  read = () =>
+    create(ResponseSchema, {
+      result: { case: "getAccount", value: create(AccountSchema, account) },
+    });
+  show("create-cached-market-catalog");
+  const picker = await screen.findByRole("combobox", { name: "添加合约" });
+  fireEvent.focus(picker);
+  expect(await screen.findByRole("option", { name: /SHFE\.rb2610/ })).toBeTruthy();
+  expect(
+    vi.mocked(tradingRequest).mock.calls.filter(([, op]) => op?.case === "getCatalog"),
+  ).toHaveLength(0);
 });
 
 test("an unreachable trading service explains the failure and links to trading settings", async () => {

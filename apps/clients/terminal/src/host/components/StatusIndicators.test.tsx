@@ -465,3 +465,42 @@ test("trading status indicator highlights broker login failure in danger tone wi
   expect(light.dataset.tone).toBe("danger");
   expect(light.title).toContain("CTP 3");
 });
+
+test("trading status indicator labels an uninitialized account as not set up", async () => {
+  const snapshot = readySnapshot();
+  snapshot.trading_connections = [
+    { id: "sim", host: "h", port: 7460, instance: "simnow", fingerprint: "f", revision: "r" },
+  ];
+  vi.mocked(tradingRequest).mockImplementation(async (_id, operation) =>
+    operation.case === "getAccount"
+      ? create(ResponseSchema, {
+          result: {
+            case: "getAccount",
+            value: {
+              id: "rec",
+              broker: { brokerId: "9999", userId: "272025" },
+            },
+          },
+        })
+      : create(ResponseSchema, { result: { case: "getStrategies", value: {} } }),
+  );
+  render(
+    <TradingAccountsProvider
+      connections={snapshot.trading_connections.flatMap(item => ("error" in item ? [] : [item]))}
+    >
+      <WarehouseProvider endpoint="">
+        <StatusIndicators
+          snapshot={snapshot}
+          openMarketSettings={vi.fn()}
+          openMarket={vi.fn()}
+          openWarehouseSettings={vi.fn()}
+          openTradingSettings={vi.fn()}
+          openTrading={vi.fn()}
+        />
+      </WarehouseProvider>
+    </TradingAccountsProvider>,
+  );
+  const light = await screen.findByRole("button", { name: "● 交易·simnow 未开通" });
+  expect(light.dataset.tone).toBeUndefined();
+  expect(light.title).toBe("9999 · 272025");
+});
