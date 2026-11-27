@@ -7,6 +7,8 @@ export async function rpc(
   params: Record<string, unknown> = {},
 ) {
   const response = await request.post("/__asterion/api", {
+    // UI steps can outlast the dev server’s idle keep-alive connection.
+    headers: { Connection: "close" },
     data: { version: 1, method, params },
   });
   expect(response.ok()).toBe(true);
