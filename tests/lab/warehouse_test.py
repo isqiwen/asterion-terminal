@@ -219,6 +219,20 @@ class RemoteResearch(unittest.TestCase):
         current, = self.dataset.query(self.dataset.current(), sql, ('price_ticks',))
         self.assertEqual(current[2], Decimal('0.2'))
 
+    def test_pinned_read_recovers_after_warehouse_closes_an_idle_connection(self):
+        symbol = 'SHFE/rb/2026-05'
+        writer = Warehouse(self.data).writer()
+        writer.put_rows('price_ticks/SHFE', 'price_ticks', [price_tick(symbol, '0.5')])
+        writer.commit()
+        with self.dataset as dataset:
+            version = dataset.current()
+            writer.put_rows('price_ticks/SHFE', 'price_ticks', [price_tick(symbol, '1')])
+            writer.commit()
+            # Warehouse closes an idle reader after 30 seconds.
+            time.sleep(31)
+            self.assertEqual(dataset.query(version, 'select price_tick from price_ticks',
+                                           ('price_ticks',)), [(Decimal('0.5'),)])
+
     def test_two_clients_keep_their_fixed_version_and_refetch_after_selection_changes(self):
         other = Dataset(self.node / 'other-lab', history=self.warehouse)
         with ThreadPoolExecutor(2) as pool:

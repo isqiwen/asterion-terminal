@@ -62,12 +62,20 @@ class Client:
         if operation not in ("get_status", "get_dataset_version", "read_dataset_file",
                              "get_dataset_summary", "get_product_coverage"):
             raise ValueError("Lab only reads Warehouse datasets")
-        if operation != "get_status" and not self.verified:
-            status = self._invoke("get_status")
-            if status.protocol != WAREHOUSE_PROTOCOL:
-                raise WarehouseError("conflict", "warehouse protocol differs from this Terminal")
-            self.verified = True
-        return self._invoke(operation, **values)
+        reused = self.stream is not None
+        try:
+            if operation != "get_status" and not self.verified:
+                status = self._invoke("get_status")
+                if status.protocol != WAREHOUSE_PROTOCOL:
+                    raise WarehouseError("conflict", "warehouse protocol differs from this Terminal")
+                self.verified = True
+            return self._invoke(operation, **values)
+        except OSError as error:
+            self.__exit__()
+            # Warehouse closes idle readers; reconnect once for this read-only call.
+            if reused and isinstance(error, (ConnectionError, ssl.SSLEOFError)):
+                return self.call(operation, **values)
+            raise WarehouseError("unavailable", f"Warehouse dataset read failed: {error}") from None
 
     def _invoke(self, operation, **values):
         # Retry idempotent immutable reads on transient Warehouse read-pool saturation.
@@ -87,30 +95,27 @@ class Client:
         call = getattr(request, operation)
         call.SetInParent()
         call.CopyFrom(type(call)(**values))
-        try:
-            if self.stream is None:
-                context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-                context.minimum_version = ssl.TLSVersion.TLSv1_3
-                context.check_hostname = False
-                context.verify_mode = ssl.CERT_NONE  # Trust is the pinned certificate.
-                context.load_cert_chain(self.origin["certificate_file"], self.origin["private_key_file"])
-                connection = socket.create_connection((self.origin["host"], self.origin["port"]), timeout=10)
-                try:
-                    self.stream = context.wrap_socket(connection)
-                except BaseException:
-                    connection.close()
-                    raise
-                if hashlib.sha256(self.stream.getpeercert(binary_form=True)).hexdigest() != self.origin["fingerprint"]:
-                    raise WarehouseError("unavailable", "Warehouse certificate does not match its configured fingerprint")
-                self.stream.settimeout(60)
-            payload = request.SerializeToString()
-            self.stream.sendall(struct.pack("!I", len(payload)) + payload)
-            size, = struct.unpack("!I", self.receive(4))
-            if not 0 < size <= MAX_FRAME:
-                raise WarehouseError("invalid_data", "invalid Warehouse dataset response size")
-            response = Response.FromString(self.receive(size))
-        except OSError as error:
-            raise WarehouseError("unavailable", f"Warehouse dataset read failed: {error}") from None
+        if self.stream is None:
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            context.minimum_version = ssl.TLSVersion.TLSv1_3
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE  # Trust is the pinned certificate.
+            context.load_cert_chain(self.origin["certificate_file"], self.origin["private_key_file"])
+            connection = socket.create_connection((self.origin["host"], self.origin["port"]), timeout=10)
+            try:
+                self.stream = context.wrap_socket(connection)
+            except BaseException:
+                connection.close()
+                raise
+            if hashlib.sha256(self.stream.getpeercert(binary_form=True)).hexdigest() != self.origin["fingerprint"]:
+                raise WarehouseError("unavailable", "Warehouse certificate does not match its configured fingerprint")
+            self.stream.settimeout(60)
+        payload = request.SerializeToString()
+        self.stream.sendall(struct.pack("!I", len(payload)) + payload)
+        size, = struct.unpack("!I", self.receive(4))
+        if not 0 < size <= MAX_FRAME:
+            raise WarehouseError("invalid_data", "invalid Warehouse dataset response size")
+        response = Response.FromString(self.receive(size))
         if response.id != request.id:
             raise WarehouseError("invalid_data", "Warehouse dataset response identity mismatch")
         result = response.WhichOneof("result")
@@ -126,7 +131,7 @@ class Client:
         while len(data) < size:
             chunk = self.stream.recv(size - len(data))
             if not chunk:
-                raise WarehouseError("unavailable", "Warehouse closed the dataset connection")
+                raise ConnectionError("Warehouse closed the dataset connection")
             data.extend(chunk)
         return bytes(data)
 
