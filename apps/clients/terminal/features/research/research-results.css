@@ -186,7 +186,7 @@ button.lab-heatmap-cell:enabled:not([aria-disabled="true"]):is(:hover, :focus-vi
   background: var(--panel);
 }
 .lab-snapshot-head h2 {
-  margin: 0;
+  margin: 0 auto 0 0;
   color: var(--text-strong);
   font-size: var(--font-size-body);
   font-weight: 600;

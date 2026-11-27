@@ -6,6 +6,7 @@ import { diagnosticSummary } from "../../src/i18n/errors";
 import { type MessageValues, translate } from "../../src/i18n";
 import { Icon } from "../../src/ui/Icon";
 import { dataGapParams, parseDataGap } from "./data-gap";
+import { factorFunctionSnippet, factorSourceChanged } from "./factor-source";
 import { CopySummaryButton, ExperimentNoteBar, useAnnotations } from "./LabParts";
 import { cumulativeIc, yearlyIc } from "./research-analytics";
 import { formatFactorSummaryMarkdown } from "./research-markdown";
@@ -171,8 +172,11 @@ export function FactorResultView({
   ];
   const annotations = useAnnotations();
   const hasSnapshot = Boolean(result.code);
+  const singleFactorId = !composite ? result.evaluation?.factor : undefined;
   const codeChanged = Boolean(
-    hasSnapshot && currentCode !== undefined && currentCode !== result.code,
+    hasSnapshot &&
+    currentCode !== undefined &&
+    factorSourceChanged(result.code, currentCode, singleFactorId),
   );
   const showSnapshotLink = hasSnapshot && (codeChanged || currentCode === undefined);
   const activeTab = tab === "skipped" && result.skipped.length > 0 ? "skipped" : "overview";
@@ -236,7 +240,11 @@ export function FactorResultView({
         </span>
       </div>
       {snapshotOpen && hasSnapshot && (
-        <CodeSnapshotDialog code={result.code} close={() => setSnapshotOpen(false)} />
+        <CodeSnapshotDialog
+          code={result.code}
+          factorId={singleFactorId}
+          close={() => setSnapshotOpen(false)}
+        />
       )}
       <ExperimentNoteBar
         id={result.id}
@@ -623,14 +631,25 @@ export function FactorResultView({
   );
 }
 
-function CodeSnapshotDialog({ code, close }: { code: string; close: () => void }) {
+function CodeSnapshotDialog({
+  code,
+  factorId,
+  close,
+}: {
+  code: string;
+  factorId?: string;
+  close: () => void;
+}) {
   const dialog = useRef<HTMLDialogElement>(null);
   const heading = useId();
+  const snippet = useMemo(() => factorFunctionSnippet(code, factorId), [code, factorId]);
+  const [scope, setScope] = useState<"factor" | "module">(snippet ? "factor" : "module");
   useLayoutEffect(() => {
     const element = dialog.current;
     element?.showModal();
     return () => element?.close();
   }, []);
+  const shown = scope === "factor" && snippet ? snippet : code;
   return (
     <dialog
       ref={dialog}
@@ -646,11 +665,29 @@ function CodeSnapshotDialog({ code, close }: { code: string; close: () => void }
     >
       <header className="lab-snapshot-head">
         <h2 id={heading}>{t("评价时的源码")}</h2>
+        {snippet && (
+          <div className="lab-segmented" role="group" aria-label={t("评价时的源码")}>
+            <button
+              type="button"
+              aria-pressed={scope === "factor"}
+              onClick={() => setScope("factor")}
+            >
+              {t("仅当前因子")}
+            </button>
+            <button
+              type="button"
+              aria-pressed={scope === "module"}
+              onClick={() => setScope("module")}
+            >
+              {t("完整模块")}
+            </button>
+          </div>
+        )}
         <button type="button" aria-label={t("关闭")} onClick={close}>
           <Icon name="close" size={14} />
         </button>
       </header>
-      <pre className="lab-code">{code}</pre>
+      <pre className="lab-code">{shown}</pre>
     </dialog>
   );
 }

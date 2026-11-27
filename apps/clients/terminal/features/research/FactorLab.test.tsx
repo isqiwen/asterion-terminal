@@ -881,6 +881,7 @@ test("FactorResultView hides snapshot link and redundant tab bar when code match
     <FactorResultView
       currentCode="def atr(high, low, close): return (high - low) / close"
       result={create(FactorResultSchema, {
+        evaluation: { factor: "custom.atr" },
         symbols: ["SHFE/rb", "SHFE/cu"],
         code: same,
       })}
@@ -889,6 +890,19 @@ test("FactorResultView hides snapshot link and redundant tab bar when code match
   expect(screen.getByText("源码已变更")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "评价时的源码" }));
   expect(screen.getByRole("dialog", { name: "评价时的源码" }).textContent).toContain(same);
+
+  // Editing an unrelated sibling factor in the same module does not flag drift.
+  rerender(
+    <FactorResultView
+      currentCode={`${same}\n\ndef other_signal(close):\n    return close * 2\n`}
+      result={create(FactorResultSchema, {
+        evaluation: { factor: "custom.atr" },
+        symbols: ["SHFE/rb", "SHFE/cu"],
+        code: `${same}\n\ndef other_signal(close):\n    return close\n`,
+      })}
+    />,
+  );
+  expect(screen.queryByText("源码已变更")).toBeNull();
 });
 
 test("evaluation records view filters, stars, compares side by side, and batch deletes with annotation cleanup", async () => {
