@@ -86,7 +86,9 @@ async function isolatedPoolCheck() {
       `const { parentPort, workerData } = require('node:worker_threads');
        const bridge = require(workerData);
        for (let i = 0; i < 16; i++) bridge.request(JSON.stringify({version:1,method:'bridge.test.unknown',params:{}}));
-       parentPort.postMessage('queued');`,
+       parentPort.postMessage('queued');
+       // Keep completion callbacks queued until forced teardown.
+       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);`,
       { eval: true, workerData: addon },
     );
     await new Promise((resolve, reject) => {

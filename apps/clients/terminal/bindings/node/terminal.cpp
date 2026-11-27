@@ -201,10 +201,10 @@ build_watch_value(napi_env env, const std::optional<asterion::terminal::MarketWa
 
 void complete(napi_env env, napi_value, void*, void* data) noexcept
 {
+    if (!env)
+        return; // Teardown may drain queued callbacks after finalize has deleted Work.
     auto& job = *static_cast<Work*>(data);
     job.release_admission();
-    if (!env)
-        return; // Environment teardown still drains the queue and finalizes Work.
     const bool success = job.error.empty();
     if (success && job.is_watch) {
         try {
