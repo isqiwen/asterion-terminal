@@ -4,6 +4,11 @@ import numbers
 
 import numpy as np
 
+try:
+    import asterion_engine as _engine
+except ImportError:
+    _engine = None
+
 
 def ts_mean(values, window: int) -> np.ndarray:
     """Strictly causal trailing arithmetic mean over `window` bars."""
@@ -163,6 +168,8 @@ def ts_ewma_vol(close, span: int = 20, annualize: float = 252.0) -> np.ndarray:
         raise ValueError("span must be an integer of at least 2")
     scale = _annualize_scale(annualize)
     arr = np.asarray(close, dtype=float)
+    if _engine is not None and arr.ndim == 1:
+        return _engine.ts_ewma_vol(arr, span, scale)
     out = np.full(len(arr), np.nan)
     if len(arr) < 2:
         return out
@@ -187,6 +194,8 @@ def ts_ema(values, span: int) -> np.ndarray:
     if type(span) is not int or span < 1:
         raise ValueError("span must be a positive integer")
     arr = np.asarray(values, dtype=float)
+    if _engine is not None and arr.ndim == 1:
+        return _engine.ts_ema(arr, span)
     out = np.full(len(arr), np.nan)
     alpha = 2.0 / (span + 1.0)
     ema = None
@@ -294,6 +303,8 @@ def kalman_filter(
         raise ValueError("obs_var must be a positive finite number")
     q, r = float(process_var), float(obs_var)
     arr = np.asarray(values, dtype=float)
+    if _engine is not None and arr.ndim == 1:
+        return _engine.kalman_filter(arr, q, r)
     out = np.full(len(arr), np.nan)
     x_hat = None
     p = r
@@ -360,12 +371,14 @@ def kalman_hedge(
     ax = np.asarray(x, dtype=float)
     if ay.ndim != 1 or ay.shape != ax.shape:
         raise ValueError("kalman_hedge inputs must be 1D arrays of equal length")
+    q = float(delta) / (1.0 - float(delta))
+    r = float(obs_var)
+    if _engine is not None:
+        return _engine.kalman_hedge(ay, ax, q, r)
     n = len(ay)
     beta_out = np.full(n, np.nan)
     intercept_out = np.full(n, np.nan)
     spread_out = np.full(n, np.nan)
-    q = float(delta) / (1.0 - float(delta))
-    r = float(obs_var)
     t0, t1 = 0.0, 0.0
     p00, p01, p11 = 1e6, 0.0, 1e6
     seen = False
