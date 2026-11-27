@@ -100,8 +100,15 @@ change_of(const Store& store, const VersionHead& version, const VersionHead& bas
 struct Reader::Cache
 {
     using Key = std::tuple<std::string, std::string, EmptyStamp>;
+    using FilterKey = std::tuple<std::string, std::string, std::string, std::string>;
     using CoverageEntry =
         std::pair<std::shared_ptr<const ProductCoverages>, ::warehouse::DatasetCoverage>;
+
+    struct FilteredCounts
+    {
+        std::uint64_t total = 0;
+        std::vector<std::uint64_t> batch_counts;
+    };
 
     std::shared_ptr<const Version> version(const Store& store, const std::string& identity)
     {
@@ -154,6 +161,7 @@ struct Reader::Cache
     BoundedCache<std::pair<std::string, std::string>, ::warehouse::DatasetChange> changes;
     BoundedCache<Key, ::warehouse::DatasetSummary> summaries;
     BoundedCache<Key, CoverageEntry> coverages;
+    BoundedCache<FilterKey, FilteredCounts> filtered_counts;
 };
 
 } // namespace asterion::warehouse

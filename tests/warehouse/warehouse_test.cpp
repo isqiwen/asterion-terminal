@@ -563,6 +563,25 @@ TEST_F(Warehouse, ReferenceTableFiltersByProductContractAndDay)
         EXPECT_EQ(both.rows(0).values(2), "2026-10-28");
     }
     {
+        // Repeated filtered pages reuse cached batch counts across offsets.
+        wire::GetTableRows query;
+        query.set_table(wire::TABLE_WAREHOUSE_RECEIPTS);
+        query.set_exchange("SHFE");
+        query.set_product("rb");
+        const auto page0 = reader.rows(query);
+        ASSERT_EQ(page0.total(), 2);
+        ASSERT_EQ(page0.rows_size(), 2);
+        query.set_offset(1);
+        const auto page1 = reader.rows(query);
+        ASSERT_EQ(page1.total(), 2);
+        ASSERT_EQ(page1.rows_size(), 1);
+        EXPECT_EQ(page1.rows(0).values(2), "2026-10-28");
+        query.set_offset(2);
+        const auto past_end = reader.rows(query);
+        ASSERT_EQ(past_end.total(), 2);
+        EXPECT_EQ(past_end.rows_size(), 0);
+    }
+    {
         wire::GetTableRows query;
         query.set_table(wire::TABLE_SETTLEMENT);
         query.set_exchange("SHFE");

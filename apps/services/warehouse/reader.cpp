@@ -423,24 +423,60 @@ wire::TableRows Reader::rows(const wire::GetTableRows& query) const
     }
     if (matched.empty())
         return result;
-    parquet::Engine engine;
     // Daily partitions are disjoint and descending; scan in bounded batches to stay within the
     // read-lane memory limit while preserving exact totals and cross-batch pages.
     const std::size_t batch_size = daily_partitions ? 120 : matched.size();
-    std::uint64_t total = 0;
     const std::uint64_t target_begin = query.offset();
     const std::uint64_t target_end = target_begin + 100;
-    for (std::size_t at = 0; at < matched.size(); at += batch_size) {
+    const Cache::FilterKey filter_key{identity, table, query.exchange(), where};
+    std::optional<Cache::FilteredCounts> cached;
+    if (!identity.empty()) {
+        std::lock_guard lock(cache_->mutex);
+        cached = cache_->filtered_counts.get(filter_key);
+    }
+    const auto open_batch = [&](parquet::Engine& engine, std::size_t at) {
         std::string batch_files;
         for (std::size_t i = at; i < std::min(matched.size(), at + batch_size); ++i)
             batch_files += (batch_files.empty() ? "" : ",")
                 + parquet::literal(store.file(*version, matched[i]));
         engine.run(
             "CREATE OR REPLACE TEMP VIEW t AS SELECT * FROM read_parquet([" + batch_files + "])");
+    };
+    if (cached) {
+        result.set_total(static_cast<std::uint32_t>(cached->total));
+        if (target_begin >= cached->total)
+            return result;
+        parquet::Engine engine;
+        std::uint64_t total = 0;
+        for (std::size_t batch_idx = 0; batch_idx < cached->batch_counts.size(); ++batch_idx) {
+            const auto count = cached->batch_counts[batch_idx];
+            if (count > 0 && total + count > target_begin && total < target_end) {
+                open_batch(engine, batch_idx * batch_size);
+                const auto local_offset = target_begin > total ? target_begin - total : 0;
+                const auto need =
+                    std::min(target_end - std::max(target_begin, total), count - local_offset);
+                const auto rows = engine.run(
+                    "SELECT * FROM t WHERE " + where + " ORDER BY " + order_by + " LIMIT "
+                    + std::to_string(need) + " OFFSET " + std::to_string(local_offset));
+                append_rows(result, *rows);
+            }
+            total += count;
+            if (total >= target_end)
+                break;
+        }
+        return result;
+    }
+    parquet::Engine engine;
+    std::uint64_t total = 0;
+    std::vector<std::uint64_t> batch_counts;
+    batch_counts.reserve((matched.size() + batch_size - 1) / batch_size);
+    for (std::size_t at = 0; at < matched.size(); at += batch_size) {
+        open_batch(engine, at);
         const auto count =
             static_cast<std::uint64_t>(engine.run("SELECT COUNT(*) FROM t WHERE " + where)
                     ->GetValue(0, 0)
                     .GetValue<std::int64_t>());
+        batch_counts.push_back(count);
         if (count > 0 && total + count > target_begin && total < target_end) {
             const auto local_offset = target_begin > total ? target_begin - total : 0;
             const auto need =
@@ -451,6 +487,13 @@ wire::TableRows Reader::rows(const wire::GetTableRows& query) const
             append_rows(result, *rows);
         }
         total += count;
+    }
+    if (!identity.empty()) {
+        std::lock_guard lock(cache_->mutex);
+        cache_->filtered_counts.put(
+            filter_key,
+            Cache::FilteredCounts{total, std::move(batch_counts)},
+            64);
     }
     result.set_total(static_cast<std::uint32_t>(total));
     return result;
