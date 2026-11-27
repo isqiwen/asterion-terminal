@@ -1,6 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 import { render, screen, within } from "@testing-library/react";
 import { expect, test } from "vitest";
+import { openPopover } from "../../src/testing/popover";
 import { AccountSummary } from "./AccountSummary";
 import { feature } from "./feature";
 import { registerTerminalFeatures } from "../../src/host/feature-registry";
@@ -55,8 +56,12 @@ test("the account shows today's result and how much of each limit it uses", () =
   expect(meter("在途委托").textContent).toContain("1 / 2");
   expect(meter("日内亏损").dataset.tone).toBe("attention");
   expect(meter("单合约日撤单").textContent).toContain("380 / 400");
-  // The broker's other figures stay folded until asked for.
-  expect(screen.getByText("资金明细").closest("details")!.open).toBe(false);
+  // The broker's other figures stay in a popover until asked for.
+  const trigger = screen.getByRole("button", { name: "资金明细" });
+  expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  openPopover(trigger);
+  expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  expect(screen.getByRole("region", { name: "资金明细" }).textContent).toContain("1,000,000");
 });
 
 test("positive daily P&L includes an explicit plus sign", () => {

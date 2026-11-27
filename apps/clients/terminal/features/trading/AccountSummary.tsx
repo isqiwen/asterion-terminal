@@ -1,3 +1,4 @@
+import { useId, useState } from "react";
 import { decimal, groupedText } from "../../src/bridge/decimal";
 import type { Decimal } from "../../src/generated/asterion/common_pb";
 import type { Session } from "../../src/generated/asterion/trading_pb";
@@ -122,6 +123,9 @@ const detailFields = [
 // The four figures an operator reads first, the broker's other figures, and
 // the use of each risk limit.
 export function AccountSummary({ live }: { live: Session }) {
+  const detailsId = useId();
+  const anchor = `--account-details-${detailsId.replace(/:/g, "")}`;
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const funds = live.funds;
   const equity = number(funds?.dynamicEquity);
   const baseEquity = number(funds?.preBalance) + number(funds?.deposit) - number(funds?.withdraw);
@@ -133,29 +137,58 @@ export function AccountSummary({ live }: { live: Session }) {
     <section className="account-summary" aria-label={t("账户概览")}>
       <div className="account-summary-primary">
         {funds && (
-          <dl className="account-headline">
-            <div>
-              <dt>{t("盯市净值")}</dt>
-              <dd>{groupedText(funds.dynamicEquity)}</dd>
-            </div>
-            <div>
-              <dt>{t("当日盈亏")}</dt>
-              <dd className="account-pnl-value">
-                <span className={dailyTone}>
-                  {daily >= 0.005 ? `+${money(daily)}` : money(daily)}
-                </span>
-                {dailyPct && <small className={dailyTone}>{dailyPct}</small>}
-              </dd>
-            </div>
-            <div>
-              <dt>{t("可用资金")}</dt>
-              <dd>{groupedText(funds.available)}</dd>
-            </div>
-            <div>
-              <dt>{t("保证金占用率")}</dt>
-              <dd>{equity > 0 ? percent(number(funds.margin) / equity) : "—"}</dd>
-            </div>
-          </dl>
+          <div className="account-capital-group">
+            <dl className="account-headline">
+              <div>
+                <dt>{t("盯市净值")}</dt>
+                <dd>{groupedText(funds.dynamicEquity)}</dd>
+              </div>
+              <div>
+                <dt>{t("当日盈亏")}</dt>
+                <dd className="account-pnl-value">
+                  <span className={dailyTone}>
+                    {daily >= 0.005 ? `+${money(daily)}` : money(daily)}
+                  </span>
+                  {dailyPct && <small className={dailyTone}>{dailyPct}</small>}
+                </dd>
+              </div>
+              <div>
+                <dt>{t("可用资金")}</dt>
+                <dd>{groupedText(funds.available)}</dd>
+              </div>
+              <div>
+                <dt>{t("保证金占用率")}</dt>
+                <dd>{equity > 0 ? percent(number(funds.margin) / equity) : "—"}</dd>
+              </div>
+            </dl>
+            <button
+              type="button"
+              className="account-details-trigger"
+              style={{ anchorName: anchor }}
+              aria-expanded={detailsOpen}
+              aria-controls={detailsId}
+              {...{ commandfor: detailsId, command: "toggle-popover" }}
+            >
+              {t("资金明细")}
+            </button>
+            <section
+              id={detailsId}
+              popover="auto"
+              className="account-details-popover"
+              aria-label={t("资金明细")}
+              style={{ positionAnchor: anchor }}
+              onToggle={event => setDetailsOpen(event.newState === "open")}
+            >
+              <dl>
+                {detailFields.map(([field, label]) => (
+                  <div key={field}>
+                    <dt>{t(label)}</dt>
+                    <dd>{groupedText(funds[field])}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          </div>
         )}
         <ul className="risk-usage" aria-label={t("风控占用")}>
           {riskMeters(live).map(meter => {
@@ -180,19 +213,6 @@ export function AccountSummary({ live }: { live: Session }) {
             );
           })}
         </ul>
-        {funds && (
-          <details className="account-details">
-            <summary>{t("资金明细")}</summary>
-            <dl>
-              {detailFields.map(([field, label]) => (
-                <div key={field}>
-                  <dt>{t(label)}</dt>
-                  <dd>{groupedText(funds[field])}</dd>
-                </div>
-              ))}
-            </dl>
-          </details>
-        )}
       </div>
     </section>
   );

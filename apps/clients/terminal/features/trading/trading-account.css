@@ -41,16 +41,22 @@
   align-items: safe center;
   gap: var(--space-2) var(--space-4);
 }
-.account-summary-primary:has(> .account-headline) {
-  grid-template-columns: auto minmax(0, 1fr) auto;
+.account-summary-primary:has(> .account-capital-group) {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+.account-capital-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: safe center;
+  gap: var(--space-2) var(--space-4);
+  padding-right: var(--space-4);
+  border-right: 1px solid var(--line);
 }
 .account-headline {
   display: grid;
   grid-template-columns: repeat(4, minmax(max-content, 1fr));
   gap: var(--space-1) var(--space-4);
   margin: 0;
-  padding-right: var(--space-4);
-  border-right: 1px solid var(--line);
 }
 .account-headline > div {
   display: grid;
@@ -58,7 +64,7 @@
   align-content: center;
 }
 .account-headline dt,
-.account-details dt,
+.account-details-popover dt,
 .risk-usage li {
   color: var(--muted);
   font-size: var(--font-size-aux);
@@ -81,53 +87,85 @@
   font-size: var(--font-size-aux);
   font-weight: 500;
 }
-.account-details {
-  justify-self: end;
-}
-.account-details[open] {
-  grid-column: 1 / -1;
-  justify-self: stretch;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-1) var(--space-4);
-  padding-top: var(--space-2);
-  border-top: 1px solid var(--line);
-}
-.account-details summary {
-  width: fit-content;
-  padding: 2px var(--space-2);
-  border-radius: var(--control-radius);
+.account-details-trigger {
+  min-height: 24px;
+  padding: 0 var(--space-2);
+  border-color: var(--line);
+  background: transparent;
   color: var(--muted);
   font-size: var(--font-size-aux);
-  white-space: nowrap;
-  cursor: pointer;
 }
-.account-details[open] > summary {
-  padding-left: 0;
+.account-details-trigger::after {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-1.5px) rotate(45deg);
+  transition: transform 140ms ease;
 }
-.account-details summary:hover {
+.account-details-trigger:hover {
+  border-color: var(--line-strong);
   background: var(--hover);
   color: var(--text);
 }
-.account-details > dl {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1) var(--space-4);
+.account-details-trigger[aria-expanded="true"] {
+  border-color: var(--accent-line);
+  background: var(--accent-surface);
+  color: var(--accent);
+}
+.account-details-trigger[aria-expanded="true"]::after {
+  transform: translateY(1.5px) rotate(-135deg);
+}
+.account-details-popover {
+  padding: var(--space-3) var(--space-4);
+  width: min(460px, calc(100vw - 32px));
+  border: 1px solid var(--line-strong);
+  border-radius: var(--panel-radius);
+  background: var(--raised);
+  box-shadow: var(--surface-highlight), var(--shadow-popover);
+  color: var(--text);
+}
+@supports (position-area: block-end) {
+  .account-details-popover {
+    position: fixed;
+    inset: auto;
+    margin: var(--space-1) 0 0;
+    position-area: block-end span-inline-end;
+    position-try-fallbacks:
+      flip-block,
+      flip-inline,
+      flip-block flip-inline;
+  }
+}
+.account-details-popover > dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 var(--space-5);
   margin: 0;
 }
-.account-details > dl > div {
+.account-details-popover > dl > div {
   display: flex;
   align-items: baseline;
-  gap: var(--space-1);
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--line);
 }
-.account-details dd,
+.account-details-popover > dl > div:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+.account-details-popover dd,
 .risk-value {
   margin: 0;
-  color: var(--text);
+  color: var(--text-strong);
   font-family: var(--font-terminal);
   font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.risk-value {
+  color: var(--text);
 }
 .risk-usage {
   display: grid;
@@ -177,22 +215,25 @@
 }
 @media (max-width: 1200px) {
   .account-summary-primary,
-  .account-summary-primary:has(> .account-headline) {
+  .account-summary-primary:has(> .account-capital-group) {
     grid-template-columns: minmax(0, 1fr);
   }
-  .account-headline {
+  .account-capital-group {
     padding-right: 0;
     padding-bottom: var(--space-2);
     border-right: 0;
     border-bottom: 1px solid var(--line);
   }
-  .account-details {
-    justify-self: start;
-  }
 }
 @media (max-width: 720px) {
   .account-headline {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .account-details-popover > dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .account-details-popover > dl > div:nth-last-child(2) {
+    border-bottom: 1px solid var(--line);
   }
 }
 /* A limit's unit sits inside its field. */
