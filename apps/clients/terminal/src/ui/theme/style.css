@@ -527,22 +527,29 @@ tbody tr:hover {
   gap: var(--space-2);
   min-width: 0;
   max-width: min(420px, 44vw);
-  padding: 0 var(--space-3);
-  border: 1px solid var(--line-strong);
-  background: var(--raised);
+  padding: 0 var(--space-2);
   color: var(--text);
+}
+.status-bar button.status-task:enabled:hover,
+.status-bar button.status-task[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--text-strong);
+}
+.status-bar button:focus-visible {
+  outline-offset: -1px;
 }
 .status-task-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--muted);
+  color: inherit;
   font-size: var(--font-size-aux);
 }
 .status-progress {
   flex: none;
-  width: 64px;
+  width: 52px;
+  height: 3px;
 }
 .status-metric {
   flex: none;
@@ -689,13 +696,13 @@ summary {
 }
 progress {
   --progress-bar-radius: 999px;
-  --progress-bar-indeterminate-size: 32%;
-  --progress-bar-indeterminate-animation-duration: 1.4s;
+  --progress-bar-indeterminate-size: 28%;
+  --progress-bar-indeterminate-animation-duration: 1.5s;
   appearance: none;
   border: 0 solid;
   overflow: clip;
   container-type: inline-size;
-  height: 4px;
+  height: 3px;
   border-radius: var(--progress-bar-radius);
   background: var(--line-strong);
   @media (prefers-reduced-motion: reduce) {
@@ -704,7 +711,7 @@ progress {
 }
 progress:indeterminate {
   --progress-bar-animation: progress-bar-indeterminate
-    var(--progress-bar-indeterminate-animation-duration) infinite linear;
+    var(--progress-bar-indeterminate-animation-duration) infinite ease-in-out;
 }
 progress::-webkit-progress-bar {
   background: transparent;
@@ -722,16 +729,16 @@ progress::-moz-progress-bar {
   animation: var(--progress-bar-animation, revert-rule);
 }
 @keyframes progress-bar-indeterminate {
-  from,
-  to {
+  0%,
+  100% {
     inline-size: var(--progress-bar-indeterminate-size);
     margin-right: auto;
+    translate: 0;
   }
-  from {
-    translate: -100%;
-  }
-  to {
-    translate: 100cqi;
+  50% {
+    inline-size: var(--progress-bar-indeterminate-size);
+    margin-right: auto;
+    translate: calc(100cqi - 100%);
   }
 }
 .alert,

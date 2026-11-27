@@ -72,7 +72,9 @@ test("status bar task pill shows active sweep progress, opens popover with contr
 
   openPopover(pill);
   const panel = screen.getByRole("region", { name: "研究任务" });
-  expect(panel.textContent).toContain("进行中");
+  expect(panel.textContent).toContain("扫描 MaCross");
+  expect(panel.textContent).toContain("10 / 20 (50%)");
+  expect(panel.textContent).not.toContain("进行中");
   fireEvent.click(screen.getByRole("button", { name: "查看" }));
   expect(openSweep).toHaveBeenCalledWith("sw-1");
 
@@ -273,4 +275,61 @@ test("factor tasks cancel via cancelFactor and click-through opens the completed
   openPopover(notice);
   fireEvent.click(screen.getByRole("button", { name: "评价 momentum 已完成" }));
   expect(openFactors).toHaveBeenCalledWith("mom-1");
+});
+
+test("popover shows section headings only when both active and recent tasks are present", async () => {
+  const startedMs = BigInt(Date.now() - 8_000);
+  vi.mocked(lab).mockImplementation(async operation => {
+    if (operation.case === "getActivity") {
+      return create(LabActivitySchema, {
+        runningProcesses: 1,
+        maxProcesses: 4,
+        queuedRuns: 0,
+        active: [
+          {
+            id: "atr-1",
+            kind: TaskKind.FACTOR,
+            strategy: "technical.average_true_range",
+            total: 1,
+            done: 0,
+            running: 1,
+            startedMs,
+            state: RunState.RUNNING,
+          },
+        ],
+        recent: [
+          {
+            id: "mom-1",
+            kind: TaskKind.FACTOR,
+            strategy: "price.momentum",
+            total: 1,
+            done: 1,
+            succeeded: 1,
+            failed: 0,
+            startedMs,
+            finishedMs: BigInt(Date.now()),
+            state: RunState.SUCCEEDED,
+          },
+        ],
+      }) as never;
+    }
+    return {} as never;
+  });
+
+  render(
+    <LabActivityProvider
+      ready={true}
+      currentModule="research"
+      openRun={vi.fn()}
+      openSweep={vi.fn()}
+    >
+      <LabStatusTask openRun={vi.fn()} openSweep={vi.fn()} openFactors={vi.fn()} />
+    </LabActivityProvider>,
+  );
+
+  const pill = await screen.findByRole("button", { name: /评价 average_true_range/ });
+  openPopover(pill);
+  const panel = screen.getByRole("region", { name: "研究任务" });
+  expect(panel.textContent).toContain("进行中");
+  expect(panel.textContent).toContain("最近完成");
 });

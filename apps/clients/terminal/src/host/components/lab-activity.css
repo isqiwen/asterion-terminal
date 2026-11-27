@@ -8,8 +8,8 @@
   inset: auto;
   margin: 0;
   padding: 0;
-  width: min(440px, calc(100vw - 32px));
-  max-height: min(440px, 65vh);
+  width: min(376px, calc(100vw - 32px));
+  max-height: min(420px, 65vh);
   grid-template-rows: auto minmax(0, 1fr);
   border: 1px solid var(--line-strong);
   border-radius: var(--panel-radius);
@@ -37,23 +37,42 @@
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
+.lab-activity-panel > header > strong {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+.lab-activity-cores {
+  flex: none;
+  color: var(--muted);
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .lab-activity-panel > header > button {
-  min-height: 24px;
+  min-height: 22px;
   padding: 0 var(--space-2);
   border: 0;
   border-radius: var(--control-radius);
   background: none;
   color: var(--muted);
-  font-size: var(--font-size-body);
+  font-size: var(--font-size-aux);
 }
 .lab-activity-panel > header > button:hover {
   background: var(--hover);
   color: var(--text-strong);
 }
+.lab-activity-panel > header > button.danger-quiet {
+  color: var(--danger);
+}
+.lab-activity-panel > header > button.danger-quiet:hover {
+  background: var(--danger-surface);
+  color: var(--danger);
+}
 .lab-activity-panel > header > button:last-child {
-  width: 24px;
+  width: 22px;
   padding: 0;
-  margin-right: -5px;
+  margin-right: -4px;
 }
 .lab-activity-body {
   overflow: auto;
@@ -67,8 +86,8 @@
 }
 .lab-activity-group h3 {
   margin: 0;
-  padding: var(--space-2) var(--space-3) var(--space-1);
-  color: var(--muted);
+  padding: var(--space-2) var(--space-3) 0;
+  color: var(--subtle);
   font-size: var(--font-size-xs);
   font-weight: 500;
 }
@@ -80,20 +99,22 @@
 .lab-activity-group li + li {
   border-top: 1px solid var(--line);
 }
-.lab-activity-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-}
-.lab-activity-main {
-  flex: 1;
-  min-width: 0;
+.lab-activity-item {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
+  padding: 10px var(--space-3);
 }
-.lab-activity-main strong {
+.lab-activity-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.lab-activity-top strong {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -101,15 +122,44 @@
   color: var(--text-strong);
 }
 .lab-activity-title-line {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.lab-activity-progress-row {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
 }
 .lab-activity-progress {
+  flex: 1;
   width: 100%;
-  height: 4px;
-  margin-top: 2px;
+  min-width: 0;
+  height: 3px;
+}
+.lab-activity-meta-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.lab-activity-meta {
+  flex: none;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-family: var(--font-terminal);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.lab-activity-failed {
+  color: var(--danger);
 }
 .lab-activity-error {
   color: var(--danger);
@@ -125,17 +175,28 @@
   gap: var(--space-1);
 }
 .lab-activity-actions button {
-  min-height: 24px;
-  padding: 0 var(--space-2);
-  border: 0;
+  min-height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--line-strong);
   border-radius: var(--control-radius);
   background: transparent;
-  color: var(--muted);
+  color: var(--text);
   font-size: var(--font-size-aux);
+  line-height: 1;
 }
 .lab-activity-actions button:enabled:hover {
   background: var(--hover);
+  border-color: var(--accent-line);
   color: var(--text-strong);
+}
+.lab-activity-actions button.lab-activity-cancel {
+  border-color: transparent;
+  color: var(--muted);
+}
+.lab-activity-actions button.lab-activity-cancel:enabled:hover {
+  background: var(--danger-surface);
+  border-color: color-mix(in oklab, var(--danger) 45%, transparent);
+  color: var(--danger);
 }
 .module-activity-trigger {
   display: inline-flex;

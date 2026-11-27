@@ -92,8 +92,9 @@ function LabTasksPopover({
     >
       <header>
         <strong>{th("研究任务")}</strong>
+        <span className="panel-spacer" />
         {activity.active.length > 0 && (
-          <span className="subtle numeric">
+          <span className="lab-activity-cores">
             {th("运行 {running} / {max} 核", {
               running: activity.runningProcesses,
               max: Math.max(1, activity.maxProcesses),
@@ -101,7 +102,6 @@ function LabTasksPopover({
             {activity.queuedRuns > 0 && ` · ${th("排队 {count}", { count: activity.queuedRuns })}`}
           </span>
         )}
-        <span className="panel-spacer" />
         {activity.totalActive > 1 && (
           <button
             type="button"
@@ -129,9 +129,10 @@ function LabTasksPopover({
             <>
               {activity.totalActive > 0 && (
                 <div className="lab-activity-group">
-                  <h3>{th("进行中")}</h3>
+                  {activity.recent.length > 0 && <h3>{th("进行中")}</h3>}
                   <ul>
                     {activity.active.map(task => {
+                      const title = labTaskTitle(task);
                       const started = Number(task.startedMs);
                       const elapsed = started > 0 ? formatDuration(now - started) : "";
                       const eta = estimateRemainingMs(task.done, task.total, started, now);
@@ -139,39 +140,54 @@ function LabTasksPopover({
                       const pct = multi
                         ? Math.min(100, Math.floor((task.done * 100) / task.total))
                         : 0;
+                      const timing = [
+                        elapsed && th("已用 {time}", { time: elapsed }),
+                        eta !== null && th("剩余 ~{time}", { time: formatDuration(eta) }),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ");
                       return (
-                        <li key={task.id}>
-                          <div className="lab-activity-row">
-                            <div className="lab-activity-main">
-                              <strong>{labTaskTitle(task)}</strong>
-                              <span className="subtle numeric">
-                                {[
-                                  multi && `${task.done} / ${task.total} (${pct}%)`,
-                                  task.failed > 0 && th("失败 {count}", { count: task.failed }),
-                                  elapsed && th("已用 {time}", { time: elapsed }),
-                                  eta !== null && th("剩余 ~{time}", { time: formatDuration(eta) }),
-                                ]
-                                  .filter(Boolean)
-                                  .join(" · ")}
-                              </span>
-                              <progress
-                                className="lab-activity-progress"
-                                value={multi ? task.done : undefined}
-                                max={multi ? task.total : undefined}
-                              />
-                            </div>
+                        <li key={task.id} className="lab-activity-item">
+                          <div className="lab-activity-top">
+                            <strong title={title}>{title}</strong>
                             <div className="lab-activity-actions">
                               <button type="button" onClick={() => jump(task)}>
                                 {th("查看")}
                               </button>
                               <button
                                 type="button"
+                                className="lab-activity-cancel"
                                 onClick={() => void acted.attempt(() => activity.cancelTask(task))}
                               >
                                 {th("取消")}
                               </button>
                             </div>
                           </div>
+                          {multi ? (
+                            <>
+                              <progress
+                                className="lab-activity-progress"
+                                value={task.done}
+                                max={task.total}
+                              />
+                              <div className="lab-activity-meta-line">
+                                <span className="lab-activity-meta">
+                                  {`${task.done} / ${task.total} (${pct}%)`}
+                                  {task.failed > 0 && (
+                                    <span className="lab-activity-failed">
+                                      {` · ${th("失败 {count}", { count: task.failed })}`}
+                                    </span>
+                                  )}
+                                </span>
+                                {timing && <span className="lab-activity-meta">{timing}</span>}
+                              </div>
+                            </>
+                          ) : (
+                            <div className="lab-activity-progress-row">
+                              <progress className="lab-activity-progress" />
+                              {timing && <span className="lab-activity-meta">{timing}</span>}
+                            </div>
+                          )}
                         </li>
                       );
                     })}
@@ -183,35 +199,27 @@ function LabTasksPopover({
                   <h3>{th("最近完成")}</h3>
                   <ul>
                     {activity.recent.map(task => {
+                      const title = labTaskTitle(task);
                       const duration =
                         task.finishedMs > task.startedMs && task.startedMs > 0n
                           ? formatDuration(Number(task.finishedMs - task.startedMs))
                           : "";
+                      const summary = [
+                        task.total > 1 && `${task.succeeded} / ${task.total}`,
+                        task.failed > 0 && th("失败 {count}", { count: task.failed }),
+                        duration,
+                        shortTime(task.finishedMs),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ");
                       return (
-                        <li key={task.id}>
-                          <div className="lab-activity-row">
-                            <div className="lab-activity-main">
-                              <div className="lab-activity-title-line">
-                                <StatusBadge tone={stateTone[task.state] ?? "neutral"}>
-                                  {th(stateLabel[task.state] ?? "未知")}
-                                </StatusBadge>
-                                <strong>{labTaskTitle(task)}</strong>
-                              </div>
-                              <span className="subtle numeric" title={task.error || undefined}>
-                                {[
-                                  task.total > 1 && `${task.succeeded} / ${task.total}`,
-                                  task.failed > 0 && th("失败 {count}", { count: task.failed }),
-                                  duration,
-                                  shortTime(task.finishedMs),
-                                ]
-                                  .filter(Boolean)
-                                  .join(" · ")}
-                              </span>
-                              {task.error && (
-                                <span className="lab-activity-error" title={task.error}>
-                                  {task.error}
-                                </span>
-                              )}
+                        <li key={task.id} className="lab-activity-item">
+                          <div className="lab-activity-top">
+                            <div className="lab-activity-title-line">
+                              <StatusBadge tone={stateTone[task.state] ?? "neutral"}>
+                                {th(stateLabel[task.state] ?? "未知")}
+                              </StatusBadge>
+                              <strong title={title}>{title}</strong>
                             </div>
                             <div className="lab-activity-actions">
                               <button type="button" onClick={() => jump(task)}>
@@ -219,6 +227,16 @@ function LabTasksPopover({
                               </button>
                             </div>
                           </div>
+                          {summary && (
+                            <span className="lab-activity-meta" title={task.error || undefined}>
+                              {summary}
+                            </span>
+                          )}
+                          {task.error && (
+                            <span className="lab-activity-error" title={task.error}>
+                              {task.error}
+                            </span>
+                          )}
                         </li>
                       );
                     })}
