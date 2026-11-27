@@ -613,6 +613,7 @@ struct RpcHost::Impl
         const bool complete = stage == Stage::stopping_resources && resources_stopped;
         if (stopping && (complete || now >= drain_deadline)) {
             finished = true;
+            tick.cancel();
             drained = complete;
             asio::error_code ignored;
             for (auto& listener : auxiliary)
@@ -637,7 +638,7 @@ struct RpcHost::Impl
         // Socket reads, writes and TLS handshakes share the nonblocking event loop,
         // and finished work announces itself through the waker. This check is what
         // observes deadlines and stop requests, and work that announces nothing.
-        tick.expires_after(Milliseconds{10});
+        tick.expires_after(options.periodic_check);
         tick.async_wait([this](asio::error_code error) {
             if (!error)
                 advance();

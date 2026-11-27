@@ -389,11 +389,6 @@ TEST(RpcHost, IncompleteDrainRetainsAdmittedReplyUntilProcessExit)
     EXPECT_FALSE(lifetime.expired());
 }
 
-// A reply that waits for pool work leaves when the work is done, and a client
-// on its owner's reactor receives it there. Neither side waits for a periodic
-// check: the host's comes every 10 ms and would alone take 400 ms here. Under
-// a sanitizer the bound only catches a stall; the instrumentation itself costs
-// more than the periodic check would.
 TEST(RpcHost, FinishedPoolWorkIsAnsweredWithoutWaitingForAPeriodicCheck)
 {
     service::reset_stop_request();
@@ -401,6 +396,14 @@ TEST(RpcHost, FinishedPoolWorkIsAnsweredWithoutWaitingForAPeriodicCheck)
     transport.endpoint = "/tmp/ast-prompt-" + unique_process_id() + ".sock";
     ThreadPool pool(1, 8, service::wake_io_owner);
     Progress progress;
+    service::RpcHost::Options options;
+    // A missing completion wake must hit the request deadline before the timer.
+    options.periodic_check = 1min;
+    options.advance = [](service::RpcHost::Stage stage) {
+        if (stage != service::RpcHost::Stage::running)
+            service::wake_io_owner();
+        return true;
+    };
     service::RpcHost server(
         transport,
         [&](const auto&, std::string request) -> service::RpcHost::Reply {
@@ -413,7 +416,7 @@ TEST(RpcHost, FinishedPoolWorkIsAnsweredWithoutWaitingForAPeriodicCheck)
                 return request;
             };
         },
-        {},
+        options,
         progress);
     std::jthread worker([&] {
         static_cast<void>(server.run());
@@ -424,13 +427,13 @@ TEST(RpcHost, FinishedPoolWorkIsAnsweredWithoutWaitingForAPeriodicCheck)
         ~Stop()
         {
             service::request_stop();
+            service::wake_io_owner();
         }
     } stop;
 
     ipc::Reactor reactor;
     ipc::RpcClient client(reactor, transport.endpoint, 1, PayloadBudget{128 * 1024 * 1024});
     constexpr int rounds = 40;
-    const auto started = std::chrono::steady_clock::now();
     for (int round = 0; round < rounds; ++round) {
         auto reply = client.request(std::to_string(round), 5s);
         // The owner only waits on its reactor; nothing pumps the client by itself.
@@ -438,7 +441,6 @@ TEST(RpcHost, FinishedPoolWorkIsAnsweredWithoutWaitingForAPeriodicCheck)
             reactor.wait(1s);
         ASSERT_EQ(*reply.get(), std::to_string(round));
     }
-    EXPECT_LT(std::chrono::steady_clock::now() - started, testing_support::bound(rounds * 5ms));
 }
 
 TEST(Reactor, AWakeUpEndsTheNextWaitOrTheOneInProgress)

@@ -52,8 +52,8 @@ void wake_io_owner();
 // request may outlive a socket; closing a connection never cancels or replays it.
 // The owner advances pending replies and the service's own state when a
 // request arrives, when a request's last reply leaves, when wake_io_owner() is
-// called, and otherwise every 10 ms, which is also how it observes deadlines
-// and stop requests and paces the frames of a stream.
+// called, and otherwise every 10 ms by default, which is also how it observes
+// deadlines and stop requests and paces the frames of a stream.
 class RpcHost
 {
 public:
@@ -116,6 +116,7 @@ public:
         // Private endpoints have independent allowances so bulk traffic cannot use
         // their control/completion capacity. Parsed domain objects are additional.
         std::size_t payload_bytes = 64 * 1024 * 1024;
+        Milliseconds periodic_check{10};
         // Instrumented builds run several times slower; draining gets the same
         // margin there, so a clean stop is not cut short by the instrumentation.
 #ifdef ASTERION_SANITIZED
