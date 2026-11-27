@@ -42,19 +42,28 @@ export function Dataset(context: TerminalContext) {
 
 function DatasetBody({ context, address }: { context: TerminalContext; address: string }) {
   const paramVersion = context.workspaceParams?.version ?? "";
+  const paramKind = context.workspaceParams?.kind;
+  const paramExchange = context.workspaceParams?.exchange;
+  const paramProduct = context.workspaceParams?.product;
+  const paramSearch = context.workspaceParams?.search;
   const [viewed, setViewed] = useState(paramVersion);
   const [kind, setKind] = useWorkspaceDraft<Kind>("coverage-kind", "daily");
-  const paramKind = context.workspaceParams?.kind;
-  useEffect(() => {
-    if (!paramVersion && !paramKind) return;
-    if (paramVersion) setViewed(paramVersion);
-    if (paramKind === "daily" || paramKind === "minutes") setKind(paramKind);
-    context.navigate("workspace.data-dataset", {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paramVersion, paramKind]);
   const [exchange, setExchange] = useWorkspaceDraft("coverage-exchange", "");
   const [search, setSearch] = useWorkspaceDraft("coverage-search", "");
   const [openProduct, setOpenProduct] = useWorkspaceDraft("coverage-open", "");
+  useEffect(() => {
+    const hasTarget =
+      paramExchange !== undefined || paramProduct !== undefined || paramSearch !== undefined;
+    if (!paramVersion && !paramKind && !hasTarget) return;
+    if (paramVersion) setViewed(paramVersion);
+    else if (hasTarget) setViewed("");
+    if (paramKind === "daily" || paramKind === "minutes") setKind(paramKind);
+    if (paramExchange !== undefined) setExchange(paramExchange);
+    if (paramProduct !== undefined) setOpenProduct(paramProduct);
+    if (paramSearch !== undefined) setSearch(paramSearch);
+    context.navigate("workspace.data-dataset", {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paramVersion, paramKind, paramExchange, paramProduct, paramSearch]);
   const workspaceActive = useWorkspaceActive();
   const [chart, setChart] = useState("");
   useEffect(() => {

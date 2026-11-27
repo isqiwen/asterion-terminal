@@ -808,9 +808,11 @@ test("factor evaluation error can be dismissed and clears when switching factors
   expect(screen.queryByRole("alert")).toBeNull();
 });
 
-test("FactorResultView localizes skipped symbol diagnostics", () => {
-  render(
+test("FactorResultView localizes skipped symbol diagnostics and links acquirable gaps", () => {
+  const openDataset = vi.fn();
+  const { rerender } = render(
     <FactorResultView
+      openDataset={openDataset}
       result={create(FactorResultSchema, {
         symbols: ["SHFE/rb", "SHFE/cu"],
         skipped: [
@@ -827,4 +829,30 @@ test("FactorResultView localizes skipped symbol diagnostics", () => {
   const skippedText = screen.getByText(/outgoing roll month has no bars/);
   expect(skippedText.textContent).toContain("SHFE/wr/2023-10 from 2023-10-16");
   expect(skippedText.getAttribute("title")).toContain("the outgoing month has no bars");
+  // Daily zero-volume outgoing bars cannot be fixed by acquiring data.
+  expect(screen.queryByRole("button", { name: "去采集" })).toBeNull();
+
+  // Minute gaps offer a direct link into the dataset coverage panel for that contract.
+  rerender(
+    <FactorResultView
+      openDataset={openDataset}
+      result={create(FactorResultSchema, {
+        evaluation: { period: 2 }, // PERIOD_MINUTES_5
+        symbols: ["SHFE/cu"],
+        skipped: [
+          {
+            symbol: "SHFE/rb",
+            reason: "minutes of SHFE/rb/2026-05 are not stored on 2026-01-05",
+          },
+        ],
+      })}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "去采集" }));
+  expect(openDataset).toHaveBeenCalledWith({
+    kind: "minutes",
+    exchange: "SHFE",
+    product: "SHFE/rb",
+    search: "rb2605",
+  });
 });

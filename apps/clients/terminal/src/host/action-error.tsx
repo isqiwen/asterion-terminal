@@ -38,15 +38,17 @@ export function ActionError({
   error,
   namespace,
   onDismiss,
+  action,
 }: {
   error: DisplayError;
   namespace?: string;
   onDismiss?: () => void;
+  action?: { label: string; onClick: () => void };
 }) {
   const service = isServiceFailure(error);
   useErrorNotification(service ? error : "", namespace);
   if (!error || service) return null;
-  if (!onDismiss) {
+  if (!onDismiss && !action) {
     return (
       <p className="action-error" role="alert">
         <ErrorNotice error={error} namespace={namespace} />
@@ -55,15 +57,24 @@ export function ActionError({
   }
   return (
     <div className="action-error is-dismissible" role="alert">
-      <ErrorNotice error={error} namespace={namespace} />
-      <button
-        type="button"
-        className="action-error-dismiss"
-        aria-label={translate("host", "关闭")}
-        onClick={onDismiss}
-      >
-        <Icon name="close" size={12} />
-      </button>
+      <div className="action-error-body">
+        <ErrorNotice error={error} namespace={namespace} />
+        {action && (
+          <button type="button" className="action-error-link" onClick={action.onClick}>
+            {action.label}
+          </button>
+        )}
+      </div>
+      {onDismiss && (
+        <button
+          type="button"
+          className="action-error-dismiss"
+          aria-label={translate("host", "关闭")}
+          onClick={onDismiss}
+        >
+          <Icon name="close" size={12} />
+        </button>
+      )}
     </div>
   );
 }

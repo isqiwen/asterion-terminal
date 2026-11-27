@@ -763,6 +763,32 @@ test("a kind link opens that kind", async () => {
   expect(props.navigate).toHaveBeenCalledWith("workspace.data-dataset", {});
 });
 
+test("a data gap link switches kind, filters exchange and contract, and opens the product", async () => {
+  serve();
+  const props = context({
+    kind: "minutes",
+    exchange: "SHFE",
+    product: "SHFE/rb",
+    search: "rb2705",
+  });
+  view(props);
+  await list();
+  expect(
+    within(screen.getByRole("group", { name: "数据" }))
+      .getByRole("button", { name: /^分钟线/ })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
+  expect((screen.getByLabelText("交易所") as HTMLSelectElement).value).toBe("SHFE");
+  expect((screen.getByLabelText("搜索品种或合约") as HTMLInputElement).value).toBe("rb2705");
+  await waitFor(() =>
+    expect(request).toHaveBeenCalledWith({
+      case: "getProductCoverage",
+      value: { version: current, product: "SHFE/rb" },
+    }),
+  );
+  expect(props.navigate).toHaveBeenCalledWith("workspace.data-dataset", {});
+});
+
 test("initial dataset mount lists dataset versions only once", async () => {
   serve();
   view(context());

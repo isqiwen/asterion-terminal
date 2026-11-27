@@ -11,9 +11,10 @@ import { Offset, Side } from "../../src/generated/asterion/common_pb";
 import type { ChartBars, RunDetail, RunSummary } from "../../src/generated/asterion/lab_pb";
 import { useErrorNotification } from "../../src/host/notifications";
 import { getLocale, listSeparator, type MessageValues, translate } from "../../src/i18n";
-import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
+import { type DisplayError, asDisplayError, diagnosticSummary } from "../../src/i18n/errors";
 import { protocolPeriod } from "../../src/ui/periods";
 import { StatusBadge } from "../../src/ui/StatusBadge";
+import { dataGapParams, isMinutePeriod, parseDataGap } from "./data-gap";
 import { CopySummaryButton, ExperimentNoteBar, useAnnotations } from "./LabParts";
 import { evaluateRunVerdicts, metricDeltaText, monthlyReturns } from "./research-analytics";
 import { runName, runState } from "./research-lab";
@@ -464,6 +465,7 @@ export function RunResult({
   state,
   previous,
   openVersion,
+  openDataset,
   openFactor,
   openRun,
 }: {
@@ -471,6 +473,7 @@ export function RunResult({
   state: string;
   previous?: RunSummary;
   openVersion?: (version: string) => void;
+  openDataset?: (params: Record<string, string>) => void;
   openFactor?: (id: string) => void;
   openRun?: (id: string) => void;
 }) {
@@ -588,12 +591,33 @@ export function RunResult({
   if (error) return null;
   if (!detail || !record) return <p className="subtle">{t("正在读取结果…")}</p>;
   const summary = detail.summary!;
-  if (!overview)
+  if (!overview) {
+    const failed = runState(summary.state) === "failed";
+    const summaryReason = summary.error ? (diagnosticSummary(summary.error) ?? summary.error) : "";
+    const missingData =
+      failed && openDataset && summary.error
+        ? parseDataGap(summary.error, { minutes: isMinutePeriod(summary.period) })
+        : null;
     return (
       <div className="lab-result">
-        <p role={runState(summary.state) === "failed" ? "alert" : undefined}>
+        <p role={failed ? "alert" : undefined}>
           {t(states[runState(summary.state)] ?? "未开始")}
-          {summary.error ? ` · ${summary.error}` : ""}
+          {summaryReason ? (
+            <span title={summaryReason !== summary.error ? summary.error : undefined}>
+              {` · ${summaryReason}`}
+            </span>
+          ) : (
+            ""
+          )}
+          {missingData && (
+            <button
+              type="button"
+              className="lab-link lab-skipped-action"
+              onClick={() => openDataset!(dataGapParams(missingData))}
+            >
+              {t("去采集")}
+            </button>
+          )}
         </p>
         <RunDetails
           record={detail.record}
@@ -603,6 +627,7 @@ export function RunResult({
         />
       </div>
     );
+  }
   const {
     holdout,
     rolling,

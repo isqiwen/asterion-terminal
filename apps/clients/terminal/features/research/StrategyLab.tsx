@@ -8,6 +8,7 @@ import type { TerminalContext } from "../../src/host/feature-registry";
 import { notify } from "../../src/host/notifications";
 import { useLabActiveReport } from "../../src/host/lab";
 import { type MessageValues, translate, listSeparator } from "../../src/i18n";
+import { dataGapParams, parseDataGap } from "./data-gap";
 import { SLIPPAGE_STRESS_TICKS } from "./research-analytics";
 import {
   defaultProcesses,
@@ -180,6 +181,16 @@ export function StrategyLab(context: TerminalContext) {
     clearReportActed();
   }, [report?.id, clearReportActed]);
 
+  const submittedGap = parseDataGap(submitted.error, { minutes: form.minutes !== "0" });
+  const submittedAction = submittedGap
+    ? {
+        label: t("去采集"),
+        onClick: () =>
+          context.navigate("workspace.data-dataset", { params: dataGapParams(submittedGap) }),
+      }
+    : undefined;
+  const openDataset = (params: Record<string, string>) =>
+    context.navigate("workspace.data-dataset", { params });
   const library = view === "library";
   const strategy = strategies?.strategies.find(item => item.id === chosen);
   const enteredSymbols = symbolsOf(form.symbols);
@@ -626,6 +637,7 @@ export function StrategyLab(context: TerminalContext) {
                 error={submitted.error}
                 namespace="asterion.terminal.research"
                 onDismiss={submitted.clear}
+                action={submittedAction}
               />
               <ModuleErrors
                 folder="strategies"
@@ -667,6 +679,7 @@ export function StrategyLab(context: TerminalContext) {
                     openVersion={version =>
                       context.navigate("workspace.data-dataset", { params: { version } })
                     }
+                    openDataset={openDataset}
                     openFactor={factorId =>
                       context.navigate("workspace.lab-factors", {
                         params: { factorResult: factorId },
@@ -869,6 +882,7 @@ export function StrategyLab(context: TerminalContext) {
                         error={submitted.error}
                         namespace="asterion.terminal.research"
                         onDismiss={submitted.clear}
+                        action={submittedAction}
                       />
                     </footer>
                   </>

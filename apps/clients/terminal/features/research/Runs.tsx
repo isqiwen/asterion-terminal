@@ -290,6 +290,7 @@ export function Runs(context: TerminalContext) {
           openVersion={version =>
             context.navigate("workspace.data-dataset", { params: { version } })
           }
+          openDataset={params => context.navigate("workspace.data-dataset", { params })}
           openFactor={factorId =>
             context.navigate("workspace.lab-factors", { params: { factorResult: factorId } })
           }

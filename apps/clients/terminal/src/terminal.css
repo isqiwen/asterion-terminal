@@ -166,11 +166,31 @@
   font-size: var(--font-size-aux);
   line-height: 1.45;
 }
-.action-error.is-dismissible > .error-notice {
+.action-error.is-dismissible > .action-error-body {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+.action-error.is-dismissible .error-notice {
   max-height: 96px;
   overflow: auto;
+}
+.action-error-link {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: var(--font-size-aux);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.action-error-link:enabled:hover {
+  background: transparent;
+  color: var(--text-strong);
 }
 .action-error-dismiss {
   flex: none;

@@ -16,6 +16,7 @@ import type { TerminalContext } from "../../src/host/feature-registry";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { type MessageValues, translate, listSeparator } from "../../src/i18n";
 import { StatusBadge } from "../../src/ui/StatusBadge";
+import { dataGapParams, parseDataGap } from "./data-gap";
 import { factorTurnover } from "./research-analytics";
 import {
   defaultText,
@@ -416,6 +417,16 @@ export function FactorLab(context: TerminalContext) {
       </select>
     </label>
   );
+  const missingData = parseDataGap(error, { minutes: isMinutes });
+  const errorAction = missingData
+    ? {
+        label: t("去采集"),
+        onClick: () =>
+          context.navigate("workspace.data-dataset", { params: dataGapParams(missingData) }),
+      }
+    : undefined;
+  const openDataset = (params: Record<string, string>) =>
+    context.navigate("workspace.data-dataset", { params });
   const savedNote = saved.length > 0 && (
     <p className="subtle">{t("已保存 {files}", { files: saved.join(listSeparator()) })}</p>
   );
@@ -610,7 +621,12 @@ export function FactorLab(context: TerminalContext) {
           }
           notices={
             <>
-              <ActionError error={error} namespace="asterion.terminal.research" onDismiss={clear} />
+              <ActionError
+                error={error}
+                namespace="asterion.terminal.research"
+                onDismiss={clear}
+                action={errorAction}
+              />
               {savedNote}
               {modules && !modules.factors.length && <p className="subtle">{t("还没有因子")}</p>}
               <ModuleErrors
@@ -639,7 +655,7 @@ export function FactorLab(context: TerminalContext) {
           {(tab === "result" || tab === "split") &&
             (report ? (
               <div className="lab-center lab-runs-view">
-                <Report key={report} id={report} />
+                <Report key={report} id={report} openDataset={openDataset} />
               </div>
             ) : (
               <div className="lab-placeholder">
@@ -789,6 +805,7 @@ export function FactorLab(context: TerminalContext) {
                   error={error}
                   namespace="asterion.terminal.research"
                   onDismiss={clear}
+                  action={errorAction}
                 />
               </footer>
             </>
@@ -1198,7 +1215,13 @@ function FactorLibrary({
   );
 }
 
-function Report({ id }: { id: string }) {
+function Report({
+  id,
+  openDataset,
+}: {
+  id: string;
+  openDataset?: (params: Record<string, string>) => void;
+}) {
   const [result, setResult] = useState<FactorResult | null>(null);
   const [error, setError] = useState<DisplayError>("");
   useEffect(() => {
@@ -1213,5 +1236,5 @@ function Report({ id }: { id: string }) {
   useErrorNotification(error, "asterion.terminal.research");
   if (error) return null;
   if (!result) return <p className="subtle">{t("正在读取结果…")}</p>;
-  return <FactorResultView result={result} />;
+  return <FactorResultView result={result} openDataset={openDataset} />;
 }

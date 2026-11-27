@@ -4,6 +4,7 @@ import { Period } from "../../src/generated/asterion/common_pb";
 import type { FactorResult } from "../../src/generated/asterion/lab_pb";
 import { diagnosticSummary } from "../../src/i18n/errors";
 import { type MessageValues, translate } from "../../src/i18n";
+import { dataGapParams, parseDataGap } from "./data-gap";
 import { CopySummaryButton, ExperimentNoteBar, useAnnotations } from "./LabParts";
 import { cumulativeIc, yearlyIc } from "./research-analytics";
 import { formatFactorSummaryMarkdown } from "./research-markdown";
@@ -57,7 +58,13 @@ const correlationFill = (value: number | undefined, diagonal: boolean) => {
 
 // A factor's evaluation, as Alphalens reports one: the first horizon's figures,
 // IC by horizon, yearly IC stability, each day's IC and its running sum, and the groups.
-export function FactorResultView({ result }: { result: FactorResult }) {
+export function FactorResultView({
+  result,
+  openDataset,
+}: {
+  result: FactorResult;
+  openDataset?: (params: Record<string, string>) => void;
+}) {
   const [tab, setTab] = useState<"overview" | "code" | "skipped">("overview");
   const [focusedDay, setFocusedDay] = useState<string | null>(null);
   const largest = Math.max(...result.horizons.map(item => Math.abs(item.mean ?? 0)), 1e-12);
@@ -268,10 +275,22 @@ export function FactorResultView({ result }: { result: FactorResult }) {
         <ul className="lab-skipped">
           {result.skipped.map(item => {
             const text = diagnosticSummary(item.reason) ?? item.reason;
+            const gap = openDataset
+              ? parseDataGap(item.reason, { minutes: intraday, fallbackSymbol: item.symbol })
+              : null;
             return (
               <li key={item.symbol}>
                 <strong>{item.symbol}</strong>{" "}
                 <span title={text !== item.reason ? item.reason : undefined}>{text}</span>
+                {gap && (
+                  <button
+                    type="button"
+                    className="lab-link lab-skipped-action"
+                    onClick={() => openDataset!(dataGapParams(gap))}
+                  >
+                    {t("去采集")}
+                  </button>
+                )}
               </li>
             );
           })}

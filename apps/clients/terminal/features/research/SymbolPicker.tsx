@@ -4,6 +4,7 @@ import type { StoredContract } from "../../src/generated/asterion/lab_pb";
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { getLocale, listSeparator, type MessageValues, translate } from "../../src/i18n";
 import { warehouseName } from "../../src/ui/contract-names";
+import { dataGapForSymbol, dataGapParams } from "./data-gap";
 import {
   builtInUniverses,
   readUniverses,
@@ -317,10 +318,12 @@ export function SymbolField({
     setQuery("");
     return true;
   };
-  const openDataset = () =>
+  const openDataset = () => {
+    const kind = minutes ? "minutes" : "daily";
     context.navigate("workspace.data-dataset", {
-      params: { kind: minutes ? "minutes" : "daily" },
+      params: missing.length === 1 ? dataGapParams(dataGapForSymbol(kind, missing[0]!)) : { kind },
     });
+  };
 
   const renderOption = (item: SymbolSpan, extraClass?: string, badge?: string) => {
     const active = selected.has(item.id);

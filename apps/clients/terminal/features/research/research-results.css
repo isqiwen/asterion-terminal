@@ -159,6 +159,9 @@ button.lab-heatmap-cell:enabled:not([aria-disabled="true"]):is(:hover, :focus-vi
   margin-right: var(--space-2);
   color: var(--text);
 }
+.lab-skipped-action {
+  margin-left: var(--space-2);
+}
 
 .lab-rejections summary {
   color: var(--warning);
