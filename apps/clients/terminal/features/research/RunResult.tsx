@@ -660,6 +660,17 @@ export function RunResult({
   ] as const;
   return (
     <div className="lab-result">
+      <Figures summary={summary} previous={previous} />
+      {verdicts.length > 0 && (
+        <div className="lab-verdicts" role="list" aria-label={t("研究体检")}>
+          {verdicts.map(item => (
+            <div key={item.label} className="lab-verdict-item" role="listitem">
+              <StatusBadge tone={item.tone}>{item.label}</StatusBadge>
+              <span className="subtle">{item.detail}</span>
+            </div>
+          ))}
+        </div>
+      )}
       {excluded && excluded.bars > 0 && (
         <p className="subtle">
           {t("{bars} 根 K 线含不完整的分钟，未参与回测：{days}", {
@@ -708,11 +719,7 @@ export function RunResult({
       })}
       {refused > 0 && (
         <details className="lab-rejections">
-          <summary>
-            {t("目标被风控或资金拒绝 {count} 次，实盘会告警并放弃当批，实例继续运行", {
-              count: refused,
-            })}
-          </summary>
+          <summary>{t("拒单明细（{count} 次）", { count: refused })}</summary>
           <div className="lab-scroll">
             <table className="lab-table">
               <thead>
@@ -748,17 +755,6 @@ export function RunResult({
             </table>
           </div>
         </details>
-      )}
-      <Figures summary={summary} previous={previous} />
-      {verdicts.length > 0 && (
-        <div className="lab-verdicts" role="list" aria-label={t("研究体检")}>
-          {verdicts.map(item => (
-            <div key={item.label} className="lab-verdict-item" role="listitem">
-              <StatusBadge tone={item.tone}>{item.label}</StatusBadge>
-              <span className="subtle">{item.detail}</span>
-            </div>
-          ))}
-        </div>
       )}
       <ExperimentNoteBar
         id={summary.id}

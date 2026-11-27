@@ -67,7 +67,10 @@ targets = size_targets(equity, weights);
 - CMake targets live in their module's `CMakeLists.txt`; names use underscores. Dependencies are locked with Conan and pnpm.
 - Format with `pnpm run format` (clang-format 23.1.1 and Prettier).
 - UI text goes through `src/i18n`; Chinese and English change together.
-- Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining.
+- **UI: interface is expression**: convey state, hierarchy, and affordances through layout, alignment, visual encoding (color, bars, spacing), and live feedback—not prose.
+  - No tutorial hints, "click X on the right" directions, or labels that duplicate placeholders/tooltips; empty states are a single status line (plus direct action if needed).
+  - Show core metrics and conclusions first; keep provenance, metadata, and diagnostics secondary or revealed only when relevant (e.g. code drift, active filters, multi-value sweep). Do not dump raw code docstrings into UI tables—use hover tooltips or source view.
+  - **Exception**: trading safety confirmations and irreversible-consequence warnings must stay explicit and never be thinned down (`docs/safety.md`).
 - Market and historical data come from real providers; fixtures are only for tests.
 
 ## Workflow

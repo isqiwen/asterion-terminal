@@ -811,10 +811,6 @@ button.lab-sort:enabled:not([aria-disabled="true"]):is(:hover, :active) {
 .lab-parameters {
   margin-bottom: var(--space-3);
 }
-.lab-param-hint {
-  margin: 0;
-  font-size: var(--font-size-aux);
-}
 .lab-center.lab-library-view {
   padding: 0;
 }

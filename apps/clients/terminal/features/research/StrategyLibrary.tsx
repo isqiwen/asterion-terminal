@@ -220,9 +220,6 @@ export function StrategyLibrary({
           </button>
         </th>
         <td>{item.group && <Tag>{item.group}</Tag>}</td>
-        <td className="lab-desc" title={item.description || undefined}>
-          {item.description || "—"}
-        </td>
         <td className="numeric">
           {stage !== undefined ? (
             <StatusBadge tone={stages[stage]![1]}>{t(stages[stage]![0])}</StatusBadge>
@@ -343,7 +340,6 @@ export function StrategyLibrary({
                   {t("策略")}
                 </th>
                 <th scope="col">{t("类型")}</th>
-                <th scope="col">{t("说明")}</th>
                 {heading("stage", t("阶段"))}
                 {figures.map(([key, label]) => heading(key, t(label)))}
                 {heading("started", t("最近回测"))}
@@ -356,7 +352,7 @@ export function StrategyLibrary({
                 <tbody key={place}>
                   {title && (
                     <tr className="lab-library-group">
-                      <th scope="colgroup" colSpan={figures.length + 6}>
+                      <th scope="colgroup" colSpan={figures.length + 5}>
                         {t(title)}
                       </th>
                     </tr>

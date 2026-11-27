@@ -213,31 +213,16 @@ export function FactorResultView({
             </span>
           )}
         </div>
-        <span className="lab-meta-pinned subtle">
-          {t("研究数据")} <code>{result.pinned?.datasetVersion.slice(0, 8)}</code>
-          {result.pinned?.commit && (
-            <>
-              {" "}
-              · {t("代码")} <code>{result.pinned.commit.slice(0, 8)}</code>
-            </>
-          )}
-          {result.pinned?.changes && ` · ${t("含未提交改动")}`}
-          {codeChanged && (
-            <>
-              {" "}
-              · <span className="lab-code-drift">{t("源码已变更")}</span>
-            </>
-          )}
-          {showSnapshotLink && (
-            <>
-              {" "}
-              ·{" "}
+        {(codeChanged || showSnapshotLink) && (
+          <span className="lab-meta-status subtle">
+            {codeChanged && <span className="lab-code-drift">{t("源码已变更")}</span>}
+            {showSnapshotLink && (
               <button type="button" className="lab-link" onClick={() => setSnapshotOpen(true)}>
                 {t("评价时的源码")}
               </button>
-            </>
-          )}
-        </span>
+            )}
+          </span>
+        )}
       </div>
       {snapshotOpen && hasSnapshot && (
         <CodeSnapshotDialog
@@ -246,14 +231,6 @@ export function FactorResultView({
           close={() => setSnapshotOpen(false)}
         />
       )}
-      <ExperimentNoteBar
-        id={result.id}
-        trailing={
-          <CopySummaryButton
-            build={() => formatFactorSummaryMarkdown(result, annotations[result.id]?.note)}
-          />
-        }
-      />
       {first && (
         <dl className="lab-figures">
           {(
@@ -298,6 +275,14 @@ export function FactorResultView({
           ))}
         </dl>
       )}
+      <ExperimentNoteBar
+        id={result.id}
+        trailing={
+          <CopySummaryButton
+            build={() => formatFactorSummaryMarkdown(result, annotations[result.id]?.note)}
+          />
+        }
+      />
       {tabs.length > 1 && (
         <nav className="lab-report-tabs tabs" aria-label={t("报告")}>
           {tabs.map(([key, label]) => (
@@ -626,6 +611,18 @@ export function FactorResultView({
             </tbody>
           </table>
         </>
+      )}
+      {result.pinned && (
+        <footer className="lab-meta-footer subtle">
+          {t("研究数据")} <code>{result.pinned.datasetVersion.slice(0, 8)}</code>
+          {result.pinned.commit && (
+            <>
+              {" "}
+              · {t("代码")} <code>{result.pinned.commit.slice(0, 8)}</code>
+            </>
+          )}
+          {result.pinned.changes && ` · ${t("含未提交改动")}`}
+        </footer>
       )}
     </div>
   );

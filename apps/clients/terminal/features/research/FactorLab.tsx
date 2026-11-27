@@ -746,10 +746,7 @@ export function FactorLab(context: TerminalContext) {
               </div>
             ) : (
               <div className="lab-placeholder">
-                <div>
-                  <p>{t("还没有评价")}</p>
-                  <p className="subtle">{t("按 ⌘Enter / Ctrl+Enter 或点击右侧「评价」发起评价")}</p>
-                </div>
+                <p>{t("还没有评价")}</p>
               </div>
             ))}
         </div>
@@ -1153,9 +1150,6 @@ function FactorLibrary({
           </button>
         </th>
         <td className="subtle">{item.module}</td>
-        <td className="lab-desc" title={item.description || undefined}>
-          {item.description || "—"}
-        </td>
         <Figures result={result} />
       </tr>
     );
@@ -1263,7 +1257,6 @@ function FactorLibrary({
                   {t("因子")}
                 </th>
                 <th scope="col">{t("模块")}</th>
-                <th scope="col">{t("说明")}</th>
                 {heading("ic", t("IC 均值"), t("最近一次评价的第一个持有期"))}
                 {heading("holdoutIc", t("留出期 IC"), t("最近一次评价的留出期第一个持有期"))}
                 {heading("ir", "ICIR")}
@@ -1279,7 +1272,7 @@ function FactorLibrary({
                 <tbody key={place}>
                   {title && (
                     <tr className="lab-library-group">
-                      <th scope="colgroup" colSpan={10}>
+                      <th scope="colgroup" colSpan={9}>
                         {t(title)}
                       </th>
                     </tr>
@@ -1291,7 +1284,7 @@ function FactorLibrary({
             {shownComposites.length > 0 && (
               <tbody>
                 <tr className="lab-library-group">
-                  <th scope="colgroup" colSpan={10}>
+                  <th scope="colgroup" colSpan={9}>
                     {t("多因子合成记录")}
                   </th>
                 </tr>
@@ -1319,9 +1312,8 @@ function FactorLibrary({
                         count:
                           item.factorNames.length ||
                           1 + (item.evaluation?.extraFactors.length ?? 0),
-                      })}
-                    </td>
-                    <td className="lab-desc">
+                      })}{" "}
+                      ·{" "}
                       {item.evaluation?.combination === "ic_weighted"
                         ? t("IC 加权合成")
                         : t("等权合成")}

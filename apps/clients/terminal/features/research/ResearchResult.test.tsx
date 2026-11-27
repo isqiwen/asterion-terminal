@@ -242,9 +242,7 @@ test("a run whose targets were refused shows how often and why", async () => {
     }) as never;
   });
   render(<RunResult id="refused" state="succeeded" />);
-  expect(
-    await screen.findByText("目标被风控或资金拒绝 14 次，实盘会告警并放弃当批，实例继续运行"),
-  ).not.toBeNull();
+  expect(await screen.findByText("拒单明细（14 次）")).not.toBeNull();
   expect(screen.getByRole("cell", { name: "超过总持仓上限" })).not.toBeNull();
   expect(screen.getByRole("cell", { name: "14" })).not.toBeNull();
 });

@@ -197,13 +197,6 @@ function AccountStrategies({
                   {t(view?.initialized === false ? "尚未开通交易" : "尚未部署策略版本")}
                 </strong>
               </div>
-              <p>
-                {t(
-                  view?.initialized === false
-                    ? "可在右侧先部署策略版本；启动运行前需先在工作台完成账户开通与风控设置。"
-                    : "请先在右侧「策略版本」选择策略并部署，部署完成后即可在此配置并启动实例。",
-                )}
-              </p>
               {view?.initialized === false && (
                 <div className="workspace-empty-actions">
                   <button type="button" className="primary" onClick={openWorkbench}>

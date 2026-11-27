@@ -713,10 +713,7 @@ export function StrategyLab(context: TerminalContext) {
               </div>
             ) : (
               <div className="lab-placeholder">
-                <div>
-                  <p>{t("还没有回测")}</p>
-                  <p className="subtle">{t("按 ⌘Enter / Ctrl+Enter 或点击右侧「运行」发起回测")}</p>
-                </div>
+                <p>{t("还没有回测")}</p>
               </div>
             ))}
         </div>
@@ -752,9 +749,6 @@ export function StrategyLab(context: TerminalContext) {
                     />
                   </label>
                 ))}
-                {strategy.parameters.length > 0 && (
-                  <p className="subtle wide lab-param-hint">{t("多值用逗号分隔即扫描")}</p>
-                )}
                 {enteredSymbols.length > 1 && (
                   <fieldset className="wide lab-segmented">
                     <legend className="sr-only">{t("多品种运行方式")}</legend>
