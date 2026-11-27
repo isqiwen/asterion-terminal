@@ -6,8 +6,15 @@
 #include <asterion/futures/trading_days.hpp>
 #include <asterion/futures/portfolio_targets.hpp>
 #include <asterion/futures/replay.hpp>
+#include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdint>
+#include <limits>
+#include <vector>
 
 namespace py = pybind11;
 
@@ -560,6 +567,225 @@ py::dict statistics(
     return values;
 }
 
+std::int64_t floor_div(std::int64_t a, std::int64_t b) noexcept
+{
+    std::int64_t q = a / b;
+    std::int64_t r = a % b;
+    if (r != 0 && ((r < 0) != (b < 0)))
+        --q;
+    return q;
+}
+
+int pos_mod(std::int64_t a, int m) noexcept
+{
+    int r = static_cast<int>(a % m);
+    return r < 0 ? r + m : r;
+}
+
+py::tuple aggregate_minutes(
+    const py::array_t<std::int32_t, py::array::c_style | py::array::forcecast>& day_ids,
+    const py::array_t<std::int64_t, py::array::c_style | py::array::forcecast>& start_ms,
+    const py::array_t<std::uint8_t, py::array::c_style | py::array::forcecast>& src_partial,
+    const py::array_t<std::uint8_t, py::array::c_style | py::array::forcecast>& ohlc_valid,
+    const py::array_t<std::int64_t, py::array::c_style | py::array::forcecast>& open_raw,
+    const py::array_t<std::int64_t, py::array::c_style | py::array::forcecast>& high_raw,
+    const py::array_t<std::int64_t, py::array::c_style | py::array::forcecast>& low_raw,
+    const py::array_t<std::int64_t, py::array::c_style | py::array::forcecast>& close_raw,
+    const py::array_t<std::uint8_t, py::array::c_style | py::array::forcecast>& vol_valid,
+    const py::array_t<std::int64_t, py::array::c_style | py::array::forcecast>& vol_raw,
+    const py::array_t<double, py::array::c_style | py::array::forcecast>& oi_f64,
+    int minutes,
+    const std::vector<std::pair<int, int>>& sessions,
+    int num_days)
+{
+    if (minutes != 1 && minutes != 5 && minutes != 10 && minutes != 15 && minutes != 30
+        && minutes != 60)
+        throw std::invalid_argument("minute periods are 1, 5, 10, 15, 30, 60");
+    const auto n = day_ids.size();
+    if (start_ms.size() != n || src_partial.size() != n || ohlc_valid.size() != n
+        || open_raw.size() != n || high_raw.size() != n || low_raw.size() != n
+        || close_raw.size() != n || vol_valid.size() != n || vol_raw.size() != n
+        || oi_f64.size() != n)
+        throw std::invalid_argument("minute aggregation inputs must have equal length");
+
+    std::array<std::uint64_t, 1440> expected_mask{};
+    const bool has_sessions = !sessions.empty();
+    for (const auto& [start, end] : sessions) {
+        const int stop = start < end ? end : end + 1440;
+        for (int slot = start; slot < stop; ++slot) {
+            const int m = slot % 1440;
+            expected_mask[static_cast<std::size_t>(m / minutes)] |=
+                (std::uint64_t{1} << (m % minutes));
+        }
+    }
+    const std::uint64_t full_mask = (std::uint64_t{1} << minutes) - 1;
+
+    std::vector<int> openings;
+    for (const auto& [start, end] : sessions) {
+        if (start == sessions.front().first || start >= 18 * 60)
+            openings.push_back(start);
+    }
+    std::array<int, 1440> until_open{};
+    for (int m = 0; m < 1440; ++m) {
+        for (int opening : openings) {
+            if (opening - 5 <= m && m < opening) {
+                until_open[static_cast<std::size_t>(m)] = opening - m;
+                break;
+            }
+        }
+    }
+
+    const auto* d_ptr = day_ids.data();
+    const auto* s_ptr = start_ms.data();
+    const auto* sp_ptr = src_partial.data();
+    const auto* ov_ptr = ohlc_valid.data();
+    const auto* o_ptr = open_raw.data();
+    const auto* h_ptr = high_raw.data();
+    const auto* l_ptr = low_raw.data();
+    const auto* c_ptr = close_raw.data();
+    const auto* vv_ptr = vol_valid.data();
+    const auto* v_ptr = vol_raw.data();
+    const auto* oi_ptr = oi_f64.data();
+
+    const std::int64_t span = static_cast<std::int64_t>(minutes) * 60'000;
+    std::vector<std::int32_t> zero_vol_by_day(static_cast<std::size_t>(std::max(0, num_days)), 0);
+
+    std::vector<std::int32_t> obs_day;
+    std::vector<std::int64_t> obs_end_ms;
+    std::vector<std::uint8_t> obs_partial;
+
+    std::vector<std::int32_t> bar_day;
+    std::vector<std::int64_t> bar_end_ms;
+    std::vector<std::int64_t> bar_open, bar_high, bar_low, bar_close, bar_vol;
+    std::vector<double> bar_oi;
+    std::vector<std::uint8_t> bar_partial;
+
+    const std::size_t est = static_cast<std::size_t>(n / minutes + 16);
+    obs_day.reserve(est);
+    obs_end_ms.reserve(est);
+    obs_partial.reserve(est);
+    bar_day.reserve(est);
+    bar_end_ms.reserve(est);
+    bar_open.reserve(est);
+    bar_high.reserve(est);
+    bar_low.reserve(est);
+    bar_close.reserve(est);
+    bar_vol.reserve(est);
+    bar_oi.reserve(est);
+    bar_partial.reserve(est);
+
+    bool in_group = false;
+    std::int32_t cur_day = -1;
+    std::int64_t cur_bucket = 0;
+    std::uint64_t observed_mask = 0;
+    bool partial = false;
+    bool has_bar = false;
+    std::int64_t b_open = 0, b_high = 0, b_low = 0, b_close = 0, b_vol = 0;
+    double last_oi = std::numeric_limits<double>::quiet_NaN();
+
+    const auto flush_group = [&]() {
+        if (!in_group)
+            return;
+        const std::int64_t end_ms = (cur_bucket + 1) * span;
+        const int local_start = pos_mod(cur_bucket * minutes + 480, 1440);
+        const std::uint64_t exp_mask = has_sessions
+            ? expected_mask[static_cast<std::size_t>(local_start / minutes)]
+            : full_mask;
+        if (exp_mask == 0 || observed_mask != exp_mask)
+            partial = true;
+        obs_day.push_back(cur_day);
+        obs_end_ms.push_back(end_ms);
+        obs_partial.push_back(partial ? 1 : 0);
+        if (has_bar) {
+            bar_day.push_back(cur_day);
+            bar_end_ms.push_back(end_ms);
+            bar_open.push_back(b_open);
+            bar_high.push_back(b_high);
+            bar_low.push_back(b_low);
+            bar_close.push_back(b_close);
+            bar_vol.push_back(b_vol);
+            bar_oi.push_back(last_oi);
+            bar_partial.push_back(partial ? 1 : 0);
+        }
+        in_group = false;
+    };
+
+    for (py::ssize_t i = 0; i < n; ++i) {
+        const std::int32_t d = d_ptr[i];
+        const bool v_ok = vv_ptr[i] != 0;
+        const std::int64_t vol = v_ok ? v_ptr[i] : 0;
+        if (d >= 0 && static_cast<std::size_t>(d) < zero_vol_by_day.size() && v_ok && vol == 0)
+            ++zero_vol_by_day[static_cast<std::size_t>(d)];
+
+        const std::int64_t st = s_ptr[i];
+        const std::int64_t start_min = floor_div(st, 60'000);
+        const int local_min = pos_mod(start_min + 480, 1440);
+        const int u = until_open[static_cast<std::size_t>(local_min)];
+        // A zero-volume auction row carries a quote that never traded.
+        if (u != 0 && (!v_ok || vol == 0))
+            continue;
+        const std::int64_t bucket = floor_div(st + static_cast<std::int64_t>(u) * 60'000, span);
+        if (!in_group || d != cur_day || bucket != cur_bucket) {
+            flush_group();
+            in_group = true;
+            cur_day = d;
+            cur_bucket = bucket;
+            observed_mask = 0;
+            partial = false;
+            has_bar = false;
+            last_oi = std::numeric_limits<double>::quiet_NaN();
+        }
+        if (u == 0)
+            observed_mask |= (std::uint64_t{1} << pos_mod(start_min, minutes));
+        last_oi = oi_ptr[i];
+        if (sp_ptr[i] != 0)
+            partial = true;
+        if (ov_ptr[i] == 0) {
+            if (!v_ok || vol != 0)
+                partial = true;
+            continue;
+        }
+        if (!has_bar) {
+            has_bar = true;
+            b_open = o_ptr[i];
+            b_high = h_ptr[i];
+            b_low = l_ptr[i];
+            b_vol = 0;
+        }
+        if (h_ptr[i] > b_high)
+            b_high = h_ptr[i];
+        if (l_ptr[i] < b_low)
+            b_low = l_ptr[i];
+        b_close = c_ptr[i];
+        if (v_ok)
+            b_vol += vol;
+    }
+    flush_group();
+
+    const auto to_arr = [](const auto& vec) {
+        using T = typename std::decay_t<decltype(vec)>::value_type;
+        py::array_t<T> out(static_cast<py::ssize_t>(vec.size()));
+        if (!vec.empty())
+            std::copy(vec.begin(), vec.end(), out.mutable_data());
+        return out;
+    };
+
+    return py::make_tuple(
+        to_arr(bar_day),
+        to_arr(bar_end_ms),
+        to_arr(bar_open),
+        to_arr(bar_high),
+        to_arr(bar_low),
+        to_arr(bar_close),
+        to_arr(bar_vol),
+        to_arr(bar_oi),
+        to_arr(bar_partial),
+        to_arr(obs_day),
+        to_arr(obs_end_ms),
+        to_arr(obs_partial),
+        to_arr(zero_vol_by_day));
+}
+
 } // namespace
 } // namespace asterion
 
@@ -570,6 +796,7 @@ PYBIND11_MODULE(asterion_engine, module)
     module.def("trading_sessions", [](const std::string& venue, const std::string& product) {
         return asterion::trading_sessions({venue, product});
     });
+    module.def("aggregate_minutes", &asterion::aggregate_minutes);
     module.def(
         "performance",
         &asterion::statistics,

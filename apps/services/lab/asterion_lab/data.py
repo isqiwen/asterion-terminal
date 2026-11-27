@@ -17,9 +17,7 @@ from bisect import bisect_left
 import datetime
 from decimal import Decimal, ROUND_HALF_UP
 import functools
-from itertools import groupby
 import math
-from operator import itemgetter
 from pathlib import Path
 
 import polars as pl
@@ -150,12 +148,12 @@ class Daily:
             ) = self._ensure_cols()
             materialized = {}
             for i, d in enumerate(day_col):
-                o, h, l = open_c[i], high_c[i], low_c[i]
+                o, h, lo = open_c[i], high_c[i], low_c[i]
                 materialized[d] = dict(
-                    auction=None not in (o, h, l),
+                    auction=None not in (o, h, lo),
                     open=_dec(o),
                     high=_dec(h),
-                    low=_dec(l),
+                    low=_dec(lo),
                     close=_dec(close_c[i]),
                     settlement=_dec(settle_c[i]),
                     volume=_dec(vol_c[i]),
@@ -214,13 +212,13 @@ class Daily:
         i = self._index.get(day)
         if i is None:
             return None
-        o, h, l = cols[1][i], cols[2][i], cols[3][i]
+        o, h, lo = cols[1][i], cols[2][i], cols[3][i]
         oi = cols[7][i]
         return (
-            o is not None and h is not None and l is not None,
+            o is not None and h is not None and lo is not None,
             o,
             h,
-            l,
+            lo,
             cols[4][i],
             cols[5][i],
             cols[6][i],
@@ -473,6 +471,28 @@ class Data:
             .collect()
         )
 
+    def minute_raw_frame(self, contract: str, begin: str, end: str) -> pl.DataFrame:
+        begin_d, end_d = datetime.date.fromisoformat(begin), datetime.date.fromisoformat(end)
+        return (
+            self.warehouse.scan(
+                self.version, "minutes", contract=contract, begin=begin, end=end
+            )
+            .filter((pl.col("contract") == contract) & pl.col("day").is_between(begin_d, end_d))
+            .select(
+                pl.col("day").dt.strftime("%Y-%m-%d").alias("day"),
+                pl.col("start_ms"),
+                pl.col("partial"),
+                (pl.col("open") * R).cast(pl.Int64).alias("open"),
+                (pl.col("high") * R).cast(pl.Int64).alias("high"),
+                (pl.col("low") * R).cast(pl.Int64).alias("low"),
+                (pl.col("close") * R).cast(pl.Int64).alias("close"),
+                (pl.col("volume") * R).cast(pl.Int64).alias("volume"),
+                pl.col("open_interest").cast(pl.Float64).alias("open_interest"),
+            )
+            .sort("start_ms")
+            .collect()
+        )
+
     def minute_rows(self, contract: str, begin: str, end: str):
         return self.minute_frame(contract, begin, end).iter_rows()
 
@@ -720,43 +740,22 @@ def contract_input(
     if not days:
         raise ValueError(f"no bars of {contract} fall inside the requested trading days")
 
-    def interest(value):
-        return math.nan if value is None else float(value)
-
     excluded = []
     coverage = dict(contract=contract, missing={}, zero_volume_minutes=0, unchecked_days=[])
     if config.minutes:
-        settled = set(days)
-        minutes = []
-        for day, group in groupby(data.minute_rows(contract, begin, end), key=itemgetter(0)):
-            if day not in settled:
-                continue
-            priced, observed = chart.minute_coverage(
-                day, list(group), config.minutes, contract, data.calendar(exchange), life[0]
-            )
-            minutes.extend(priced)
-            excluded.extend([day] * len(observed["partial"]))
-            if observed["missing"]:
-                coverage["missing"][day] = len(observed["missing"])
-            coverage["zero_volume_minutes"] += observed["zero_volume_minutes"]
-            if observed["unchecked"]:
-                coverage["unchecked_days"].append(day)
-        stored = {bar["trading_day"] for bar in minutes}
+        bars, stored, excluded, coverage = chart.minute_coverage_raw(
+            data.minute_raw_frame(contract, begin, end),
+            days,
+            config.minutes,
+            contract,
+            data.calendar(exchange),
+            life[0],
+        )
         missing = [day for day in days if day not in stored and rows_by_day[day][6] != 0]
         unpriced = [day for day in missing if day > (prices_until or end)]
         missing = [day for day in missing if day <= (prices_until or end)]
         if missing:
             raise ValueError(f"minutes of {contract} are not stored on {spans(missing, days)}")
-        bars = [
-            (
-                bar["trading_day"],
-                bar["time_ms"] * 10**6,
-                *(raw(bar[name]) for name in ("open", "high", "low", "close", "volume")),
-                interest(bar["open_interest"]),
-            )
-            for bar in minutes
-            if not bar["partial"]
-        ]
         if not bars:
             raise ValueError(f"no stored minutes of {contract} fall inside the requested trading days")
     else:
@@ -889,20 +888,21 @@ def series_input(data: Data, config, exchange: str, product: str, *, leading_onl
             if not stored:
                 continue
             closes, prevs, last_sub = {}, {}, None
-            stored_set = set(stored)
-            for day, group in groupby(
-                data.minute_rows(sub_contract, stored[0], stored[-1]), key=itemgetter(0)
+            raw_frame = data.minute_raw_frame(sub_contract, stored[0], stored[-1])
+            if not raw_frame.is_empty():
+                raw_frame = raw_frame.filter(pl.col("day").is_in(stored))
+            _, bar_end_ms, bar_close, bar_partial = chart.minute_bars_raw(
+                raw_frame, config.minutes, sub_contract
+            )
+            for end_ms, c_val, is_part in zip(
+                bar_end_ms.tolist(), bar_close.tolist(), bar_partial.tolist()
             ):
-                if day not in stored_set:
-                    continue
-                for bar in chart.minute_bars(list(group), config.minutes, sub_contract):
-                    if not bar["partial"] and bar["close"] is not None:
-                        t_ns = bar["time_ms"] * 10**6
-                        c_val = raw(bar["close"])
-                        closes[t_ns] = c_val
-                        if last_sub is not None and last_sub > 0:
-                            prevs[t_ns] = last_sub
-                        last_sub = c_val
+                if not is_part:
+                    t_ns = end_ms * 10**6
+                    closes[t_ns] = c_val
+                    if last_sub is not None and last_sub > 0:
+                        prevs[t_ns] = last_sub
+                    last_sub = c_val
             sub_minute_closes[sub_contract] = closes
             sub_minute_prev[sub_contract] = prevs
     contracts, rolls = [], []
