@@ -2,7 +2,10 @@
 import numpy as np
 
 from asterion_strategy import (
+    safe_log as _log,
+    safe_ratio as _ratio,
     scale_invariant as _scale_invariant,
+    simple_returns as _returns,
     ts_expected_shortfall as _ts_expected_shortfall,
     ts_kurt as _ts_kurt,
     ts_max as _ts_max,
@@ -11,7 +14,6 @@ from asterion_strategy import (
     ts_std as _ts_std,
 )
 
-from factors._common import log as _log, ratio as _ratio, returns as _returns
 from factors.price import volatility as _volatility
 
 

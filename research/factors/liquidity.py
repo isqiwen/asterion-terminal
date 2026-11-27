@@ -3,13 +3,13 @@ import numpy as np
 
 from asterion_strategy import (
     corwin_schultz_spread as _corwin_schultz_spread,
+    safe_ratio as _ratio,
     scale_invariant as _scale_invariant,
+    simple_returns as _returns,
     ts_corr as _ts_corr,
     ts_mean as _ts_mean,
     ts_vwap_dev as _ts_vwap_dev,
 )
-
-from factors._common import ratio as _ratio, returns as _returns
 
 
 def relative_volume(volume, window: int = 20):

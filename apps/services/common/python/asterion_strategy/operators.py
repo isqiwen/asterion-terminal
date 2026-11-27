@@ -10,6 +10,50 @@ except ImportError:
     _engine = None
 
 
+def safe_ratio(numerator, denominator, neutral: float = np.nan) -> np.ndarray:
+    """Elementwise `numerator / denominator` for positive finite denominators; `0 / 0` yields `neutral`."""
+    num, den = np.broadcast_arrays(
+        np.asarray(numerator, dtype=float), np.asarray(denominator, dtype=float)
+    )
+    result = np.full(num.shape, np.nan)
+    finite = np.isfinite(num) & np.isfinite(den)
+    np.divide(num, den, out=result, where=finite & (den > 0.0))
+    result[finite & (den == 0.0) & (num == 0.0)] = neutral
+    return result
+
+
+def safe_log(values) -> np.ndarray:
+    """Elementwise natural log for positive finite values; non-positive or missing entries become NaN."""
+    arr = np.asarray(values, dtype=float)
+    result = np.full(arr.shape, np.nan)
+    np.log(arr, out=result, where=np.isfinite(arr) & (arr > 0.0))
+    return result
+
+
+def simple_returns(close) -> np.ndarray:
+    """Strictly causal one-bar simple returns `close[t] / close[t - 1] - 1` for positive closes."""
+    arr = np.asarray(close, dtype=float)
+    result = np.full(len(arr), np.nan)
+    if len(arr) >= 2:
+        result[1:] = safe_ratio(arr[1:], arr[:-1]) - 1.0
+        result[1:][arr[1:] <= 0.0] = np.nan
+    return result
+
+
+def rolling_apply(values, window: int, reduce, minimum: int = 1) -> np.ndarray:
+    """Apply vectorized `reduce(chunks)` over finite trailing windows of `window` bars."""
+    if type(window) is not int or window < minimum:
+        raise ValueError(f"window must be at least {minimum}")
+    arr = np.asarray(values, dtype=float)
+    result = np.full(len(arr), np.nan)
+    if len(arr) >= window:
+        chunks = np.lib.stride_tricks.sliding_window_view(arr, window)
+        valid = np.isfinite(chunks).all(axis=1)
+        if np.any(valid):
+            result[window - 1 :][valid] = reduce(chunks[valid])
+    return result
+
+
 def ts_mean(values, window: int) -> np.ndarray:
     """Strictly causal trailing arithmetic mean over `window` bars."""
     if type(window) is not int or window < 1:
@@ -228,12 +272,6 @@ def _annualize_scale(annualize: float) -> float:
     ):
         raise ValueError("annualize must be a nonnegative finite number")
     return math.sqrt(float(annualize)) if annualize > 0 else 1.0
-
-
-def _positive_log(values) -> np.ndarray:
-    arr = np.asarray(values, dtype=float)
-    ok = np.isfinite(arr) & (arr > 0.0)
-    return np.where(ok, np.log(np.where(ok, arr, 1.0)), np.nan)
 
 
 def ts_ewma_vol(close, span: int = 20, annualize: float = 252.0) -> np.ndarray:
@@ -586,7 +624,7 @@ def ts_variance_ratio(close, window: int, q: int = 5) -> np.ndarray:
     arr = np.asarray(close, dtype=float)
     if _engine is not None and arr.ndim == 1:
         return _engine.ts_variance_ratio(arr, window, q)
-    log_p = _positive_log(arr)
+    log_p = safe_log(arr)
     out = np.full(len(log_p), np.nan)
     if len(log_p) <= window:
         return out
@@ -632,7 +670,7 @@ def ts_hurst(close, window: int = 100, max_lag: int = 20) -> np.ndarray:
     arr = np.asarray(close, dtype=float)
     if _engine is not None and arr.ndim == 1:
         return _engine.ts_hurst(arr, window, max_lag)
-    log_p = _positive_log(arr)
+    log_p = safe_log(arr)
     out = np.full(len(log_p), np.nan)
     if len(log_p) < window:
         return out
@@ -702,7 +740,7 @@ def parkinson_vol(high, low, window: int = 20, annualize: float = 252.0) -> np.n
     if type(window) is not int or window < 1:
         raise ValueError("window must be a positive integer")
     scale = _annualize_scale(annualize)
-    lh, ll = _positive_log(high), _positive_log(low)
+    lh, ll = safe_log(high), safe_log(low)
     if lh.ndim != 1 or lh.shape != ll.shape:
         raise ValueError("parkinson_vol inputs must be 1D arrays of equal length")
     var = ts_mean(((lh - ll) ** 2) / (4.0 * math.log(2.0)), window)
@@ -724,7 +762,7 @@ def garman_klass_vol(open, high, low, close, window: int = 20, annualize: float 
     if type(window) is not int or window < 1:
         raise ValueError("window must be a positive integer")
     scale = _annualize_scale(annualize)
-    lo, lh, ll, lc = _positive_log(open), _positive_log(high), _positive_log(low), _positive_log(close)
+    lo, lh, ll, lc = safe_log(open), safe_log(high), safe_log(low), safe_log(close)
     if lo.ndim != 1 or not (lo.shape == lh.shape == ll.shape == lc.shape):
         raise ValueError("garman_klass_vol inputs must be 1D arrays of equal length")
     inst = 0.5 * (lh - ll) ** 2 - (2.0 * math.log(2.0) - 1.0) * (lc - lo) ** 2
@@ -747,7 +785,7 @@ def yang_zhang_vol(open, high, low, close, window: int = 20, annualize: float = 
     if type(window) is not int or window < 2:
         raise ValueError("yang_zhang_vol requires window >= 2")
     scale = _annualize_scale(annualize)
-    lo, lh, ll, lc = _positive_log(open), _positive_log(high), _positive_log(low), _positive_log(close)
+    lo, lh, ll, lc = safe_log(open), safe_log(high), safe_log(low), safe_log(close)
     if lo.ndim != 1 or not (lo.shape == lh.shape == ll.shape == lc.shape):
         raise ValueError("yang_zhang_vol inputs must be 1D arrays of equal length")
     prev_c = np.full(len(lc), np.nan)

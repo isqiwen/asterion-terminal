@@ -3,13 +3,19 @@ from decimal import Decimal
 
 import numpy as np
 
-from asterion_strategy import WEIGHT_STEP, cap_sector_weights, cross_section_rank, sector_neutralize
+from asterion_strategy import (
+    WEIGHT_STEP,
+    AlignedPortfolio,
+    cap_sector_weights,
+    cross_section_rank,
+    sector_neutralize,
+    select_tails,
+)
 
 from factors.positions import interest_change
 from factors.price import information_discreteness, momentum, volatility
 from factors.risk import downside_volatility, maximum_return, realized_skewness
 from factors.term_structure import basis_momentum, roll_yield_carry
-from strategies._portfolio import AlignedPortfolio, tails
 
 
 class _Ranked(AlignedPortfolio):
@@ -39,7 +45,7 @@ class _Ranked(AlignedPortfolio):
                     and (p["min_open_interest"] == 0
                          or np.mean(row["open_interest"][-p["window"]:]) >= p["min_open_interest"])}
         scores = {s: float(value) for s, value in self.scores(eligible).items() if np.isfinite(value)}
-        longs, shorts = tails(scores, p["count"], self.absolute)
+        longs, shorts = select_tails(scores, p["count"], self.absolute)
         target = dict.fromkeys(data, 0.0)
         budget = int(Decimal(str(p["gross_weight"])) / (2 * WEIGHT_STEP))
         for symbols, side in ((longs, 1), (shorts, -1)):

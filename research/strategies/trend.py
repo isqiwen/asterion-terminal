@@ -5,14 +5,15 @@ import numpy as np
 
 from asterion_strategy import (
     WEIGHT_STEP,
+    AlignedPortfolio,
     cap_sector_weights,
     smooth_weights,
     ts_ema,
     ts_ewma_vol,
+    vol_target_weights,
 )
 
 from factors.price import blended_momentum, momentum, volatility
-from strategies._portfolio import AlignedPortfolio, risk_weights
 
 
 def _ewmac_scale(fast: int, slow: int) -> float:
@@ -45,7 +46,13 @@ class VolatilityTargetMomentum(AlignedPortfolio):
         signals = {s: np.sign(momentum(row["close"], p["lookback"])[-1]) for s, row in data.items()}
         risks = {s: volatility(row["close"], p["volatility"])[-1] * np.sqrt(p["periods"])
                  for s, row in data.items()}
-        return risk_weights(signals, risks, p["gross_weight"], p["target_volatility"], p["max_weight"])
+        return vol_target_weights(
+            signals,
+            risks,
+            target_vol=p["target_volatility"],
+            gross_weight=p["gross_weight"],
+            max_weight=p["max_weight"],
+        )
 
 
 # Baz, Granger, Harvey, Le Roux & Rattray (2015), "Dissecting Investment Strategies in the Cross Section and Time Series", Eqs. (4)-(6): https://ssrn.com/abstract=2695101
@@ -98,7 +105,13 @@ class MultiHorizonTrend(AlignedPortfolio):
                     parts.append(float(np.tanh(z)))
             signals[symbol] = float(np.mean(parts)) if len(parts) == len(self.horizons) else 0.0
             risks[symbol] = vol_bar * sqrt_periods
-        weights = risk_weights(signals, risks, p["gross_weight"], p["target_volatility"], p["max_weight"])
+        weights = vol_target_weights(
+            signals,
+            risks,
+            target_vol=p["target_volatility"],
+            gross_weight=p["gross_weight"],
+            max_weight=p["max_weight"],
+        )
         if p["deadband"] > 0.0 and self._previous:
             weights = smooth_weights(self._previous, weights, alpha=1.0, deadband=p["deadband"])
         if p["max_sector_gross"] > 0.0:

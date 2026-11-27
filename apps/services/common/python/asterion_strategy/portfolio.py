@@ -1,12 +1,64 @@
-"""Portfolio sizing, risk budgeting, covariance shrinkage and convex optimizers."""
+"""Portfolio base classes, sizing, risk budgeting, covariance shrinkage and convex optimizers."""
+from collections import deque
 from decimal import Decimal, ROUND_DOWN
 import math
 import numbers
 
 import numpy as np
 
-from .core import WEIGHT_STEP
+from .core import FIELDS, WEIGHT_STEP, Context, Strategy
 from .cross_section import product_sector
+
+
+class AlignedPortfolio(Strategy):
+    """Base class for multi-symbol strategies that step only on synchronized shared bars.
+
+    Tracks shared observation indices in a bounded deque of length `self.need`
+    and re-reads roll-adjusted history from `Context` on each rebalance bar.
+    Subclasses set `self.need` in `__init__` and implement `allocate(data)`.
+    """
+
+    def __init__(self, **values):
+        super().__init__(**values)
+        if self.params["rebalance"] < 1:
+            raise ValueError("rebalance must be at least one bar")
+        self.indices = None
+        self.shared = 0
+
+    def ready(self, ctx: Context) -> bool:
+        return self.shared >= self.need
+
+    def on_bars(self, ctx: Context, bars: dict):
+        if len(bars) != len(ctx.symbols):
+            return
+        if self.indices is None:
+            self.indices = {s: deque(maxlen=self.need) for s in ctx.symbols}
+        for symbol in ctx.symbols:
+            self.indices[symbol].append(len(ctx.history(symbol, "close", 1 << 30)) - 1)
+        self.shared += 1
+        if self.shared < self.need or (self.shared - self.need) % self.params["rebalance"]:
+            return
+        # Re-read prices from Context so a dominant-contract roll adjusts older observations.
+        data = {s: self.history(ctx, s, list(indices)) for s, indices in self.indices.items()}
+        ctx.weights(self.allocate(data))
+
+    def history(self, ctx: Context, symbol: str, indices: list[int]) -> dict:
+        return {field: ctx.history(symbol, field, 1 << 30)[indices] for field in FIELDS}
+
+    def allocate(self, data: dict) -> dict:
+        raise NotImplementedError
+
+
+def select_tails(scores: dict, count: int, absolute: bool = False) -> tuple[list, list]:
+    """Pick top `count` longs and bottom `count` shorts when their boundary is strictly ordered."""
+    ordered = sorted(scores, key=scores.get, reverse=True)
+    if len(ordered) < 2 * count or scores[ordered[count - 1]] <= scores[ordered[-count]]:
+        return [], []
+    longs, shorts = ordered[:count], ordered[-count:]
+    if absolute:
+        longs = [s for s in longs if scores[s] > 0]
+        shorts = [s for s in shorts if scores[s] < 0]
+    return longs, shorts
 
 
 def vol_target_weights(

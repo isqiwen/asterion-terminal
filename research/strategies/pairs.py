@@ -3,9 +3,7 @@ from decimal import Decimal, ROUND_DOWN
 
 import numpy as np
 
-from asterion_strategy import WEIGHT_STEP, kalman_hedge, ou_half_life
-
-from strategies._portfolio import AlignedPortfolio
+from asterion_strategy import WEIGHT_STEP, AlignedPortfolio, kalman_hedge, ou_half_life
 
 
 # Kalman (1960), "A New Approach to Linear Filtering and Prediction Problems", J. Basic Eng. 82(1), 35-45: https://doi.org/10.1115/1.3662552

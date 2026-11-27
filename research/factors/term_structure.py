@@ -1,9 +1,12 @@
 """Factors of the futures term structure (dominant vs next-dominant roll yield)."""
 import numpy as np
 
-from asterion_strategy import scale_invariant as _scale_invariant, ts_mean as _ts_mean
+from asterion_strategy import (
+    safe_ratio as _ratio,
+    scale_invariant as _scale_invariant,
+    ts_mean as _ts_mean,
+)
 
-from factors._common import ratio as _ratio
 from factors.price import volatility as _volatility
 from factors.technical import price_zscore as _price_zscore
 
