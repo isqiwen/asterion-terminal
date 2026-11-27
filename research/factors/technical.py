@@ -3,11 +3,13 @@ import numpy as np
 
 from asterion_strategy import (
     scale_invariant as _scale_invariant,
+    ts_max as _ts_max,
     ts_mean as _ts_mean,
+    ts_min as _ts_min,
     ts_zscore as _ts_zscore,
 )
 
-from factors._rolling import apply as _apply, log as _log, ratio as _ratio
+from factors._common import apply as _apply, log as _log, ratio as _ratio
 
 
 @_scale_invariant
@@ -40,18 +42,16 @@ def rsi(close, window: int = 14):
 @_scale_invariant
 def stochastic(high, low, close, window: int = 14):
     """Stochastic %K (0..100) over window bars; a zero range is 50."""
-    bottom = _apply(low, window, lambda x: x.min(axis=1))
-    top = _apply(high, window, lambda x: x.max(axis=1))
+    bottom = _ts_min(low, window)
+    top = _ts_max(high, window)
     return 100 * _ratio(close - bottom, top - bottom, neutral=0.5)
 
 
 @_scale_invariant
 def channel_position(high, low, close, window: int = 20):
     """Close in the preceding channel: above 1 / below 0 is a breakout; needs window + 1 bars."""
-    top = _apply(np.r_[np.nan, high[:-1]] if len(high) else high,
-                 window, lambda x: x.max(axis=1))
-    bottom = _apply(np.r_[np.nan, low[:-1]] if len(low) else low,
-                    window, lambda x: x.min(axis=1))
+    top = _ts_max(np.r_[np.nan, high[:-1]] if len(high) else high, window)
+    bottom = _ts_min(np.r_[np.nan, low[:-1]] if len(low) else low, window)
     return _ratio(close - bottom, top - bottom)
 
 

@@ -2,7 +2,7 @@
 import numpy as np
 
 from asterion_strategy import ts_delta, ts_mean, ts_pct_change, ts_zscore
-from factors._rolling import ratio as _ratio
+from factors._common import ratio as _ratio
 
 
 # Gorton, Hayashi & Rouwenhorst (2013), "The Fundamentals of Commodity Futures Returns", Review of Finance 17(1), 35-105: https://doi.org/10.1093/rof/rfs019

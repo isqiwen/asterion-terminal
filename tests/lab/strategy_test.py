@@ -251,16 +251,16 @@ class Repository(unittest.TestCase):
         # A strategy that uses a factor is published with the factor's module.
         ranked = build(self.root, "momentum_rank.MomentumRank")
         self.assertEqual([file.path for file in ranked.files],
-                         ["factors/_rolling.py", "factors/price.py", "strategies/_common.py",
+                         ["factors/_common.py", "factors/price.py", "strategies/_common.py",
                           "strategies/momentum_rank.py"])
         composite = build(self.root, "composite.CompositePortfolio")
         self.assertEqual([file.path for file in composite.files],
-                         ["factors/_rolling.py", "factors/positions.py", "factors/price.py", "factors/risk.py",
+                         ["factors/_common.py", "factors/positions.py", "factors/price.py", "factors/risk.py",
                           "factors/technical.py", "factors/term_structure.py", "strategies/_portfolio.py",
                           "strategies/composite.py", "strategies/risk_premia.py"])
         learned = build(self.root, "learning.RandomFeatureForecast")
         self.assertEqual([file.path for file in learned.files],
-                         ["factors/_rolling.py", "factors/price.py", "factors/technical.py",
+                         ["factors/_common.py", "factors/price.py", "factors/technical.py",
                           "strategies/_common.py", "strategies/_learning.py", "strategies/learning.py"])
         noisy = build(self.root, "noisy.Noisy")
         self.assertEqual([file.path for file in noisy.files], ["helpers.py", "strategies/noisy.py"])

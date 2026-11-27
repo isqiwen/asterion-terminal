@@ -27,6 +27,40 @@ def ts_mean(values, window: int) -> np.ndarray:
     return out
 
 
+def ts_max(values, window: int) -> np.ndarray:
+    """Strictly causal trailing maximum over `window` bars."""
+    if type(window) is not int or window < 1:
+        raise ValueError("window must be a positive integer")
+    arr = np.asarray(values, dtype=float)
+    if _engine is not None and arr.ndim == 1:
+        return _engine.ts_max(arr, window)
+    out = np.full(len(arr), np.nan)
+    if len(arr) < window:
+        return out
+    win = np.lib.stride_tricks.sliding_window_view(arr, window)
+    valid = np.all(np.isfinite(win), axis=1)
+    safe = np.where(valid[:, None], win, 0.0)
+    out[window - 1 :] = np.where(valid, np.max(safe, axis=1), np.nan)
+    return out
+
+
+def ts_min(values, window: int) -> np.ndarray:
+    """Strictly causal trailing minimum over `window` bars."""
+    if type(window) is not int or window < 1:
+        raise ValueError("window must be a positive integer")
+    arr = np.asarray(values, dtype=float)
+    if _engine is not None and arr.ndim == 1:
+        return _engine.ts_min(arr, window)
+    out = np.full(len(arr), np.nan)
+    if len(arr) < window:
+        return out
+    win = np.lib.stride_tricks.sliding_window_view(arr, window)
+    valid = np.all(np.isfinite(win), axis=1)
+    safe = np.where(valid[:, None], win, 0.0)
+    out[window - 1 :] = np.where(valid, np.min(safe, axis=1), np.nan)
+    return out
+
+
 def ts_std(values, window: int, ddof: int = 1) -> np.ndarray:
     """Strictly causal trailing standard deviation over `window` bars."""
     if type(window) is not int or type(ddof) is not int or ddof < 0 or window <= ddof:

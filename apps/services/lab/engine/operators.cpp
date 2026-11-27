@@ -191,6 +191,48 @@ struct MeanTraits
     }
 };
 
+struct MaxTraits
+{
+    struct State
+    {
+        double val{0.0};
+        bool valid{false};
+    };
+
+    static State single(double x) noexcept
+    {
+        return {std::isfinite(x) ? x : 0.0, std::isfinite(x)};
+    }
+
+    static State merge(const State& a, const State& b) noexcept
+    {
+        if (!a.valid || !b.valid)
+            return {0.0, false};
+        return {a.val >= b.val ? a.val : b.val, true};
+    }
+};
+
+struct MinTraits
+{
+    struct State
+    {
+        double val{0.0};
+        bool valid{false};
+    };
+
+    static State single(double x) noexcept
+    {
+        return {std::isfinite(x) ? x : 0.0, std::isfinite(x)};
+    }
+
+    static State merge(const State& a, const State& b) noexcept
+    {
+        if (!a.valid || !b.valid)
+            return {0.0, false};
+        return {a.val <= b.val ? a.val : b.val, true};
+    }
+};
+
 struct VarTraits
 {
     struct State
@@ -405,6 +447,31 @@ py::array_t<double> ts_mean_cpp(const FloatArray& values, int window)
                     const auto win = queue.query();
                     if (win.valid)
                         dst[i] = win.mean;
+                }
+            }
+        }
+    }
+    return out;
+}
+
+template <typename ExtremaTraits>
+py::array_t<double> ts_extrema_cpp(const FloatArray& values, int window)
+{
+    const auto n = values.size();
+    py::array_t<double> out(n);
+    auto* dst = out.mutable_data();
+    const auto* src = values.data();
+    {
+        py::gil_scoped_release release;
+        std::fill_n(dst, n, kNan);
+        if (n >= window) {
+            SlidingMonoid<ExtremaTraits> queue(static_cast<std::size_t>(window));
+            for (py::ssize_t i = 0; i < n; ++i) {
+                queue.push(ExtremaTraits::single(src[i]));
+                if (queue.full()) {
+                    const auto win = queue.query();
+                    if (win.valid)
+                        dst[i] = win.val;
                 }
             }
         }
@@ -1024,6 +1091,8 @@ py::tuple kalman_hedge_cpp(const FloatArray& y, const FloatArray& x, double q, d
 void register_operators(py::module_& module)
 {
     module.def("ts_mean", &ts_mean_cpp);
+    module.def("ts_max", &ts_extrema_cpp<MaxTraits>);
+    module.def("ts_min", &ts_extrema_cpp<MinTraits>);
     module.def("ts_std", &ts_std_cpp);
     module.def("ts_zscore", &ts_zscore_cpp);
     module.def("ts_rank", &ts_rank_cpp);

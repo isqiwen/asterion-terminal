@@ -6,12 +6,13 @@ from asterion_strategy import (
     scale_invariant as _scale_invariant,
     ts_autocorr as _ts_autocorr,
     ts_hurst as _ts_hurst,
+    ts_max as _ts_max,
     ts_mean as _ts_mean,
     ts_std as _ts_std,
     ts_variance_ratio as _ts_variance_ratio,
 )
 
-from factors._rolling import apply as _apply, log as _log, ratio as _ratio, returns as _returns
+from factors._common import apply as _apply, log as _log, ratio as _ratio, returns as _returns
 
 
 @_scale_invariant
@@ -59,7 +60,7 @@ def skip_momentum(close, lookback: int = 252, skip: int = 21):
 @_scale_invariant
 def distance_to_high(close, window: int = 252):
     """Close / highest close in the window - 1; needs window bars."""
-    return _ratio(close, _apply(close, window, lambda x: x.max(axis=1))) - 1
+    return _ratio(close, _ts_max(close, window)) - 1
 
 
 # Baz, Granger, Harvey, Le Roux & Rattray (2015), "Dissecting Investment Strategies in the Cross Section and Time Series": https://ssrn.com/abstract=2695101

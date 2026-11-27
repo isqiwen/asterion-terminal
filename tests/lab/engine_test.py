@@ -146,6 +146,10 @@ class Engine(unittest.TestCase):
         cases = [
             ("ts_mean_1", lambda: op.ts_mean(x, 1)),
             ("ts_mean_11", lambda: op.ts_mean(x, 11)),
+            ("ts_max_1", lambda: op.ts_max(x, 1)),
+            ("ts_max_11", lambda: op.ts_max(x, 11)),
+            ("ts_min_1", lambda: op.ts_min(x, 1)),
+            ("ts_min_11", lambda: op.ts_min(x, 11)),
             ("ts_std_ddof1", lambda: op.ts_std(x, 11, ddof=1)),
             ("ts_std_ddof0", lambda: op.ts_std(x, 11, ddof=0)),
             ("ts_zscore_ddof1", lambda: op.ts_zscore(x, 11, ddof=1)),
@@ -198,6 +202,8 @@ class Engine(unittest.TestCase):
             sx, sy, sv = close[:short], other[:short], volume[:short]
             for fn in (
                 lambda: op.ts_mean(sx, 5),
+                lambda: op.ts_max(sx, 5),
+                lambda: op.ts_min(sx, 5),
                 lambda: op.ts_std(sx, 5),
                 lambda: op.ts_zscore(sx, 5),
                 lambda: op.ts_rank(sx, 5),

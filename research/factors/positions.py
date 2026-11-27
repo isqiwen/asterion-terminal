@@ -3,7 +3,7 @@ import numpy as np
 
 from asterion_strategy import scale_invariant as _scale_invariant, ts_mean as _ts_mean
 
-from factors._rolling import returns as _returns
+from factors._common import returns as _returns
 
 
 # Hong & Yogo (2012), "What Does Futures Market Interest Tell Us about the Macroeconomy and Asset Prices?", JFE 105(3), 473-490: https://doi.org/10.1016/j.jfineco.2012.04.005

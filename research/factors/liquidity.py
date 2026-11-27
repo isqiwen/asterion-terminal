@@ -9,7 +9,7 @@ from asterion_strategy import (
     ts_vwap_dev as _ts_vwap_dev,
 )
 
-from factors._rolling import ratio as _ratio, returns as _returns
+from factors._common import ratio as _ratio, returns as _returns
 
 
 def relative_volume(volume, window: int = 20):

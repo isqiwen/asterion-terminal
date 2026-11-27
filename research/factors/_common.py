@@ -1,4 +1,4 @@
-"""Finite trailing windows shared by the built-in factors."""
+"""Shared elementwise guards and custom sliding-window helper for built-in factors."""
 import numpy as np
 
 

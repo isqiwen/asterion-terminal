@@ -5,12 +5,13 @@ from asterion_strategy import (
     scale_invariant as _scale_invariant,
     ts_expected_shortfall as _ts_expected_shortfall,
     ts_kurt as _ts_kurt,
+    ts_max as _ts_max,
     ts_mean as _ts_mean,
     ts_skew as _ts_skew,
     ts_std as _ts_std,
 )
 
-from factors._rolling import apply as _apply, log as _log, ratio as _ratio, returns as _returns
+from factors._common import log as _log, ratio as _ratio, returns as _returns
 from factors.price import volatility as _volatility
 
 
@@ -19,7 +20,7 @@ from factors.price import volatility as _volatility
 @_scale_invariant
 def maximum_return(close, window: int = 20):
     """Largest one-bar simple return in the window (MAX); needs window + 1 bars."""
-    return _apply(_returns(close), window, lambda x: x.max(axis=1))
+    return _ts_max(_returns(close), window)
 
 
 # Markowitz (1959), "Portfolio Selection: Efficient Diversification of Investments";
