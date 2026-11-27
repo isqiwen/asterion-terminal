@@ -154,15 +154,14 @@ def audit(
                     if listed is not None and delisted is not None:
                         contract_lives[contract] = (_iso(listed), _iso(delisted))
 
-        # 2. Scan missing trading days in daily and settlement partitions, and load daily rows.
+        # 2. Scan missing trading days in daily and settlement partitions, and load daily frames.
         empty_daily = store.empty_keys("daily") if hasattr(store, "empty_keys") else set()
         empty_settlement = store.empty_keys("settlement") if hasattr(store, "empty_keys") else set()
         empty_minutes = store.empty_keys("minutes") if hasattr(store, "empty_keys") else set()
         source_empty_skipped = 0
         missing_daily = []
         missing_settlement = []
-        daily_rows = {}  # (contract, day) -> dict
-        daily_by_contract = {}  # contract -> list[dict]
+        daily_frames: list[pl.DataFrame] = []
 
         for ex in selected_exchanges:
             daily_keys = list(version.keys("daily", exchange=ex, begin=begin_day, end=end_day))
@@ -170,31 +169,26 @@ def audit(
             for key in daily_keys:
                 part = partitions[key]
                 stored_daily_days.update(part.get("days", []))
-                df = store.read(version, key)
-                source = part.get("source", "")
-                for row in df.select(
-                    "contract", "day", "open", "high", "low", "close",
-                    "settlement", "volume", "open_interest"
-                ).iter_rows():
-                    contract, day_obj, open_, high, low, close, settle, vol, oi = row
-                    day = _iso(day_obj)
-                    stored_daily_days.add(day)
-                    if not _in_range(day, begin_day, end_day):
-                        continue
-                    item = {
-                        "contract": contract,
-                        "day": day,
-                        "open": _dec(open_),
-                        "high": _dec(high),
-                        "low": _dec(low),
-                        "close": _dec(close),
-                        "settlement": _dec(settle),
-                        "volume": _dec(vol),
-                        "open_interest": _dec(oi),
-                        "source": source,
-                    }
-                    daily_rows[(contract, day)] = item
-                    daily_by_contract.setdefault(contract, []).append(item)
+                df = store.read(version, key).select(
+                    "contract",
+                    pl.col("day").cast(pl.String).alias("day"),
+                    "open",
+                    "high",
+                    "low",
+                    "close",
+                    "settlement",
+                    "volume",
+                    "open_interest",
+                    pl.lit(part.get("source", "")).alias("_source"),
+                )
+                if not df.is_empty():
+                    stored_daily_days.update(df["day"].unique().to_list())
+                    if begin_day:
+                        df = df.filter(pl.col("day") >= pl.lit(begin_day))
+                    if end_day:
+                        df = df.filter(pl.col("day") <= pl.lit(end_day))
+                    if not df.is_empty():
+                        daily_frames.append(df)
 
             open_days = sorted(
                 d for d, is_open in calendars.get(ex, {}).items()
@@ -229,54 +223,171 @@ def audit(
                                 continue
                             missing_settlement.append({"exchange": ex, "day": d})
 
-        # 3. Daily price & open-interest anomaly scan.
+        # 3. Vectorized daily price & open-interest anomaly scan in Polars.
         open_index_by_ex = {
             ex: {d: idx for idx, d in enumerate(sorted(day for day, is_open in cal.items() if is_open))}
             for ex, cal in calendars.items()
         }
         price_anomalies = []
         oi_anomalies = []
-        for contract, rows in sorted(daily_by_contract.items()):
-            rows.sort(key=lambda r: r["day"])
-            ex = contract.split("/")[0]
-            open_idx = open_index_by_ex.get(ex, {})
-            prev_close = None
-            prev_close_idx = None
-            prev_oi = None
-            list_day, delist_day = contract_lives.get(contract, ("", ""))
-            list_idx = open_idx.get(list_day) if list_day else None
-            delist_idx = open_idx.get(delist_day) if delist_day else None
-            for item in rows:
-                day = item["day"]
-                day_idx = open_idx.get(day)
-                open_, high, low, close, settle, vol, oi = (
-                    item["open"], item["high"], item["low"], item["close"],
-                    item["settlement"], item["volume"], item["open_interest"],
+        daily_lookup: dict[tuple[str, str], tuple[Decimal | None, bool, str]] = {}
+        daily_rows_checked = 0
+
+        if daily_frames:
+            daily_df = (
+                pl.concat(daily_frames, rechunk=False)
+                .unique(subset=["contract", "day"], keep="last")
+                .sort(["contract", "day"])
+            )
+            daily_rows_checked = daily_df.height
+            # Map (exchange, day) -> trading-day ordinal and contract -> (list_idx, delist_day, delist_idx).
+            open_idx_rows = [
+                (ex, d, idx) for ex, mapping in open_index_by_ex.items() for d, idx in mapping.items()
+            ]
+            open_idx_df = (
+                pl.DataFrame(
+                    open_idx_rows,
+                    schema={"_ex": pl.String, "day": pl.String, "_day_idx": pl.Int64},
+                    orient="row",
                 )
-                # OHLC sanity on priced days.
+                if open_idx_rows
+                else pl.DataFrame(schema={"_ex": pl.String, "day": pl.String, "_day_idx": pl.Int64})
+            )
+            life_rows = []
+            for c_name, (l_day, d_day) in contract_lives.items():
+                c_ex = c_name.split("/")[0]
+                oi_map = open_index_by_ex.get(c_ex, {})
+                life_rows.append((c_name, oi_map.get(l_day), d_day, oi_map.get(d_day)))
+            life_df = (
+                pl.DataFrame(
+                    life_rows,
+                    schema={
+                        "contract": pl.String,
+                        "_list_idx": pl.Int64,
+                        "_delist_day": pl.String,
+                        "_delist_idx": pl.Int64,
+                    },
+                    orient="row",
+                )
+                if life_rows
+                else pl.DataFrame(
+                    schema={
+                        "contract": pl.String,
+                        "_list_idx": pl.Int64,
+                        "_delist_day": pl.String,
+                        "_delist_idx": pl.Int64,
+                    }
+                )
+            )
+            eps = 1e-9
+            max_pj_f = float(max_price_jump)
+            oi_ratio_f = float(oi_jump_ratio)
+            min_oi_f = float(min_oi)
+
+            o_f = pl.col("open").cast(pl.Float64)
+            h_f = pl.col("high").cast(pl.Float64)
+            lo_f = pl.col("low").cast(pl.Float64)
+            c_f = pl.col("close").cast(pl.Float64)
+            s_f = pl.col("settlement").cast(pl.Float64)
+            v_f = pl.col("volume").cast(pl.Float64)
+            oi_f = pl.col("open_interest").cast(pl.Float64)
+
+            has_ohlc = o_f.is_not_null() & h_f.is_not_null() & lo_f.is_not_null() & c_f.is_not_null()
+            enriched = (
+                daily_df.with_columns(pl.col("contract").str.split_exact("/", 1).struct.field("field_0").alias("_ex"))
+                .join(open_idx_df, on=["_ex", "day"], how="left")
+                .join(life_df, on="contract", how="left")
+                .with_columns(
+                    pl.when(c_f > 0).then(pl.col("close")).forward_fill().shift(1).over("contract").alias("_prev_close"),
+                    pl.when(c_f > 0).then(pl.col("_day_idx")).forward_fill().shift(1).over("contract").alias("_prev_close_idx"),
+                    pl.col("open_interest").forward_fill().shift(1).over("contract").alias("_prev_oi"),
+                )
+            )
+            prev_c_f = pl.col("_prev_close").cast(pl.Float64)
+            prev_oi_f = pl.col("_prev_oi").cast(pl.Float64)
+            adjacent = (
+                pl.col("_day_idx").is_null()
+                | pl.col("_prev_close_idx").is_null()
+                | ((pl.col("_day_idx") - pl.col("_prev_close_idx")) <= 1)
+            )
+            near_edge = (
+                (pl.col("_day_idx").is_not_null() & pl.col("_list_idx").is_not_null() & ((pl.col("_day_idx") - pl.col("_list_idx")) < 5))
+                | (pl.col("_day_idx").is_not_null() & pl.col("_delist_idx").is_not_null() & ((pl.col("_delist_idx") - pl.col("_day_idx")) <= 5))
+            )
+            flag_ohlc = has_ohlc & (
+                (h_f < pl.max_horizontal(o_f, c_f, lo_f))
+                | (lo_f > pl.min_horizontal(o_f, c_f, h_f))
+                | (c_f <= 0)
+                | (o_f <= 0)
+                | (lo_f <= 0)
+            )
+            flag_missing_ohlc = (~has_ohlc) & v_f.is_not_null() & (v_f > 0)
+            flag_non_pos_settle = s_f.is_not_null() & (s_f <= 0)
+            flag_neg_vol = v_f.is_not_null() & (v_f < 0)
+            flag_cs_div = (c_f > 0) & (s_f > 0) & (((c_f / s_f) - 1.0).abs() > max_pj_f - eps)
+            flag_p_jump = (c_f > 0) & (prev_c_f > 0) & adjacent & (((c_f / prev_c_f) - 1.0).abs() > max_pj_f - eps)
+            flag_neg_oi = oi_f.is_not_null() & (oi_f < 0)
+            delist_day_col = pl.col("_delist_day").fill_null("")
+            flag_oi_drop = (
+                (oi_f == 0)
+                & (prev_oi_f >= min_oi_f - eps)
+                & ((delist_day_col == "") | (pl.col("day") < delist_day_col))
+            )
+            flag_oi_jump = (
+                (oi_f > 0)
+                & (prev_oi_f >= min_oi_f - eps)
+                & (~near_edge)
+                & (((oi_f / prev_oi_f) >= oi_ratio_f - eps) | ((prev_oi_f / oi_f) >= oi_ratio_f - eps))
+            )
+
+            flagged = enriched.filter(
+                flag_ohlc.fill_null(False)
+                | flag_missing_ohlc.fill_null(False)
+                | flag_non_pos_settle.fill_null(False)
+                | flag_neg_vol.fill_null(False)
+                | flag_cs_div.fill_null(False)
+                | flag_p_jump.fill_null(False)
+                | flag_neg_oi.fill_null(False)
+                | flag_oi_drop.fill_null(False)
+                | flag_oi_jump.fill_null(False)
+            )
+            for row in flagged.select(
+                "contract", "day", "open", "high", "low", "close", "settlement",
+                "volume", "open_interest", "_source", "_prev_close", "_prev_close_idx",
+                "_day_idx", "_prev_oi", "_list_idx", "_delist_day", "_delist_idx",
+            ).iter_rows():
+                (
+                    contract, day, open_, high, low, close, settle, vol, oi,
+                    source, prev_close, prev_close_idx, day_idx, prev_oi,
+                    list_idx, delist_day, delist_idx,
+                ) = row
+                open_, high, low, close = _dec(open_), _dec(high), _dec(low), _dec(close)
+                settle, vol, oi = _dec(settle), _dec(vol), _dec(oi)
+                prev_close, prev_oi = _dec(prev_close), _dec(prev_oi)
+                delist_day = delist_day or ""
                 if None not in (open_, high, low, close):
                     if high < max(open_, close, low) or low > min(open_, close, high) or close <= 0 or open_ <= 0 or low <= 0:
                         price_anomalies.append({
                             "kind": "ohlc_invalid", "table": "daily",
-                            "contract": contract, "day": day, "source": item["source"],
+                            "contract": contract, "day": day, "source": source,
                             "open": _fmt(open_), "high": _fmt(high), "low": _fmt(low), "close": _fmt(close),
                         })
                 elif vol is not None and vol > 0:
                     price_anomalies.append({
                         "kind": "missing_ohlc_with_volume", "table": "daily",
-                        "contract": contract, "day": day, "source": item["source"],
+                        "contract": contract, "day": day, "source": source,
                         "volume": _fmt(vol),
                     })
                 if settle is not None and settle <= 0:
                     price_anomalies.append({
                         "kind": "non_positive_settlement", "table": "daily",
-                        "contract": contract, "day": day, "source": item["source"],
+                        "contract": contract, "day": day, "source": source,
                         "settlement": _fmt(settle),
                     })
                 if vol is not None and vol < 0:
                     price_anomalies.append({
                         "kind": "negative_volume", "table": "daily",
-                        "contract": contract, "day": day, "source": item["source"],
+                        "contract": contract, "day": day, "source": source,
                         "volume": _fmt(vol),
                     })
                 if close is not None and close > 0 and settle is not None and settle > 0:
@@ -284,27 +395,21 @@ def audit(
                     if cs_diff > max_price_jump:
                         price_anomalies.append({
                             "kind": "close_settlement_divergence", "table": "daily",
-                            "contract": contract, "day": day, "source": item["source"],
+                            "contract": contract, "day": day, "source": source,
                             "close": _fmt(close), "settlement": _fmt(settle),
                             "ratio_diff": _fmt(cs_diff.quantize(Decimal("0.0001"))),
                         })
-                if close is not None and close > 0:
-                    adjacent = (
-                        day_idx is None
-                        or prev_close_idx is None
-                        or day_idx - prev_close_idx <= 1
-                    )
-                    if prev_close is not None and prev_close > 0 and adjacent:
+                if close is not None and close > 0 and prev_close is not None and prev_close > 0:
+                    is_adj = day_idx is None or prev_close_idx is None or day_idx - prev_close_idx <= 1
+                    if is_adj:
                         jump = abs(close / prev_close - Decimal(1))
                         if jump > max_price_jump:
                             price_anomalies.append({
                                 "kind": "price_jump", "table": "daily",
-                                "contract": contract, "day": day, "source": item["source"],
+                                "contract": contract, "day": day, "source": source,
                                 "prev_close": _fmt(prev_close), "close": _fmt(close),
                                 "jump": _fmt(jump.quantize(Decimal("0.0001"))),
                             })
-                    prev_close = close
-                    prev_close_idx = day_idx
                 if oi is not None:
                     if oi < 0:
                         oi_anomalies.append({
@@ -312,7 +417,7 @@ def audit(
                             "day": day, "open_interest": _fmt(oi),
                         })
                     elif prev_oi is not None and prev_oi >= min_oi:
-                        near_edge = (
+                        is_near_edge = (
                             (day_idx is not None and list_idx is not None and day_idx - list_idx < 5)
                             or (day_idx is not None and delist_idx is not None and delist_idx - day_idx <= 5)
                         )
@@ -321,18 +426,30 @@ def audit(
                                 "kind": "open_interest_drop_to_zero", "contract": contract,
                                 "day": day, "prev_open_interest": _fmt(prev_oi), "open_interest": "0",
                             })
-                        elif not near_edge and oi > 0 and (oi / prev_oi >= oi_jump_ratio or prev_oi / oi >= oi_jump_ratio):
+                        elif not is_near_edge and oi > 0 and (oi / prev_oi >= oi_jump_ratio or prev_oi / oi >= oi_jump_ratio):
                             oi_anomalies.append({
                                 "kind": "open_interest_jump", "contract": contract,
                                 "day": day, "prev_open_interest": _fmt(prev_oi),
                                 "open_interest": _fmt(oi),
                             })
-                    prev_oi = oi
 
-        # 4. Minute coverage, minute-vs-daily volume cross-check, and intraday minute anomalies.
+            # Compact lookup for minute-vs-daily cross-check (only needed when minutes exist).
+            has_minutes = any(
+                any(version.keys("minutes", exchange=ex, begin=begin_day, end=end_day))
+                for ex in selected_exchanges
+            )
+            if has_minutes:
+                for contract, day, vol, has_settle, source in daily_df.select(
+                    "contract", "day", "volume", pl.col("settlement").is_not_null(), "_source"
+                ).iter_rows():
+                    daily_lookup[(contract, day)] = (vol, bool(has_settle), source)
+
+        # 4. Minute coverage, minute-vs-daily volume cross-check, and vectorized intraday minute anomalies.
         minute_days_by_contract = {}  # contract -> set[day]
         volume_mismatches = []
         checked_minute_partitions = 0
+        max_mj_f = float(max_minute_jump)
+        eps_m = 1e-9
 
         for ex in selected_exchanges:
             for key in version.keys("minutes", exchange=ex, begin=begin_day, end=end_day):
@@ -347,51 +464,88 @@ def audit(
                 checked_minute_partitions += 1
                 part = partitions[key]
                 source = part.get("source", "")
-                df = store.read(version, key).sort("start_ms")
-
-                min_vol = Decimal(0)
-                missing_vol_rows = 0
-                partial_rows = 0
-                prev_m_close = None
-                for start_ms, partial, open_, high, low, close, vol in df.select(
+                df = store.read(version, key).select(
                     "start_ms", "partial", "open", "high", "low", "close", "volume"
-                ).iter_rows():
-                    if partial:
-                        partial_rows += 1
-                    o_d, h_d, l_d, c_d, v_d = _dec(open_), _dec(high), _dec(low), _dec(close), _dec(vol)
-                    if v_d is None:
-                        missing_vol_rows += 1
-                    else:
-                        if v_d < 0:
-                            price_anomalies.append({
-                                "kind": "negative_volume", "table": "minutes",
-                                "contract": contract, "day": day, "start_ms": start_ms,
-                                "source": source, "volume": _fmt(v_d),
-                            })
-                        min_vol += v_d
-                    if None not in (o_d, h_d, l_d, c_d):
-                        if h_d < max(o_d, c_d, l_d) or l_d > min(o_d, c_d, h_d) or c_d <= 0 or l_d <= 0:
-                            price_anomalies.append({
-                                "kind": "ohlc_invalid", "table": "minutes",
-                                "contract": contract, "day": day, "start_ms": start_ms,
-                                "source": source,
-                                "open": _fmt(o_d), "high": _fmt(h_d), "low": _fmt(l_d), "close": _fmt(c_d),
-                            })
-                        if prev_m_close is not None and prev_m_close > 0 and c_d > 0:
-                            jump = abs(c_d / prev_m_close - Decimal(1))
-                            if jump > max_minute_jump:
-                                price_anomalies.append({
-                                    "kind": "minute_price_jump", "table": "minutes",
-                                    "contract": contract, "day": day, "start_ms": start_ms,
-                                    "source": source,
-                                    "prev_close": _fmt(prev_m_close), "close": _fmt(c_d),
-                                    "jump": _fmt(jump.quantize(Decimal("0.0001"))),
-                                })
-                        if c_d > 0:
-                            prev_m_close = c_d
+                ).sort("start_ms")
 
-                daily_item = daily_rows.get((contract, day))
-                if daily_item is None or daily_item["volume"] is None:
+                if df.is_empty():
+                    min_vol = Decimal(0)
+                    missing_vol_rows = 0
+                    partial_rows = 0
+                else:
+                    mo_f = pl.col("open").cast(pl.Float64)
+                    mh_f = pl.col("high").cast(pl.Float64)
+                    ml_f = pl.col("low").cast(pl.Float64)
+                    mc_f = pl.col("close").cast(pl.Float64)
+                    mv_f = pl.col("volume").cast(pl.Float64)
+                    m_has_ohlc = mo_f.is_not_null() & mh_f.is_not_null() & ml_f.is_not_null() & mc_f.is_not_null()
+                    prev_mc = pl.when(mc_f > 0).then(pl.col("close")).forward_fill().shift(1)
+                    prev_mc_f = prev_mc.cast(pl.Float64)
+                    m_bad_vol = mv_f.is_not_null() & (mv_f < 0)
+                    m_bad_ohlc = m_has_ohlc & (
+                        (mh_f < pl.max_horizontal(mo_f, mc_f, ml_f))
+                        | (ml_f > pl.min_horizontal(mo_f, mc_f, mh_f))
+                        | (mc_f <= 0)
+                        | (ml_f <= 0)
+                    )
+                    m_bad_jump = (
+                        m_has_ohlc
+                        & (mc_f > 0)
+                        & (prev_mc_f > 0)
+                        & (((mc_f / prev_mc_f) - 1.0).abs() > max_mj_f - eps_m)
+                    )
+                    stats = df.select(
+                        pl.col("volume").sum().alias("min_vol"),
+                        pl.col("volume").is_null().sum().alias("missing_vol"),
+                        pl.col("partial").fill_null(False).sum().alias("partial_rows"),
+                        (
+                            m_bad_vol.fill_null(False)
+                            | m_bad_ohlc.fill_null(False)
+                            | m_bad_jump.fill_null(False)
+                        ).any().alias("has_anom"),
+                    ).row(0)
+                    min_vol = _dec(stats[0]) or Decimal(0)
+                    missing_vol_rows = int(stats[1])
+                    partial_rows = int(stats[2])
+                    if stats[3]:
+                        anom_df = (
+                            df.with_columns(prev_mc.alias("_prev_close"))
+                            .filter(
+                                m_bad_vol.fill_null(False)
+                                | m_bad_ohlc.fill_null(False)
+                                | m_bad_jump.fill_null(False)
+                            )
+                        )
+                        for start_ms, _p, open_, high, low, close, vol, prev_m_close in anom_df.iter_rows():
+                            o_d, h_d, l_d, c_d, v_d = _dec(open_), _dec(high), _dec(low), _dec(close), _dec(vol)
+                            prev_d = _dec(prev_m_close)
+                            if v_d is not None and v_d < 0:
+                                price_anomalies.append({
+                                    "kind": "negative_volume", "table": "minutes",
+                                    "contract": contract, "day": day, "start_ms": start_ms,
+                                    "source": source, "volume": _fmt(v_d),
+                                })
+                            if None not in (o_d, h_d, l_d, c_d):
+                                if h_d < max(o_d, c_d, l_d) or l_d > min(o_d, c_d, h_d) or c_d <= 0 or l_d <= 0:
+                                    price_anomalies.append({
+                                        "kind": "ohlc_invalid", "table": "minutes",
+                                        "contract": contract, "day": day, "start_ms": start_ms,
+                                        "source": source,
+                                        "open": _fmt(o_d), "high": _fmt(h_d), "low": _fmt(l_d), "close": _fmt(c_d),
+                                    })
+                                if prev_d is not None and prev_d > 0 and c_d > 0:
+                                    jump = abs(c_d / prev_d - Decimal(1))
+                                    if jump > max_minute_jump:
+                                        price_anomalies.append({
+                                            "kind": "minute_price_jump", "table": "minutes",
+                                            "contract": contract, "day": day, "start_ms": start_ms,
+                                            "source": source,
+                                            "prev_close": _fmt(prev_d), "close": _fmt(c_d),
+                                            "jump": _fmt(jump.quantize(Decimal("0.0001"))),
+                                        })
+
+                daily_entry = daily_lookup.get((contract, day))
+                if daily_entry is None or daily_entry[0] is None:
                     volume_mismatches.append({
                         "kind": "missing_daily_for_minutes",
                         "contract": contract,
@@ -403,7 +557,7 @@ def audit(
                         "source": source,
                     })
                     continue
-                d_vol = daily_item["volume"]
+                d_vol, _has_settle, daily_source = daily_entry
                 diff = min_vol - d_vol
                 rel = abs(diff) / d_vol if d_vol > 0 else (Decimal(0) if diff == 0 else Decimal(1))
                 if missing_vol_rows > 0 or (abs(diff) > volume_tol and rel > volume_rel_tol):
@@ -419,7 +573,7 @@ def audit(
                         "partial_minutes": partial_rows,
                         "missing_volume_rows": missing_vol_rows,
                         "minute_source": source,
-                        "daily_source": daily_item["source"],
+                        "daily_source": daily_source,
                     })
 
         # Missing minute trading days within each contract's stored minute span.
@@ -442,8 +596,8 @@ def audit(
                 if f"minutes/{ex}/{day}/{product}/{month}" in empty_minutes:
                     source_empty_skipped += 1
                     continue
-                daily_item = daily_rows.get((contract, day))
-                if daily_item is not None and daily_item["volume"] == 0 and daily_item["settlement"] is not None:
+                daily_entry = daily_lookup.get((contract, day))
+                if daily_entry is not None and daily_entry[0] == 0 and daily_entry[1]:
                     continue
                 missing_minutes.append({"contract": contract, "day": day})
 
@@ -462,7 +616,7 @@ def audit(
             "begin_day": begin_day,
             "end_day": end_day,
             "summary": {
-                "daily_rows_checked": len(daily_rows),
+                "daily_rows_checked": daily_rows_checked,
                 "minute_partitions_checked": checked_minute_partitions,
                 "missing_daily_days": len(missing_daily),
                 "missing_settlement_days": len(missing_settlement),
