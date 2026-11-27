@@ -69,38 +69,43 @@ def period_minutes(period: int) -> int:
 
 def symbols_of(data: Data, symbols, prepared: dict | None = None, minutes: int = 0) -> tuple:
     """The symbols to evaluate: an exchange stands for each of its products
-    with bars in the range. Returns them and the products left out,
-    each with why: those that cannot form a series."""
-    chosen, skipped = [], []
+    with bars in the range. Multi-symbol pools skip products that cannot form a
+    series and record why; a single explicit symbol reports its error directly."""
+    candidates = []
     with data.warehouse:
         counts = {}
         for symbol in symbols:
+            if "/" not in symbol:
+                continue
             parts = symbol.split("/")
-            if len(parts) in (2, 3):
-                counts.setdefault(parts[0], set()).add(parts[1])
+            if len(parts) not in (2, 3) or not all(parts):
+                raise ValueError(f"a symbol is EXCHANGE/product/YYYY-MM or EXCHANGE/product: {symbol}")
+            counts.setdefault(parts[0], set()).add(parts[1])
         for exchange, products in counts.items():
             if len(products) > 1:
                 data.load_exchange(exchange)
         for symbol in symbols:
             if "/" in symbol:
-                chosen.append(symbol)
+                candidates.append(symbol)
                 continue
             data.check_stored(symbol)
             for product in data.load_exchange(symbol):
-                name = f"{symbol}/{product}"
-                try:
-                    ready = prepare(data, config(data, (name,), minutes), leading_only=True)
-                    if prepared is not None:
-                        prepared[name] = ready
-                    chosen.append(name)
-                except ValueError as error:
-                    skipped.append((name, str(error)))
-        if len(set(chosen)) != len(chosen):
+                candidates.append(f"{symbol}/{product}")
+        if len(set(candidates)) != len(candidates):
             raise ValueError("a symbol is given twice")
-        if prepared is not None:
-            for symbol in chosen:
-                if symbol not in prepared:
-                    prepared[symbol] = prepare(data, config(data, (symbol,), minutes), leading_only=True)
+        single_explicit = len(symbols) == 1 and "/" in symbols[0]
+        chosen, skipped = [], []
+        for name in candidates:
+            try:
+                ready = prepare(data, config(data, (name,), minutes), leading_only=True)
+            except ValueError as error:
+                if single_explicit:
+                    raise
+                skipped.append((name, str(error)))
+                continue
+            if prepared is not None:
+                prepared[name] = ready
+            chosen.append(name)
     return tuple(chosen), skipped
 
 
@@ -801,6 +806,8 @@ def run(directory: Path, admitted, reply, *, cache: dict | None = None):
         prepared = {}
         symbols, skipped = symbols_of(data, list(request.symbols), prepared, minutes=minutes)
         if not symbols:
+            if skipped:
+                raise ValueError(skipped[0][1])
             kind = f"{minutes}m" if minutes else "daily"
             raise ValueError(f"no symbol has {kind} bars in the range")
         symbol_bars = {symbol: bars(data, symbol, prepared[symbol], minutes=minutes) for symbol in symbols}

@@ -1,5 +1,7 @@
 import { useCallback, useState } from "react";
+import { translate } from "../i18n";
 import { BackendError, ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
+import { Icon } from "../ui/Icon";
 import { useErrorNotification } from "./notifications";
 
 // Input and operation errors stay beside the action; service failures go to notifications.
@@ -18,7 +20,8 @@ export function useActionError() {
   const fail = useCallback((reason: unknown) => {
     setError(asDisplayError(reason));
   }, []);
-  return { error, attempt, fail, clear: () => setError("") };
+  const clear = useCallback(() => setError(""), []);
+  return { error, attempt, fail, clear };
 }
 
 function isServiceFailure(error: DisplayError) {
@@ -31,13 +34,36 @@ function isServiceFailure(error: DisplayError) {
   );
 }
 
-export function ActionError({ error, namespace }: { error: DisplayError; namespace?: string }) {
+export function ActionError({
+  error,
+  namespace,
+  onDismiss,
+}: {
+  error: DisplayError;
+  namespace?: string;
+  onDismiss?: () => void;
+}) {
   const service = isServiceFailure(error);
   useErrorNotification(service ? error : "", namespace);
   if (!error || service) return null;
+  if (!onDismiss) {
+    return (
+      <p className="action-error" role="alert">
+        <ErrorNotice error={error} namespace={namespace} />
+      </p>
+    );
+  }
   return (
-    <p className="action-error" role="alert">
+    <div className="action-error is-dismissible" role="alert">
       <ErrorNotice error={error} namespace={namespace} />
-    </p>
+      <button
+        type="button"
+        className="action-error-dismiss"
+        aria-label={translate("host", "关闭")}
+        onClick={onDismiss}
+      >
+        <Icon name="close" size={12} />
+      </button>
+    </div>
   );
 }

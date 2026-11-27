@@ -171,6 +171,14 @@ export function StrategyLab(context: TerminalContext) {
   const [busy, setBusy] = useState(false);
   const submitted = useActionError();
   const reportActed = useActionError();
+  const { clear: clearSubmitted } = submitted;
+  const { clear: clearReportActed } = reportActed;
+  useEffect(() => {
+    clearSubmitted();
+  }, [view, chosen, form, clearSubmitted]);
+  useEffect(() => {
+    clearReportActed();
+  }, [report?.id, clearReportActed]);
 
   const library = view === "library";
   const strategy = strategies?.strategies.find(item => item.id === chosen);
@@ -614,7 +622,11 @@ export function StrategyLab(context: TerminalContext) {
           }
           notices={
             <>
-              <ActionError error={submitted.error} namespace="asterion.terminal.research" />
+              <ActionError
+                error={submitted.error}
+                namespace="asterion.terminal.research"
+                onDismiss={submitted.clear}
+              />
               <ModuleErrors
                 folder="strategies"
                 modules={strategies}
@@ -641,7 +653,11 @@ export function StrategyLab(context: TerminalContext) {
           {(tab === "result" || tab === "split") &&
             (report ? (
               <div className="lab-center lab-runs-view">
-                <ActionError error={reportActed.error} namespace="asterion.terminal.research" />
+                <ActionError
+                  error={reportActed.error}
+                  namespace="asterion.terminal.research"
+                  onDismiss={reportActed.clear}
+                />
                 {report.kind === "run" ? (
                   <RunResult
                     key={report.id}
@@ -849,7 +865,11 @@ export function StrategyLab(context: TerminalContext) {
                           {t("已保存 {files}", { files: saved.join(listSeparator()) })}
                         </p>
                       )}
-                      <ActionError error={submitted.error} namespace="asterion.terminal.research" />
+                      <ActionError
+                        error={submitted.error}
+                        namespace="asterion.terminal.research"
+                        onDismiss={submitted.clear}
+                      />
                     </footer>
                   </>
                 );

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { PriceChart } from "@asterion/terminal/charts/PriceChart";
 import { Period } from "../../src/generated/asterion/common_pb";
 import type { FactorResult } from "../../src/generated/asterion/lab_pb";
+import { diagnosticSummary } from "../../src/i18n/errors";
 import { type MessageValues, translate } from "../../src/i18n";
 import { CopySummaryButton, ExperimentNoteBar, useAnnotations } from "./LabParts";
 import { cumulativeIc, yearlyIc } from "./research-analytics";
@@ -265,11 +266,15 @@ export function FactorResultView({ result }: { result: FactorResult }) {
       {tab === "code" && <pre className="lab-code">{result.code}</pre>}
       {tab === "skipped" && (
         <ul className="lab-skipped">
-          {result.skipped.map(item => (
-            <li key={item.symbol}>
-              <strong>{item.symbol}</strong> {item.reason}
-            </li>
-          ))}
+          {result.skipped.map(item => {
+            const text = diagnosticSummary(item.reason) ?? item.reason;
+            return (
+              <li key={item.symbol}>
+                <strong>{item.symbol}</strong>{" "}
+                <span title={text !== item.reason ? item.reason : undefined}>{text}</span>
+              </li>
+            );
+          })}
         </ul>
       )}
       {tab === "overview" && (

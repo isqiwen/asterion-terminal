@@ -153,6 +153,40 @@
   margin: var(--space-2) 0 0;
   color: var(--danger);
   font-size: var(--font-size-body);
+  overflow-wrap: anywhere;
+}
+.action-error.is-dismissible {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: 6px var(--space-2);
+  border: 1px solid color-mix(in oklab, var(--danger) 30%, transparent);
+  border-radius: var(--control-radius);
+  background: var(--danger-surface);
+  font-size: var(--font-size-aux);
+  line-height: 1.45;
+}
+.action-error.is-dismissible > .error-notice {
+  flex: 1;
+  min-width: 0;
+  max-height: 96px;
+  overflow: auto;
+}
+.action-error-dismiss {
+  flex: none;
+  min-height: 20px;
+  width: 20px;
+  padding: 0;
+  margin: -2px -4px 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--danger);
+  opacity: 0.72;
+}
+.action-error-dismiss:enabled:hover {
+  opacity: 1;
+  background: color-mix(in oklab, var(--danger) 16%, transparent);
+  color: var(--danger);
 }
 .workspace-empty {
   flex: 1;

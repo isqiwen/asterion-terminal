@@ -1,6 +1,6 @@
 import { openPopover } from "../testing/popover";
-import { render, screen, within } from "@testing-library/react";
-import { expect, test } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { expect, test, vi } from "vitest";
 import { BackendError } from "../i18n/errors";
 import { ActionError } from "./action-error";
 import { NotificationCenter, useErrorNotification } from "./notifications";
@@ -39,4 +39,22 @@ test("page read and protocol failures go to notifications while input errors sta
   view.rerender(show(new BackendError("permission_denied", "this client is not registered")));
   expect(screen.getByRole("main").textContent).not.toContain("registered");
   expect(panel.querySelectorAll("li")).toHaveLength(3);
+});
+
+test("dismissible ActionError renders a close button that invokes onDismiss", () => {
+  const onDismiss = vi.fn();
+  render(
+    <ActionError
+      error={
+        new BackendError(
+          "operation_failed",
+          "the outgoing month has no bars from the roll day on: SHFE/wr/2023-10 from 2023-10-16",
+        )
+      }
+      onDismiss={onDismiss}
+    />,
+  );
+  const alert = screen.getByRole("alert");
+  fireEvent.click(within(alert).getByRole("button", { name: "关闭" }));
+  expect(onDismiss).toHaveBeenCalledTimes(1);
 });

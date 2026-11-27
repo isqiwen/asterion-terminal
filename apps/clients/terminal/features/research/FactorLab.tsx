@@ -89,7 +89,7 @@ export function FactorLab(context: TerminalContext) {
   const seenFactorActiveRef = useRef(new Set<string>());
   const handledRecentRef = useRef(new Set<string>());
   const lastBatchDoneRef = useRef<Record<string, number>>({});
-  const { error, attempt, fail } = useActionError();
+  const { error, attempt, fail, clear } = useActionError();
   const source = useSource(repository, "factors");
   const [saved, setSaved] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
@@ -188,6 +188,10 @@ export function FactorLab(context: TerminalContext) {
     ) ?? null;
 
   useEffect(() => {
+    clear();
+  }, [view, chosen, form, clear]);
+
+  useEffect(() => {
     for (const task of labActivity?.active ?? []) {
       if (task.kind !== TaskKind.FACTOR && task.kind !== TaskKind.FACTOR_BATCH) continue;
       seenFactorActiveRef.current.add(task.id);
@@ -220,7 +224,12 @@ export function FactorLab(context: TerminalContext) {
             setTab(previous => (previous === "split" ? "split" : "result"));
           }
         } else if (task.state === RunState.FAILED) {
-          fail(new BackendError("operation_failed", task.error || "factor evaluation failed"));
+          const failure = new BackendError(
+            "operation_failed",
+            task.error || "factor evaluation failed",
+          );
+          if (openPage.current === targetFactor) fail(failure);
+          else notify(failure, { namespace: "asterion.terminal.research" });
         }
       } else if (isComposite) {
         trackedCompositeRef.current = "";
@@ -228,14 +237,21 @@ export function FactorLab(context: TerminalContext) {
           void readKept();
           if (!openPage.current) setReport(task.id);
         } else if (task.state === RunState.FAILED) {
-          fail(new BackendError("operation_failed", task.error || "factor evaluation failed"));
+          const failure = new BackendError(
+            "operation_failed",
+            task.error || "factor evaluation failed",
+          );
+          if (!openPage.current) fail(failure);
+          else notify(failure, { namespace: "asterion.terminal.research" });
         }
       } else if (isBatch) {
         trackedBatchRef.current = "";
         delete lastBatchDoneRef.current[task.id];
         void readKept();
         if (task.state === RunState.FAILED && task.error) {
-          fail(new BackendError("operation_failed", task.error));
+          const failure = new BackendError("operation_failed", task.error);
+          if (!openPage.current) fail(failure);
+          else notify(failure, { namespace: "asterion.terminal.research" });
         }
       } else if (task.state === RunState.SUCCEEDED || task.kind === TaskKind.FACTOR_BATCH) {
         void readKept();
@@ -594,7 +610,7 @@ export function FactorLab(context: TerminalContext) {
           }
           notices={
             <>
-              <ActionError error={error} namespace="asterion.terminal.research" />
+              <ActionError error={error} namespace="asterion.terminal.research" onDismiss={clear} />
               {savedNote}
               {modules && !modules.factors.length && <p className="subtle">{t("还没有因子")}</p>}
               <ModuleErrors
@@ -769,7 +785,11 @@ export function FactorLab(context: TerminalContext) {
                   )}
                 </div>
                 {savedNote}
-                <ActionError error={error} namespace="asterion.terminal.research" />
+                <ActionError
+                  error={error}
+                  namespace="asterion.terminal.research"
+                  onDismiss={clear}
+                />
               </footer>
             </>
           )}

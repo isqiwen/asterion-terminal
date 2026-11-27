@@ -477,6 +477,21 @@ class Repository(unittest.TestCase):
         self.assertLessEqual(len(queries), 4, queries)
         # 20 valid products + 1 skipped product, each prepared once instead of twice.
         self.assertEqual(len(prepares), 21)
+        # Explicit multi-symbol pools skip unbuildable products the same way exchange panels do.
+        pool_prepared = {}
+        pool_chosen, pool_skipped = factor.symbols_of(
+            data, ["SHFE/p00", "SHFE/p01", "SHFE/solo"], pool_prepared
+        )
+        self.assertEqual(pool_chosen, ("SHFE/p00", "SHFE/p01"))
+        self.assertEqual([item[0] for item in pool_skipped], ["SHFE/solo"])
+        # A single explicit unbuildable symbol still surfaces its error directly.
+        with self.assertRaisesRegex(ValueError, "at least two month contracts"):
+            factor.symbols_of(data, ["SHFE/solo"], {})
+        # Duplicates in explicit or mixed pools are rejected before preparing.
+        with self.assertRaisesRegex(ValueError, "given twice"):
+            factor.symbols_of(data, ["SHFE/p00", "SHFE/p00"], {})
+        with self.assertRaisesRegex(ValueError, "given twice"):
+            factor.symbols_of(data, ["SHFE", "SHFE/p00"], {})
         function, inputs, defaults = repository.factor(self.repository, "price.momentum")
         evaluated = factor.evaluate(
             factor.values(function, inputs, {"lookback": 3}, panel), [1, 3], 4)

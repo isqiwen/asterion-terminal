@@ -723,3 +723,108 @@ test("generating a strategy from a factor report saves it and navigates to Strat
     },
   });
 });
+
+test("factor evaluation error can be dismissed and clears when switching factors or returning to the library", async () => {
+  saveFactorConditions({
+    active: "",
+    current: { ...factorScopeOf(defaultFactorForm()), symbols: "SHFE/rb, SHFE/cu, SHFE/al" },
+    items: [],
+  });
+  let phase: "idle" | "failed" = "idle";
+  let startedId = "";
+  vi.mocked(lab).mockImplementation(async operation => {
+    switch (operation?.case) {
+      case "listStrategies":
+        return create(StrategiesSchema, {
+          factors: [
+            { id: "price.momentum", inputs: ["close"] },
+            { id: "technical.average_true_range", inputs: ["high", "low", "close"] },
+          ],
+        }) as never;
+      case "listFactorResults":
+        return create(FactorResultsSchema, { results: [] }) as never;
+      case "readSource":
+        return create(SourceSchema, {
+          content: "def momentum(close, lookback=20):\n    return close\n",
+        }) as never;
+      case "startFactor":
+        startedId = operation.value.id ?? "";
+        phase = "failed";
+        return {} as never;
+      case "getActivity":
+        return create(LabActivitySchema, {
+          active: [],
+          recent:
+            phase === "failed"
+              ? [
+                  {
+                    id: startedId,
+                    kind: TaskKind.FACTOR,
+                    strategy: "price.momentum",
+                    total: 1,
+                    done: 1,
+                    failed: 1,
+                    state: RunState.FAILED,
+                    error:
+                      "the outgoing month has no bars from the roll day on: SHFE/wr/2023-10 from 2023-10-16",
+                  },
+                ]
+              : [],
+        }) as never;
+    }
+    return {} as never;
+  });
+  const context = { snapshot: { research_directory: "/research" } } as unknown as TerminalContext;
+  render(
+    <LabActivityProvider
+      ready={true}
+      currentModule="research"
+      openRun={vi.fn()}
+      openSweep={vi.fn()}
+    >
+      <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="workspace.lab-factors">
+        <FactorLab {...context} />
+      </WorkspaceDraftScope>
+    </LabActivityProvider>,
+  );
+
+  const library = await screen.findByRole("table", { name: "因子库" });
+  fireEvent.click(await within(library).findByRole("button", { name: "momentum" }));
+  const sidebar = await screen.findByRole("complementary", { name: "评价" });
+  fireEvent.click(within(sidebar).getByRole("button", { name: "评价" }));
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain("SHFE/wr/2023-10");
+
+  // Dismiss button clears the error immediately.
+  fireEvent.click(within(alert).getByRole("button", { name: "关闭" }));
+  expect(screen.queryByRole("alert")).toBeNull();
+
+  // Switching to another factor also clears a visible error.
+  fireEvent.click(within(sidebar).getByRole("button", { name: "评价" }));
+  await screen.findByRole("alert");
+  fireEvent.change(screen.getByLabelText("切换因子"), {
+    target: { value: "technical.average_true_range" },
+  });
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("FactorResultView localizes skipped symbol diagnostics", () => {
+  render(
+    <FactorResultView
+      result={create(FactorResultSchema, {
+        symbols: ["SHFE/rb", "SHFE/cu"],
+        skipped: [
+          {
+            symbol: "SHFE/wr",
+            reason:
+              "the outgoing month has no bars from the roll day on: SHFE/wr/2023-10 from 2023-10-16",
+          },
+        ],
+      })}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "未参与（1）" }));
+  const skippedText = screen.getByText(/outgoing roll month has no bars/);
+  expect(skippedText.textContent).toContain("SHFE/wr/2023-10 from 2023-10-16");
+  expect(skippedText.getAttribute("title")).toContain("the outgoing month has no bars");
+});
