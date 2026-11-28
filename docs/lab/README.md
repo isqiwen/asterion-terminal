@@ -27,7 +27,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  Report["盘后报告（仓单 / 会员持仓 / 库存）"] --> Gate["PIT 闸门：报告日 15:00 后且 >= published_ms"]
+  Report["盘后报告（仓单 / 会员持仓 / 库存）"] --> Gate["PIT 闸门：报告日 15:00 后且 ≥ published_ms"]
   Gate --> Visible["对后续 K 线可见（纳入预热 SHA-256 摘要）"]
   Visible -->|超有效期：日频 14 天 / 周频 21 天| Expire["回退 NaN（避免陈旧数据误导）"]
 ```
@@ -93,7 +93,7 @@ flowchart LR
   Check["前缀截断因果检验"] --> Clean["量仓过滤 → 去极值 / 标准化 / 板块中性化 / 正交剥离"]
   Clean --> Stat["IC / IR / 重叠 t / HAC t / 留出期 / 信号半衰期"]
   Stat --> Group["等分组收益、换手率与扣费多空曲线"]
-  Group --> Save["冻结源码并持久化 factors/<名>.binpb"]
+  Group --> Save["冻结源码并持久化至 factors/"]
 ```
 
 | 维度 | 规则与口径 |
@@ -145,7 +145,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  Train["训练段（>= 20 交易日，按选参目标挑最优候选）"] --> Embargo["可选隔离带 embargo_days（防序列泄漏）"]
+  Train["训练段（≥ 20 交易日，按选参目标挑最优候选）"] --> Embargo["可选隔离带 embargo_days（防序列泄漏）"]
   Embargo --> Val["验证段（样本外跟随最优候选）"]
   Val -->|向后步进验证天数，最多 100 轮| Train
 ```

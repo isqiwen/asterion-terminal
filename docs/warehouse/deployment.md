@@ -95,5 +95,5 @@ Tushare token 由 `systemd-creds` 加密保存，不写入 `warehouse.json`；sy
 ## 运行
 
 - systemd 直接运行 `/opt/asterion/warehouse/bin/asterion_warehouse`，程序自动从 `bin/` 上级定位安装目录，不接受 `--installation`。
-- 默认监听 `0.0.0.0:7450`；Terminal 与 Lab 通过双向固定指纹 TLS 连接，指纹登记方式见[Terminal 和 Lab 的连接](README.md#terminal-和-lab-的连接)。
+- 默认监听 `0.0.0.0:7450`；Terminal 与 Lab 通过双向固定指纹 TLS 连接，指纹登记方式见[连接与协议接入](README.md#连接与协议接入)。
 - 收到 `SIGTERM` 后停止接收新请求，待后台采集与合成优雅结束后退出。
