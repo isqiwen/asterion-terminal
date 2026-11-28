@@ -32,6 +32,8 @@ Exchange::Parsed parse_shanghai(
     const std::string& table,
     const std::string& raw);
 
+std::vector<WarehouseReceipt> shfe_html_receipts(const std::string& day, const std::string& raw);
+
 std::vector<PriceTick>
 parse_czce_price_ticks(const std::string& day, const std::string& raw, const std::string& url);
 

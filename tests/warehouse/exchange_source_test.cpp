@@ -220,6 +220,38 @@ TEST_F(ExchangeSources, ShanghaiReceiptsKeepBondedCopperOutOfShfe)
     }
 }
 
+TEST_F(ExchangeSources, ShanghaiReceiptHtmlUsesEachTablesWarehouseAndAreaHeadings)
+{
+    ac::Exchange source("SHFE", budget, {}, [&](const ac::HttpRequest& request, auto) {
+        EXPECT_EQ(request.origin, "https://www.shfe.com.cn");
+        if (request.path == "/data/tradedata/future/dailydata/20261120dailystock.dat")
+            return ac::HttpReply{404, {}};
+        EXPECT_EQ(request.path, "/data/tradedata/future/stockdata/dailystock_20261120/ZH/all.html");
+        return ac::HttpReply{200, reference_fixture("shfe_receipts_20261120.html")};
+    });
+    const auto rows = source.warehouse_receipts("SHFE", "2026-11-20");
+    ASSERT_EQ(rows.size(), 6);
+    EXPECT_EQ(rows[0].warehouse, wh::Cell{std::string("弘润石化(仓库)")});
+    EXPECT_EQ(rows[0].warehouse_type, wh::Cell{std::string("仓库")});
+    EXPECT_EQ(rows[0].area, wh::Cell{std::string("山东")});
+    EXPECT_EQ(rows[1].warehouse, wh::Cell{std::string("中基宁波")});
+    EXPECT_EQ(rows[2].warehouse, rows[1].warehouse);
+    EXPECT_EQ(rows[1].area, wh::Cell{std::string("江苏")});
+    EXPECT_EQ(rows[2].area, wh::Cell{std::string("山东")});
+    EXPECT_EQ(rows[3].warehouse, wh::Cell{std::string("弘润石化(厂库)")});
+    EXPECT_EQ(rows[3].warehouse_type, wh::Cell{std::string("厂库")});
+    EXPECT_EQ(rows[3].area, rows[0].area);
+    EXPECT_EQ(rows[4].product, "sp");
+    EXPECT_EQ(rows[4].warehouse, wh::Cell{std::string("金翌贸易")});
+    EXPECT_EQ(rows[4].area, wh::Cell{std::string("江苏")});
+    EXPECT_EQ(rows[5].product, "au");
+    EXPECT_EQ(rows[5].warehouse, wh::Cell{std::string("上期所指定交割金库")});
+    EXPECT_EQ(rows[5].area, wh::Cell{});
+    EXPECT_EQ(rows[5].unit, wh::Cell{std::string("千克")});
+    EXPECT_EQ(rows[5].previous_volume, wh::Cell{Decimal::parse("119898")});
+    EXPECT_EQ(rows[5].published_ms, wh::Cell{});
+}
+
 TEST_F(ExchangeSources, ShanghaiHistoricalReceiptsUseTheirPublishedTradingDay)
 {
     ac::Exchange source("SHFE", budget, {}, [&](const ac::HttpRequest&, auto) {
@@ -683,6 +715,12 @@ TEST_F(ExchangeSources, MissingPublicationIsUncoveredButRefusalAndWrongDateFail)
         return ac::HttpReply{200, shfe_daily};
     });
     EXPECT_THROW(wrong.daily("SHFE", "2026-10-29"), ac::SourceError);
+    ac::Exchange receipts("SHFE", budget, {}, [](const ac::HttpRequest& request, auto) {
+        return request.path.ends_with(".dat")
+            ? ac::HttpReply{404, {}}
+            : ac::HttpReply{200, reference_fixture("shfe_receipts_20261120.html")};
+    });
+    EXPECT_THROW(receipts.warehouse_receipts("SHFE", "2026-11-26"), ac::SourceError);
     ac::Exchange invalid("SHFE", budget, {}, [](const auto&, auto) {
         return ac::HttpReply{200, "<html>challenge</html>"};
     });

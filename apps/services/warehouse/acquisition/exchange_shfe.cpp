@@ -1,5 +1,7 @@
 #include "exchange_parsers.hpp"
+#include "report_html.hpp"
 #include <asterion/base/decimal.hpp>
+#include <charconv>
 #include <chrono>
 #include <map>
 #include <regex>
@@ -50,9 +52,8 @@ std::string shanghai_unit(const Json& value)
     return units.at(text(value));
 }
 
-std::pair<std::string, Cell> shanghai_product(const Json& row)
+std::pair<std::string, Cell> shanghai_product(std::string name, const std::string& code = {})
 {
-    // Early reports identify products by their Chinese names, without VARID.
     static const std::map<std::string, std::string> products{
         {"铜", "cu"},
         {"铝", "al"},
@@ -76,9 +77,10 @@ std::pair<std::string, Cell> shanghai_product(const Json& row)
         {"低硫燃料油", "lu"},
         {"铜(BC)", "bc"},
         {"氧化铝", "ao"},
-        {"丁二烯橡胶", "br"}
+        {"丁二烯橡胶", "br"},
+        {"铸造铝合金", "ad"},
+        {"胶版印刷纸", "op"}
     };
-    auto name = shanghai_label(row.at("VARNAME"));
     Cell warehouse_type;
     for (const std::string_view suffix : {"仓库", "厂库"}) {
         const auto at = name.find(suffix);
@@ -89,7 +91,22 @@ std::pair<std::string, Cell> shanghai_product(const Json& row)
                 name.pop_back();
         }
     }
-    return {row.contains("VARID") ? text(row.at("VARID")) : products.at(name), warehouse_type};
+    return {code.empty() ? products.at(name) : code, warehouse_type};
+}
+
+std::pair<std::string, Cell> shanghai_product(const Json& row)
+{
+    return shanghai_product(
+        shanghai_label(row.at("VARNAME")),
+        row.contains("VARID") ? text(row.at("VARID")) : "");
+}
+
+Cell previous_receipts(const Cell& volume, const Cell& change)
+{
+    if (volume == Cell{} || change == Cell{})
+        return {};
+    return Decimal::parse(std::get<std::string>(volume))
+        - Decimal::parse(std::get<std::string>(change));
 }
 
 std::vector<WarehouseReceipt>
@@ -105,10 +122,6 @@ shanghai_receipts(const std::string& exchange, const std::string& day, const Jso
         if (ine_products.contains(product) != (exchange == "INE"))
             continue;
         const auto volume = number(row.at("WRTWGHTS")), change = number(row.at("WRTCHANGE"));
-        Cell previous;
-        if (volume != Cell{} && change != Cell{})
-            previous = Decimal::parse(std::get<std::string>(volume))
-                - Decimal::parse(std::get<std::string>(change));
         const auto area = shanghai_label(row.at("REGNAME"));
         result.push_back(
             {.exchange = exchange,
@@ -118,13 +131,33 @@ shanghai_receipts(const std::string& exchange, const std::string& day, const Jso
                 .warehouse_type = warehouse_type,
                 .area = area.empty() ? Cell{} : Cell{area},
                 .unit = shanghai_unit(row.at("WGHTUNIT")),
-                .previous_volume = previous,
+                .previous_volume = previous_receipts(volume, change),
                 .volume = volume,
                 .volume_change = change,
                 .published_ms = published,
                 .observed_ms = observed});
     }
     return result;
+}
+
+std::vector<lxb_dom_node_t*> children(lxb_dom_node_t* parent, lxb_tag_id_t tag)
+{
+    std::vector<lxb_dom_node_t*> result;
+    for (auto* child = parent ? parent->first_child : nullptr; child; child = child->next)
+        if (html::is_tag(child, tag))
+            result.push_back(child);
+    return result;
+}
+
+std::string_view attribute(lxb_dom_node_t* node, std::string_view name)
+{
+    std::size_t size = 0;
+    const auto* raw = lxb_dom_element_get_attribute(
+        lxb_dom_interface_element(node),
+        reinterpret_cast<const lxb_char_t*>(name.data()),
+        name.size(),
+        &size);
+    return raw ? std::string_view(reinterpret_cast<const char*>(raw), size) : std::string_view{};
 }
 
 std::vector<Inventory> shanghai_inventory(const std::string& day, const Json& root)
@@ -249,6 +282,89 @@ shanghai_members(const std::string& exchange, const std::string& day, const Json
 }
 
 } // namespace
+
+std::vector<WarehouseReceipt> shfe_html_receipts(const std::string& day, const std::string& raw)
+{
+    html::HtmlDocument document(lxb_html_document_create(), &lxb_html_document_destroy);
+    if (!document
+        || lxb_html_document_parse(
+               document.get(),
+               reinterpret_cast<const lxb_char_t*>(raw.data()),
+               raw.size())
+            != LXB_STATUS_OK)
+        throw std::invalid_argument("invalid SHFE receipt HTML");
+    auto* stock = lxb_dom_node_by_id(
+        lxb_dom_interface_node(document.get()),
+        reinterpret_cast<const lxb_char_t*>("stock"),
+        5);
+    const auto tables = children(stock, LXB_TAG_TABLE);
+    if (tables.size() < 2 || !html::text(tables.front()).starts_with(day + " "))
+        throw std::invalid_argument("missing or misdated SHFE receipt report");
+    const auto observed = observation_time();
+    std::vector<WarehouseReceipt> result;
+    for (std::size_t index = 1; index < tables.size(); ++index) {
+        auto* table = tables[index];
+        const auto rows = children(html::first_child_tag(table, LXB_TAG_TBODY), LXB_TAG_TR);
+        const auto title = children(rows.at(0), LXB_TAG_TD);
+        const auto [product, type] = shanghai_product(html::text(title.at(0)));
+        if (ine_products.contains(product))
+            continue;
+        const std::string_view prefix = "单位：";
+        const auto units = html::text(title.at(1));
+        if (!units.starts_with(prefix) || units.size() == prefix.size())
+            throw std::invalid_argument("missing SHFE receipt unit");
+        const auto unit = units.substr(prefix.size());
+        auto* head = html::first_child_tag(table, LXB_TAG_THEAD);
+        const auto headings = children(html::first_child_tag(head, LXB_TAG_TR), LXB_TAG_TH);
+        const auto warehouse_column = html::text(headings.at(0)) == "地区" ? 1U : 0U;
+        const auto area_column = 1 - warehouse_column;
+        const auto warehouse_label = html::text(headings.at(warehouse_column));
+        if (headings.size() != 4 || html::text(headings[area_column]) != "地区"
+            || (warehouse_label != "仓库" && warehouse_label != "厂库")
+            || html::text(headings[2]) != "期货" || html::text(headings[3]) != "增减")
+            throw std::invalid_argument("unexpected SHFE receipt headings");
+        lxb_dom_node_t* shared = nullptr;
+        unsigned remaining = 0;
+        for (std::size_t i = 1; i < rows.size(); ++i) {
+            auto* row = rows[i];
+            auto cells = children(row, LXB_TAG_TD);
+            if (remaining) {
+                cells.insert(cells.begin(), shared);
+                --remaining;
+            } else if (const auto span = attribute(cells.at(0), "rowspan"); !span.empty()) {
+                shared = cells[0];
+                const auto [end, error] =
+                    std::from_chars(span.data(), span.data() + span.size(), remaining);
+                if (error != std::errc{} || end != span.data() + span.size() || !remaining)
+                    throw std::invalid_argument("invalid SHFE receipt rowspan");
+                --remaining;
+            }
+            if (attribute(row, "class").find("isTotal") != std::string_view::npos)
+                continue;
+            const bool merged = cells.size() == 3 && attribute(cells[0], "colspan") == "2";
+            if (!merged && cells.size() != 4)
+                throw std::invalid_argument("wrong SHFE receipt columns");
+            const auto area = merged ? std::string{} : html::text(cells[area_column]);
+            const auto volume = number(html::text(cells[cells.size() - 2]));
+            const auto change = number(html::text(cells.back()));
+            result.push_back(
+                {.exchange = "SHFE",
+                    .product = product,
+                    .day = day,
+                    .warehouse = html::text(cells[merged ? 0 : warehouse_column]),
+                    .warehouse_type = type,
+                    .area = area.empty() ? Cell{} : Cell{area},
+                    .unit = unit,
+                    .previous_volume = previous_receipts(volume, change),
+                    .volume = volume,
+                    .volume_change = change,
+                    .observed_ms = observed});
+        }
+        if (remaining)
+            throw std::invalid_argument("incomplete SHFE receipt rowspan");
+    }
+    return result;
+}
 
 Parsed parse_shanghai(
     const std::string& exchange,
