@@ -99,6 +99,7 @@ const products: Record<string, [string, string]> = {
   "GFEX.si": ["工业硅", "Industrial Silicon"],
   "GFEX.ps": ["多晶硅", "Polysilicon"],
   "GFEX.lc": ["碳酸锂", "Lithium Carbonate"],
+  "GFEX.li": ["氢氧化锂", "Lithium Hydroxide"],
   "GFEX.pt": ["铂", "Platinum"],
   "GFEX.pd": ["钯", "Palladium"],
 };

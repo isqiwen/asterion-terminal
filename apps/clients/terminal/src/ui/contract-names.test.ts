@@ -16,10 +16,12 @@ test("contracts are named in the interface's language", () => {
   expect(identityName("SHFE/cu/2023-10")).toBe("沪铜2310");
   expect(warehouseName("CFFEX/ic")).toBe("中证500");
   expect(warehouseName("CFFEX/ic/2026-11")).toBe("中证5002611");
+  expect(warehouseName("GFEX/li/2027-06")).toBe("氢氧化锂2706");
   setLocale("en-US");
   expect(catalogName(rebar)).toBe("Rebar 2610");
   expect(identityName("SHFE/cu/2023-10", "沪铜2310")).toBe("Copper 2310");
   expect(warehouseName("CFFEX/ic")).toBe("CSI 500");
+  expect(warehouseName("GFEX/li")).toBe("Lithium Hydroxide");
 });
 
 test("product search text resolves unambiguous Chinese or English names to product codes", () => {
@@ -28,4 +30,5 @@ test("product search text resolves unambiguous Chinese or English names to produ
   expect(resolveProductCode("SHFE", "Silver")).toBe("ag");
   expect(resolveProductCode("SHFE", "铝")).toBe("铝");
   expect(resolveProductCode("SHFE", "rb2610")).toBe("rb2610");
+  expect(resolveProductCode("GFEX", "氢氧化锂")).toBe("li");
 });
