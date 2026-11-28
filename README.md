@@ -7,7 +7,7 @@
 ```mermaid
 flowchart LR
   CTP_M["CTP 行情前置"] --> Market["远程 Market (C++)"]
-  Providers["Tushare / 交易所 / 公开源"] --> Warehouse["远程 Warehouse (C++)"]
+  Providers["交易所 / Tushare / 公开源"] --> Warehouse["远程 Warehouse (C++)"]
   Market -->|mTLS 实时报价| Terminal["本机 Terminal (Electron + C++)"]
   Warehouse -->|mTLS 统一数据| Terminal
   Warehouse -->|固定版本只读| Lab["本机 Lab (Python)"]
@@ -21,8 +21,8 @@ Market 负责分发实时行情，Warehouse 负责历史采集与版本化数据
 ## 当前能力
 
 - **行情**：CTP 实时报价、合约目录、自选、五档盘口、分时与分钟 K 线。
-- **历史数据**：Warehouse 以 Tushare 为主、交易所及公开源补缺，采集合约、日历、日线、分钟线、结算参数、历史报价单位及仓单、会员持仓、库存周报，对外提供固定版本的统一数据集。
-- **研究**：固定目录中的 Python 策略与因子；支持日线/分钟线回测、参数扫描、滚动验证、因子评价、图表分析与可复现的研究记录。
+- **历史数据**：Warehouse 采集并融合多源合约、日历、日线、分钟线、结算参数、历史报价单位及 PIT 仓单、会员持仓、库存周报，对外提供不可变固定版本的统一数据集。
+- **研究**：本地 Python 策略与因子；支持日线/分钟线因子评价与合成、事件驱动回测、参数扫描、滚动验证、防过拟合诊断、实盘回测对账与可复现血缘记录。
 - **策略部署**：Terminal 将研究源码打包发布；Trading 从主机离线运行时加载并预热，目标统一经账户唯一下单路径报单。
 - **交易**：面向 CTP 柜台（仿真或实盘），落实显式授权、白名单、限额与价格风控、先记录后发送、断线不重发。
 - **部署**：Market、Warehouse、Trading 独立部署于 Linux；Terminal 仅看护本机 Lab，Lab 只读缓存 Warehouse 固定版本。

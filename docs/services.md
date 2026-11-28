@@ -63,29 +63,30 @@ Terminal 发布包同时包含桌面应用与 Lab：macOS 将 `.dmg` 拖入“�
 | Warehouse 主机 | `asterion-warehouse.service` | `/opt/asterion/warehouse/` 及 `warehouse.json` 指向的 `data` 目录 | `data` 位于独立磁盘时须单独备份；恢复至原路径或更新 `data` 配置 |
 | Trading 主机 | 全部账户实例 | `/opt/asterion/trading/`（账本及 `archives/`、策略包、实例记录、账户归属目录 `owners/`） | 停止服务不撤单；恢复后须重新授权 |
 
-- systemd 加密凭据绑定原主机，不包含在安装目录内；换机恢复时须在新主机重新录入凭据。
-- 恢复时应放回原绝对路径，核对配置与凭据后再启动；程序遇到无法识别的记录格式直接报错，不通过修改数据库绕过。
-- 三个 Linux 服务安装包均内置统一冷备脚本 `/opt/asterion/<服务>/bin/cold_backup.py`（源码位于 `scripts/services/cold_backup.py`，仅依赖 Python 3 标准库），支持 `backup`、`verify` 与 `restore`：
-  - `backup --service <market|warehouse|trading> --output <归档.tar.gz>`：确认对应 systemd 单元已停止并获取服务独占锁（`market.lock`、`warehouse.lock`、Trading `.program.lock` 及账户归属锁），对 SQLite 执行 `PRAGMA integrity_check`（存在 `-wal` 侧文件时在隔离副本校验）；自动纳入 `warehouse.json` / `market.json` 指向的外部 `data` 目录，保留硬链接（如 Warehouse 研究层与来源层共享的 Parquet）和 TLS 私钥权限，最终写出含逐文件 SHA-256 清单的归档及 `.sha256` 校验文件。
-  - `verify --archive <归档.tar.gz>`：校验归档整体与逐文件 SHA-256、SQLite 完整性，以及 Warehouse 全部保留版本、分片和分区的 SHA-256。
-  - `restore --archive <归档.tar.gz> [--target-install-dir ...] [--target-data-dir ...] [--owner <服务用户>]`：先通过完整 `verify` 再写盘并复核落盘 SHA-256，按服务用户还原属主并将 `config/`、`data/` 权限收紧为 `0700`。目标目录非空默认拒绝，`--force` 覆盖前清理旧配置及残留 SQLite `-wal`/`-shm`；Trading 迁移到非原路径因 `owners/*.json` 绑定规范路径默认拒绝，显式传入 `--allow-relocate` 会同步更新绑定路径；Warehouse / Market 更改数据目录时自动更新配置中的 `data` 字段。
+- systemd 加密凭据绑定原主机，不包含在安装目录内；换机恢复时须在新主机重新录入凭据。遇到无法识别的记录格式直接报错，不静默改写数据库。
+
+三个 Linux 服务安装包均内置统一冷备脚本 `/opt/asterion/<服务>/bin/cold_backup.py`（`scripts/services/cold_backup.py`，仅用 Python 3 标准库）：
+
+| 子命令 | 行为与校验 |
+| --- | --- |
+| `backup --service <market\|warehouse\|trading> --output <归档.tar.gz>` | 确认 systemd 单元已停并持独占锁；对 SQLite 做 `PRAGMA integrity_check`；自动纳入外部 `data` 目录、保留硬链接与 TLS 私钥权限，生成含逐文件 SHA-256 清单的归档及 `.sha256` 文件 |
+| `verify --archive <归档.tar.gz>` | 校验归档整体与逐文件 SHA-256、SQLite 完整性，以及 Warehouse 全部保留版本、分片与分区摘要 |
+| `restore --archive <归档.tar.gz> [--target-install-dir ...] [--target-data-dir ...] [--owner <用户>]` | 先完整 `verify` 再落盘并复核 SHA-256，还原属主并收紧 `config/`、`data/` 为 `0700`；非空目录默认拒绝（`--force` 先清旧配置与残留 `-wal`/`-shm`）；Trading 迁至新路径须显式 `--allow-relocate` 同步更新 `owners/*.json` 绑定 |
 
 ## 运行日志
 
-各程序默认按日将日志写入安装目录下的 `logs/`，保留 30 天。具体输出由各自的 `config/logging.json` 控制，默认文件清单见[配置文件](configuration.md)。
+各程序默认按日将日志写入安装目录 `logs/`，保留 30 天，由 `config/logging.json` 控制（文件清单见[配置文件](configuration.md)）。
 
-- `level` 支持 `debug`、`info`、`warning`、`error`；`file.path` 相对 `bin/` 解析，支持 `{program}` 和 `{pid}` 占位符；控制台与文件输出均可独立设置 `pattern`。默认格式 `[%Y-%m-%d %H:%M:%S.%e %z] [%l] [%n] [%s:%#] %v` 依次输出时间、时区偏移、级别、程序名、源文件名/行号与消息正文（时区偏移便于跨主机对齐日志）。C++ 使用 spdlog 格式，Lab 支持同等格式符。
-- 日志配置存在缺键、多余键或非法值时，程序启动即失败并报告文件路径与键名；配置文件缺失时退回仅输出标准错误。修改配置后重启生效。
-- 日志为自由文本，密码、token、授权码等凭据严禁写入日志。
-- 桌面端可通过通知中心的“打开本机日志目录”直达本机根目录，再进入对应程序的 `logs/`；Market、Warehouse、Trading 的日志保留在各自服务主机。
+- `level` 支持 `debug` / `info` / `warning` / `error`，`file.path` 相对 `bin/` 解析并支持 `{program}` / `{pid}`；默认格式 `[%Y-%m-%d %H:%M:%S.%e %z] [%l] [%n] [%s:%#] %v`（带时区偏移便于跨主机对齐），C++ 与 Lab 支持同等格式符。
+- 配置文件缺键、多余键或非法值时启动即失败，缺失时退回标准错误；凭据严禁写入日志。桌面端可从通知中心直达本机日志目录，远程服务日志保留在服务主机。
 
 ### 崩溃诊断
 
-- **Linux 远程服务**：崩溃后由随包分发的独立解析器自动在 `logs/` 生成 `*-crash.report.log`（含版本、提交号、信号、函数名与源码行号）。文件名按 UTC 启动时间（毫秒）与 PID 命名，报告同时记录启动时间与实际崩溃时间；现场只写原始栈帧 `*-crash.frames`，符号化统一由解析器完成。若解析因系统关停中断，下次服务启动会自动补齐同次构建的待解析报告（Trading 仍须重新授权）。
-- **Lab**：捕获异常在日常日志中保留 Python traceback；解释器启动错误、未捕获线程异常与原生扩展崩溃写入 `lab/logs/python-*.log`；回测子进程的标准错误随失败记录保存在 Lab 中。
-- **Trading 策略子进程**：traceback 与解释器崩溃写入服务目录的 `logs/strategy-*.log`，服务日志记录实例 ID 与日志文件的映射。
-- **Terminal**：JavaScript 异常堆栈与子进程退出原因写入 `terminal/logs/electron-*.log`，主进程遇未捕获异常后退出。macOS 与 Linux 原生崩溃转储保存在 `terminal/logs/crashes/`，下次启动时后台自动生成 `*.dmp.report.log`——先用随包符号还原全部可解析栈帧，再异步从 Electron 官方符号服务器补充 Chromium 符号（不阻塞工作台，不上传转储文件）。
+崩溃现场仅做信号安全采集，符号解析放在独立进程或下次启动执行（无需手动装调试器，Release 保留行号、前端带 source map）；`SIGKILL` 须通过宿主或系统日志排查。
 
-解析工具随安装包分发，无需手动安装调试器。桌面端按模块标识缓存符号，升级后保留旧版符号；离线或闭源库缺符号时报告标注缺失模块并保留模块名与地址，下次启动继续补全。Release 构建保留行号信息，前端携带 source map；原始栈帧与转储文件一并保留，排查完毕可手动清理。
-
-崩溃现场只做信号安全采集，符号解析放在独立进程或下次启动执行。Sanitizer 构建保留其自身报告。`SIGKILL`（含系统强制杀进程）无法被进程捕获，须通过宿主进程日志或系统日志排查。
+| 组件 | 落盘产物 | 解析与保留行为 |
+| --- | --- | --- |
+| **Linux 远程服务** | `logs/*-crash.frames` → `*-crash.report.log` | 随包独立解析器自动还原版本、提交号、信号、函数名与源码行号；若关停中断，下次启动自动补齐（Trading 仍须重授权） |
+| **Lab** | 日常日志 + `lab/logs/python-*.log` | 捕获异常记 traceback，解释器/原生崩溃写 `python-*.log`，回测子进程标准错误随失败记录保存 |
+| **Trading 策略子进程** | `logs/strategy-*.log` | 记录 Python traceback 与解释器崩溃，服务日志保存实例 ID 映射 |
+| **Terminal** | `terminal/logs/electron-*.log` 与 `crashes/*.dmp` | JS 堆栈写 `electron-*.log`；原生转储下次启动后台先用随包符号生成 `*.dmp.report.log`，再异步补全 Electron 官方符号（不上传转储文件） |

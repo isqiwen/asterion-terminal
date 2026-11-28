@@ -109,13 +109,14 @@
 | `panel.PanelRidgeRank` | 跨品种合并样本训练共享岭回归，按预测收益排序 |
 | `panel.PanelRandomFeatureRank` | 跨品种共享随机 Fourier 特征岭回归，按预测收益排序 |
 
-组合与权重分配口径：
+组合与权重分配口径（默认参数按日线交易日设定，分钟组合须自行调整窗口、调仓周期与年化期数）：
 
-- `risk_premia.*`、`fundamentals.*`、`trend.*`、`pairs.*` 与 `panel.*` 仅在全部所选品种均具备完整 K 线的共同观察时点推进历史与调仓计数；缺任一品种时跳过该时刻、保留原目标。换月时从 `Context` 重读共同时间历史以取得当时复权价格。默认参数按日线交易日设定，用于分钟组合时须自行调整窗口、调仓周期与年化期数（理由：同一根数在不同频率下对应完全不同的时间跨度）。
-- `risk_premia.*`、`fundamentals.*` 与 `panel.*` 排序前剔除因子缺测、收益波动为零及未通过量仓过滤的品种。多空两侧各选 `count` 个、各配 `gross_weight / 2` 并在侧内按逆波动加权；不足两侧数量或边界无法区分时输出零权重。`DualMomentum` 额外按绝对收益符号过滤，空余预算留为现金。`SectorNeutralRank` 按 `asterion_strategy.sector_neutralize` 在中国期货板块内去均值（单品种孤立板块去均值后得 `0`），再按 `max_sector_gross` 限额。固定月份合约无 `roll_yield` 与近远月收益，carry / basis-momentum 类策略须配置主力连续。
-- `MomentumRank` 按每入选品种 `weight` 汇总总预算，开启 `volatility` 后在全部入选品种间按逆波动分配；输出权重向零舍入，防止舍入放大总敞口。
-- `VolatilityTargetMomentum.target_volatility` 与 `MultiHorizonTrend.target_volatility` 为单品种年化波动配置尺度，随后受 `max_weight`、`max_sector_gross` 与 `gross_weight` 裁剪（组合实际波动受相关性影响）；`MultiHorizonTrend` 各档 EWMAC 按随机游走解析方差归一后再经 `tanh` 压缩。`TurningPointMomentum.weight` 为每品种名义权重，实例总权重预算须覆盖所选品种。
-- `pairs.KalmanPairs` 仅接受恰好两个品种，窗口内对数价格以窗口起点归零以保证跨换月缩放完全不变；按动态对冲比 $\beta_t > 0$ 将 `gross_weight` 按 $1/(1+\beta_t)$ 与 $\beta_t/(1+\beta_t)$ 分配到两腿并向零舍入。`composite.RiskParityPortfolio` 通过 `CombinedStrategy` 在因果代理收益窗口上以 Ledoit–Wolf 收缩协方差计算 HRP / ERC 权重。全部委托最终仍由 C++ 账户授权与风控规则把关。
+| 策略族 | 时钟与配权规则 |
+| --- | --- |
+| 截面排序（`risk_premia.*`、`fundamentals.*`、`panel.*`） | 仅在全池具备完整 K 线的共同观察时点推进；排序前剔除缺测、零波动与未过量仓过滤品种，多空各选 `count` 个、各配 `gross_weight / 2` 并按逆波动加权（`DualMomentum` 另按绝对收益过滤、`SectorNeutralRank` 板块内去均值与限额；carry / basis-momentum 须用主力连续） |
+| 简单动量排序（`MomentumRank`） | 按入选品种 `weight` 汇总预算，开启 `volatility` 后全池按逆波动分配并向零舍入 |
+| 时序趋势（`trend.*`） | 按共同观察时点推进；`VolatilityTargetMomentum` / `MultiHorizonTrend`（三档 EWMAC 随机游走归一 + `tanh` 压缩）按目标年化波动配权并受单品/板块/总权重裁剪；`TurningPointMomentum` 方向分歧时空仓 |
+| 配对与风险平价（`pairs.*`、`composite.*`） | `KalmanPairs` 仅接受两品种，对数价起点归零保换月不变，按动态对冲比 $\beta_t > 0$ 分权；`RiskParityPortfolio` 通过 `CombinedStrategy` 在因果代理收益上以 Ledoit–Wolf 收缩协方差求 HRP / ERC 权重 |
 
 ## 论文来源与期货适配
 
@@ -159,10 +160,20 @@
 
 ## 滚动学习与面板训练
 
-- **单品种滚动学习（`learning.*`）**：输入 6 项特征——快慢动量、快速收益波动、慢速价格 Z-Score、快速 RSI 与慢速效率比。设 `h = rebalance`，时点 `s` 的标签为 `open[s+h+1] / open[s+1] − 1`（对应下一根开盘建仓、下次调仓开盘平仓的可执行持有收益）。预测时点 `t` 仅取标签已实现的最近 `train` 条样本，末条训练特征为 `X[t−h−1]`、标签止于当前开盘，`X[t]` 只作预测（理由：训练标签必须严格对齐可执行时点）。特征均值/标准差、Fourier 尺度、截距与回归系数均在当前训练窗口内拟合；`seed` 固定随机投影，保证相同源码、参数与历史完全复现。
-- **岭回归与超参**：目标函数最小化均方误差加 `ridge × 系数平方和`；`features` 为 sin/cos 总数（须为正偶数），`gamma` 控制投影尺度。预热需 `slow + train + rebalance + 1` 根；`rebalance` 同时控制重估频率与预测持有期；预测值越过正负 `threshold` 时分别做多或做空。重估窗口含缺测时输出零手数，标签绝不跨越未观察 K 线。模型比较须在同一固定 Warehouse 版本、相同费用/滑点与留出期下进行，再通过滚动验证选参。
-- **跨品种面板学习（`panel.*`）**：将慢速窗口命名为 `window`，在上述 6 项特征基础上增加慢速信息离散度、MAX、CMF 与持仓量变化共 10 项，`use_carry=true` 时再加入快速窗口平均真实 carry。每次从通过风险与量仓筛选的品种中合并最近 `train` 个共同观察时点的已实现标签样本，等权拟合共享的特征尺度、截距与系数（`train` 指每品种时点数，含缺测的训练行逐行剔除；全池至少 2 行且当前特征完整才预测，缺测 carry 保持缺测）。按预测收益选多空尾部，预热需 `max(window + train + rebalance + 1, volatility + 1)` 个共同观察时点。
-- **面板标签与可执行价格**：持有期按共同观察时钟推进，入场与出场价均取对应信号后该品种**自身的第一根开盘价**（即使另一品种当时未出线也保留该可执行价格）。最新训练特征仍为 `X[t−h−1]`，最晚出场价在共同观察 `t` 之前或该根开盘已知。模型严格在当前时点之前重估，样本外验证沿用[参数扫描与滚动验证](README.md#参数扫描与滚动验证)，多年面板对照流程见[真实研究数据验收](../acceptance/research-data.md#面板模型对照)。
+```mermaid
+flowchart LR
+  Feat["末条训练特征 X[t-h-1]"] --> Entry["可执行入场 open[t-h]"]
+  Entry --> Exit["持有 h=rebalance 根后出场 open[t]（标签已知）"]
+  Exit --> Fit["时点 t 拟合岭回归，并用 X[t] 预测"]
+  Fit --> Trade["下一根 open[t+1] 按预测建仓"]
+```
+
+| 类别 | 特征与样本窗口 | 拟合、预热与输出 |
+| --- | --- | --- |
+| **单品种滚动学习**（`learning.*`） | 6 项特征：快慢动量、快速波动、慢速价格 Z-Score、快速 RSI、慢速效率比；取最近 `train` 条已实现标签样本 | 仅在训练窗口内标准化并拟合岭回归（`ridge` 惩罚、随机 Fourier 固定 `seed` 与偶数 `features`）；预热 `slow + train + rebalance + 1` 根；预测越过 `±threshold` 输出手数，窗口含缺测输出零手 |
+| **跨品种面板学习**（`panel.*`） | 上述 6 项 + 慢速信息离散度、MAX、CMF、持仓量变化共 10 项（`use_carry=true` 加快速均值 carry）；合并通过量仓筛选品种最近 `train` 个共同观察时点（逐行剔缺） | 至少 2 行且当前特征完整时等权拟合共享系数，按预测收益选多空尾部配权；预热 `max(window + train + rebalance + 1, volatility + 1)` 个共同观察时点；各品种入出场均取自身信号后首根可执行开盘价 |
+
+> 模型比较须在同一固定数据版本、相同费用/滑点与留出期下进行，再经[参数扫描与滚动验证](README.md#参数扫描与滚动验证)选参，多年面板对照流程见[面板模型对照](../acceptance/research-data.md#面板模型对照)。
 
 ## 数据扩展方向
 
