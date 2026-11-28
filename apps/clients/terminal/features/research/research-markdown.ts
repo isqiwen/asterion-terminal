@@ -152,9 +152,16 @@ export function formatReconcileSummaryMarkdown(report: {
     window_end_day: string;
     period: string;
     dataset_version: string;
+    warmup_only: boolean;
   };
   summary: {
     bars: { matched: number; missing_in_live: number; extra_in_live: number; mismatched: number };
+    recorded_bars: {
+      matched: number;
+      missing_in_live: number;
+      extra_in_live: number;
+      mismatched: number;
+    };
     decisions: {
       matched: number;
       missing_in_live: number;
@@ -184,10 +191,11 @@ export function formatReconcileSummaryMarkdown(report: {
     return total ? `${((x.matched / total) * 100).toFixed(2)}% (${x.matched}/${total})` : "—";
   };
   return [
-    `## Live Reconciliation: ${m.package} (${report.ok ? "PASS" : "DIFF"})`,
+    `## Live Reconciliation: ${m.package} (${report.ok ? "PASS" : "DIFF"}${m.warmup_only ? ", warmup only" : ""})`,
     `- Instance: ${m.instance_id} · Symbols: ${m.symbols.join(", ")} · ${m.window_begin_day} to ${m.window_end_day} (${m.period})`,
     `- Dataset: ${m.dataset_version.slice(0, 12)}`,
     `- Input Bars Match: ${ratio(s.bars)}`,
+    `- Recorded Bars Match: ${ratio(s.recorded_bars)}`,
     `- Decisions Match: ${ratio(s.decisions)}`,
     `- Fills: live ${s.fills.live_fill_count}, backtest ${s.fills.backtest_fill_count}, matched ${s.fills.matched}`,
     `- Adverse Slippage (ticks, n=${s.fills.slippage_samples}): mean ${fmtNum(s.fills.mean_slippage_ticks, 2)}, median ${fmtNum(s.fills.median_slippage_ticks, 2)}, P90 ${fmtNum(s.fills.p90_slippage_ticks, 2)}, max ${fmtNum(s.fills.max_slippage_ticks, 2)}`,

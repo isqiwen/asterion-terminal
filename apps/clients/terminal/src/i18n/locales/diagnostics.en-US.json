@@ -1,4 +1,5 @@
 {
+  "strategy run has no verifiable warmup boundary": "The run has no verifiable warmup boundary for reconciliation.",
   "Bayesian search cannot be combined with rolling validation; use grid or lhs": "Bayesian search cannot be combined with rolling validation. Use grid or Latin hypercube search.",
   "current exchange price limits are unavailable": "Current exchange price limits are unavailable. The order was not sent.",
   "orders require synchronized account funds": "Orders require synchronized account funds.",

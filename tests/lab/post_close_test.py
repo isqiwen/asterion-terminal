@@ -248,6 +248,21 @@ class PostCloseTest(unittest.TestCase):
         self._orders = orders
         self._fills = fills
         _write_trading_account(self.account_dir, instance, steps, orders, fills)
+        raw_bars = reconcile_diff.warehouse_contract_bars(
+            replayed["data"], {"SHFE/rb/2026-05", "SHFE/rb/2026-10"}, 0, cfg.begin_day, cfg.end_day
+        )
+        with sqlite3.connect(self.account_dir / "strategies" / "bars.sqlite") as conn:
+            conn.execute("CREATE TABLE bars (period, end_ms, exchange, symbol, bar)")
+            for (end_ms, contract), row in raw_bars.items():
+                instrument = _native_symbol(contract)
+                bar = WireBar(
+                    instrument=instrument, end_ms=end_ms, trading_day=row["trading_day"],
+                    volume=int(row["volume"]),
+                    **{field: _wdec(row[field]) for field in ("open", "high", "low", "close", "open_interest")},
+                )
+                conn.execute("INSERT INTO bars VALUES (?, ?, ?, ?, ?)", (
+                    instance.period, end_ms, instrument.exchange, instrument.symbol, bar.SerializeToString(),
+                ))
 
     def test_clean_inspection_and_always_notify(self):
         recorder = _WebhookRecorder()

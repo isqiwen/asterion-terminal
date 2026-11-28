@@ -34,6 +34,7 @@ from asterion_lab import (  # noqa: E402
     package,
     reconcile,
     reconcile_diff,
+    reconcile_live,
     repository,
 )
 from asterion_strategy import Strategy  # noqa: E402
@@ -201,6 +202,7 @@ class ReconcileTest(unittest.TestCase):
         instance.params["slow"].integer = 6
         instance.params["lots"].integer = 2
         instance.warmup.dataset_version = cfg.dataset_version
+        instance.warmup_steps = 0
 
         steps = []
         recorded_bars = []
@@ -307,6 +309,21 @@ class ReconcileTest(unittest.TestCase):
         self.assertTrue(report_pkg["ok"], report_pkg)
         self.assertIn("通过", reconcile.format_report(report_pkg))
 
+    def test_fill_corrections_and_missing_archives_follow_the_account_journal(self):
+        cfg, replayed = self._run_reference_backtest("bt-attribution")
+        instance, steps, bars, orders, fills = self._build_matching_live(cfg, replayed)
+        other = {**orders[0], "command": {**orders[0]["command"], "order_id": "other"},
+                 "strategy": {**orders[0]["strategy"], "instance": "other-instance"}}
+        corrected = {**fills[0], "order_id": "other"}
+        _write_trading_artifacts(self.account_dir, instance, steps, bars, [other], [corrected],
+                                 archived_orders=orders[:1], archived_fills=fills[:1])
+        self.assertEqual(reconcile_live.read_live_fills(self.account_dir, instance.id)["fills"], [])
+        other_fills = reconcile_live.read_live_fills(self.account_dir, "other-instance")["fills"]
+        self.assertEqual([trade["order_id"] for trade in other_fills], ["other"])
+        (self.account_dir / "archives" / "00000001.sqlite").unlink()
+        with self.assertRaisesRegex(FileNotFoundError, "00000001.sqlite"):
+            reconcile_live.read_live_fills(self.account_dir, instance.id)
+
     def test_replay_fails_when_a_position_is_held_through_a_month_without_prices(self):
         cfg, _ = self._run_reference_backtest("bt-unpriced")
         store = Warehouse(self.lab_dir)
@@ -331,6 +348,16 @@ class ReconcileTest(unittest.TestCase):
         config = replace(cfg, dataset_version=Warehouse(self.lab_dir).current().identity)
         with self.assertRaisesRegex(ValueError, "prices of SHFE/rb/2026-05 are missing on .*while it is held"):
             reconcile_diff.replay_backtest(Warehouse(self.lab_dir), config, Pause())
+
+    def test_live_steps_with_no_recorded_contract_bars_report_missing_evidence(self):
+        cfg, replayed = self._run_reference_backtest("bt-missing-raw")
+        instance, steps, _, orders, fills = self._build_matching_live(cfg, replayed)
+        _write_trading_artifacts(self.account_dir, instance, steps, [], orders, fills)
+        report = reconcile.reconcile(self.account_dir, self.lab_dir, instance_id=instance.id,
+                                     run_id="bt-missing-raw", strategy_source=self.repo)
+        self.assertFalse(report["ok"])
+        self.assertFalse(report["metadata"]["warmup_only"])
+        self.assertGreater(report["summary"]["recorded_bars"]["missing_in_live"], 0)
 
     def test_detects_bar_decision_and_fill_discrepancies_and_respects_tolerances(self):
         cfg, replayed = self._run_reference_backtest("bt-diff")
@@ -422,8 +449,9 @@ class ReconcileTest(unittest.TestCase):
         instance, steps, recorded_bars, orders, fills = self._build_matching_live(
             full_cfg, replayed, "inst-warmup"
         )
-        live_recorded = [row for row in recorded_bars if row[1] >= live_start_ms]
-        _write_trading_artifacts(self.account_dir, instance, steps, live_recorded, orders, fills)
+        instance.local_bars = True
+        instance.warmup_steps = 12
+        _write_trading_artifacts(self.account_dir, instance, steps, recorded_bars, orders, fills)
 
         report = reconcile.reconcile(
             self.account_dir, self.lab_dir, instance_id="inst-warmup", run_id="bt-early",
@@ -433,6 +461,8 @@ class ReconcileTest(unittest.TestCase):
         self.assertGreater(report["summary"]["bars"]["matched"], 20)
         self.assertEqual(report["summary"]["fills"]["live_only"], 0)
         self.assertEqual(report["summary"]["fills"]["backtest_only"], 0)
+        self.assertEqual(report["summary"]["recorded_bars"]["matched"],
+                         sum(row[1] >= live_start_ms for row in recorded_bars))
 
         # Non-SHFE/INE close_yesterday matches live generic close.
         live_dce = [{
@@ -470,6 +500,7 @@ class ReconcileTest(unittest.TestCase):
         )
         instance, steps, _, orders, fills = self._build_matching_live(cfg, warmup, "only-warmup")
         instance.period = Period.PERIOD_MINUTES_5
+        instance.warmup_steps = len(steps)
         self.assertEqual(len(steps), 6)
         self.assertEqual(fills, [])
         _write_trading_artifacts(self.account_dir, instance, steps, [], orders, fills)
@@ -480,6 +511,7 @@ class ReconcileTest(unittest.TestCase):
         self.assertTrue(report["ok"], report)
         self.assertEqual(report["summary"]["decisions"]["matched"], len(steps))
         self.assertEqual(report["summary"]["fills"]["backtest_fill_count"], 0)
+        self.assertTrue(report["metadata"]["warmup_only"])
 
     def test_realized_slippage_ticks_accounts_for_side_and_percentiles(self):
         # Tick = 2; buy higher (+4 => +2 ticks adverse), sell lower (-2 => +1 tick adverse),

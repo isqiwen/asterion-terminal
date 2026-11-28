@@ -52,6 +52,39 @@ TEST_F(StrategyExecution, RegistrationIsExclusiveAndNeverGrantsAuthorizationOrRe
     EXPECT_NO_THROW(act(session, submit("manual.after.release", "1")));
 }
 
+TEST_F(StrategyExecution, SameContractFillsKeepTheirSubmittingInstance)
+{
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    act(session, authorize());
+    const auto wait_filled = [&](const std::string& id) {
+        wait_for(session, [&](const Json& state) {
+            return order_has_status(state, id, "filled")
+                && state.at("positions_reconciled") == true;
+        });
+    };
+    act(session, submit("manual", "1"));
+    wait_filled("manual");
+    for (const std::string owner : {"first", "second"}) {
+        const auto id = "order." + owner;
+        auto authority = session.register_strategy(owner).get();
+        session.execute_strategy(basis(authority), submit(id, "1")).get();
+        wait_filled(id);
+        session.release_strategy(authority).get();
+    }
+    const auto day = session.day("");
+    std::map<std::string, std::string> owners_by_order;
+    for (const auto& trade : day.trades())
+        owners_by_order.emplace(trade.order_id(), trade.strategy_instance());
+    EXPECT_EQ(
+        owners_by_order,
+        (std::map<std::string, std::string>{
+            {"manual", ""},
+            {"order.first", "first"},
+            {"order.second", "second"}
+        }));
+}
+
 TEST_F(StrategyExecution, UsesTheExistingRiskAndPriceChecksAndBlocksFurtherLegsAfterFailure)
 {
     LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
@@ -716,10 +749,14 @@ TEST_F(StrategyExecution, ACommittedTradingRecordStillRecovers)
         std::vector<std::string>(day.trading_days().begin(), day.trading_days().end()),
         (std::vector<std::string>{"2026-09-28"}));
     EXPECT_EQ(day.close().trading_day(), "2026-09-28");
-    std::set<std::string> filled;
-    for (const auto& trade : day.trades())
-        filled.insert(trade.order_id());
-    EXPECT_EQ(filled, (std::set<std::string>{"filled", "strategy"}));
+    std::map<std::string, std::string> filled;
+    for (const auto& trade : day.trades()) {
+        EXPECT_TRUE(trade.has_strategy_instance());
+        filled.emplace(trade.order_id(), trade.strategy_instance());
+    }
+    EXPECT_EQ(
+        filled,
+        (std::map<std::string, std::string>{{"filled", ""}, {"strategy", "strategy-run"}}));
     ASSERT_EQ(ready(restored).at("phase"), "ready");
     act(restored, authorize("restored"));
     const auto effects = exchange.call<int (*)()>("asterion_fake_catalog_side_effects");

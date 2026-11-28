@@ -193,7 +193,7 @@ sequenceDiagram
 | `query_costs` | — | `Account`（柜台回报费率随后写入 `session.costs`） |
 | `send_command` | `Command` | `Account` |
 | `get_orders` | 分页参数 | `Orders`（当日委托，按新到旧排序，附总数） |
-| `get_day` | 交易日（留空为柜台当日）、分页参数；指定日期且 `oldest_first` 按追加顺序读取成交，便于导出锁定首响总数与快照 | `Day`（成交分页与总数、最后同步的资金/持仓/撤单快照、全部有记录交易日） |
+| `get_day` | 交易日（留空为柜台当日）、分页参数；指定日期且 `oldest_first` 按追加顺序读取成交，便于导出锁定首响总数与快照 | `Day`（成交分页与总数、每笔成交所属策略实例、最后同步的资金/持仓/撤单快照、全部有记录交易日） |
 | `get_catalog` | 是否强制刷新 | `ContractCatalog`（Trading 本账户柜台同步的在市合约目录） |
 | `get_strategies` | — | `Strategies`（已发布策略包列表与当前/最近实例状态） |
 | `publish_strategy` | `strategy.Package` | `Strategies` |
@@ -201,7 +201,7 @@ sequenceDiagram
 | `stop_strategy` / `flatten_strategy` | 实例 ID | `Strategies` |
 | `pause_strategy` | 实例 ID、是否暂停新增 | `Strategies` |
 | `get_recorded_bars` | 周期、合约（可选）、起始时间、条数上限 | `RecordedBars`（Trading 本地录制的实时 K 线） |
-| `get_strategy_run` | 实例 ID（留空为当前或最近实例）、起始序号、条数上限 | `StrategyRun`（实例配置、逐批输入与决策及实例事件） |
+| `get_strategy_run` | 实例 ID（留空为当前或最近实例）、起始序号、条数上限 | `StrategyRun`（含预热批次数的实例配置、逐批输入与决策及实例事件） |
 | `get_emergency` | — | `emergency.State`（独立于常规协议哈希的授权状态、活动策略 ID 与可撤挂单） |
 | `emergency_control` | `emergency.Control`（撤销授权、撤单或停止策略） | 执行后的 `emergency.State` |
 

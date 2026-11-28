@@ -239,6 +239,8 @@ message Trade {
   string trade_time = 9;
   // When Trading received the report; the counter's dates are unreliable at night.
   int64 received_ms = 10;
+  // Set by GetDay from the recorded order. Empty for manual or external fills.
+  optional string strategy_instance = 11;
 }
 
 message GetOrders {

@@ -308,7 +308,8 @@ LiveAccountState::LiveAccountState(
             } else if (const auto* submit = request.as<SubmitOrder>()) {
                 order_origins_[submit->order.id] = {
                     dashed(command.trading_day),
-                    submit->order.instrument
+                    submit->order.instrument,
+                    submit->strategy ? submit->strategy->instance : ""
                 };
                 intents_[submit->order.id] = {
                     command.broker_key,
@@ -1104,7 +1105,8 @@ AccountCommand LiveAccountState::finish_submit(
     co_await append(
         submission_entry(request, policy_->revision, prepared_order.broker_key, state.trading_day));
     const auto sequence = capacity_.total_records - 1;
-    order_origins_[order_id] = {dashed(state.trading_day), id};
+    order_origins_[order_id] =
+        {dashed(state.trading_day), id, submission.strategy ? submission.strategy->instance : ""};
     intents_[order_id] = {
         prepared_order.broker_key,
         state.trading_day,
@@ -1842,6 +1844,11 @@ std::optional<::trading::DayClose> LiveAccountState::unclosed() const
                 attach_cancels(*result.mutable_close());
             }
         }
+    }
+    for (auto& trade : *result.mutable_trades()) {
+        const auto origin = order_origins_.find(trade.order_id());
+        trade.set_strategy_instance(
+            origin == order_origins_.end() ? "" : origin->second.strategy_instance);
     }
     return result;
 }

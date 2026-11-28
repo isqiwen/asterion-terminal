@@ -6,12 +6,7 @@ import { lab } from "../../src/bridge/lab";
 import { tradingCall } from "../../src/bridge/trading";
 import { Offset, Period, Side } from "../../src/generated/asterion/common_pb";
 import { ReconcileResultSchema } from "../../src/generated/asterion/lab_pb";
-import {
-  BarSchema,
-  BarsSchema,
-  DecisionSchema,
-  InstanceSchema,
-} from "../../src/generated/asterion/strategy_pb";
+import { BarSchema, InstanceSchema } from "../../src/generated/asterion/strategy_pb";
 import {
   DaySchema,
   RecordedBarsSchema,
@@ -65,9 +60,22 @@ test("reconciles paginated live records, renders diffs, and applies slippage to 
   const recordedBars = Array.from({ length: 501 }, (_, index) =>
     create(BarSchema, { ...bar, endMs: bar.endMs + BigInt(index) * 60000n }),
   );
+  const steps = Array.from({ length: 10_001 }, (_, index) => {
+    const sequence = BigInt(index + 1);
+    return {
+      input: { sequence, bars: [{ ...bar, endMs: bar.endMs + BigInt(index) * 60000n }] },
+      decision: { sequence, ready: true },
+    };
+  });
+  const accountBars = [
+    create(BarSchema, { ...bar, endMs: bar.endMs - 60000n }),
+    ...recordedBars,
+    create(BarSchema, { ...bar, endMs: bar.endMs + BigInt(steps.length) * 60000n }),
+  ];
   const trades = Array.from({ length: 201 }, (_, index) => ({
     id: `trd-${index}`,
     orderId: `ord-${index}`,
+    strategyInstance: configuration.id,
     instrument: inst,
     side: Side.BUY,
     offset: Offset.OPEN,
@@ -75,6 +83,8 @@ test("reconciles paginated live records, renders diffs, and applies slippage to 
     price: { text: "3512" },
     tradingDay: "2026-01-05",
   }));
+  trades.push({ ...trades[0]!, id: "manual", strategyInstance: "" });
+  trades.push({ ...trades[0]!, id: "other", strategyInstance: "inst-2" });
 
   vi.mocked(tradingCall).mockImplementation(async (_account, op) => {
     switch (op.case) {
@@ -92,18 +102,16 @@ test("reconciles paginated live records, renders diffs, and applies slippage to 
       case "getStrategyRun":
         return create(StrategyRunSchema, {
           configuration,
-          steps: [
-            {
-              input: create(BarsSchema, { sequence: 1n, bars: [bar] }),
-              decision: create(DecisionSchema, { sequence: 1n, ready: true }),
-            },
-          ],
+          steps: steps.slice(
+            Number(op.value.afterSequence),
+            Number(op.value.afterSequence) + op.value.limit!,
+          ),
         }) as never;
       case "getRecordedBars":
         if (!op.value.limit || op.value.limit > 500)
           throw new Error("recorded bar pages contain 1 to 500 bars");
         return create(RecordedBarsSchema, {
-          bars: recordedBars
+          bars: accountBars
             .filter(item => item.endMs > (op.value.afterEndMs ?? 0n))
             .slice(0, op.value.limit),
         }) as never;
@@ -229,8 +237,10 @@ test("reconciles paginated live records, renders diffs, and applies slippage to 
   );
   const reconciliation = vi.mocked(lab).mock.calls[0]?.[0];
   expect(reconciliation?.case).toBe("reconcileLive");
-  if (reconciliation?.case === "reconcileLive")
+  if (reconciliation?.case === "reconcileLive") {
     expect(reconciliation.value.liveFills).toHaveLength(201);
+    expect(reconciliation.value.steps).toHaveLength(steps.length);
+  }
   expect(screen.getByText("+1.50 / +1.80 跳")).toBeTruthy();
   expect(screen.getByText("成交与滑点差异（1）")).toBeTruthy();
 

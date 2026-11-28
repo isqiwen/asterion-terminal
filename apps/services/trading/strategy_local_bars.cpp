@@ -29,6 +29,7 @@ std::vector<wire::Bars> recorded_inputs(const fs::path& run, const wire::Instanc
         item->mutable_params()->clear();
         item->clear_weight_limits();
         item->clear_warmup();
+        item->clear_warmup_steps();
         item->clear_execution();
     }
     if (!google::protobuf::util::MessageDifferencer::Equals(recorded, wanted))

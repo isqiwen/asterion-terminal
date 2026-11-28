@@ -135,7 +135,7 @@ flowchart LR
 
 Lab 通过 `reconcile_live` RPC（与 `asterion_lab.reconcile` 命令行工具共用同一核对实现）在固定数据版本上重放实盘窗口回测，将 Trading 录制的策略输入 K 线、原始合约 K 线、目标仓位决策及成交明细与回测逐项比对，并标明决策差异是否由输入 K 线差异引起。对双方匹配到的成交按买卖方向计算有符号不利滑点分布（均值、中位数、P90、最大跳数），用于把真实执行成本回灌至回测条件。
 
-重放使用实例实际输入的首尾 K 线窗口和来源回测的源码、参数。预热结束以账户首次录制的 K 线为界，尚无录制 K 线时只核对信号，以免把预热禁单误报为执行差异。
+重放使用实例实际输入的首尾 K 线窗口和来源回测的源码、参数。Trading 记录各预热来源合并后的批次数，Lab 从首个实时批次核对原始合约 K 线和执行结果。只有固定版本历史预热摘要的记录按输入逐批校验摘要，无法确定边界时中止对账。成交通过委托记录归属到策略实例，同合约的手工成交和其他实例成交各自独立。
 
 盘后无人值守巡检可运行 `python3 -I -B -m asterion_lab.post_close`（适合接入 Linux 主机每日盘后 `systemd` 定时器），串联 Warehouse 固定版本数据质量自检（`asterion_lab.audit`）与一个或多个 Trading 账户对账（`--trading-account <目录>[::<实例ID>[::<回测ID>]]`），任一环节异常即退出非零并向 Webhook（优先读取 `--webhook-file` 或 systemd 加密凭据 `$CREDENTIALS_DIRECTORY/alert_webhook_url`，格式与 Trading `alert_webhook` 一致）推送去重 JSON 告警。
 

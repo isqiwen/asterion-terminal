@@ -101,6 +101,8 @@ message Instance {
   repeated DominantSeries series = 11;
   // Controlled live execution options (aggressive ticks, bounded reprice, Mini-TWAP).
   ExecutionOptions execution = 12;
+  // Set by Trading in the run record after merging all warmup sources.
+  optional uint64 warmup_steps = 13;
 }
 
 // Controlled execution options for a live strategy instance.

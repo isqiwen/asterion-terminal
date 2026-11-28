@@ -663,6 +663,7 @@ struct StrategyHost::State
                         .get();
         account = execution;
         auto persisted = configuration;
+        persisted.set_warmup_steps(replay.size());
         if (persisted.has_warmup())
             persisted.mutable_warmup()->clear_bars();
         instance.Clear();

@@ -19,8 +19,6 @@ const t = (key: string, values?: MessageValues) =>
 const STEP_PAGE = 500;
 const BAR_PAGE = 500;
 const TRADE_PAGE = 200;
-const MAX_STEPS = 10000;
-const MAX_BARS_PER_INSTRUMENT = 10000;
 
 type BarSummary = {
   matched: number;
@@ -110,6 +108,7 @@ export type ReconcileReport = {
     window_begin_day: string;
     window_end_day: string;
     fill_window_begin: string;
+    warmup_only: boolean;
   };
   summary: {
     bars: BarSummary;
@@ -181,7 +180,7 @@ async function fetchLiveAndReconcile(
   const allSteps: StrategyStep[] = [];
   let configuration = strategies.instance?.instance;
   let afterSequence = 0n;
-  while (allSteps.length < MAX_STEPS) {
+  while (true) {
     const page = await tradingCall(accountId, {
       case: "getStrategyRun",
       value: { id: targetInstance, afterSequence, limit: STEP_PAGE },
@@ -193,7 +192,9 @@ async function fetchLiveAndReconcile(
     if (page.steps.length < STEP_PAGE || lastSeq <= afterSequence) break;
     afterSequence = lastSeq;
   }
-  if (!configuration || allSteps.length === 0) {
+  const firstEndMs = allSteps[0]?.input?.bars[0]?.endMs;
+  const lastEndMs = allSteps.at(-1)?.input?.bars[0]?.endMs;
+  if (!configuration || firstEndMs === undefined || lastEndMs === undefined) {
     throw new Error(t("该账户没有可对账的策略运行记录"));
   }
 
@@ -214,9 +215,8 @@ async function fetchLiveAndReconcile(
 
   const recordedBars: Bar[] = [];
   for (const inst of tracked.values()) {
-    let afterEndMs = 0n;
-    let count = 0;
-    while (count < MAX_BARS_PER_INSTRUMENT) {
+    let afterEndMs = firstEndMs - 1n;
+    while (afterEndMs < lastEndMs) {
       const page = await tradingCall(accountId, {
         case: "getRecordedBars",
         value: {
@@ -227,8 +227,7 @@ async function fetchLiveAndReconcile(
         },
       });
       if (!page.bars.length) break;
-      recordedBars.push(...page.bars);
-      count += page.bars.length;
+      recordedBars.push(...page.bars.filter(bar => bar.endMs <= lastEndMs));
       const lastEnd = page.bars[page.bars.length - 1]?.endMs ?? 0n;
       if (page.bars.length < BAR_PAGE || lastEnd <= afterEndMs) break;
       afterEndMs = lastEnd;
@@ -253,6 +252,9 @@ async function fetchLiveAndReconcile(
       for (const trade of page.trades) {
         const instKey = instrumentKey(trade.instrument);
         if (tracked.size > 0 && !tracked.has(instKey)) continue;
+        if (trade.strategyInstance === undefined)
+          throw new Error(t("Trading 未提供成交的策略实例归属"));
+        if (trade.strategyInstance !== configuration.id) continue;
         const dedup = `${trade.tradingDay}|${trade.id}|${trade.side}`;
         if (seenFills.has(dedup)) continue;
         seenFills.add(dedup);
@@ -381,6 +383,7 @@ export function ReconcileView({
             {t(report.ok ? "对账通过" : "发现差异")}
           </StatusBadge>
         )}
+        {report?.metadata.warmup_only && <StatusBadge tone="neutral">{t("仅预热")}</StatusBadge>}
         <span className="lab-spacer" />
         {report && <CopySummaryButton build={() => formatReconcileSummaryMarkdown(report)} />}
         {report?.metadata.run_id && openRun && (
@@ -497,6 +500,12 @@ export function ReconcileView({
                   })}
                 </dd>
               )}
+              <dd className="subtle numeric">
+                {t("实盘 {live} 笔 · 回测 {backtest} 笔", {
+                  live: report.summary.fills.live_fill_count,
+                  backtest: report.summary.fills.backtest_fill_count,
+                })}
+              </dd>
             </div>
           </dl>
           {recommendedTicks !== null && (
@@ -510,11 +519,6 @@ export function ReconcileView({
                 </span>
               )}
             </div>
-          )}
-          {report.ok && (
-            <p className="subtle" role="status">
-              {t("输入 K 线、录制 K 线、目标仓位与成交明细全部一致。")}
-            </p>
           )}
           {report.bar_diffs.length > 0 && (
             <section>

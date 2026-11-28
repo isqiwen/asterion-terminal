@@ -66,6 +66,31 @@ def contract_name(selection) -> str:
     return selection.contract
 
 
+def update_batch_digest(digest, batch):
+    digest.update(b"batch\n")
+    for bar in batch.bars:
+        suffix = f"|{bar.roll_ratio.text}" if bar.HasField("roll_ratio") else ""
+        for field, tag in (
+            ("roll_yield", "ry"),
+            ("far_close", "fc"),
+            ("near_return", "nr"),
+            ("far_return", "fr"),
+            ("receipt_volume", "rv"),
+            ("member_long", "ml"),
+            ("member_short", "ms"),
+            ("inventory_total", "inv"),
+        ):
+            if bar.HasField(field):
+                suffix += f"|{tag}={getattr(bar, field).text}"
+        line = (
+            f"{bar.trading_day}|{bar.end_ms}|"
+            f"{bar.instrument.exchange}/{bar.instrument.symbol}|"
+            f"{bar.open.text}|{bar.high.text}|{bar.low.text}|{bar.close.text}|"
+            f"{bar.volume}|{bar.open_interest.text}{suffix}\n"
+        )
+        digest.update(line.encode())
+
+
 def build_warmup(request, *, dataset, data_version) -> Warmup:
     if not 1 <= len(request.instruments) <= 64:
         raise ValueError("warmup requires 1 to 64 instruments")
@@ -463,29 +488,8 @@ def build_warmup(request, *, dataset, data_version) -> Warmup:
     digest = hashlib.sha256()
     for sequence, end_ms in enumerate(sorted(grouped)[-request.max_bars :], 1):
         batch = warmup.bars.add(sequence=sequence)
-        digest.update(b"batch\n")
         for index in sorted(grouped[end_ms]):
-            bar = batch.bars.add()
-            bar.CopyFrom(grouped[end_ms][index])
-            suffix = f"|{bar.roll_ratio.text}" if bar.HasField("roll_ratio") else ""
-            for field, tag in (
-                ("roll_yield", "ry"),
-                ("far_close", "fc"),
-                ("near_return", "nr"),
-                ("far_return", "fr"),
-                ("receipt_volume", "rv"),
-                ("member_long", "ml"),
-                ("member_short", "ms"),
-                ("inventory_total", "inv"),
-            ):
-                if bar.HasField(field):
-                    suffix += f"|{tag}={getattr(bar, field).text}"
-            line = (
-                f"{bar.trading_day}|{bar.end_ms}|"
-                f"{bar.instrument.exchange}/{bar.instrument.symbol}|"
-                f"{bar.open.text}|{bar.high.text}|{bar.low.text}|{bar.close.text}|"
-                f"{bar.volume}|{bar.open_interest.text}{suffix}\n"
-            )
-            digest.update(line.encode())
+            batch.bars.add().CopyFrom(grouped[end_ms][index])
+        update_batch_digest(digest, batch)
     warmup.sha256 = digest.hexdigest()
     return warmup

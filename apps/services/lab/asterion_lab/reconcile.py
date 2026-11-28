@@ -2,6 +2,7 @@
 
 import argparse
 from decimal import Decimal
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,7 @@ from asterion.strategy_pb2 import Instance
 from asterion_lab import backtest, reconcile_diff, reconcile_live, repository
 from asterion_lab.runs import Runs
 from asterion_lab.warehouse_client import Dataset
+from asterion_lab.warmup import update_batch_digest
 
 
 def _frozen_source(lab_directory: Path, runs: Runs, run_id: str) -> Path | None:
@@ -28,6 +30,20 @@ def _frozen_source(lab_directory: Path, runs: Runs, run_id: str) -> Path | None:
     return None
 
 
+def _warmup_steps(instance: Instance, steps: list) -> int:
+    if instance.HasField("warmup_steps"):
+        return instance.warmup_steps
+    if not instance.local_bars and not instance.resume_from:
+        if not instance.HasField("warmup"):
+            return 0
+        digest = hashlib.sha256()
+        for sequence, batch, _ in steps:
+            update_batch_digest(digest, batch)
+            if digest.hexdigest() == instance.warmup.sha256:
+                return sequence
+    raise ValueError("strategy run has no verifiable warmup boundary")
+
+
 def _extract_live_window(
     instance: Instance,
     steps: list,
@@ -37,6 +53,11 @@ def _extract_live_window(
     begin_day: str,
     end_day: str,
 ) -> dict:
+    warmup_steps = _warmup_steps(instance, steps)
+    first_live = next(
+        (batch.bars[0] for seq, batch, _ in steps if seq > warmup_steps and batch.bars), None
+    )
+    execute_from_ms = first_live.end_ms if first_live is not None else steps[-1][1].bars[0].end_ms + 1
     live_step_bars = {}
     live_decisions = {}
     for seq, wire_bars, decision in steps:
@@ -113,11 +134,12 @@ def _extract_live_window(
     window_end_day = end_day or max(v["trading_day"] for v in live_step_bars.values())
 
     live_recorded_bars = {}
-    recorded_contracts = set()
+    recorded_start_ms = max(window_first_ms, execute_from_ms)
+    recorded_contracts = {
+        bar["contract"] for (ms, _), bar in live_step_bars.items() if ms >= recorded_start_ms
+    }
     for end_ms, native, bar in recorded_raw:
-        if begin_day and bar.trading_day < begin_day:
-            continue
-        if end_day and bar.trading_day > end_day:
+        if not recorded_start_ms <= end_ms <= window_last_ms:
             continue
         contract = native_to_contract.get(native) or reconcile_live.canonical_contract(
             bar.instrument.exchange, bar.instrument.symbol, bar.trading_day
@@ -137,22 +159,19 @@ def _extract_live_window(
             ),
         }
 
-    execute_from_ms = None
-    if instance.HasField("warmup") or instance.local_bars or instance.resume_from:
-        first_recorded_ms = min((k[0] for k in live_recorded_bars), default=window_last_ms + 1)
-        if first_recorded_ms > window_first_ms:
-            execute_from_ms = first_recorded_ms
-
     return {
         "step_bars": live_step_bars,
         "decisions": live_decisions,
         "recorded_bars": live_recorded_bars,
         "recorded_contracts": recorded_contracts,
+        "recorded_start_ms": recorded_start_ms,
         "first_ms": window_first_ms,
         "last_ms": window_last_ms,
         "begin_day": window_begin_day,
         "end_day": window_end_day,
         "execute_from_ms": execute_from_ms,
+        "fill_begin_day": max(window_begin_day, first_live.trading_day) if first_live else window_begin_day,
+        "warmup_only": window_last_ms < execute_from_ms,
     }
 
 
@@ -340,27 +359,16 @@ def reconcile_records(
 
     # Compare raw per-contract bars in Trading's `bars.sqlite` against Warehouse.
     live_recorded_bars = window["recorded_bars"]
-    if live_recorded_bars:
-        rec_first_ms = min(k[0] for k in live_recorded_bars)
-        rec_last_ms = max(k[0] for k in live_recorded_bars)
-        rec_begin_day = min(v["trading_day"] for v in live_recorded_bars.values())
-        rec_end_day = max(v["trading_day"] for v in live_recorded_bars.values())
-        wh_recorded = {
-            key: val for key, val in reconcile_diff.warehouse_contract_bars(
-                replayed["data"], window["recorded_contracts"], minutes, rec_begin_day, rec_end_day
-            ).items()
-            if rec_first_ms <= key[0] <= rec_last_ms
-        }
-        recorded_summary, recorded_diffs = reconcile_diff.compare_bar_maps(
-            live_recorded_bars, wh_recorded, price_tol, volume_tol, roll_yield_tol,
-            include_series_fields=False,
-        )
-    else:
-        recorded_summary = {
-            "matched": 0, "missing_in_live": 0, "extra_in_live": 0, "mismatched": 0,
-            "max_close_diff": "0", "max_volume_diff": "0", "ok": True,
-        }
-        recorded_diffs = []
+    wh_recorded = {
+        key: val for key, val in reconcile_diff.warehouse_contract_bars(
+            replayed["data"], window["recorded_contracts"], minutes, window["begin_day"], window["end_day"]
+        ).items()
+        if window["recorded_start_ms"] <= key[0] <= window["last_ms"]
+    }
+    recorded_summary, recorded_diffs = reconcile_diff.compare_bar_maps(
+        live_recorded_bars, wh_recorded, price_tol, volume_tol, roll_yield_tol,
+        include_series_fields=False,
+    )
 
     live_fills = []
     for fill in live_fills_raw:
@@ -372,11 +380,7 @@ def reconcile_records(
             fill["venue"], fill["symbol"], day
         )
         live_fills.append({**fill, "contract": contract})
-    # When warmup bars were replayed without orders, only post-warmup live days can produce live fills.
-    fill_window_begin = begin_day or (
-        min(v["trading_day"] for v in live_recorded_bars.values())
-        if live_recorded_bars else window["begin_day"]
-    )
+    fill_window_begin = window["fill_begin_day"]
     bt_fills = []
     for row in replayed["fills"].iter_rows(named=True):
         day = row["trading_day"].isoformat() if hasattr(row["trading_day"], "isoformat") else str(row["trading_day"])
@@ -413,6 +417,7 @@ def reconcile_records(
             "window_begin_day": window["begin_day"],
             "window_end_day": window["end_day"],
             "fill_window_begin": fill_window_begin,
+            "warmup_only": window["warmup_only"],
         },
         "summary": {
             "bars": bar_summary,
@@ -456,7 +461,8 @@ def reconcile(
     first_step_day = steps[0][1].bars[0].trading_day
     _, _, native_to_contract = reconcile_live.instance_symbol_maps(instance, first_step_day)
     recorded_raw = reconcile_live.read_recorded_bars(
-        trading_account, instance.period, set(native_to_contract)
+        trading_account, instance.period, set(native_to_contract),
+        steps[0][1].bars[0].end_ms, steps[-1][1].bars[0].end_ms,
     )
     journal = reconcile_live.read_live_fills(trading_account, instance_id)
     return reconcile_records(
@@ -536,7 +542,8 @@ def format_report(report: dict) -> str:
     meta = report["metadata"]
     summary = report["summary"]
     lines = [
-        f"实盘 ↔ 回测对账结果: {'通过' if report['ok'] else '发现差异'}",
+        f"实盘 ↔ 回测对账结果: {'通过' if report['ok'] else '发现差异'}"
+        + ("（仅预热）" if meta.get("warmup_only") else ""),
         f"  实例: {meta['instance_id']} ({meta['package']})"
         + (f" | 回测: {meta['run_id']}" if meta["run_id"] else ""),
         f"  数据版本: {meta['dataset_version'][:12]} | 周期: {meta['period']} | "

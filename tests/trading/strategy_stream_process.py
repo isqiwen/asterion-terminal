@@ -102,6 +102,8 @@ def main():
             rpc(host, 'stop_strategy', dict(id=config.id))
             with sqlite3.connect(root / 'runs/live-window.sqlite') as db:
                 saved = wire.Instance.FromString(db.execute('SELECT value FROM configuration').fetchone()[0])
+                assert saved.HasField('warmup_steps') and saved.warmup_steps == 0
+                saved.ClearField('warmup_steps')
                 assert saved == config
                 rows = db.execute('SELECT input,decision FROM steps ORDER BY sequence').fetchall()
                 events = [row[0] for row in db.execute('SELECT event FROM events ORDER BY rowid')]
@@ -139,6 +141,7 @@ def main():
             resumed_config.id, resumed_config.resume_from = 'resumed-window', config.id
             resumed = rpc(host, 'start_strategy', resumed_config).instance
             assert resumed.state == trading.INSTANCE_STATE_READY and resumed.completed_steps == len(rows), resumed
+            assert rpc(host, 'get_strategy_run', dict(id=resumed_config.id)).configuration.warmup_steps == len(rows)
             assert resumed.last_decision == wire.Decision.FromString(rows[-1][1]), resumed
             paused = rpc(host, 'pause_strategy', dict(id=resumed_config.id, paused=True)).instance
             assert paused.paused and paused.events[-1].text == 'paused', paused
@@ -177,6 +180,7 @@ def main():
             overlap_config.warmup.CopyFrom(overlap_warmup)
             overlapped = rpc(host, 'start_strategy', overlap_config).instance
             assert overlapped.state == trading.INSTANCE_STATE_READY and overlapped.completed_steps == len(rows) + 1, overlapped
+            assert rpc(host, 'get_strategy_run', dict(id=overlap_config.id)).configuration.warmup_steps == len(rows) + 1
             rpc(host, 'stop_strategy', dict(id=overlap_config.id))
             other = wire.Instance()
             other.CopyFrom(resumed_config)

@@ -265,6 +265,7 @@ private:
     {
         std::string day;
         InstrumentId instrument;
+        std::string strategy_instance;
     };
 
     struct CancelCount

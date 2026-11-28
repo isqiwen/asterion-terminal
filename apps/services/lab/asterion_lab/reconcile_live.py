@@ -156,7 +156,8 @@ def read_live_run(trading_account: Path, instance_id: str) -> dict:
     return {"instance": instance, "steps": steps, "events": events}
 
 
-def read_recorded_bars(trading_account: Path, period: int, contracts: set[str] | None = None) -> list:
+def read_recorded_bars(trading_account: Path, period: int, contracts: set[str],
+                       first_ms: int, last_ms: int) -> list:
     """Read raw per-contract bars persisted in Trading's `strategies/bars.sqlite`."""
     bars_path = trading_account / "strategies" / "bars.sqlite"
     if not bars_path.is_file():
@@ -165,11 +166,11 @@ def read_recorded_bars(trading_account: Path, period: int, contracts: set[str] |
     with _open_readonly(bars_path) as conn:
         for end_ms, exchange, symbol, blob in conn.execute(
             "SELECT end_ms, exchange, symbol, bar FROM bars WHERE period = ? "
-            "ORDER BY end_ms ASC, exchange ASC, symbol ASC",
-            (period,),
+            "AND end_ms BETWEEN ? AND ? ORDER BY end_ms ASC, exchange ASC, symbol ASC",
+            (period, first_ms, last_ms),
         ):
             native = f"{exchange}/{symbol}"
-            if contracts is not None and native not in contracts:
+            if native not in contracts:
                 continue
             bar = WireBar()
             bar.ParseFromString(blob)
@@ -177,67 +178,62 @@ def read_recorded_bars(trading_account: Path, period: int, contracts: set[str] |
     return result
 
 
+def _journal_bodies(trading_account: Path):
+    query = "SELECT body FROM records WHERE sequence > 0 ORDER BY sequence ASC"
+    with _open_readonly(trading_account / "journal.sqlite") as current:
+        # Archiving moves rows from the current journal into a new immutable segment.
+        current.execute("BEGIN")
+        for (name,) in current.execute("SELECT name FROM segments ORDER BY first ASC"):
+            with _open_readonly(trading_account / "archives" / name) as segment:
+                yield from segment.execute(query)
+        yield from current.execute(query)
+
+
 def read_live_fills(trading_account: Path, instance_id: str) -> dict:
     """Read strategy orders and deduplicated trades attributed to `instance_id` from journal."""
-    journal_path = trading_account / "journal.sqlite"
-    if not journal_path.is_file():
-        return {"orders": {}, "fills": []}
-    sources = []
-    with _open_readonly(journal_path) as conn:
-        for (name,) in conn.execute("SELECT name FROM segments ORDER BY first ASC"):
-            seg_path = trading_account / "archives" / name
-            if seg_path.is_file():
-                sources.append(seg_path)
-    sources.append(journal_path)
-
     orders = {}
     fills_by_key = {}
-    for db_path in sources:
-        with _open_readonly(db_path) as conn:
-            for (body,) in conn.execute(
-                "SELECT body FROM records WHERE sequence > 0 ORDER BY sequence ASC"
-            ):
-                record = json.loads(body)
-                if "command" in record and "strategy" in record:
-                    source = record["strategy"]
-                    if source.get("instance") != instance_id:
-                        continue
-                    cmd = record["command"]
-                    if cmd.get("action") == "submit":
-                        order_id = cmd["order_id"]
-                        orders[order_id] = {
-                            "order_id": order_id,
-                            "trading_day": record.get("trading_day", ""),
-                            "venue": cmd["venue"],
-                            "symbol": cmd["symbol"],
-                            "side": cmd["side"],
-                            "offset": cmd["offset"],
-                            "quantity": parse_decimal(cmd["quantity"]),
-                            "price": parse_decimal(cmd["price"]),
-                            "target_sequence": source.get("target_sequence"),
-                            "leg": source.get("leg"),
-                        }
-                elif "trades_recorded" in record:
-                    for trade in record["trades_recorded"]:
-                        order_id = trade["order_id"]
-                        if order_id not in orders:
-                            continue
-                        dedup_key = (trade["trading_day"], trade["id"], trade["side"])
-                        if dedup_key in fills_by_key:
-                            continue
-                        fills_by_key[dedup_key] = {
-                            "trade_id": trade["id"],
-                            "order_id": order_id,
-                            "trading_day": trade["trading_day"],
-                            "venue": trade["venue"],
-                            "symbol": trade["symbol"],
-                            "side": trade["side"],
-                            "offset": trade["offset"],
-                            "quantity": parse_decimal(trade["quantity"]),
-                            "price": parse_decimal(trade["price"]),
-                            "trade_time": trade.get("trade_time", ""),
-                            "received_ms": trade.get("received_ms", 0),
-                        }
+    for (body,) in _journal_bodies(trading_account):
+        record = json.loads(body)
+        if "command" in record and "strategy" in record:
+            source = record["strategy"]
+            if source.get("instance") != instance_id:
+                continue
+            cmd = record["command"]
+            if cmd.get("action") == "submit":
+                order_id = cmd["order_id"]
+                orders[order_id] = {
+                    "order_id": order_id,
+                    "trading_day": record.get("trading_day", ""),
+                    "venue": cmd["venue"],
+                    "symbol": cmd["symbol"],
+                    "side": cmd["side"],
+                    "offset": cmd["offset"],
+                    "quantity": parse_decimal(cmd["quantity"]),
+                    "price": parse_decimal(cmd["price"]),
+                    "target_sequence": source.get("target_sequence"),
+                    "leg": source.get("leg"),
+                }
+        elif "trades_recorded" in record:
+            for trade in record["trades_recorded"]:
+                order_id = trade["order_id"]
+                dedup_key = (trade["trading_day"], trade["id"], trade["side"])
+                if order_id not in orders:
+                    fills_by_key.pop(dedup_key, None)
+                    continue
+                fills_by_key[dedup_key] = {
+                    "trade_id": trade["id"],
+                    "order_id": order_id,
+                    "trading_day": trade["trading_day"],
+                    "venue": trade["venue"],
+                    "symbol": trade["symbol"],
+                    "side": trade["side"],
+                    "offset": trade["offset"],
+                    "quantity": parse_decimal(trade["quantity"]),
+                    "price": parse_decimal(trade["price"]),
+                    "trade_time": trade.get("trade_time", ""),
+                    "received_ms": trade.get("received_ms", 0),
+                }
     fills = sorted(
         fills_by_key.values(),
         key=lambda f: (f["trading_day"], f["received_ms"], f["trade_id"], f["side"]),
