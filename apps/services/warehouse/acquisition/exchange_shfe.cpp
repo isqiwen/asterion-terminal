@@ -683,8 +683,8 @@ Parsed parse_shanghai(
         } else
             code_text = text(row.at("INSTRUMENTID"));
         const auto contract = contract_of(exchange, code_text, day);
-        if (!contract)
-            continue; // Options and summary rows are not futures contracts.
+        if (!contract || ine_products.contains(product_of(*contract)) != (exchange == "INE"))
+            continue;
         unique_contract(seen, *contract);
         const auto n = [&](const char* key, int shift = 0) {
             return number(row.at(key), shift);

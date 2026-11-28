@@ -25,12 +25,17 @@ const std::string shfe_daily = R"({"report_date":"20261030","o_code":"0000","o_c
  {"PRODUCTGROUPID":"rb", "DELIVERYMONTH":"2701", "OPENPRICE":"0", "HIGHESTPRICE":"", "LOWESTPRICE":0,
  "CLOSEPRICE":3400, "SETTLEMENTPRICE":3399.123456, "PRESETTLEMENTPRICE":3380,
  "VOLUME":12345678901234567890, "OPENINTEREST":2000},
+ {"PRODUCTGROUPID":"sc", "DELIVERYMONTH":"2701", "OPENPRICE":"0", "HIGHESTPRICE":"", "LOWESTPRICE":0,
+ "CLOSEPRICE":3400, "SETTLEMENTPRICE":3399.123456, "PRESETTLEMENTPRICE":3380,
+ "VOLUME":12345678901234567890, "OPENINTEREST":2000},
  {"PRODUCTGROUPID":"rb", "DELIVERYMONTH":"小计"},
  {"PRODUCTGROUPID":"rb_tas", "DELIVERYMONTH":"2701"},
  {"PRODUCTGROUPID":"rb_efp", "DELIVERYMONTH":"2701"},
  {"PRODUCTID":"rb_tas", "DELIVERYMONTH":"2701"}]})";
 const std::string shfe_settlement = R"({"report_date":"20261030","o_code":"0000","o_cursor":[
  {"INSTRUMENTID":"rb2701", "SPECLONGMARGINRATIO":0.15,"SPECSHORTMARGINRATIO":0.16,
+ "TRADEFEERATIO":0.05,"TRADEFEEUNIT":0,"TTRADEFEERATIO":0.025,"TTRADEFEEUNIT":0},
+ {"INSTRUMENTID":"sc2701", "SPECLONGMARGINRATIO":0.15,"SPECSHORTMARGINRATIO":0.16,
  "TRADEFEERATIO":0.05,"TRADEFEEUNIT":0,"TTRADEFEERATIO":0.025,"TTRADEFEEUNIT":0}]})";
 const std::string czce_settlement =
     "郑州商品交易所期货结算参数表(2026-10-30)\n" "合约代码|交易保证金率(%)|手续费收取方式|交易手续费|日内平今仓交易手续费\n" "MA701|8|比例值|0.50|1.25\n" "AP611|20|绝对值|5.00|10.00\n";
@@ -548,11 +553,16 @@ TEST_F(ExchangeSources, ExactDecimalsMissingPricesAndFeeBasesReachParquet)
         });
         auto daily = source.daily(exchange, "2026-10-30");
         ASSERT_EQ(daily.size(), 1);
+        const auto contract =
+            std::string_view(exchange) == "SHFE" ? "SHFE/rb/2027-01" : "INE/sc/2027-01";
+        EXPECT_EQ(daily.front().contract, contract);
         EXPECT_EQ(daily[0].close, wh::Cell{});
         EXPECT_EQ(std::get<std::string>(daily[0].settlement), "3399.123456");
         EXPECT_EQ(std::get<std::string>(daily[0].volume), "12345678901234567890");
         EXPECT_EQ(daily[0].amount, wh::Cell{}); // Preserve unverified turnover units as absent.
         const auto fees = source.settlement(exchange, "2026-10-30");
+        ASSERT_EQ(fees.size(), 1);
+        EXPECT_EQ(fees.front().contract, contract);
         EXPECT_EQ(std::get<std::string>(fees[0].fee_rate), "0.00005");
         EXPECT_EQ(std::get<std::string>(fees[0].close_today_fee_rate), "0.000025");
         wh::Store store(root / exchange, "exchange");
