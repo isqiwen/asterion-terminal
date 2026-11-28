@@ -61,7 +61,6 @@ flowchart LR
 
 ## 待定问题
 
-- **Warehouse 修复部署验收**：在 research 升级后重采报价单位，确认六交易所核验完成，并在仓单表验证无效日期显示通用错误。
 - **macOS 测试安装包局域网连接**：macOS 27.0 临时签名安装包连接服务返回 `RPC host unreachable`，且未显示本地网络授权提示；同机独立 TLS 客户端连接正常，需定位应用身份识别与正式签名后的权限行为。
 - **偶发前端时序用例**：`LivePanel.test.tsx` 的 “a split close keeps only remaining lots…” 在 2026-11-21 偶发失败一次，随后完整单元测试连续 8 次、该文件单独 10 次均通过；复现时需定位时序原因。
 - **macOS 回归负载超时**：macOS 并行完整回归中的逐日采集批量发布、Lab 回测服务（`lab_backtest_service`）与 Lab 重启等待（`lab_service`）检查偶发超时，串行复跑通过；需定位负载与时序影响。
