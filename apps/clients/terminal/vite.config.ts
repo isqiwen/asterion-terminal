@@ -258,7 +258,20 @@ export default defineConfig({
   // Concurrent dev servers (desktop + parallel E2E shards) must not share Vite's dep cache.
   cacheDir: process.env.ASTERION_DEV_PORT ? resolve(root, `node_modules/.vite-${port}`) : undefined,
   base: "./",
-  plugins: [react(), ...(process.env.ASTERION_DESKTOP_DEV === "1" ? [] : [localCore()])],
+  plugins: [
+    react(),
+    {
+      name: "reload-language-resources",
+      hotUpdate({ file, modules, timestamp }) {
+        if (!/\/locales\/[^/]+\.json$/.test(file)) return;
+        for (const module of modules)
+          this.environment.moduleGraph.invalidateModule(module, undefined, timestamp, true);
+        this.environment.hot.send({ type: "full-reload" });
+        return [];
+      },
+    },
+    ...(process.env.ASTERION_DESKTOP_DEV === "1" ? [] : [localCore()]),
+  ],
   resolve: {
     alias: {
       "@asterion/workbench": resolve(root, "apps/clients/terminal/src/host"),
