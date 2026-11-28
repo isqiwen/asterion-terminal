@@ -115,6 +115,22 @@ const names = () =>
     .slice(1)
     .map(row => within(row).getAllByRole("button")[0]!.textContent);
 
+test("a cancelled sweep shows its interrupted status in history and its report", async () => {
+  serve([
+    run("cancelled-0", 1, {
+      sweepId: "cancelled",
+      sweepSize: 12,
+      sweepSucceeded: 0,
+      state: RunState.INTERRUPTED,
+    }),
+  ]);
+  view();
+  expect(await screen.findByText("已中断 0 / 12")).toBeTruthy();
+  fireEvent.click(screen.getByRole("row", { name: /已中断 0 \/ 12/ }));
+  expect(await screen.findByText("已中断 0 / 1")).toBeTruthy();
+  expect(screen.queryByText("已完成 0 / 12")).toBeNull();
+});
+
 test("records say what each run ran, sort by a figure and narrow by search", async () => {
   serve([run("r1", 1, { label: "快线" }), run("r2", 2, { symbols: ["DCE/i"] })]);
   view();
@@ -171,11 +187,13 @@ test("clicking a record row opens its report", async () => {
   await screen.findByRole("heading", { name: "快线" });
 });
 
-test("a rolling account report cannot be deployed as a single strategy configuration", async () => {
+test("a rolling account has its own report without single-configuration actions", async () => {
   serve([run("scan-rolling", 1, { sweepId: "scan" })]);
-  view({ run: "scan-rolling" });
+  view();
+  fireEvent.click(await screen.findByRole("row", { name: /scan-rolling/ }));
   await screen.findByRole("heading", { name: "月度收益" });
   expect(screen.queryByRole("button", { name: "去部署" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "滑点压力测试" })).toBeNull();
 });
 
 test("a run opened from the strategy view shows its report and takes a name", async () => {

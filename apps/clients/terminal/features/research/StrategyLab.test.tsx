@@ -183,10 +183,12 @@ test("only a successful individual run offers deployment from a restored report"
   await act(async () => drafts.write(reportKey, { kind: "run", id: "scan-rolling" }));
   await screen.findByText("已完成");
   expect(screen.queryByRole("button", { name: "去部署" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "滑点压力测试" })).toBeNull();
   await act(async () => drafts.write(reportKey, { kind: "sweep", id: "scan" }));
   await screen.findByRole("region", { name: "排名" });
   expect(screen.queryByRole("button", { name: "去部署" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "查看" }));
+  expect(await screen.findByRole("button", { name: "滑点压力测试" })).toBeTruthy();
   fireEvent.click(await screen.findByRole("button", { name: "去部署" }));
   expect(context.navigate).toHaveBeenCalledWith("workspace.trading-strategies", {
     params: { run: "candidate" },
@@ -668,6 +670,11 @@ test("selected strategies run as one batch and compare on the same settings", as
 });
 
 test("openStrategy workspaceParams opens the generated strategy on code tab with adopted factor scope", async () => {
+  saveConditions({
+    items: [],
+    active: "",
+    current: scopeOf({ ...defaultForm(), minutes: "5" }),
+  });
   vi.mocked(lab).mockReset();
   vi.mocked(lab).mockImplementation(async operation => {
     switch (operation?.case) {
@@ -688,6 +695,7 @@ test("openStrategy workspaceParams opens the generated strategy on code tab with
     snapshot: { research_directory: "/research" },
     workspaceParams: {
       openStrategy: "momentum_strategy.MomentumStrategy",
+      minutes: "0",
       symbols: "SHFE/rb, SHFE/cu, SHFE/al",
       begin: "2025-01-02",
       end: "2026-02-13",
@@ -709,6 +717,7 @@ test("openStrategy workspaceParams opens the generated strategy on code tab with
     expect(screen.getByRole("button", { name: "移除 {symbol} SHFE/rb" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "移除 {symbol} SHFE/cu" })).toBeTruthy();
     expect((screen.getByLabelText("开始日") as HTMLInputElement).value).toBe("2025-01-02");
+    expect((screen.getByLabelText("周期") as HTMLSelectElement).value).toBe("0");
     expect((screen.getByLabelText("留出日") as HTMLInputElement).value).toBe("2026-01-05");
   });
 });

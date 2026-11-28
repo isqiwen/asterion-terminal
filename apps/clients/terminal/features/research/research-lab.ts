@@ -245,8 +245,14 @@ export function slippageStressBase(detail: RunDetail, fallbackRepository: string
     data?: { symbols?: string[]; begin_day?: string; end_day?: string; bars?: { period?: string } };
     costs?: { deposit?: string; slippage_ticks?: number; fee_multiplier?: string | number };
     risk?: Record<string, string | number>;
-    statistics?: { annual_periods?: number | null; zero_risk_free?: boolean; holdout_day?: string };
+    statistics?: {
+      annual_periods?: number | null;
+      zero_risk_free?: boolean;
+      holdout_day?: string;
+      rolling?: unknown;
+    };
   };
+  if (rec.statistics?.rolling) throw new Error(t("滑点压力测试需要选择单次候选回测"));
   const period = rec.data?.bars?.period ?? "day";
   const minutes = period === "day" ? 0 : Number(period.replace(/m$/, ""));
   const params: Record<string, ValueInit> = {};

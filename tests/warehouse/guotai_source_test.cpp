@@ -259,6 +259,28 @@ TEST_F(GuotaiSource, VerifiedRulesCoverSixExchangesOfflineAndDetectPublicChanges
     EXPECT_NE(failed.error().message().find("GFEX/lc"), std::string::npos);
 }
 
+TEST_F(GuotaiSource, MonthlyPriceTicksUseProductRulesUnlessAContractRuleApplies)
+{
+    const wh::PriceTick
+        product{"CZCE", "ap", {}, "2026-01-01", "2027-01-01", Decimal::parse("1"), ""};
+    auto observed = product;
+    observed.contract = std::string("CZCE/ap/2026-12");
+    auto specific = observed;
+    specific.price_tick = Decimal::parse("2");
+    std::vector verified{product};
+    std::vector observations{observed};
+    EXPECT_NO_THROW(wh::verify_price_ticks(verified, observations, "2026-11-26"));
+    verified.push_back(specific);
+    EXPECT_THROW(
+        wh::verify_price_ticks(verified, observations, "2026-11-26"),
+        std::invalid_argument);
+    observations[0].price_tick = Decimal::parse("2");
+    EXPECT_NO_THROW(wh::verify_price_ticks(verified, observations, "2026-11-26"));
+    verified[1].effective_from = "2026-12-01";
+    observations[0].price_tick = Decimal::parse("1");
+    EXPECT_NO_THROW(wh::verify_price_ticks(verified, observations, "2026-11-26"));
+}
+
 TEST_F(GuotaiSource, PublicReportsPublishHistoricalChangesThroughMarket)
 {
     if (!std::getenv("ASTERION_GUOTAI_ACCEPTANCE"))

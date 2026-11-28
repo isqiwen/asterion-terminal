@@ -126,7 +126,7 @@
   "交易单位": "Trading unit",
   "报价单位": "Quote unit",
   "最小变动说明": "Tick description",
-  "交割月份说明": "Delivery months",
+  "交割方式": "Delivery method",
   "交易时间": "Trading hours",
   "多头保证金率": "Long margin rate",
   "空头保证金率": "Short margin rate",

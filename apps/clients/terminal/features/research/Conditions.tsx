@@ -260,39 +260,40 @@ function ConditionDialog<F extends { symbols: string }>({
         close();
       }}
     >
-      {/* Focus starts here: the symbol field opens its list when focused. */}
-      <h2 id={heading} tabIndex={-1}>
-        {title}
-      </h2>
-      <div className="lab-scope-fields">
-        {fields(form, patch => setForm(previous => ({ ...previous, ...patch })))}
-      </div>
-      <footer>
-        {activeName && (
-          <DeleteRecord
-            name={activeName}
-            remove={() => {
-              remove(activeName);
-              close();
-            }}
-          />
-        )}
-        <span className="lab-spacer" />
-        <button type="button" onClick={close}>
-          {t("取消")}
-        </button>
-        <button
-          type="button"
-          className="primary"
-          disabled={!hasSymbols}
-          onClick={() => {
-            apply(form);
-            close();
-          }}
-        >
-          {t("完成")}
-        </button>
-      </footer>
+      <form
+        className="lab-scope-form"
+        onSubmit={event => {
+          event.preventDefault();
+          apply(form);
+          close();
+        }}
+      >
+        {/* Focus starts here: the symbol field opens its list when focused. */}
+        <h2 id={heading} tabIndex={-1}>
+          {title}
+        </h2>
+        <div className="lab-scope-fields">
+          {fields(form, patch => setForm(previous => ({ ...previous, ...patch })))}
+        </div>
+        <footer>
+          {activeName && (
+            <DeleteRecord
+              name={activeName}
+              remove={() => {
+                remove(activeName);
+                close();
+              }}
+            />
+          )}
+          <span className="lab-spacer" />
+          <button type="button" onClick={close}>
+            {t("取消")}
+          </button>
+          <button type="submit" className="primary" disabled={!hasSymbols}>
+            {t("完成")}
+          </button>
+        </footer>
+      </form>
     </dialog>
   );
 }

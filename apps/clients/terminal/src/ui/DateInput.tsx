@@ -1,4 +1,4 @@
-import { useRef, type InputHTMLAttributes } from "react";
+import { useRef, type ComponentProps } from "react";
 import { translate } from "../i18n";
 import { Icon } from "./Icon";
 
@@ -9,7 +9,7 @@ export function DateInput({
   value,
   onChange,
   ...field
-}: Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "value" | "onChange"> & {
+}: Omit<ComponentProps<"input">, "type" | "value" | "onChange"> & {
   value: string;
   onChange: (value: string) => void;
 }) {

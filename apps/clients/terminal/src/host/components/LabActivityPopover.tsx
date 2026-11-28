@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { RunState, TaskKind, type LabTask } from "../../generated/asterion/lab_pb";
 import { translate, type MessageValues } from "../../i18n";
+import { diagnosticSummary } from "../../i18n/errors";
 import { Icon } from "../../ui/Icon";
 import { StatusBadge, type Tone } from "../../ui/StatusBadge";
 import { ActionError, useActionError } from "../action-error";
@@ -234,7 +235,7 @@ function LabTasksPopover({
                           )}
                           {task.error && (
                             <span className="lab-activity-error" title={task.error}>
-                              {task.error}
+                              {diagnosticSummary(task.error) ?? task.error}
                             </span>
                           )}
                         </li>

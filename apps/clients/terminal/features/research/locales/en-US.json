@@ -583,5 +583,8 @@
   "评价记录对比": "Evaluation comparison",
   "累计 IC 对比": "Cumulative IC comparison",
   "仅当前因子": "Factor only",
-  "完整模块": "Full module"
+  "完整模块": "Full module",
+  "结束日不能早于开始日": "End date must not be before start date",
+  "{state} {done} / {count}": "{state} {done} / {count}",
+  "滑点压力测试需要选择单次候选回测": "Slippage stress requires an individual candidate backtest"
 }

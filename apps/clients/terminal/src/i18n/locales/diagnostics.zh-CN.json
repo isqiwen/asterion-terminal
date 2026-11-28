@@ -172,7 +172,7 @@
   "invalid cached CTP catalog": "缓存的 CTP 合约目录无效。",
   "invalid historical OHLCV bar": "历史 K 线价格关系或数量校验失败",
   "invalid historical contract identity": "历史合约身份无效，请使用交易所、品种和完整交割年月。",
-  "invalid historical daily trading date": "历史日线的交易日期无效。",
+  "invalid trading date": "交易日期无效。",
   "invalid historical data source": "历史数据源标识无效。",
   "invalid historical timestamp": "历史数据时间无效。",
   "invalid live trading field": "实盘交易字段无效。",
@@ -191,7 +191,7 @@
   "invalid trading archive reference": "封存交易记录引用无效。",
   "invalid trading journal header": "交易账本头记录无效",
   "invalid unsent live order result": "未发送实盘委托的记录结果无效。",
-  "invalid working order limit": "在途委托数上限无效。",
+  "invalid working order limit": "在途委托数上限必须是正整数。",
   "limit price deviates from the latest price beyond the session limit": "限价偏离最新价超过本会话的上限，委托未发送。",
   "limit price is outside the exchange price limits": "限价超出交易所涨跌停范围。",
   "limit price must be a positive multiple of the price tick": "限价必须是最小变动价位的正整数倍。",
@@ -346,7 +346,6 @@
   "unknown futures exchange": "交易所无效，请选择支持的期货交易所。",
   "contract must be EXCHANGE/product/YYYY-MM": "合约必须使用“交易所/品种/交割年月”格式，如 SHFE/rb/2026-05。",
   "invalid decimal": "请输入最多八位小数的数值。",
-  "invalid working order limit": "在途委托数上限必须是正整数。",
   "market catalog not ready": "合约目录暂未就绪，请等待行情服务加载完成后重试。",
   "decimal requires canonical digits and at most eight places": "数值最多保留八位小数，整数部分不能有多余前导零。",
   "decimal overflow": "数值超出支持的范围。",
@@ -432,5 +431,7 @@
   "a running or waiting factor evaluation cannot be deleted": "运行中或排队中的因子评价不能删除",
   "factor batch id is invalid or already used": "批量因子评价编号无效或已被占用",
   "a factor batch requires one or more evaluations": "批量因子评价至少需要选择一个因子",
-  "factor batch contains duplicate evaluation ids": "批量因子评价包含重复的评价编号"
+  "factor batch contains duplicate evaluation ids": "批量因子评价包含重复的评价编号",
+  "backtest first_day must not be after last_day": "结束日不能早于开始日",
+  "cancelled": "任务已取消"
 }

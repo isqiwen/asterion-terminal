@@ -282,23 +282,27 @@ export function comparePortfolio(
   if (commonDays.length < 3) return null;
   const firstDay = commonDays[0]!;
   const lastDay = commonDays.at(-1)!;
+  const openingNavs = navMaps.map(
+    map => [...map].filter(([day]) => day < firstDay).at(-1)?.[1] ?? 1,
+  );
   if (
+    openingNavs.some(nav => nav <= 0) ||
     navMaps.some(map => [...map].some(([day, nav]) => day >= firstDay && day < lastDay && nav <= 0))
   )
     return null;
 
-  const seriesReturns = navMaps.map(map => {
-    const rets: number[] = [];
-    for (let i = 1; i < commonDays.length; i++) {
-      const prev = map.get(commonDays[i - 1]!)!;
-      const cur = map.get(commonDays[i]!)!;
-      rets.push(cur / prev - 1);
-    }
-    return rets;
+  const seriesReturns = navMaps.map((map, index) => {
+    let previous = openingNavs[index]!;
+    return commonDays.map(day => {
+      const current = map.get(day)!;
+      const value = current / previous - 1;
+      previous = current;
+      return value;
+    });
   });
 
   const n = details.length;
-  const m = commonDays.length - 1;
+  const m = commonDays.length;
   const means = seriesReturns.map(r => r.reduce((s, v) => s + v, 0) / m);
   const stds = seriesReturns.map((r, idx) => {
     const mu = means[idx]!;
@@ -340,14 +344,14 @@ export function comparePortfolio(
   }
 
   const portReturns: number[] = [];
-  const nav: number[] = [1];
+  const nav: number[] = [];
   let peak = 1;
   let maxDrawdown = 0;
   for (let tIdx = 0; tIdx < m; tIdx++) {
     let r = 0;
     for (let i = 0; i < n; i++) r += weights[i]! * seriesReturns[i]![tIdx]!;
     portReturns.push(r);
-    const nextNav = nav[tIdx]! * (1 + r);
+    const nextNav = (nav.at(-1) ?? 1) * (1 + r);
     nav.push(nextNav);
     if (nextNav > peak) peak = nextNav;
     const dd = peak > 0 ? (peak - nextNav) / peak : 0;

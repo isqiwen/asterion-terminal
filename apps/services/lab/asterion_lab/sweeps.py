@@ -302,16 +302,17 @@ def sweep_info(runs_store, sweep_id: str, meta: dict, running: int, queued: int)
         if rolling_row is not None:
             rows.append(rolling_row)
     succeeded = sum(1 for row in rows if row["state"] == "succeeded")
-    failed_rows = [row for row in rows if row["state"] in ("failed", "interrupted", "stopped")]
+    failed_rows = [row for row in rows if row["state"] == "failed"]
+    interrupted = sum(row["state"] in ("interrupted", "stopped") for row in rows)
     failed = len(failed_rows)
     first_error = next((row["error"] for row in failed_rows if row.get("error")), "")
     total = max(meta["total"], len(rows))
-    done = succeeded + failed
+    done = succeeded + failed + interrupted
     if running or queued:
         state = "running"
     elif succeeded == total and total > 0:
         state = "succeeded"
-    elif any(row["state"] == "interrupted" for row in failed_rows) or done < total:
+    elif interrupted or done < total:
         state = "interrupted"
     else:
         state = "failed"

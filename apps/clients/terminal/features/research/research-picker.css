@@ -443,6 +443,11 @@ button.lab-scope-cta:enabled:not([aria-disabled="true"]):is(:hover, :active) {
   font-size: var(--font-size-lg);
   outline: none;
 }
+.lab-scope-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
 .lab-scope-dialog h3 {
   margin: 0 0 var(--space-3);
   color: var(--muted);

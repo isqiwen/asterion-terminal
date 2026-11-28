@@ -107,14 +107,16 @@ export function StrategyLab(context: TerminalContext) {
     const symbols = context.workspaceParams?.symbols ?? "";
     const begin = context.workspaceParams?.begin ?? "";
     const end = context.workspaceParams?.end ?? "";
+    const minutes = context.workspaceParams?.minutes ?? "";
     const holdoutDay = context.workspaceParams?.holdoutDay ?? "";
-    if (symbols || begin || end || holdoutDay) {
+    if (symbols || begin || end || minutes || holdoutDay) {
       const symbolList = symbolsOf(symbols);
       const next: RunForm = {
         ...form,
         ...(symbols ? { symbols } : {}),
         ...(begin ? { begin } : {}),
         ...(end ? { end } : {}),
+        ...(minutes ? { minutes } : {}),
         holdoutDay,
         validation: holdoutDay ? "holdout" : "none",
         multiSymbolMode: symbolList.length > 1 ? "portfolio" : undefined,

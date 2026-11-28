@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { lab } from "../../src/bridge/lab";
+import { Period } from "../../src/generated/asterion/common_pb";
 import { RunState, TaskKind, type FactorResult } from "../../src/generated/asterion/lab_pb";
 import { ActionError, useActionError } from "../../src/host/action-error";
 import { useLabActivity } from "../../src/host/lab-activity";
@@ -611,6 +612,11 @@ export function FactorLab(context: TerminalContext) {
             if (symbols) params.symbols = symbols;
             if (target.evaluation?.firstDay) params.begin = target.evaluation.firstDay;
             if (target.evaluation?.lastDay) params.end = target.evaluation.lastDay;
+            if (target.evaluation)
+              params.minutes =
+                target.evaluation.period === Period.DAY
+                  ? "0"
+                  : Period[target.evaluation.period]!.replace("MINUTES_", "");
             if (target.evaluation?.holdoutDay) params.holdoutDay = target.evaluation.holdoutDay;
             context.navigate("workspace.lab-strategies", { params });
           }}

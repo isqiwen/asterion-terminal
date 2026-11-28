@@ -120,6 +120,8 @@ def summary(item, row):
         )
         parameters(item.params, row["params"])
         run_settings(item.settings, row["settings"])
+        if rolling_info := row["settings"]["statistics"].get("rolling"):
+            item.sweep_id = rolling_info["sweep"]
     return item
 
 
@@ -1313,6 +1315,9 @@ class Service:
             or request.id in self.bayes
         )
         if not reply.active:
+            for item in reply.runs:
+                if item.state == RunState.RUN_STATE_UNSPECIFIED:
+                    item.state = RunState.RUN_STATE_INTERRUPTED
             pbo_res = await self.read(sweeps.compute_sweep_pbo, self.runs, rows)
             if pbo_res is not None:
                 reply.pbo = pbo_res["pbo"]
@@ -1709,4 +1714,6 @@ class Service:
                 or row["sweep"] in self.rolling
                 or row["sweep"] in self.bayes
             )
+            if row["sweep"] and row["sweep_running"]:
+                row["state"] = "running"
             summary(result.runs.add(), row)

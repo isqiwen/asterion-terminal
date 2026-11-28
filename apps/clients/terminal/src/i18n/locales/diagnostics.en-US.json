@@ -172,7 +172,7 @@
   "invalid cached CTP catalog": "The cached CTP catalog is invalid.",
   "invalid historical OHLCV bar": "invalid historical OHLCV bar",
   "invalid historical contract identity": "invalid historical contract identity",
-  "invalid historical daily trading date": "invalid historical daily trading date",
+  "invalid trading date": "invalid trading date",
   "invalid historical data source": "invalid historical data source",
   "invalid historical timestamp": "invalid historical timestamp",
   "invalid live trading field": "invalid live trading field",
@@ -191,7 +191,7 @@
   "invalid trading archive reference": "invalid trading archive reference",
   "invalid trading journal header": "invalid trading journal header",
   "invalid unsent live order result": "The recorded result for an unsent live order is invalid.",
-  "invalid working order limit": "invalid working order limit",
+  "invalid working order limit": "The working order limit must be a positive whole number.",
   "limit price deviates from the latest price beyond the session limit": "limit price deviates from the latest price beyond the session limit",
   "limit price is outside the exchange price limits": "limit price is outside the exchange price limits",
   "limit price must be a positive multiple of the price tick": "limit price must be a positive multiple of the price tick",
@@ -346,7 +346,6 @@
   "unknown futures exchange": "The futures exchange is invalid. Select a supported exchange.",
   "contract must be EXCHANGE/product/YYYY-MM": "Use EXCHANGE/product/YYYY-MM for a contract, such as SHFE/rb/2026-05.",
   "invalid decimal": "Enter a decimal number with at most eight decimal places.",
-  "invalid working order limit": "The working order limit must be a positive whole number.",
   "market catalog not ready": "The contract catalog is not ready yet. Wait for Market to load it and retry.",
   "decimal requires canonical digits and at most eight places": "Use at most eight decimal places and no unnecessary leading zeros.",
   "decimal overflow": "The number is outside the supported range.",
@@ -432,5 +431,7 @@
   "a running or waiting factor evaluation cannot be deleted": "A running or waiting factor evaluation cannot be deleted.",
   "factor batch id is invalid or already used": "The factor batch ID is invalid or already in use.",
   "a factor batch requires one or more evaluations": "A factor batch requires one or more evaluations.",
-  "factor batch contains duplicate evaluation ids": "The factor batch contains duplicate evaluation IDs."
+  "factor batch contains duplicate evaluation ids": "The factor batch contains duplicate evaluation IDs.",
+  "backtest first_day must not be after last_day": "End date must not be before start date",
+  "cancelled": "Task cancelled"
 }

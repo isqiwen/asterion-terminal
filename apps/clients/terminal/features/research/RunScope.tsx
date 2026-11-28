@@ -169,6 +169,15 @@ function RunFields({
       <DateInput
         value={form[key]}
         placeholder={placeholder}
+        ref={input => {
+          input?.setCustomValidity(
+            key === "end" && form.begin && form.end && form.begin > form.end
+              ? t("结束日不能早于开始日")
+              : "",
+          );
+          input?.removeAttribute("aria-invalid");
+        }}
+        onInvalid={event => event.currentTarget.setAttribute("aria-invalid", "true")}
         onChange={value => change({ [key]: value })}
       />
     </label>

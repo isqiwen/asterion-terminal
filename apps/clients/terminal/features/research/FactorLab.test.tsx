@@ -670,6 +670,7 @@ test("generating a strategy from a factor report saves it and navigates to Strat
               id: "mom-1",
               evaluation: {
                 factor: "price.momentum",
+                period: 7,
                 firstDay: "2025-01-02",
                 lastDay: "2026-02-13",
                 holdoutDay: "2026-01-05",
@@ -725,6 +726,7 @@ test("generating a strategy from a factor report saves it and navigates to Strat
       begin: "2025-01-02",
       end: "2026-02-13",
       holdoutDay: "2026-01-05",
+      minutes: "0",
     },
   });
 });

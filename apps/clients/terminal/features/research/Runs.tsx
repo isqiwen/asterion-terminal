@@ -200,7 +200,12 @@ export function Runs(context: TerminalContext) {
   }, [shown, runs]);
 
   const rows = starredOnly
-    ? (runs ?? []).filter(run => Boolean(annotations[run.sweepId || run.id]?.starred))
+    ? (runs ?? []).filter(run =>
+        Boolean(
+          annotations[run.id === `${run.sweepId}-rolling` ? run.id : run.sweepId || run.id]
+            ?.starred,
+        ),
+      )
     : (runs ?? []);
   const byId = new Map((runs ?? []).map(run => [run.id, run]));
   const back = () => {
@@ -304,6 +309,15 @@ export function Runs(context: TerminalContext) {
     const sweepSucceeded = currentSweep
       ? currentSweep.runs.filter(item => item.state === RunState.SUCCEEDED).length
       : 0;
+    const sweepState = currentSweep?.active
+      ? RunState.RUNNING
+      : currentSweep?.runs.some(item =>
+            [RunState.INTERRUPTED, RunState.STOPPED, RunState.UNSPECIFIED].includes(item.state),
+          )
+        ? RunState.INTERRUPTED
+        : currentSweep?.runs.some(item => item.state === RunState.FAILED)
+          ? RunState.FAILED
+          : RunState.SUCCEEDED;
     const sweepAnchor = currentSweep?.runs[0]?.id;
     const sweepTitle = currentSweep?.runs[0]?.params[batchKey]
       ? t("批量回测 {id}", { id: recordTime(shown.id) })
@@ -331,7 +345,8 @@ export function Runs(context: TerminalContext) {
                     : "attention"
               }
             >
-              {t("已完成 {done} / {count}", {
+              {t("{state} {done} / {count}", {
+                state: t(states[runState(sweepState)]!),
                 done: sweepSucceeded,
                 count: currentSweep.runs.length,
               })}
@@ -523,7 +538,7 @@ export function Runs(context: TerminalContext) {
             </thead>
             <tbody>
               {rows.map(run => {
-                const group = run.sweepId;
+                const group = run.id === `${run.sweepId}-rolling` ? "" : run.sweepId;
                 const active = group ? run.sweepRunning : runState(run.state) === "running";
                 const comparable = !group && runState(run.state) === "succeeded";
                 const checked = !group && compared.includes(run.id);
@@ -626,7 +641,8 @@ export function Runs(context: TerminalContext) {
                                 : "attention"
                           }
                         >
-                          {t("已完成 {done} / {count}", {
+                          {t("{state} {done} / {count}", {
+                            state: t(states[active ? "running" : runState(run.state)]!),
                             done: run.sweepSucceeded,
                             count: run.sweepSize,
                           })}

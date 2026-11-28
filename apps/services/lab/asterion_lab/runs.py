@@ -401,9 +401,10 @@ class Runs:
         rows = [listed[identity] for identity in identities[:limit] if identity in listed]
         for row in rows:
             if row["sweep"]:
-                count, succeeded, running, compared = self.index.execute(f"""
+                count, succeeded, running, compared, interrupted = self.index.execute(f"""
                     select count(*), sum(r.state = 'succeeded'), sum(r.state = 'running'),
-                        count(json_extract(s.params, '$.{BATCH_STRATEGY}'))
+                        count(json_extract(s.params, '$.{BATCH_STRATEGY}')),
+                        sum(r.state in ('interrupted', 'stopped') or r.id is null)
                     from sweeps s left join runs r on r.id = s.run where s.sweep = ?
                     """, (row["sweep"],)).fetchone()
                 members = self.index.execute(
@@ -421,6 +422,8 @@ class Runs:
                     row["end_day"] = max(end for _, _, end in members)
                 row.update(sweep_size=count, sweep_succeeded=succeeded or 0,
                            sweep_running=bool(running), sweep_strategies=compared)
+                row["state"] = ("running" if running else "interrupted" if interrupted else
+                                "succeeded" if succeeded == count else "failed")
         strategies = [row[0] for row in self.index.execute("select distinct strategy from runs order by strategy")]
         return rows, len(identities) > limit, strategies
 

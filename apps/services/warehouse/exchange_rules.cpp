@@ -218,11 +218,17 @@ void verify_price_ticks(
     std::string_view day)
 {
     for (const auto& item : observed) {
-        const auto match = std::ranges::find_if(verified, [&](const PriceTick& rule) {
+        const auto applies = [&](const PriceTick& rule) {
             return rule.exchange == item.exchange && rule.product == item.product
-                && rule.contract == item.contract && rule.effective_from <= day
-                && day < rule.effective_until;
+                && rule.effective_from <= day && day < rule.effective_until;
+        };
+        auto match = std::ranges::find_if(verified, [&](const PriceTick& rule) {
+            return applies(rule) && rule.contract == item.contract;
         });
+        if (match == verified.end())
+            match = std::ranges::find_if(verified, [&](const PriceTick& rule) {
+                return applies(rule) && std::holds_alternative<std::monostate>(rule.contract);
+            });
         const auto target = std::holds_alternative<std::string>(item.contract)
             ? std::get<std::string>(item.contract)
             : item.exchange + "/" + item.product;

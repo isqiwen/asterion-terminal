@@ -39,6 +39,7 @@ import {
   saveConditions,
   savedForm,
   scopeOf,
+  slippageStressBase,
 } from "./research-lab";
 import { formatRunSummaryMarkdown } from "./research-markdown";
 import { readAnnotations, saveAnnotation } from "./research-storage";
@@ -416,6 +417,50 @@ test("factor strategies use retained history for default and long factor windows
     );
     expect(content).not.toContain("history_limit");
   }
+});
+
+test("slippage stress cannot discard a rolling account's candidate schedule", () => {
+  const detail = create(RunDetailSchema, {
+    record: JSON.stringify({
+      params: { candidates: [{ gross_weight: 0.3 }, { gross_weight: 0.6 }] },
+      statistics: { rolling: { training_days: 30, validation_days: 10 } },
+    }),
+  });
+  expect(() => slippageStressBase(detail, "/research")).toThrow("滑点压力测试需要选择单次候选回测");
+});
+
+test("portfolio comparisons include the first day's return from the opening capital", () => {
+  const run = (equities: number[]) =>
+    create(RunDetailSchema, {
+      record: JSON.stringify({ costs: { deposit: "1000000" } }),
+      days: equities.map((equity, index) => ({
+        tradingDay: `2026-11-${23 + index}`,
+        equity: { text: String(equity) },
+      })),
+    });
+  const portfolio = comparePortfolio(
+    [run([1030913.73, 1063548.9, 1097909.94]), run([1000000, 1000000, 1000000])],
+    "equal",
+  )!;
+  expect(portfolio.nav[0]).toBeCloseTo(1.015456865);
+  expect(portfolio.totalReturn).toBeCloseTo(0.04819307934837);
+});
+
+test("portfolio comparisons start overlapping histories from the preceding settlement", () => {
+  const run = (first: number, equities: number[]) =>
+    create(RunDetailSchema, {
+      record: JSON.stringify({ costs: { deposit: "100" } }),
+      days: equities.map((equity, index) => ({
+        tradingDay: `2026-11-${first + index}`,
+        equity: { text: String(equity) },
+      })),
+    });
+  const later = run(24, [110, 121, 133.1]);
+  const portfolio = comparePortfolio([run(23, [200, 220, 242, 266.2]), later], "equal")!;
+  expect(portfolio.days[0]).toBe("2026-11-24");
+  [1.1, 1.21, 1.331].forEach((value, index) => expect(portfolio.nav[index]).toBeCloseTo(value));
+  expect(portfolio.totalReturn).toBeCloseTo(0.331);
+  expect(comparePortfolio([run(23, [0, 110, 121, 133.1]), later], "equal")).toBeNull();
 });
 
 test("portfolio comparisons retain terminal losses and never bridge nonpositive equity", () => {

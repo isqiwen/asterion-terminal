@@ -749,6 +749,8 @@ def minutes_of(period) -> int:
 def config_of(admitted) -> Config:
     """A Config from an AdmittedRun message."""
     request = admitted.backtest
+    if request.first_day and request.last_day and request.first_day > request.last_day:
+        raise ValueError("backtest first_day must not be after last_day")
     params = {
         name: getattr(value, value.WhichOneof("value"))
         for name, value in request.params.items()

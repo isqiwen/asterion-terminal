@@ -112,6 +112,24 @@ test("switching presets, inline quick edits, revert, and explicit save/update wo
   expect(screen.queryByText("已修改")).toBeNull();
 });
 
+test("an inverted date range stays in the dialog until the end day is corrected", () => {
+  seed();
+  render(<Page />);
+  fireEvent.click(screen.getByRole("button", { name: "修改回测条件" }));
+  fireEvent.change(screen.getByLabelText("开始日"), { target: { value: "2026-11-26" } });
+  fireEvent.change(screen.getByLabelText("结束日"), { target: { value: "2026-11-25" } });
+  fireEvent.click(screen.getByRole("button", { name: "完成" }));
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  expect((screen.getByLabelText("结束日") as HTMLInputElement).validationMessage).toBe(
+    "结束日不能早于开始日",
+  );
+  expect(savedForm().begin).toBe("");
+  fireEvent.change(screen.getByLabelText("结束日"), { target: { value: "2026-11-27" } });
+  fireEvent.click(screen.getByRole("button", { name: "完成" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(savedForm().end).toBe("2026-11-27");
+});
+
 test("adopting settings updates only the draft unless an identical preset already exists", () => {
   seed();
   let adopt!: (fields: ScopeFields) => ScopeFields;

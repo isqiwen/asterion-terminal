@@ -28,7 +28,7 @@ const columnLabels: Record<string, string> = {
   trade_unit: "交易单位",
   quote_unit: "报价单位",
   tick_description: "最小变动说明",
-  delivery_description: "交割月份说明",
+  delivery_description: "交割方式",
   trading_hours: "交易时间",
   long_margin_rate: "多头保证金率",
   short_margin_rate: "空头保证金率",

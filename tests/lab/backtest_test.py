@@ -1412,6 +1412,22 @@ class Backtests(BacktestCase):
 
 
 class BacktestService(BacktestCase):
+    def test_inverted_dates_are_rejected_before_starting_a_run(self):
+        async def scenario():
+            async with self.service() as service:
+                request = Request(id=1)
+                run = request.start_backtest
+                run.CopyFrom(self.sweep_request("dates", [2], [4], 1).start_sweep.base)
+                run.id = "inverted-dates"
+                run.first_day, run.last_day = "2026-11-26", "2026-11-25"
+                response = await service.reply(request)
+                self.assertEqual(response.error.code, INVALID)
+                self.assertEqual(response.error.message, "backtest first_day must not be after last_day")
+                self.assertFalse(service.backtests)
+                self.assertIsNone(service.runs.get(run.id))
+
+        asyncio.run(scenario())
+
     def test_stored_contracts_and_their_minutes_are_listed(self):
         class Log:
             def write(self, *args, **kwargs):
@@ -1941,6 +1957,10 @@ class BacktestSweeps(BacktestCase):
             reply = (await service.reply(Request(id=1, get_sweep={"id": "walk"}))).get_sweep
             self.assertEqual(reply.rolling.state, SUCCEEDED, reply.rolling.error)
             self.assertEqual(reply.rolling.pinned.dataset_version, fixed_version)
+            self.assertEqual(reply.rolling.sweep_id, "walk")
+            summary = (await service.reply(Request(id=1, get_run_summary={"id": "walk-rolling"}))).get_run_summary
+            self.assertEqual(summary.sweep_id, "walk")
+            self.assertNotIn("candidates", summary.params)
             self.assertEqual({run.pinned.dataset_version for run in reply.runs}, {fixed_version})
             self.assertIn("out_of_sample_total_return", reply.rolling.metrics)
 
@@ -2095,7 +2115,14 @@ class BacktestSweeps(BacktestCase):
             reply = (await service.reply(Request(id=1, get_sweep={"id": "stopped"}))).get_sweep
             self.assertEqual(len(reply.runs), 9)
             self.assertIn(reply.runs[0].state, (RunState.RUN_STATE_INTERRUPTED, SUCCEEDED))
-            self.assertEqual({run.state for run in reply.runs[1:]}, {RunState.RUN_STATE_UNSPECIFIED})
+            self.assertEqual({run.state for run in reply.runs[1:]}, {RunState.RUN_STATE_INTERRUPTED})
+            activity = (await service.reply(Request(id=1, get_activity={}))).get_activity
+            recent = next(task for task in activity.recent if task.id == "stopped")
+            self.assertEqual(recent.state, RunState.RUN_STATE_INTERRUPTED)
+            self.assertEqual(recent.failed, 0)
+            self.assertEqual(recent.error, "")
+            listed = (await service.reply(Request(id=1, list_runs={}))).list_runs
+            self.assertEqual(listed.runs[0].state, RunState.RUN_STATE_INTERRUPTED)
             # Reusing a never-started candidate would attach unrelated results
             # to the cancelled sweep, including after a service restart.
             reused = Request(id=1)
