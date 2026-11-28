@@ -66,7 +66,9 @@ export function TradeMarket({
             }}
           />
         ) : (
-          <p className="subtle">{t("还没有自选合约")}</p>
+          <p className="subtle">
+            {t(watchlist.length || session.positions.length ? "无行情" : "还没有自选合约")}
+          </p>
         )}
       </div>
       <div className="trade-chart">

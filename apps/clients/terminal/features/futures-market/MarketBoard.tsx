@@ -211,7 +211,7 @@ export function MarketBoard({ market, context }: { market: MarketView; context: 
         {!rows.length && (
           <p className="market-search-empty" role="status">
             {t(
-              watchlist && !query
+              watchlist && !watchlist.length && !query
                 ? "还没有自选合约"
                 : quotes.length
                   ? "没有匹配的市场合约"

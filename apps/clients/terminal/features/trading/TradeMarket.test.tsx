@@ -21,6 +21,32 @@ const quote = (exchange: string, symbol: string) => ({
   quote: { last: { text: "100" }, exchangeMs: 1n, receivedMs: 1n },
 });
 
+test.each(["watchlist", "position"])(
+  "missing quotes keep the saved %s visible as unavailable",
+  source => {
+    const instrument = { exchange: "SHFE", symbol: "rb2610" };
+    render(
+      <TradeMarket
+        context={
+          {
+            snapshot: {
+              market_endpoint: { instruments: source === "watchlist" ? [instrument] : [] },
+            },
+          } as unknown as TerminalContext
+        }
+        market={{ board: create(BoardSchema) } as unknown as MarketView}
+        session={create(SessionSchema, {
+          positions: source === "position" ? [{ instrument }] : [],
+        })}
+        contract=""
+        select={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText("还没有自选合约")).toBeNull();
+    expect(screen.getAllByText("无行情")).toHaveLength(2);
+  },
+);
+
 test("holdings list before the watchlist, and choosing a row moves the contract", () => {
   const view = {
     board: create(BoardSchema, {
