@@ -127,7 +127,7 @@ struct LabSupervisor::Impl
         try {
             process = launch();
             log::info("lab started: pid={}", process->id());
-            answered = ready = unresponsive = false;
+            answered = ready = false;
             failures = 0;
             started = Clock::now();
             probe = started + 200ms;
@@ -164,11 +164,10 @@ struct LabSupervisor::Impl
                 if (!ready)
                     probe = Clock::now() + 250ms;
                 answered = true;
-                unresponsive = false;
                 failures = 0;
                 error.clear();
             } catch (const std::exception& failure) {
-                if (!answered && Clock::now() - started < 10s) {
+                if (!answered && Clock::now() - started < 20s) {
                     probe = Clock::now() + 250ms;
                 } else {
                     log::warn(
@@ -176,10 +175,7 @@ struct LabSupervisor::Impl
                         failures + 1,
                         failure.what());
                     if (++failures >= 3 || !answered) {
-                        unresponsive = true;
                         error = "lab heartbeat unavailable";
-                    }
-                    if (failures >= 3) {
                         stop();
                         retry = Clock::now() + 5s;
                     }
@@ -196,11 +192,10 @@ struct LabSupervisor::Impl
     {
         if (waiting.empty())
             return;
-        const bool failed = !process || unresponsive;
-        if (!failed && !answered)
+        if (process && !answered)
             return;
         for (auto& promise : waiting) {
-            if (failed)
+            if (!process)
                 promise.set_exception(
                     std::make_exception_ptr(Error(
                         ErrorCode::unavailable,
@@ -217,10 +212,9 @@ struct LabSupervisor::Impl
             return nullptr;
         return {
             {"state",
-                !process           ? "restarting"
-                    : unresponsive ? "unresponsive"
-                    : ready        ? "ready"
-                                   : "starting"},
+                !process    ? "restarting"
+                    : ready ? "ready"
+                            : "starting"},
             {"pid", process ? process->id() : 0},
             {"restarts", restarts},
             {"error", error}
@@ -322,7 +316,7 @@ struct LabSupervisor::Impl
     fs::path sockets;
 
     // Owned by the supervisor thread.
-    bool wanted = false, answered = false, ready = false, unresponsive = false;
+    bool wanted = false, answered = false, ready = false;
     std::unique_ptr<ChildProcess> process;
     Clock::time_point started{}, probe{}, retry{};
     unsigned failures = 0, restarts = 0;

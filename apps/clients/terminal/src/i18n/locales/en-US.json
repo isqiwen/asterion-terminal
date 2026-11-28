@@ -35,7 +35,6 @@
   "已停止": "Stopped",
   "已就绪": "Ready",
   "已连接": "Connected",
-  "异常": "Degraded",
   "操作与当前状态冲突": "The operation conflicts with the current state.",
   "操作失败": "Operation failed.",
   "操作已取消": "Operation cancelled.",

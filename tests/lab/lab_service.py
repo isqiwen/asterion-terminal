@@ -7,15 +7,17 @@ health and restarts it after it is killed. The lab exits with the Terminal.
 import json
 import os
 from pathlib import Path
+import shlex
 import signal
 import subprocess
 import sys
 import time
 
 
-def launch():
+def launch(**environment):
     return subprocess.Popen([sys.argv[1]], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                            stderr=subprocess.DEVNULL, text=True, encoding="utf-8")
+                            stderr=subprocess.DEVNULL, text=True, encoding="utf-8",
+                            env=os.environ | environment)
 
 
 def call(process, method, params=None):
@@ -109,8 +111,11 @@ finally:
 assert gone(resumed["pid"]), "the lab outlived the Terminal"
 process.wait(timeout=10)
 
-# The next Terminal starts a fresh lab; a first start is not a restart.
-process = launch()
+# A first request stays pending when a cold start misses its first health probe.
+slow_python = root / "slow-python"
+slow_python.write_text("#!/bin/sh\nsleep 11\nexec " + shlex.quote(os.environ["ASTERION_PYTHON"]) + ' "$@"\n')
+slow_python.chmod(0o700)
+process = launch(ASTERION_PYTHON=str(slow_python))
 try:
     call(process, "lab.endpoint")
     third = wait(process, ready)

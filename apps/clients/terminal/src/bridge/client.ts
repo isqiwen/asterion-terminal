@@ -16,7 +16,7 @@ export type { TerminalCommand, CommandParams, CommandCall, CommandHandler } from
 import type { TerminalCommand, CommandCall } from "./commands";
 // Lab as the Terminal runs it; it restarts by itself until it runs again.
 export type LabStatus = {
-  state: "starting" | "ready" | "unresponsive" | "restarting";
+  state: "starting" | "ready" | "restarting";
   pid: number;
   restarts: number;
   error: string;

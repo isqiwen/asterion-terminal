@@ -171,7 +171,6 @@ export function StatusIndicators({
           const [tone, state] = {
             ready: ["ok", ""],
             starting: ["", "启动中"],
-            unresponsive: ["danger", "异常"],
             restarting: ["danger", "重启中"],
           }[lab.state];
           return openResearch ? (
