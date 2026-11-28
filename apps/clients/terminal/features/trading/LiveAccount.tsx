@@ -185,9 +185,9 @@ export function LiveAccount({
         run={run}
         control={control}
       />
-      {stale && (
+      {live.recoveryRequired && (
         <p className="alert" role="alert">
-          {t("交易服务失联，显示的是最后读到的状态")}
+          {t("账本异常，账户已进入恢复模式并停止常规操作，请检查交易主机后重新打开会话。")}
         </p>
       )}
       {live.brokerState === BrokerState.FAILED && live.ctpError === -1008 && (

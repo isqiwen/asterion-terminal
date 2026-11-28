@@ -168,5 +168,6 @@
   "空": "Short",
   "挂单": "Working",
   "期限结构": "Term structure",
-  "副图": "Subchart"
+  "副图": "Subchart",
+  "历史行情暂不可用": "Historical bars unavailable"
 }

@@ -400,5 +400,7 @@
   "切片间隔须为 1000–60000 毫秒的整数。": "Slice interval must be an integer between 1000 and 60000 ms.",
   "已设 {n} 项": "{n} set",
   "已选 {n} 个合约": "{n} contracts selected",
-  "已填 {filled}/{total} 项必填": "{filled}/{total} required"
+  "已填 {filled}/{total} 项必填": "{filled}/{total} required",
+  "需恢复": "Recovery required",
+  "账本异常，账户已进入恢复模式并停止常规操作，请检查交易主机后重新打开会话。": "Ledger anomaly detected; the account entered recovery mode and halted routine actions. Inspect the trading host before reopening the session."
 }

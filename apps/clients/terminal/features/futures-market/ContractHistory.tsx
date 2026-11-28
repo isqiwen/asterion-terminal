@@ -12,7 +12,7 @@ import type { ChartBars, StoredContract } from "../../src/generated/asterion/lab
 import type { TerminalContext } from "../../src/host/feature-registry";
 import { useWorkspaceDraft } from "../../src/host/workspace/drafts";
 import { translate } from "../../src/i18n";
-import { ErrorNotice, type DisplayError, asDisplayError } from "../../src/i18n/errors";
+import { type DisplayError, asDisplayError } from "../../src/i18n/errors";
 import { type ChartPeriod, protocolPeriod } from "../../src/ui/periods";
 import "./quotes.css";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
@@ -210,14 +210,6 @@ export function ContractHistory({
           )}
         </header>
       )}
-      {error && (
-        <div className="market-chart-error" role="alert">
-          <ErrorNotice error={error} namespace="asterion.terminal.futures-market" />
-          <button type="button" disabled={busy} onClick={() => setRetry(value => value + 1)}>
-            {t("重试")}
-          </button>
-        </div>
-      )}
       <div className="market-chart-toolbar">
         <div
           className="market-periods tabs"
@@ -351,13 +343,20 @@ export function ContractHistory({
                 ? "读取中"
                 : !contractId
                   ? "当前目录没有这个合约的月份"
-                  : error || available || current
-                    ? "暂无历史记录"
-                    : hasDays || hasMinutes
-                      ? "尚无该周期的数据"
-                      : "该月份合约尚无已采集历史数据",
+                  : error
+                    ? "历史行情暂不可用"
+                    : available || current
+                      ? "暂无历史记录"
+                      : hasDays || hasMinutes
+                        ? "尚无该周期的数据"
+                        : "该月份合约尚无已采集历史数据",
             )}
           </p>
+          {!loading && error && (
+            <button type="button" disabled={busy} onClick={() => setRetry(value => value + 1)}>
+              {t("重试")}
+            </button>
+          )}
           {!loading && !error && contractId && !available && (
             <button type="button" onClick={() => navigate("workspace.data-dataset")}>
               {t("采集历史数据")}

@@ -742,10 +742,6 @@ html[lang="en-US"] :is(button.coverage-action, .coverage-busy, .coverage-done) {
   padding: var(--space-1) var(--space-3);
   border-bottom: 1px solid var(--line);
 }
-.coverage-drawer-body .market-chart-error {
-  padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--line);
-}
 .coverage-drawer-body .market-history-chart .price-chart[data-fit-height] {
   padding: var(--space-2) var(--space-3);
 }

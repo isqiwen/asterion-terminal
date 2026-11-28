@@ -403,6 +403,37 @@ test("ordinary CTP login failures stay out of page banners while callback queue 
   ).toBeTruthy();
 });
 
+test("trading service disconnect stays on the status badge while ledger recovery mode keeps an inline safety alert", async () => {
+  let unreachable = false;
+  read = () => {
+    if (unreachable) throw new BackendError("unavailable", "RPC connection refused");
+    return live(session);
+  };
+  show("stale-vs-recovery");
+  expect((await screen.findByTestId("live-phase")).textContent).toBe("已就绪");
+  unreachable = true;
+  await waitFor(() => expect(screen.getByTestId("live-phase").textContent).toBe("服务失联"), {
+    timeout: 3000,
+  });
+  expect(screen.getByTestId("live-phase").closest("[title]")?.getAttribute("title")).toBe(
+    "交易服务失联，显示的是最后读到的状态",
+  );
+  expect(screen.queryByRole("alert")).toBeNull();
+
+  unreachable = false;
+  read = () =>
+    live(
+      create(SessionSchema, {
+        ...(session as object),
+        recoveryRequired: true,
+      } as never),
+    );
+  await waitFor(() => expect(screen.getByTestId("live-phase").textContent).toBe("需恢复"), {
+    timeout: 3000,
+  });
+  expect(screen.getByRole("alert").textContent).toContain("恢复模式");
+});
+
 test("an earlier trading day shows its recorded close and fills and exports them", async () => {
   const recorded = create(TradeSchema, {
     id: "SHFE:     1",

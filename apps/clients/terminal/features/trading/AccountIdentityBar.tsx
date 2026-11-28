@@ -55,14 +55,22 @@ export function AccountIdentityBar({
         {live && (
           <span
             title={
-              !stale && live.brokerState === BrokerState.FAILED && live.ctpError
-                ? ctpErrorSummary(live.ctpError)
-                : undefined
+              stale && !live.recoveryRequired
+                ? t("交易服务失联，显示的是最后读到的状态")
+                : !stale && live.brokerState === BrokerState.FAILED && live.ctpError
+                  ? ctpErrorSummary(live.ctpError)
+                  : undefined
             }
           >
             <StatusBadge tone={phaseTone(stale, live.brokerState)}>
               <span data-testid="live-phase">
-                {t(stale ? "服务失联" : (phases[live.brokerState] ?? "未连接"))}
+                {t(
+                  live.recoveryRequired
+                    ? "需恢复"
+                    : stale
+                      ? "服务失联"
+                      : (phases[live.brokerState] ?? "未连接"),
+                )}
               </span>
             </StatusBadge>
           </span>

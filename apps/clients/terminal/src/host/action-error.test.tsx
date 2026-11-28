@@ -39,6 +39,25 @@ test("page read and protocol failures go to notifications while input errors sta
   view.rerender(show(new BackendError("permission_denied", "this client is not registered")));
   expect(screen.getByRole("main").textContent).not.toContain("registered");
   expect(panel.querySelectorAll("li")).toHaveLength(3);
+  fireEvent.click(screen.getByRole("button", { name: "清空" }));
+});
+
+test("unregistered-client rejections through ActionError go to notifications instead of rendering inline", () => {
+  render(
+    <>
+      <main>
+        <ActionError
+          error={new BackendError("permission_denied", "this client is not registered")}
+          namespace="asterion.terminal.trading"
+        />
+      </main>
+      <NotificationCenter />
+    </>,
+  );
+  expect(screen.queryByRole("alert")).toBeNull();
+  openPopover(screen.getByRole("button", { expanded: false }));
+  expect(screen.getByRole("region", { name: "通知" }).textContent).toContain("未在该服务主机登记");
+  fireEvent.click(screen.getByRole("button", { name: "清空" }));
 });
 
 test("dismissible ActionError renders a close button that invokes onDismiss", () => {

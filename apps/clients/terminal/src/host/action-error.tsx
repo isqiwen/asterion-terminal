@@ -30,6 +30,7 @@ function isServiceFailure(error: DisplayError) {
     (error.code === "unavailable" ||
       error.code === "internal_error" ||
       error.diagnostic === "unknown Protobuf field" ||
+      error.diagnostic === "this client is not registered" ||
       /^(market|warehouse|trading) protocol differs from this Terminal$/.test(error.diagnostic))
   );
 }
