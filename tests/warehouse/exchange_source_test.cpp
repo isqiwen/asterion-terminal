@@ -56,6 +56,22 @@ protected:
     std::shared_ptr<ac::Budget> budget = std::make_shared<ac::Budget>(500);
 };
 
+TEST_F(ExchangeSources, ShanghaiSettlementReadsEarlyReportsDatedOnlyByTheOfficialPath)
+{
+    ac::Exchange source("SHFE", budget, {}, [&](const ac::HttpRequest&, auto) {
+        return ac::HttpReply{200, reference_fixture("shfe_settlement_20150522.json")};
+    });
+    const auto rows = source.settlement("SHFE", "2015-05-22");
+    ASSERT_EQ(rows.size(), 2);
+    EXPECT_EQ(rows[0].contract, "SHFE/cu/2015-06");
+    EXPECT_EQ(rows[0].day, "2015-05-22");
+    EXPECT_EQ(rows[0].long_margin_rate, wh::Cell{std::string("0.1")});
+    EXPECT_EQ(rows[0].fee_rate, wh::Cell{std::string("0.000025")});
+    EXPECT_EQ(rows[1].fee_per_lot, wh::Cell{std::string("3")});
+    EXPECT_EQ(rows[1].close_today_fee_per_lot, wh::Cell{});
+    EXPECT_THROW(source.settlement("SHFE", "2015-05-25"), ac::SourceError);
+}
+
 TEST_F(ExchangeSources, ShanghaiInventoryKeepsWarehouseDetailsAndGoldStock)
 {
     ac::Exchange source("SHFE", budget, {}, [&](const ac::HttpRequest& request, auto) {

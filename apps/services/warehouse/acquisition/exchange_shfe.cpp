@@ -655,9 +655,10 @@ Parsed parse_shanghai(
         throw std::invalid_argument("expected exchange rows");
     const auto* date_field =
         table == "warehouse_receipts" || table == "inventory" ? "o_tradingday" : "report_date";
-    // 早年的排名文件没有报告日，日期只在请求路径里。
-    if ((table != "member_positions" || root.contains(date_field))
-        && text(root.at(date_field)) != compact(day))
+    // 早期排名和上期所 2015-05-25 前的结算原报只在文件路径标日期。
+    const bool path_dated = table == "member_positions"
+        || (exchange == "SHFE" && table == "settlement" && day < "2015-05-25");
+    if ((!path_dated || root.contains(date_field)) && text(root.at(date_field)) != compact(day))
         throw std::invalid_argument("wrong exchange report date");
     if (table == "warehouse_receipts") {
         result.warehouse_receipts = shanghai_receipts(exchange, day, root);

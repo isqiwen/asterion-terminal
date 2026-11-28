@@ -1,0 +1,32 @@
+{
+  "o_cursor": [
+    {
+      "PRODUCTID": "cu_f    ",
+      "PRODUCTNAME": "铜",
+      "INSTRUMENTID": "cu1506                        ",
+      "SETTLEMENTPRICE": 45190,
+      "TRADEFEERATIO": 0.025,
+      "TRADEFEEUNIT": 0,
+      "COMMODITYDELIVFEEUNIT": 10,
+      "SPECLONGMARGINRATIO": 0.1,
+      "HEDGLONGMARGINRATIO": 0.1,
+      "SPECSHORTMARGINRATIO": 0.1,
+      "HEDGSHORTMARGINRATIO": 0.1
+    },
+    {
+      "PRODUCTID": "al_f    ",
+      "PRODUCTNAME": "铝",
+      "INSTRUMENTID": "al1506                        ",
+      "SETTLEMENTPRICE": 13180,
+      "TRADEFEERATIO": 0,
+      "TRADEFEEUNIT": 3,
+      "COMMODITYDELIVFEEUNIT": 10,
+      "SPECLONGMARGINRATIO": 0.1,
+      "HEDGLONGMARGINRATIO": 0.1,
+      "SPECSHORTMARGINRATIO": 0.1,
+      "HEDGSHORTMARGINRATIO": 0.1
+    }
+  ],
+  "o_code": 0,
+  "o_msg": "查询合约结算参数表成功"
+}
