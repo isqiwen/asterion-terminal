@@ -1,6 +1,7 @@
 import { useRef, useState, type ReactNode } from "react";
 import type { TradingConnection } from "../../src/bridge/client";
 import { BrokerState, Environment, type Account } from "../../src/generated/asterion/trading_pb";
+import { ctpErrorSummary } from "../../src/i18n/errors";
 import { StatusBadge, type Tone } from "../../src/ui/StatusBadge";
 import { Tag } from "../../src/ui/Tag";
 import { command, phases, t, type Run } from "./live-shared";
@@ -52,11 +53,19 @@ export function AccountIdentityBar({
           <StatusBadge tone="attention">{t("CTP 环境待确认")}</StatusBadge>
         )}
         {live && (
-          <StatusBadge tone={phaseTone(stale, live.brokerState)}>
-            <span data-testid="live-phase">
-              {t(stale ? "服务失联" : (phases[live.brokerState] ?? "未连接"))}
-            </span>
-          </StatusBadge>
+          <span
+            title={
+              !stale && live.brokerState === BrokerState.FAILED && live.ctpError
+                ? ctpErrorSummary(live.ctpError)
+                : undefined
+            }
+          >
+            <StatusBadge tone={phaseTone(stale, live.brokerState)}>
+              <span data-testid="live-phase">
+                {t(stale ? "服务失联" : (phases[live.brokerState] ?? "未连接"))}
+              </span>
+            </StatusBadge>
+          </span>
         )}
         {live && (
           <span

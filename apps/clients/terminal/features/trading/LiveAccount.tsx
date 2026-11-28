@@ -1,5 +1,4 @@
 import { listSeparator } from "../../src/i18n";
-import { ctpErrorSummary } from "../../src/i18n/errors";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { TradingConnection } from "../../src/bridge/client";
 import {
@@ -191,11 +190,9 @@ export function LiveAccount({
           {t("交易服务失联，显示的是最后读到的状态")}
         </p>
       )}
-      {live.brokerState === BrokerState.FAILED && (
+      {live.brokerState === BrokerState.FAILED && live.ctpError === -1008 && (
         <p className="alert" role="alert">
-          {live.ctpError === -1008
-            ? t("柜台回报队列已满，已停止报单；重连后核对账户")
-            : ctpErrorSummary(live.ctpError)}
+          {t("柜台回报队列已满，已停止报单；重连后核对账户")}
         </p>
       )}
       {live.riskBreaches.length > 0 && (

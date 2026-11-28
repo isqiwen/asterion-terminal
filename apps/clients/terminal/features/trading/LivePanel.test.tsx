@@ -371,6 +371,38 @@ test("the account's broker facts follow each read", async () => {
   expect(commands()).toEqual([]);
 });
 
+test("ordinary CTP login failures stay out of page banners while callback queue overflow keeps its safety alert", async () => {
+  read = () =>
+    live(
+      create(SessionSchema, {
+        ...(session as object),
+        brokerState: BrokerState.FAILED,
+        ctpError: 7,
+        authorizedMs: undefined,
+      } as never),
+    );
+  show("broker-failed-7");
+  const phase = await screen.findByTestId("live-phase");
+  expect(phase.textContent).toBe("连接失败");
+  expect(phase.closest("[title]")?.getAttribute("title")).toContain("CTP 7");
+  expect(screen.queryByRole("alert")).toBeNull();
+
+  read = () =>
+    live(
+      create(SessionSchema, {
+        ...(session as object),
+        brokerState: BrokerState.FAILED,
+        ctpError: -1008,
+        authorizedMs: undefined,
+      } as never),
+    );
+  expect(
+    await screen.findByText("柜台回报队列已满，已停止报单；重连后核对账户", undefined, {
+      timeout: 3000,
+    }),
+  ).toBeTruthy();
+});
+
 test("an earlier trading day shows its recorded close and fills and exports them", async () => {
   const recorded = create(TradeSchema, {
     id: "SHFE:     1",
