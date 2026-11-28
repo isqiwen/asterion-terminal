@@ -115,6 +115,27 @@ TEST_F(GuotaiSource, DatedReportsCoverFiveExchangesAndKeepHistoricalChanges)
     EXPECT_FALSE(source.supports("price_ticks", "CZCE"));
 }
 
+TEST_F(GuotaiSource, IndexOptionsAreExcludedFromFuturesPriceTicks)
+{
+    ac::Guotai source(exchanges, budget, {}, fetch);
+    const auto rows = source.price_ticks("CFFEX", "2026-11-26");
+    std::vector<std::string> products;
+    for (const auto& row : rows)
+        products.push_back(row.product);
+    EXPECT_EQ(products, (std::vector<std::string>{"ic", "im", "ih", "if", "ts", "tf", "tl", "t"}));
+    const auto rules = wh::load_exchange_rules(ASTERION_WAREHOUSE_RULES_PATH);
+    EXPECT_NO_THROW(wh::verify_price_ticks(rules.price_ticks, rows, "2026-11-26"));
+}
+
+TEST_F(GuotaiSource, NewLithiumHydroxideMatchesItsListingDayRule)
+{
+    ac::Guotai source(exchanges, budget, {}, fetch);
+    const auto rows = source.price_ticks("GFEX", "2026-11-26");
+    EXPECT_EQ(tick(rows, "li"), "20");
+    const auto rules = wh::load_exchange_rules(ASTERION_WAREHOUSE_RULES_PATH);
+    EXPECT_NO_THROW(wh::verify_price_ticks(rules.price_ticks, rows, "2026-11-26"));
+}
+
 TEST_F(GuotaiSource, MissingHistoryStaysUncoveredAndWrongDatedReportsFail)
 {
     ac::Guotai old(exchanges, budget, {}, fetch);
@@ -147,7 +168,7 @@ TEST_F(GuotaiSource, MissingHistoryStaysUncoveredAndWrongDatedReportsFail)
 TEST_F(GuotaiSource, Html5VoidTagsEntitiesAndImplicitClosuresParseCleanly)
 {
     const std::string html =
-        R"(<html><body><script id="__NEXT_DATA__" type="application/json">)" R"({"props":{"pageProps":{"DEFAULT_CONTENT":{"tradingday":"20241218","tradeflag":"T",)" R"("events":[{"event_date":"20241218","content":")" R"(<table><colgroup><col width=90><col width=80></colgroup>)" R"(<thead><tr><th>交易所<th>代码<th>最小变动价位<th>特殊合约参数调整<th>调整备注</thead>)" R"(<tbody><tr><td>&nbsp;上期所&nbsp;<td>AU<td>&nbsp;0.02&nbsp;<td>无<br>常规<td>—)" R"(<tr><td>广期所<td>LC<td>20<td>无<td>—</tbody></table>)" R"("}]}}}}</script></body></html>)";
+        R"(<html><body><script id="__NEXT_DATA__" type="application/json">)" R"({"props":{"pageProps":{"DEFAULT_CONTENT":{"tradingday":"20241218","tradeflag":"T",)" R"("events":[{"event_date":"20241218","content":")" R"(<table><colgroup><col width=90><col width=80></colgroup>)" R"(<thead><tr><th>交易所<th>品种<th>代码<th>最小变动价位<th>特殊合约参数调整<th>调整备注</thead>)" R"(<tbody><tr><td>&nbsp;上期所&nbsp;<td>黄金<td>AU<td>&nbsp;0.02&nbsp;<td>无<br>常规<td>—)" R"(<tr><td>广期所<td>碳酸锂<td>LC<td>20<td>无<td>—</tbody></table>)" R"("}]}}}}</script></body></html>)";
     ac::Guotai source(exchanges, budget, {}, [&](const auto&, auto) {
         return ac::HttpReply{200, html};
     });

@@ -156,7 +156,8 @@ std::vector<PriceTick> parse(const std::string& day, const std::string& raw, con
                 };
                 auto product = field("代码");
                 const auto exchange = exchanges.find(field("交易所"));
-                if (exchange == exchanges.end() || !std::regex_match(product, future))
+                if (exchange == exchanges.end() || !std::regex_match(product, future)
+                    || field("品种").find("期权") != std::string::npos)
                     continue;
                 for (const auto* name : {"特殊合约参数调整", "调整备注"})
                     if (field(name).find("最小变动价位") != std::string::npos)
