@@ -199,7 +199,10 @@ TEST_F(StrategyTarget, MissingExchangePriceLimitsRejectOrdersWithoutStoppingTheI
     }
     session.accept_target(owner, lots(1, 4), {quote()});
     session.advance_target(owner).get();
-    EXPECT_EQ(session.orders().orders_size(), 1);
+    const auto state = wait_for(session, [](const Json& s) {
+        return !s.at("orders").empty();
+    });
+    EXPECT_EQ(state.at("orders").size(), 1U);
 }
 
 TEST_F(StrategyTarget, PartialFillWaitsAndOriginalBatchExpiryCancelsWithoutResending)
