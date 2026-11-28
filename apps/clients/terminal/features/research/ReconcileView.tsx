@@ -17,8 +17,8 @@ const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
 
 const STEP_PAGE = 500;
-const BAR_PAGE = 1000;
-const TRADE_PAGE = 500;
+const BAR_PAGE = 500;
+const TRADE_PAGE = 200;
 const MAX_STEPS = 10000;
 const MAX_BARS_PER_INSTRUMENT = 10000;
 

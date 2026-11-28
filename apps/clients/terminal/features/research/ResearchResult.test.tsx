@@ -8,10 +8,12 @@ import { registerTerminalFeatures } from "../../src/host/feature-registry";
 import {
   ChartBarsSchema,
   RunDetailSchema,
+  RunReportSchema,
   RunState,
   RunSummarySchema,
 } from "../../src/generated/asterion/lab_pb";
 import { RunComparison } from "./RunComparison";
+import { RunDiagnostics } from "./RunDiagnostics";
 import { RunResult } from "./RunResult";
 import { SweepResult } from "./SweepResult";
 import { feature } from "./feature";
@@ -22,6 +24,52 @@ vi.mock("../../src/bridge/lab", () => ({
 }));
 vi.mock("@asterion/terminal/charts/PriceChart", () => ({ PriceChart: vi.fn(() => null) }));
 registerTerminalFeatures([feature]);
+
+test.each([
+  { count: 3, annualPeriods: 240, zeroRiskFree: true },
+  { count: 20, annualPeriods: 240, zeroRiskFree: true },
+  { count: 20, annualPeriods: null, zeroRiskFree: false },
+])(
+  "diagnostics follow sample size and saved statistics ($count days, $annualPeriods periods)",
+  async ({ count, annualPeriods, zeroRiskFree }) => {
+    const request = vi.mocked(lab);
+    request.mockReset();
+    request.mockResolvedValue(
+      create(RunReportSchema, {
+        quantstatsVersion: "0.0.86",
+        figures: { sortino: 1.25 },
+      }) as never,
+    );
+    render(
+      <RunDiagnostics
+        id="sample"
+        detail={create(RunDetailSchema, {
+          days: Array.from({ length: count }, (_, index) => ({
+            tradingDay: `2026-01-${String(index + 1).padStart(2, "0")}`,
+            equity: { text: "1000" },
+          })),
+        })}
+        record={{
+          costs: { deposit: "1000" },
+          statistics: { annual_periods: annualPeriods, zero_risk_free: zeroRiskFree },
+        }}
+        focusedDay={null}
+        onFocusChange={() => {}}
+      />,
+    );
+    if (count < 20) {
+      expect(screen.getByText("结算日不足 20 天（当前 3 天）")).toBeTruthy();
+      expect(request).not.toHaveBeenCalled();
+    } else {
+      expect(await screen.findByText("1.250")).toBeTruthy();
+      const note = screen.getByText(/QuantStats 0.0.86/).textContent;
+      expect(note).toBe(
+        `QuantStats 0.0.86 · 日收益${zeroRiskFree ? " · 无风险利率 0" : ""}${annualPeriods ? ` · 一年 ${annualPeriods} 期` : ""}`,
+      );
+      expect(request).toHaveBeenCalledWith({ case: "getRunReport", value: { id: "sample" } });
+    }
+  },
+);
 
 test("status refreshes preserve a pending comparison of the same two runs", async () => {
   let release!: () => void;

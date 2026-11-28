@@ -185,7 +185,6 @@ class PostCloseTest(unittest.TestCase):
         instance.params["fast"].integer = 3
         instance.params["slow"].integer = 6
         instance.params["lots"].integer = 2
-        instance.warmup.dataset_version = cfg.dataset_version
 
         steps = []
         for seq, (end_ms, dec) in enumerate(sorted(replayed["decisions"].items()), 1):

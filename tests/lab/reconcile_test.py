@@ -29,6 +29,7 @@ from asterion.strategy_pb2 import (  # noqa: E402
 )
 from asterion_lab import (  # noqa: E402
     backtest,
+    data as lab_data,
     log as lab_log,
     package,
     reconcile,
@@ -139,7 +140,7 @@ class ReconcileTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _run_reference_backtest(self, run_id="bt-1"):
+    def _run_reference_backtest(self, run_id="bt-1", **overrides):
         cfg = backtest.Config(
             repository=str(self.repo),
             strategy="ma_cross.MaCross",
@@ -157,6 +158,7 @@ class ReconcileTest(unittest.TestCase):
             dataset_version=self.version.identity,
             source=str(self.repo),
         )
+        cfg = replace(cfg, **overrides)
         backtest.run(self.lab_dir, run_id, cfg)
         strat = repository.load(self.repo, cfg.strategy, cfg.params)
         replayed = reconcile_diff.replay_backtest(Warehouse(self.lab_dir), cfg, strat)
@@ -443,6 +445,41 @@ class ReconcileTest(unittest.TestCase):
         }]
         fill_sum, fill_diffs = reconcile_diff.compare_fills(live_dce, bt_dce, Decimal(0))
         self.assertTrue(fill_sum["ok"], fill_diffs)
+
+    def test_warmup_only_instance_starts_fresh_inside_the_reference_run_without_fills(self):
+        day = DAYS[1].isoformat()
+        start = lab_data.close_ns(day) // 10**6 - 6 * 60 * 60 * 1000
+        writer = Warehouse(self.lab_dir).writer()
+        for month in ("2026-05", "2026-10"):
+            writer.put_rows(f"minutes/SHFE/{day}/rb/{month}", "minutes", [
+                dict(exchange="SHFE", product="rb", contract=f"SHFE/rb/{month}", day=day,
+                     start_ms=start + minute * 60_000, partial=False,
+                     open=3000 + minute, high=3001 + minute, low=2999 + minute, close=3000 + minute,
+                     volume=1, average_price=None, open_interest=1000)
+                for minute in range(60)
+            ], days=[day])
+        self.version = writer.commit()
+        cfg, reference = self._run_reference_backtest(
+            "bt-before-warmup", minutes=5, begin_day=day, end_day=day
+        )
+        times = sorted(reference["decisions"])
+        warmup = reconcile_diff.replay_backtest(
+            Warehouse(self.lab_dir), cfg,
+            repository.load(self.repo, cfg.strategy, cfg.params),
+            begin_ms=times[3], end_ms=times[8], execute_from_ms=times[8] + 1,
+        )
+        instance, steps, _, orders, fills = self._build_matching_live(cfg, warmup, "only-warmup")
+        instance.period = Period.PERIOD_MINUTES_5
+        self.assertEqual(len(steps), 6)
+        self.assertEqual(fills, [])
+        _write_trading_artifacts(self.account_dir, instance, steps, [], orders, fills)
+        report = reconcile.reconcile(
+            self.account_dir, self.lab_dir, instance_id="only-warmup", run_id="bt-before-warmup",
+            strategy_source=self.repo,
+        )
+        self.assertTrue(report["ok"], report)
+        self.assertEqual(report["summary"]["decisions"]["matched"], len(steps))
+        self.assertEqual(report["summary"]["fills"]["backtest_fill_count"], 0)
 
     def test_realized_slippage_ticks_accounts_for_side_and_percentiles(self):
         # Tick = 2; buy higher (+4 => +2 ticks adverse), sell lower (-2 => +1 tick adverse),

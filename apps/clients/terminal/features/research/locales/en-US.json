@@ -4,6 +4,9 @@
   "初始资金": "Initial Capital",
   "状态": "Status",
   "取消": "Cancel",
+  "关闭": "Close",
+  "累计 IC": "Cumulative IC",
+  "结算日不足 20 天（当前 {count} 天）": "Fewer than 20 settled days ({count} available)",
   "手续费": "Fees",
   "运行中": "Running",
   "已完成": "Completed",
@@ -201,7 +204,6 @@
   "还没有因子": "No factors yet",
   "没有匹配的模块": "No matching modules",
   "没有成交": "No fills",
-  "日收益 · 无风险利率 0 · 一年 252 期": "Daily returns · zero risk-free rate · 252 periods a year",
   "导入本模块的策略（{count}）": "Strategies importing this module ({count})",
   "导入本模块的策略": "Strategies importing this module",
   "重试": "Retry",
@@ -586,5 +588,8 @@
   "完整模块": "Full module",
   "结束日不能早于开始日": "End date must not be before start date",
   "{state} {done} / {count}": "{state} {done} / {count}",
-  "滑点压力测试需要选择单次候选回测": "Slippage stress requires an individual candidate backtest"
+  "滑点压力测试需要选择单次候选回测": "Slippage stress requires an individual candidate backtest",
+  "日收益": "Daily returns",
+  "无风险利率 0": "Risk-free rate 0",
+  "一年 {count} 期": "{count} periods a year"
 }

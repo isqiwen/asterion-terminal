@@ -138,11 +138,8 @@ def _extract_live_window(
         }
 
     execute_from_ms = None
-    if (
-        (instance.HasField("warmup") or instance.local_bars or instance.resume_from)
-        and live_recorded_bars
-    ):
-        first_recorded_ms = min(k[0] for k in live_recorded_bars)
+    if instance.HasField("warmup") or instance.local_bars or instance.resume_from:
+        first_recorded_ms = min((k[0] for k in live_recorded_bars), default=window_last_ms + 1)
         if first_recorded_ms > window_first_ms:
             execute_from_ms = first_recorded_ms
 
@@ -167,7 +164,6 @@ def _resolve_backtest_spec(
     minutes: int,
     first_step_day: str,
     last_step_day: str,
-    execute_from_ms: int | None,
     trading_account: Path | None,
     run_id: str,
     dataset_version: str,
@@ -175,19 +171,11 @@ def _resolve_backtest_spec(
     fallback_source: Path | None,
     deposit: Decimal,
 ):
-    saved_fills_table = None
     if run_id:
         runs = Runs(lab_directory)
         record = runs.record(run_id)
         data_rec = record["data"]
         version_id = dataset_version or data_rec["dataset_version"]
-        run_begin = data_rec["begin_day"]
-        run_end = data_rec["end_day"]
-        same_window = (
-            run_begin <= first_step_day
-            and last_step_day <= run_end
-            and version_id == data_rec["dataset_version"]
-        )
         run_period = data_rec["bars"]["period"]
         run_minutes = 0 if run_period == "day" else int(run_period[:-1])
         if run_minutes != minutes:
@@ -199,8 +187,8 @@ def _resolve_backtest_spec(
             strategy=record["strategy"]["id"],
             params=record["params"],
             symbols=tuple(data_rec["symbols"]),
-            begin_day=run_begin if same_window else first_step_day,
-            end_day=run_end if same_window else last_step_day,
+            begin_day=first_step_day,
+            end_day=last_step_day,
             deposit=Decimal(costs["deposit"]),
             costs=None,
             slippage_ticks=int(costs["slippage_ticks"]),
@@ -216,8 +204,6 @@ def _resolve_backtest_spec(
             minutes=run_minutes,
             dataset_version=version_id,
         )
-        if same_window and execute_from_ms is None:
-            saved_fills_table = runs.table(run_id, "fills")
         source_dir = strategy_source or _frozen_source(lab_directory, runs, run_id) or fallback_source
         if source_dir is not None:
             strategy = repository.load(source_dir, config.strategy, config.params)
@@ -229,7 +215,7 @@ def _resolve_backtest_spec(
             strategy = reconcile_live.load_package_strategy(pkg_dir, config.params)
         else:
             raise ValueError(f"strategy source for run {run_id} is unavailable")
-        return config, strategy, saved_fills_table
+        return config, strategy
 
     version_id = dataset_version or (instance.warmup.dataset_version if instance.HasField("warmup") else "")
     if not version_id:
@@ -270,7 +256,7 @@ def _resolve_backtest_spec(
         strategy = reconcile_live.load_package_strategy(pkg_dir, params)
     else:
         raise ValueError("strategy repository or run_id is required")
-    return config, strategy, saved_fills_table
+    return config, strategy
 
 
 def reconcile_records(
@@ -312,14 +298,13 @@ def reconcile_records(
     window = _extract_live_window(
         instance, steps, recorded_raw, native_to_symbol, native_to_contract, begin_day, end_day
     )
-    config, strategy, saved_fills_table = _resolve_backtest_spec(
+    config, strategy = _resolve_backtest_spec(
         lab_directory,
         instance,
         symbols=symbols,
         minutes=minutes,
         first_step_day=first_step_day,
         last_step_day=last_step_day,
-        execute_from_ms=window["execute_from_ms"],
         trading_account=trading_account,
         run_id=run_id,
         dataset_version=dataset_version,
@@ -330,7 +315,9 @@ def reconcile_records(
 
     store = dataset if dataset is not None else Dataset(lab_directory)
     replayed = reconcile_diff.replay_backtest(
-        store, config, strategy, execute_from_ms=window["execute_from_ms"]
+        store, config, strategy, begin_ms=steps[0][1].bars[0].end_ms,
+        end_ms=steps[-1][1].bars[0].end_ms,
+        execute_from_ms=window["execute_from_ms"]
     )
 
     # Align backtest step bars & decisions to the live instance window.
@@ -385,14 +372,13 @@ def reconcile_records(
             fill["venue"], fill["symbol"], day
         )
         live_fills.append({**fill, "contract": contract})
-    fills_frame = saved_fills_table if saved_fills_table is not None else replayed["fills"]
     # When warmup bars were replayed without orders, only post-warmup live days can produce live fills.
     fill_window_begin = begin_day or (
         min(v["trading_day"] for v in live_recorded_bars.values())
         if live_recorded_bars else window["begin_day"]
     )
     bt_fills = []
-    for row in fills_frame.iter_rows(named=True):
+    for row in replayed["fills"].iter_rows(named=True):
         day = row["trading_day"].isoformat() if hasattr(row["trading_day"], "isoformat") else str(row["trading_day"])
         if not (fill_window_begin <= day <= window["end_day"]):
             continue

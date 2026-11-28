@@ -17,6 +17,8 @@ def replay_backtest(
     config: backtest.Config,
     strategy: Strategy,
     *,
+    begin_ms: int | None = None,
+    end_ms: int | None = None,
     execute_from_ms: int | None = None,
 ) -> dict:
     """Run Lab backtest replay and capture bar-by-bar inputs, strategy decisions, and fills."""
@@ -24,6 +26,12 @@ def replay_backtest(
 
     data = lab_data.Data(dataset, config.begin_day, config.end_day, version=config.dataset_version)
     contracts, series, first = lab_data.prepare(data, config)
+    for contract in contracts:
+        contract["bars"] = [
+            bar for bar in contract["bars"]
+            if (begin_ms is None or bar[1] // 10**6 >= begin_ms)
+            and (end_ms is None or bar[1] // 10**6 <= end_ms)
+        ]
     engine = asterion_engine.Replay(
         lab_data.raw(config.deposit),
         contracts,

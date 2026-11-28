@@ -20,14 +20,12 @@ import {
 } from "../../src/generated/asterion/trading_pb";
 import { ReconcileView } from "./ReconcileView";
 import { readConditions } from "./research-lab";
+import { registerTerminalFeatures } from "../../src/host/feature-registry";
+import { feature } from "./feature";
 
 vi.mock("../../src/bridge/lab", () => ({ lab: vi.fn() }));
 vi.mock("../../src/bridge/trading", () => ({ tradingCall: vi.fn() }));
-vi.mock("../../src/i18n", async original => ({
-  ...(await original<typeof import("../../src/i18n")>()),
-  translate: (_namespace: string, key: string, values?: Record<string, unknown>) =>
-    key.replace(/\{(\w+)\}/g, (_, name: string) => String(values?.[name])),
-}));
+registerTerminalFeatures([feature]);
 
 beforeEach(() => {
   localStorage.clear();
@@ -44,7 +42,7 @@ const account: TradingConnection = {
   revision: "1",
 };
 
-test("fetches live run/bars/fills over TLS, reconciles via Lab, renders diffs, and applies slippage to backtest conditions", async () => {
+test("reconciles paginated live records, renders diffs, and applies slippage to backtest conditions", async () => {
   const inst = { exchange: "SHFE", symbol: "rb2605" };
   const configuration = create(InstanceSchema, {
     id: "inst-1",
@@ -64,6 +62,19 @@ test("fetches live run/bars/fills over TLS, reconciles via Lab, renders diffs, a
     close: { text: "3510" },
     volume: 100n,
   });
+  const recordedBars = Array.from({ length: 501 }, (_, index) =>
+    create(BarSchema, { ...bar, endMs: bar.endMs + BigInt(index) * 60000n }),
+  );
+  const trades = Array.from({ length: 201 }, (_, index) => ({
+    id: `trd-${index}`,
+    orderId: `ord-${index}`,
+    instrument: inst,
+    side: Side.BUY,
+    offset: Offset.OPEN,
+    lots: { text: "2" },
+    price: { text: "3512" },
+    tradingDay: "2026-01-05",
+  }));
 
   vi.mocked(tradingCall).mockImplementation(async (_account, op) => {
     switch (op.case) {
@@ -89,23 +100,20 @@ test("fetches live run/bars/fills over TLS, reconciles via Lab, renders diffs, a
           ],
         }) as never;
       case "getRecordedBars":
-        return create(RecordedBarsSchema, { bars: [bar] }) as never;
+        if (!op.value.limit || op.value.limit > 500)
+          throw new Error("recorded bar pages contain 1 to 500 bars");
+        return create(RecordedBarsSchema, {
+          bars: recordedBars
+            .filter(item => item.endMs > (op.value.afterEndMs ?? 0n))
+            .slice(0, op.value.limit),
+        }) as never;
       case "getDay":
+        if (!op.value.limit || op.value.limit > 200)
+          throw new Error("trade pages contain 1 to 200 records");
         return create(DaySchema, {
           tradingDays: ["2026-01-05"],
-          total: 1,
-          trades: [
-            {
-              id: "trd-1",
-              orderId: "ord-1",
-              instrument: inst,
-              side: Side.BUY,
-              offset: Offset.OPEN,
-              lots: { text: "2" },
-              price: { text: "3512" },
-              tradingDay: "2026-01-05",
-            },
-          ],
+          total: trades.length,
+          trades: trades.slice(op.value.offset ?? 0, (op.value.offset ?? 0) + op.value.limit),
         }) as never;
     }
     return {} as never;
@@ -215,9 +223,14 @@ test("fetches live run/bars/fills over TLS, reconciles via Lab, renders diffs, a
       value: expect.objectContaining({
         runId: "bt-1",
         repository: "/tmp/repo",
+        recordedBars,
       }),
     }),
   );
+  const reconciliation = vi.mocked(lab).mock.calls[0]?.[0];
+  expect(reconciliation?.case).toBe("reconcileLive");
+  if (reconciliation?.case === "reconcileLive")
+    expect(reconciliation.value.liveFills).toHaveLength(201);
   expect(screen.getByText("+1.50 / +1.80 跳")).toBeTruthy();
   expect(screen.getByText("成交与滑点差异（1）")).toBeTruthy();
 

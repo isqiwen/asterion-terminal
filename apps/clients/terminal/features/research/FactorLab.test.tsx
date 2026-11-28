@@ -11,24 +11,21 @@ import {
   StrategiesSchema,
   TaskKind,
 } from "../../src/generated/asterion/lab_pb";
-import type { TerminalContext } from "../../src/host/feature-registry";
+import { registerTerminalFeatures, type TerminalContext } from "../../src/host/feature-registry";
 import { LabActivityProvider } from "../../src/host/lab-activity";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "../../src/host/workspace/drafts";
 import { defaultFactorForm, factorScopeOf, saveFactorConditions } from "./research-lab";
 import { readAnnotations, saveAnnotation } from "./research-storage";
 import { FactorLab } from "./FactorLab";
 import { FactorResultView } from "./FactorResultView";
+import { feature } from "./feature";
 
 vi.mock("../../src/bridge/lab", () => ({
   lab: vi.fn(),
   onLabMutation: vi.fn(() => () => {}),
 }));
-vi.mock("../../src/i18n", async original => ({
-  ...(await original<typeof import("../../src/i18n")>()),
-  translate: (_namespace: string, key: string, values?: Record<string, string | number>) =>
-    values ? key.replace(/\{(\w+)\}/g, (_, name: string) => String(values[name] ?? "")) : key,
-}));
 vi.mock("@asterion/terminal/charts/PriceChart", () => ({ PriceChart: () => null }));
+registerTerminalFeatures([feature]);
 
 beforeEach(() => localStorage.clear());
 
@@ -833,7 +830,7 @@ test("FactorResultView localizes skipped symbol diagnostics and links acquirable
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "未参与（1）" }));
-  const skippedText = screen.getByText(/outgoing roll month has no bars/);
+  const skippedText = screen.getByText(/被换下的月份从换月日起再没有 K 线/);
   expect(skippedText.textContent).toContain("SHFE/wr/2023-10 from 2023-10-16");
   expect(skippedText.getAttribute("title")).toContain("the outgoing month has no bars");
   // Daily zero-volume outgoing bars cannot be fixed by acquiring data.
@@ -929,6 +926,7 @@ test("evaluation records view filters, stars, compares side by side, and batch d
       },
       symbols: ["SHFE/rb", "SHFE/cu"],
       horizons: [{ horizon: 5, mean: 0.09, ir: 0.6, t: 2.8, positiveShare: 0.62 }],
+      days: [{ tradingDay: "2025-01-02", ic: 0.09 }],
       evaluatedMs: 3000n,
     }),
     create(FactorResultSchema, {
@@ -945,6 +943,7 @@ test("evaluation records view filters, stars, compares side by side, and batch d
       },
       symbols: ["SHFE/rb", "SHFE/cu"],
       horizons: [{ horizon: 5, mean: 0.04, ir: 0.3, t: 1.5, positiveShare: 0.55 }],
+      days: [{ tradingDay: "2025-01-02", ic: 0.04 }],
       evaluatedMs: 2000n,
     }),
     create(FactorResultSchema, {
@@ -1015,6 +1014,7 @@ test("evaluation records view filters, stars, compares side by side, and batch d
   expect(compareTable.textContent).toContain("lookback=20");
   expect(compareTable.textContent).toContain("lookback=10");
   expect(compareTable.textContent).toContain("5m");
+  expect(screen.getByRole("heading", { name: "累计 IC 对比" })).toBeTruthy();
 
   // Return to records view and batch delete the selected records.
   fireEvent.click(screen.getByRole("button", { name: "← 评价记录" }));

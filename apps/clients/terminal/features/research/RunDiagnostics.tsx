@@ -205,7 +205,15 @@ const quantStats = [
 ] as const;
 
 // QuantStats figures of the run, computed by the lab when first shown.
-function QuantStats({ id }: { id: string }) {
+function QuantStats({
+  id,
+  annualPeriods,
+  zeroRiskFree,
+}: {
+  id: string;
+  annualPeriods?: number | null;
+  zeroRiskFree?: boolean;
+}) {
   const [report, setReport] = useState<RunReport | null>(null);
   const [error, setError] = useState<DisplayError>("");
   useEffect(() => {
@@ -233,7 +241,14 @@ function QuantStats({ id }: { id: string }) {
             ))}
           </dl>
           <p className="subtle">
-            QuantStats {report.quantstatsVersion} · {t("日收益 · 无风险利率 0 · 一年 252 期")}
+            QuantStats {report.quantstatsVersion} ·{" "}
+            {[
+              t("日收益"),
+              zeroRiskFree ? t("无风险利率 0") : "",
+              annualPeriods ? t("一年 {count} 期", { count: annualPeriods }) : "",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </p>
         </>
       )}
@@ -250,7 +265,11 @@ export function RunDiagnostics({
 }: {
   id: string;
   detail: RunDetail;
-  record: { costs?: { deposit?: string }; data?: { diagnostics?: DiagnosticsData } };
+  record: {
+    costs?: { deposit?: string };
+    data?: { diagnostics?: DiagnosticsData };
+    statistics?: { annual_periods?: number | null; zero_risk_free?: boolean };
+  };
   focusedDay: string | null;
   onFocusChange: (time: string | null) => void;
 }) {
@@ -857,7 +876,17 @@ export function RunDiagnostics({
       )}
 
       <h3>{t("风险与尾部（QuantStats）")}</h3>
-      <QuantStats id={id} />
+      {detail.days.length < 20 ? (
+        <p className="subtle">
+          {t("结算日不足 20 天（当前 {count} 天）", { count: detail.days.length })}
+        </p>
+      ) : (
+        <QuantStats
+          id={id}
+          annualPeriods={record.statistics?.annual_periods}
+          zeroRiskFree={record.statistics?.zero_risk_free}
+        />
+      )}
     </>
   );
 }
