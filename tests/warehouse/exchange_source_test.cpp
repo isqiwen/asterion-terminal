@@ -105,6 +105,52 @@ TEST_F(ExchangeSources, ShanghaiInventoryKeepsWarehouseDetailsAndGoldStock)
     }
 }
 
+TEST_F(ExchangeSources, ShanghaiInventoryReadsArchivedWeeklySpreadsheetWhenJsonIsMissing)
+{
+    ac::Exchange source("SHFE", budget, {}, [&](const ac::HttpRequest& request, auto) {
+        if (request.path.ends_with(".dat"))
+            return ac::HttpReply{404, {}};
+        EXPECT_EQ(request.path, "/data/tradedata/future/weeklydata/20140103weeklystock.html");
+        return ac::HttpReply{200, reference_fixture("shfe_inventory_20140103.html")};
+    });
+    const auto rows = source.inventory("SHFE", "2014-01-03");
+    ASSERT_EQ(rows.size(), 7);
+    EXPECT_EQ(rows[1].area, wh::Cell{std::string("上海")});
+    EXPECT_EQ(rows[1].warehouse, wh::Cell{std::string("国储天威")});
+    EXPECT_EQ(rows[1].total, wh::Cell{std::string("1609")});
+    EXPECT_EQ(rows[3].warehouse, wh::Cell{std::string("海口港")});
+    EXPECT_EQ(rows[3].area, wh::Cell{std::string("海南")});
+    EXPECT_EQ(rows[5].product, "au");
+    EXPECT_EQ(rows[5].receipts, wh::Cell{std::string("1143")});
+    EXPECT_EQ(rows[6].warehouse_type, wh::Cell{std::string("厂库")});
+    EXPECT_EQ(rows[6].total, wh::Cell{});
+    EXPECT_EQ(rows[6].capacity, wh::Cell{std::string("50000")});
+}
+
+TEST_F(ExchangeSources, ShanghaiInventoryReadsCurrentWeeklyTablesWithoutCountingSubtotals)
+{
+    ac::Exchange source("SHFE", budget, {}, [&](const ac::HttpRequest& request, auto) {
+        if (request.path.ends_with(".dat"))
+            return ac::HttpReply{404, {}};
+        EXPECT_EQ(
+            request.path,
+            "/data/tradedata/future/stockdata/weeklystock_20261120/ZH/all.html");
+        return ac::HttpReply{200, reference_fixture("shfe_inventory_20261120.html")};
+    });
+    const auto rows = source.inventory("SHFE", "2026-11-20");
+    ASSERT_EQ(rows.size(), 3);
+    EXPECT_EQ(rows[0].product, "ao");
+    EXPECT_EQ(rows[0].warehouse, wh::Cell{std::string("中铝山东")});
+    EXPECT_EQ(rows[0].area, wh::Cell{std::string("山东")});
+    EXPECT_EQ(rows[1].grade, wh::Cell{std::string("RMG380（硫Ⅰ级）")});
+    EXPECT_EQ(rows[1].receipts_change, wh::Cell{std::string("20000")});
+    EXPECT_EQ(rows[1].capacity, wh::Cell{});
+    EXPECT_EQ(rows[2].warehouse, wh::Cell{std::string("总计")});
+    EXPECT_EQ(rows[2].total, wh::Cell{std::string("119895")});
+    EXPECT_EQ(rows[2].receipts, rows[2].total);
+    EXPECT_EQ(rows[2].unit, wh::Cell{std::string("千克")});
+}
+
 TEST_F(ExchangeSources, ShanghaiInventoryKeepsFuelGradesAndCountsGoldOnlyOnce)
 {
     ac::Exchange source("SHFE", budget, {}, [&](const ac::HttpRequest&, auto) {
@@ -721,6 +767,20 @@ TEST_F(ExchangeSources, MissingPublicationIsUncoveredButRefusalAndWrongDateFail)
             : ac::HttpReply{200, reference_fixture("shfe_receipts_20261120.html")};
     });
     EXPECT_THROW(receipts.warehouse_receipts("SHFE", "2026-11-26"), ac::SourceError);
+    for (const auto* day : {"2014-01-10", "2026-11-27"}) {
+        ac::Exchange weekly("SHFE", budget, {}, [&](const ac::HttpRequest& request, auto) {
+            return request.path.ends_with(".dat")
+                ? ac::HttpReply{404, {}}
+                : ac::HttpReply{
+                      200,
+                      reference_fixture(
+                          std::string_view(day).starts_with("2014")
+                              ? "shfe_inventory_20140103.html"
+                              : "shfe_inventory_20261120.html")
+                  };
+        });
+        EXPECT_THROW(weekly.inventory("SHFE", day), ac::SourceError);
+    }
     ac::Exchange invalid("SHFE", budget, {}, [](const auto&, auto) {
         return ac::HttpReply{200, "<html>challenge</html>"};
     });

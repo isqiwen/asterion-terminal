@@ -292,8 +292,14 @@ Exchange::read(const std::string& table, const std::string& exchange, const std:
     auto reply = fetch(request);
     const bool html_receipts =
         reply.status == 404 && exchange == "SHFE" && table == "warehouse_receipts";
+    const bool html_inventory = reply.status == 404 && exchange == "SHFE" && table == "inventory";
     if (html_receipts) {
         request.path = "/data/tradedata/future/stockdata/dailystock_" + date + "/ZH/all.html";
+        reply = fetch(request);
+    } else if (html_inventory) {
+        request.path = day < "2014-05-19"
+            ? "/data/tradedata/future/weeklydata/" + date + "weeklystock.html"
+            : "/data/tradedata/future/stockdata/weeklystock_" + date + "/ZH/all.html";
         reply = fetch(request);
     }
     if (reply.status == 404) {
@@ -306,6 +312,8 @@ Exchange::read(const std::string& table, const std::string& exchange, const std:
     try {
         if (html_receipts)
             return {.warehouse_receipts = detail::shfe_html_receipts(day, reply.body)};
+        if (html_inventory)
+            return {.inventory = detail::shfe_html_inventory(day, reply.body)};
         if (table == "price_ticks")
             return {
                 .price_ticks =
