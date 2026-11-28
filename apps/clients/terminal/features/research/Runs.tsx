@@ -413,6 +413,7 @@ export function Runs(context: TerminalContext) {
   if (shown?.kind === "reconcile")
     return (
       <ReconcileView
+        key={JSON.stringify([shown.account, shown.instance, shown.run])}
         accounts={tradingAccounts}
         repository={context.snapshot?.research_directory ?? ""}
         initialAccount={shown.account}

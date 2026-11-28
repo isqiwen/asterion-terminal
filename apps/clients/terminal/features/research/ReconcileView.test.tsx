@@ -240,4 +240,16 @@ test("reconciles paginated live records, renders diffs, and applies slippage to 
 
   fireEvent.click(screen.getByRole("button", { name: "查看对照回测" }));
   expect(openRun).toHaveBeenCalledWith("bt-1");
+
+  fireEvent.change(screen.getByRole("textbox", { name: "策略实例" }), {
+    target: { value: "absent" },
+  });
+  expect(screen.queryByRole("button", { name: "复制摘要" })).toBeNull();
+  vi.mocked(tradingCall).mockRejectedValueOnce(new Error("no recorded strategy instance: absent"));
+  fireEvent.click(screen.getByRole("button", { name: "开始对账" }));
+  expect((await screen.findByRole("alert")).textContent).toContain(
+    "no recorded strategy instance: absent",
+  );
+  expect(screen.queryByText("发现差异")).toBeNull();
+  expect(screen.queryByRole("button", { name: "查看对照回测" })).toBeNull();
 });

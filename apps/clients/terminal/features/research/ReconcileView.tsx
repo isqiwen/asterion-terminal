@@ -320,24 +320,21 @@ export function ReconcileView({
   const [running, setRunning] = useState(false);
   const [report, setReport] = useState<ReconcileReport | null>(null);
   const [appliedTicks, setAppliedTicks] = useState<number | null>(null);
-  const acted = useActionError();
+  const { error, attempt, clear } = useActionError();
   const autoStarted = useRef(false);
 
   const execute = useCallback(
     (acct: string, inst: string, run: string) => {
       if (!acct) return;
       setRunning(true);
+      setReport(null);
       setAppliedTicks(null);
-      void acted
-        .attempt(async () => {
-          const result = await fetchLiveAndReconcile(acct, inst, run, repository);
-          setReport(result);
-        })
-        .finally(() => setRunning(false));
+      void attempt(async () => {
+        const result = await fetchLiveAndReconcile(acct, inst, run, repository);
+        setReport(result);
+      }).finally(() => setRunning(false));
     },
-    // acted is stable per render pattern
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [repository],
+    [attempt, repository],
   );
 
   useEffect(() => {
@@ -396,7 +393,13 @@ export function ReconcileView({
           </button>
         )}
       </header>
-      <div className="lab-toolbar">
+      <div
+        className="lab-toolbar"
+        onChange={() => {
+          setReport(null);
+          clear();
+        }}
+      >
         <select
           aria-label={t("交易账户")}
           value={accountId}
@@ -436,13 +439,13 @@ export function ReconcileView({
           {running ? t("对账中…") : t("开始对账")}
         </button>
       </div>
-      <ActionError error={acted.error} namespace="asterion.terminal.research" />
+      <ActionError error={error} namespace="asterion.terminal.research" />
       {running && !report && (
         <p className="subtle" role="status">
           {t("正在拉取实盘记录并重放回测…")}
         </p>
       )}
-      {!running && !report && !acted.error && (
+      {!running && !report && !error && (
         <p className="lab-placeholder">
           {t(
             accounts.length
