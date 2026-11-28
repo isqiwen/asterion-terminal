@@ -8,9 +8,9 @@ Terminal、Market、Warehouse、Lab 与 Trading 已打通行情、历史数据�
 | --- | --- |
 | [Terminal](terminal/README.md) | 在 macOS（Apple Silicon）或 Linux x86_64 上看盘、编写策略与因子、运行研究、管理历史数据与交易账户；支持简体中文与英文 |
 | [Market](market/README.md) | 接收 CTP 实时行情与合约目录，向多个 Terminal 分发 |
-| [Warehouse](warehouse/README.md) | 以 Tushare 为主、公开来源补缺采集历史数据，统计覆盖并发布固定版本数据集 |
-| [Lab](lab/README.md) | 基于固定数据版本与冻结源码运行日线/分钟回测、参数扫描、滚动验证和日线/分钟因子评价，并比较与复现研究记录 |
-| [Trading](trading/README.md) | 发布策略包、启停与热重启策略实例、现场预热、授权交易、手动下单、暂停新增与平仓；独立于 Terminal、Lab、Market 和 Warehouse 运行 |
+| [Warehouse](warehouse/README.md) | 采集并融合多源历史行情、交易参数与期货基本面（仓单、会员持仓、库存周报），统计覆盖并发布不可变固定版本数据集 |
+| [Lab](lab/README.md) | 基于固定数据版本与冻结源码运行日线/分钟回测、参数扫描、滚动验证、因子评价、防过拟合诊断与实盘回测对账，并比较与复现研究记录 |
+| [Trading](trading/README.md) | 发布策略包、启停与热重启策略实例、现场预热、授权交易、手动下单、暂停新增、平仓与脱机告警；独立于 Terminal、Lab、Market 和 Warehouse 运行 |
 
 ## 当前限制
 
