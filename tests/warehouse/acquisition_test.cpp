@@ -310,14 +310,20 @@ ac::wire::StartAcquisition request(const std::string& id)
 
 ac::wire::AcquisitionTask finished(ac::Manager& manager, const std::string& id)
 {
-    const auto deadline = std::chrono::steady_clock::now() + testing_support::bound(40s);
+    auto progressed = std::chrono::steady_clock::now();
+    std::uint64_t completed = 0;
     for (;;) {
         auto task = manager.get(id);
         if (task.state() != ac::wire::TASK_STATE_RUNNING
             && task.state() != ac::wire::TASK_STATE_QUEUED)
             return task;
-        if (std::chrono::steady_clock::now() > deadline)
-            throw std::runtime_error("acquisition did not finish");
+        if (task.items_done() > completed) {
+            completed = task.items_done();
+            progressed = std::chrono::steady_clock::now();
+        }
+        if (std::chrono::steady_clock::now() - progressed > testing_support::bound(40s))
+            throw std::runtime_error(
+                "acquisition " + id + " stalled after " + std::to_string(completed) + " items");
         std::this_thread::sleep_for(5ms);
     }
 }
